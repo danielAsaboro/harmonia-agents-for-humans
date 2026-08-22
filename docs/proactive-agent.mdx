@@ -1,28 +1,30 @@
 ---
 title: "Proactive Agent"
-description: "How Harmonia monitors trends and engagement on its own and proposes topics with reasons and sources."
+description: "How Harmonia monitors trends, engagement, calendar health and failures on its own — and proposes next steps."
 ---
 
-Harmonia is not just reactive. A background agent inside the worker wakes on a schedule (`PROACTIVE_INTERVAL_SECONDS`, default 900s) and runs two independent legs. Neither can publish anything — proposals are suggestions that require operator approval.
+Harmonia is not just reactive. A background agent inside the worker scans a registry of independent checks; each check runs on its own cadence with its last-run marker persisted (via the agent-state API), so restarts never double-fire daily work. Neither proposals nor notifications can publish anything — operator approval is always required.
 
-## Leg 1: trend scan
+## The check registry
 
-1. **Gather signals** from official, keyless sources: the Hacker News front page via the Algolia API (`https://hn.algolia.com/api/v1/search?tags=front_page`). Each signal carries title, link, points, and comment count.
-2. **Ideate** (Gemini): propose 2-3 concrete post topics connecting a signal to the founder's own experience. Every proposal must include:
-   - `topic` — what to post about
-   - `angle` — the take
-   - `reason` — *why now* (the attention window)
-   - `sources` — the backing URLs
-   - optionally a `suggestedPost` ≤280 chars
-3. **Submit** to the web inbox, deduplicated by deterministic id (`prop-sha256(source:topic)[:16]`).
+| Check | Cadence | What it does |
+|---|---|---|
+| `trend_scan` | hourly | Front-page Hacker News signals -> 2-3 topic proposals with why-now reasons + sources |
+| `engagement_watch` | 6h | Outliers among published posts (>=2x median likes) -> follow-up proposals |
+| `publish_pulse` | hourly | Fresh metrics for posts <48h old; likes spikes fire momentum proposals immediately |
+| `morning_briefing` | daily | Digest: today's scheduled posts, pending approvals, waiting proposals, failed jobs (+ Telegram push) |
+| `stale_drafts_nudge` | daily | Draft items idle >7 days get a review nudge |
+| `failure_watchdog` | daily | Permanently failed jobs resurface as critical notifications until resolved |
+| `calendar_gap_scan` | weekly | Upcoming scheduled posts vs your weekly target; gaps -> fill ideas grounded in your goals + learnings |
+| `recycle_winners` | weekly | Top post older than ~3 weeks -> refreshed re-post concept |
 
-Under `HARMONIA_MOCK_AI=1` both the signals and ideation come from deterministic fixtures — no network at all.
+Every interval is env-overridable (`PROACTIVE_<NAME>_INTERVAL_SECONDS`), and each check fails independently: one broken source never blocks the others.
 
-## Leg 2: engagement watch
+## Where ideas come from
 
-Reads the engagement insights feed (public metrics of published posts) and flags outliers: any post earning ≥2× the median likes of recent posts becomes a follow-up proposal with a quantified reason ("earned 214 likes vs a median of 40 across recent posts — 5.4× baseline"). This is how wins compound without an operator asking.
-
-Each leg fails independently and visibly; one failing source never blocks the other.
+- **Trend scan**: official Hacker News Algolia API (`https://hn.algolia.com/api/v1/search?tags=front_page`). Each proposal must cite the backing signal URLs.
+- **Calendar gap scan**: grounded in *your* data — operator goals (voice, topics, weekly target) and your best-performing past posts. Under `HARMONIA_MOCK_AI=1` all ideation comes from deterministic fixtures.
+- **Engagement watch / publish pulse / recycle**: derived from real public metrics of posts Harmonia published.
 
 ## The proposal inbox
 
@@ -55,4 +57,7 @@ sequenceDiagram
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PROACTIVE_INTERVAL_SECONDS` | `900` | Tick cadence for the whole proactive loop |
+| `PROACTIVE_SCAN_SECONDS` | `60` | How often the agent looks for due checks |
+| `PROACTIVE_<NAME>_INTERVAL_SECONDS` | per check (see table) | Override any single check's cadence |
+
+The Telegram briefing push requires `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_CHAT_ID`; without them it is skipped and logged, never an error.

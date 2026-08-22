@@ -28,6 +28,20 @@ Natural-language control via `POST /api/chat`:
 
 Intent parsing uses Gemini structured output in production; keyword rules offline under `HARMONIA_MOCK_AI=1`. Conversations persist per surface so history renders in the console.
 
+## Chat with any item
+
+Every dashboard page has the floating chat drawer, and any record can become the conversation's context: job detail headers, calendar item drawers, and proposal cards carry an **Ask AI** button that opens the drawer scoped to that exact record (a violet context chip shows what is in scope).
+
+Questions are answered **strictly from that record's data** — stage, drafts, actions, verification results, schedules, published URLs — never invented. Contextual chat is read-only: it explains and navigates; it never mutates. Actions like approvals still flow through the normal gates.
+
+```json
+POST /api/chat
+{
+  "message": "why is this stuck?",
+  "context": { "kind": "job", "id": "<jobId>" }
+}
+```
+
 ## Telegram bot
 
 The same intents over the official Bot API, scoped to an allow-listed chat id (`TELEGRAM_ALLOWED_CHAT_ID`) using a bot token (`TELEGRAM_BOT_TOKEN`). Approvals require an explicit inline-button callback — a plain "approve" message only lists pending actions. The bot never echoes its own credentials into chats.

@@ -24,8 +24,9 @@ description: "Every environment variable Harmonia reads, with defaults and requi
 | `WEB_INTERNAL_URL` | yes | — | Base URL of the web app's internal API |
 | `INTERNAL_API_TOKEN` | yes | — | Must match the web app's token |
 | `PUBSUB_STAGE_TOPIC` | no | `harmonia-stages` | Stage trigger topic |
-| `PROACTIVE_INTERVAL_SECONDS` | no | `900` | Proactive agent tick cadence |
-| `TELEGRAM_BOT_TOKEN` | no | — | Enables the Telegram surface |
+| `PROACTIVE_SCAN_SECONDS` | no | `60` | How often the proactive agent looks for due checks |
+| `PROACTIVE_<NAME>_INTERVAL_SECONDS` | no | per check | Override a single proactive check's cadence (see [Proactive Agent](/proactive-agent)) |
+| `TELEGRAM_BOT_TOKEN` | no | — | Enables the Telegram surface + briefing push |
 | `TELEGRAM_ALLOWED_CHAT_ID` | with bot | — | Only this chat id is served |
 
 ## Dev-only flags

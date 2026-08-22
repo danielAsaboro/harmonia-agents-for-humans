@@ -126,7 +126,13 @@ export const draftsSubmissionSchema = z.object({
 export const receiptSubmissionSchema = z.object({
   jobId: z.string().min(1),
   actionId: z.string().min(1),
-  actionType: z.enum(["export_content_pack", "publish_x_post", "generate_image"]),
+  actionType: z.enum([
+    "export_content_pack",
+    "publish_x_post",
+    "generate_image",
+    "render_clip",
+    "render_reel",
+  ]),
   idempotencyKey: z.string().min(16),
   outcome: z.enum(["applied", "already_applied", "rejected", "failed"]),
   artifact: evidenceRefSchema.nullable().optional(),

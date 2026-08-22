@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from hashlib import sha256
+from math import ceil
 from collections.abc import Awaitable, Callable
 from typing import Literal, TypeVar
 
@@ -78,6 +79,34 @@ def estimate_request_tokens(serialized_payload: str, max_output_tokens: int) -> 
     if max_output_tokens < 0:
         raise ValueError("max_output_tokens must be non-negative")
     return ((len(serialized_payload) + 3) // 4, max_output_tokens)
+
+
+def endpoint_usage_record(
+    *,
+    invocation: InvocationContext,
+    role: str,
+    model: str,
+    elapsed_seconds: float,
+    estimated_cost_usd: str,
+    trace_id: str,
+) -> UsageRecord:
+    if elapsed_seconds < 0:
+        raise ValueError("elapsed_seconds must be non-negative")
+    operation_id = invocation.role_operation_id(role)
+    return UsageRecord(
+        id=f"usage-{sha256(operation_id.encode()).hexdigest()[:24]}",
+        job_id=invocation.job_id,
+        operation_id=operation_id,
+        stage=invocation.stage,
+        role=role,
+        model=model,
+        input_units=ceil(elapsed_seconds),
+        output_units=0,
+        unit_type="endpoint_seconds",
+        estimated_cost_usd=estimated_cost_usd,
+        trace_id=trace_id,
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
 
 
 class UsageAccumulator:

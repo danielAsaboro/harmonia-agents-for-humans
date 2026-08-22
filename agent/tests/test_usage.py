@@ -1,6 +1,11 @@
 from types import SimpleNamespace
 
-from harmonia_agent.usage import UsageAccumulator, estimate_request_tokens
+from harmonia_agent.usage import (
+    InvocationContext,
+    UsageAccumulator,
+    endpoint_usage_record,
+    estimate_request_tokens,
+)
 
 
 def test_estimate_request_tokens_is_deterministic():
@@ -40,3 +45,21 @@ def test_usage_record_id_is_stable_across_retries():
         role="nimi", model="gemini-3.5-flash",
     ).finalize(trace_id="f" * 32)
     assert first.id == second.id
+
+
+def test_endpoint_usage_records_elapsed_seconds_without_fake_token_pricing():
+    record = endpoint_usage_record(
+        invocation=InvocationContext(
+            job_id="j1", stage="draft", operation_id="j1:draft:0",
+        ),
+        role="nimi_copywriter",
+        model="gemma-3-12b-it",
+        elapsed_seconds=1.2,
+        estimated_cost_usd="0.100000",
+        trace_id="0" * 32,
+    )
+
+    assert record.unit_type == "endpoint_seconds"
+    assert record.input_units == 2
+    assert record.output_units == 0
+    assert record.observed_cost_usd is None

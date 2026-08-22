@@ -40,6 +40,7 @@ interface JobDoc extends Omit<Job, "id"> {
 
 const JOBS = "jobs";
 const EVENTS = "events";
+const EVENT_LOG = "event_log";
 const RECEIPTS = "receipts";
 const ASSETS = "assets";
 const CONFIG = "config";
@@ -99,22 +100,25 @@ export async function saveChatMessage(m: Omit<ChatMessageDoc, "at"> & { at?: Cha
 export async function listChatMessages(
   limit = 100,
 ): Promise<Array<{ id: string; surface: string; role: string; text: string; data?: Record<string, unknown>; at: string | null }>> {
+  // orderBy desc + client-side reverse: more portable than limitToLast.
   const snaps = await db()
     .collection(CHATS)
-    .orderBy("at", "asc")
-    .limitToLast(limit)
+    .orderBy("at", "desc")
+    .limit(limit)
     .get();
-  return snaps.docs.map((d) => {
-    const data = d.data() as { surface?: string; role: string; text: string; data?: Record<string, unknown>; at?: { toDate(): Date } };
-    return {
-      id: d.id,
-      surface: data.surface ?? "dashboard",
-      role: data.role,
-      text: data.text,
-      data: data.data,
-      at: data.at ? data.at.toDate().toISOString() : null,
-    };
-  });
+  return snaps.docs
+    .map((d) => {
+      const data = d.data() as { surface?: string; role: string; text: string; data?: Record<string, unknown>; at?: { toDate(): Date } };
+      return {
+        id: d.id,
+        surface: data.surface ?? "dashboard",
+        role: data.role,
+        text: data.text,
+        data: data.data,
+        at: data.at ? data.at.toDate().toISOString() : null,
+      };
+    })
+    .reverse();
 }
 
 export interface OperatorGoals {
@@ -164,6 +168,36 @@ export async function listAssets(jobId: string): Promise<AssetDoc[]> {
     .where("jobId", "==", jobId)
     .get();
   return snaps.docs.map((d) => d.data() as AssetDoc);
+}
+
+export async function listAllAssets(): Promise<AssetDoc[]> {
+  const snaps = await db().collection(ASSETS).orderBy("createdAt", "desc").limit(100).get();
+  return snaps.docs.map((d) => d.data() as AssetDoc);
+}
+
+export interface ReceiptWithJob extends Receipt {
+  jobTitle?: string;
+}
+
+export async function listRecentReceipts(limit = 200): Promise<ReceiptWithJob[]> {
+  const snaps = await db()
+    .collection(JOBS)
+    .orderBy("createdAt", "desc")
+    .limit(50)
+    .get();
+  const out: ReceiptWithJob[] = [];
+  for (const doc of snaps.docs) {
+    const data = doc.data() as JobDoc;
+    const rs = await doc.ref.collection(RECEIPTS).get();
+    for (const r of rs.docs) {
+      const receipt = r.data() as Receipt;
+      out.push({
+        ...receipt,
+        jobTitle: data.ingestedTitle ?? data.config?.youtubeUrl ?? doc.id,
+      });
+    }
+  }
+  return out.sort((a, b) => Date.parse(b.performedAt) - Date.parse(a.performedAt)).slice(0, limit);
 }
 
 function jobRef(jobId: string) {
@@ -478,9 +512,10 @@ export async function appendEvent(
   message: string,
   actor: StageEvent["actor"],
 ): Promise<void> {
+  const id = newId();
   await jobRef(jobId)
     .collection(EVENTS)
-    .doc(newId())
+    .doc(id)
     .set({
       jobId,
       at: FieldValue.serverTimestamp(),
@@ -488,6 +523,39 @@ export async function appendEvent(
       message,
       actor,
     } satisfies Omit<StageEvent, "id" | "at"> & { at: unknown });
+  // Denormalized copy so logs are globally queryable/searchable.
+  await db()
+    .collection(EVENT_LOG)
+    .doc(id)
+    .set({ jobId, at: FieldValue.serverTimestamp(), stage, message, actor });
+}
+
+export interface EventLogEntry {
+  id: string;
+  jobId: string;
+  at: string | null;
+  stage: string;
+  message: string;
+  actor: string;
+}
+
+export async function listEventLog(limit = 300): Promise<EventLogEntry[]> {
+  const snaps = await db()
+    .collection(EVENT_LOG)
+    .orderBy("at", "desc")
+    .limit(limit)
+    .get();
+  return snaps.docs.map((d) => {
+    const data = d.data() as { jobId: string; at?: { toDate(): Date }; stage: string; message: string; actor: string };
+    return {
+      id: d.id,
+      jobId: data.jobId,
+      at: data.at ? data.at.toDate().toISOString() : null,
+      stage: data.stage,
+      message: data.message,
+      actor: data.actor,
+    };
+  });
 }
 
 export async function listEvents(

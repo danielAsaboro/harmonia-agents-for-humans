@@ -93,6 +93,7 @@ async function seedJob(doc, { events = [], receipts = [], verifications = [], en
   batch.set(ref, doc.docData);
   for (const e of events) {
     batch.set(ref.collection("events").doc(e.id), { jobId: doc.id, at: ts(e.at), stage: e.stage, message: e.message, actor: e.actor });
+    batch.set(db.collection("event_log").doc(`demo-${doc.id}-${e.id}`), { jobId: doc.id, at: ts(e.at), stage: e.stage, message: e.message, actor: e.actor });
   }
   for (const r of receipts) {
     batch.set(ref.collection("receipts").doc(r.id), r.data);
@@ -166,7 +167,8 @@ async function main() {
         ],
         receipts: [
           { id: "r1", data: { id: "r1", jobId: id, actionId: actPost, actionType: "publish_x_post", idempotencyKey: "demo0000000000000000000001", performedAt: iso(daysAgo(11, 14, 30)), outcome: "applied", artifact: { kind: "x_api", url: "https://x.com/i/web/status/1800000000000001", fetchedAt: iso(daysAgo(11, 14, 31)) }, detail: { id: "1800000000000001", url: "https://x.com/i/web/status/1800000000000001" } } },
-          { id: "r2", data: { id: "r2", jobId: id, actionId: actPack, actionType: "export_content_pack", idempotencyKey: "demo0000000000000000000002", performedAt: iso(daysAgo(11, 14, 31)), outcome: "applied", artifact: { kind: "firestore_doc", url: "/api/internal/job/" + id, fetchedAt: iso(daysAgo(11, 14, 31)), digest: "packdigest00000000000000000000000000001" }, detail: { digest: "packdigest00000000000000000000000000001" } } },
+          { id: "r3", data: { id: "r3", jobId: id, actionId: actPost, actionType: "publish_x_post", idempotencyKey: "demo0000000000000000000001", performedAt: iso(daysAgo(10, 9)), outcome: "failed", detail: { error: "X_BEARER_TOKEN was rotated mid-run; retried successfully afterwards" } } },
+          { id: "r2", data: { id: "r2", jobId: id, actionId: actPack, actionType: "export_content_pack", idempotencyKey: "demo0000000000000000000002", performedAt: iso(daysAgo(11, 14, 31)), outcome: "already_applied", artifact: { kind: "firestore_doc", url: "/api/internal/job/" + id, fetchedAt: iso(daysAgo(11, 14, 31)), digest: "packdigest00000000000000000000000000001" }, detail: { digest: "packdigest00000000000000000000000000001" } } },
         ],
         verifications: [
           { rubricItemId: "x:1800000000000001", verified: true, method: "independent_refetch:x_api", evidence: { url: "https://x.com/i/web/status/1800000000000001", digest: null, fetchedAt: iso(daysAgo(11, 15)) }, checkedAt: iso(daysAgo(11, 15)), note: "re-fetched from X API" },
@@ -209,6 +211,8 @@ async function main() {
       { id, docData },
       {
         events: [
+          { id: "e0a", at: daysAgo(8, 11, 5), stage: "ingest", message: "ingested video jNQXAC9IVRw (19s, audio 214 KB)", actor: "agent" },
+          { id: "e0b", at: daysAgo(8, 11, 40), stage: "transcribe", message: "transcription attempt failed: GEMINI_API_KEY is not configured", actor: "system" },
           { id: "e1", at: created, stage: "queued", message: "job created for video jNQXAC9IVRw", actor: "operator" },
           { id: "e2", at: daysAgo(8, 11, 20), stage: "transcribe", message: "transcribed 4 segment(s)", actor: "agent" },
           { id: "e3", at: daysAgo(8, 12), stage: "draft", message: "1 draft(s); 3 auto action(s), 1 awaiting approval", actor: "agent" },
@@ -294,7 +298,7 @@ async function main() {
       } },
       { events: [
         { id: "e1", at: created, stage: "queued", message: "job created for video dQw4w9WgXcQ", actor: "operator" },
-        { id: "e2", at: daysAgo(1, 13, 20), stage: "failed", message: "permanent failure at transcribe: GEMINI_API_KEY is not configured", actor: "system" },
+        { id: "e2", at: daysAgo(1, 13, 20), stage: "transcribe", message: "permanent failure: GEMINI_API_KEY is not configured", actor: "system" },
       ] },
     );
   }

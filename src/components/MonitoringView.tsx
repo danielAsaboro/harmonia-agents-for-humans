@@ -143,7 +143,9 @@ function DwellChart({ dwell }: { dwell: MetricsResponse["stageDwell"] }) {
                   style={{ width: `${Math.max(2, (d.avgSec / max) * 100)}%` }}
                 />
               </div>
-              <span className="w-14 shrink-0 text-right font-mono tabular-nums">{fmtDuration(d.avgSec)}</span>
+              <span className="w-24 shrink-0 text-right font-mono tabular-nums" title={`avg ${fmtDuration(d.avgSec)} · p50 ${fmtDuration(d.p50Sec)} · p95 ${fmtDuration(d.p95Sec)}`}>
+                p50 {fmtDuration(d.p50Sec)} · p95 {fmtDuration(d.p95Sec)}
+              </span>
             </li>
           ))}
         </ul>
@@ -170,6 +172,33 @@ function ReceiptStats({ receipts }: { receipts: MetricsResponse["receipts"] }) {
           </div>
         ))}
       </dl>
+    </div>
+  );
+}
+
+function ReliabilityChart({ stats }: { stats: MetricsResponse["stageStats"] }) {
+  return (
+    <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+      <h3 className="mb-4 text-sm font-semibold">Stage reliability</h3>
+      {stats.length === 0 ? (
+        <p className="py-6 text-center text-xs text-zinc-400">Not enough history yet.</p>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {stats.map((st) => {
+            const pct = Math.round(st.successRate * 100);
+            const color = pct >= 90 ? "bg-emerald-500" : pct >= 60 ? "bg-amber-500" : "bg-red-500";
+            return (
+              <li key={st.stage} className="flex items-center gap-3 text-xs">
+                <span className="w-28 shrink-0 truncate capitalize text-zinc-500 dark:text-zinc-400">{st.stage.replace("_", " ")}</span>
+                <div className="h-3 flex-1 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-900">
+                  <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.max(2, pct)}%` }} />
+                </div>
+                <span className="w-20 shrink-0 text-right font-mono tabular-nums">{pct}% of {st.reached}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
@@ -246,6 +275,7 @@ export default function MonitoringView() {
       <PipelineFlow stages={metrics.stages} />
       <StatusDonut totals={metrics.totals} />
       <DwellChart dwell={metrics.stageDwell} />
+      <ReliabilityChart stats={metrics.stageStats} />
       <ReceiptStats receipts={metrics.receipts} />
       <div className="lg:col-span-2">
         <ActivityFeed events={metrics.recentEvents} />

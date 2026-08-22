@@ -1,0 +1,73 @@
+import type { ChatResponse } from "@/app/api/chat/route";
+
+export interface ConsoleMessage {
+  role: "user" | "assistant";
+  text: string;
+  data?: ChatResponse;
+  surface?: string;
+  at?: string | null;
+}
+
+export interface ChatSession {
+  id: string;
+  /** ISO date (YYYY-MM-DD) of the session's first message. */
+  day: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  messages: ConsoleMessage[];
+  surface: "dashboard" | "telegram";
+}
+
+const SESSION_GAP_MS = 30 * 60 * 1000;
+
+function dayLabel(dayIso: string): string {
+  const d = new Date(`${dayIso}T12:00:00`);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const same = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+  if (same(d, today)) return "Today";
+  if (same(d, yesterday)) return "Yesterday";
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+/** Groups an ordered message list into sessions by time gap or surface change. */
+export function groupSessions(messages: ConsoleMessage[]): ChatSession[] {
+  const sessions: ChatSession[] = [];
+  let current: ChatSession | null = null;
+
+  for (const m of messages) {
+    const atMs = m.at ? Date.parse(m.at) : null;
+    const isTelegram = m.surface === "telegram";
+
+    const needsNew =
+      !current ||
+      (atMs !== null &&
+        current.endedAt !== null &&
+        Date.parse(current.endedAt) + SESSION_GAP_MS < atMs) ||
+      (!!current && isTelegram !== (current.surface === "telegram"));
+
+    if (needsNew || !current) {
+      current = {
+        id: `s${sessions.length}`,
+        day: m.at ? m.at.slice(0, 10) : "unknown",
+        startedAt: m.at ?? null,
+        endedAt: m.at ?? null,
+        messages: [m],
+        surface: isTelegram ? "telegram" : "dashboard",
+      };
+      sessions.push(current);
+    } else {
+      current.messages.push(m);
+      if (m.at) current.endedAt = m.at;
+    }
+  }
+  return sessions;
+}
+
+export { dayLabel };
+
+export function sessionPreview(s: ChatSession): string {
+  const firstUser = s.messages.find((m) => m.role === "user");
+  return (firstUser?.text ?? s.messages[0]?.text ?? "").slice(0, 80);
+}

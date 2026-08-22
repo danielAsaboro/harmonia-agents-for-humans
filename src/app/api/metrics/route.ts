@@ -4,7 +4,16 @@ import { STAGES } from "@/lib/types";
 export interface StageDwell {
   stage: string;
   avgSec: number;
+  p50Sec: number;
+  p95Sec: number;
   samples: number;
+}
+
+export interface StageStat {
+  stage: string;
+  reached: number;
+  failed: number;
+  successRate: number;
 }
 
 export interface MetricsResponse {
@@ -18,6 +27,7 @@ export interface MetricsResponse {
   stages: Array<{ stage: string; count: number }>;
   receipts: { applied: number; already_applied: number; failed: number; rejected: number };
   stageDwell: StageDwell[];
+  stageStats: StageStat[];
   recentEvents: Array<{ at: string | null; jobId: string; stage: string; message: string; actor: string }>;
 }
 
@@ -67,13 +77,37 @@ export async function GET() {
       dwellAcc.set(ordered[i].stage, list);
     }
   }
+  const percentile = (secs: number[], p: number) => {
+    const sorted = [...secs].sort((a, b) => a - b);
+    const idx = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
+    return sorted[idx] ?? 0;
+  };
   const stageDwell: StageDwell[] = [...dwellAcc.entries()]
     .map(([stage, secs]) => ({
       stage,
       avgSec: Math.round(secs.reduce((a, b) => a + b, 0) / secs.length),
+      p50Sec: percentile(secs, 50),
+      p95Sec: percentile(secs, 95),
       samples: secs.length,
     }))
     .sort((a, b) => b.samples - a.samples);
+
+  // Reliability per stage: jobs that passed through vs jobs that failed there.
+  const reachedByStage = new Map<string, Set<string>>();
+  for (let i = 0; i < sample.length; i++) {
+    for (const e of eventLists[i]) {
+      const set = reachedByStage.get(e.stage) ?? new Set<string>();
+      set.add(sample[i].id);
+      reachedByStage.set(e.stage, set);
+    }
+  }
+  const stageStats: StageStat[] = STAGES.filter(
+    (st) => st !== "queued" && st !== "packet" && st !== "complete" && st !== "failed",
+  ).map((stage) => {
+    const reached = reachedByStage.get(stage)?.size ?? 0;
+    const failed = jobs.filter((j) => j.failure?.stage === stage).length;
+    return { stage, reached, failed, successRate: reached ? (reached - failed) / reached : 1 };
+  }).filter((s2) => s2.reached > 0);
 
   const receipts = { applied: 0, already_applied: 0, failed: 0, rejected: 0 };
   for (const rs of receiptLists) {
@@ -90,5 +124,5 @@ export async function GET() {
     .slice(0, RECENT_EVENTS_LIMIT)
     .map((e) => ({ at: e.at, jobId: e.jobId, stage: e.stage, message: e.message, actor: e.actor }));
 
-  return Response.json({ totals, stages, receipts, stageDwell, recentEvents } satisfies MetricsResponse);
+  return Response.json({ totals, stages, receipts, stageDwell, stageStats, recentEvents } satisfies MetricsResponse);
 }

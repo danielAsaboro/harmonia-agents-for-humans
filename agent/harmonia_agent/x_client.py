@@ -48,3 +48,26 @@ def get_post(post_id: str) -> dict | None:
     if res.status_code != 200:
         raise XError(f"tweet fetch failed: {res.status_code}", res.status_code)
     return res.json()["data"]
+
+
+def get_post_metrics(post_id: str) -> dict | None:
+    """Fetches reaction metrics for a published post (learn stage)."""
+    with httpx.Client(timeout=20) as c:
+        res = c.get(
+            f"https://api.x.com/2/tweets/{post_id}",
+            headers={"Authorization": f"Bearer {_bearer()}"},
+            params={"tweet.fields": "public_metrics"},
+        )
+    if res.status_code == 404:
+        return None
+    if res.status_code != 200:
+        raise XError(f"metrics fetch failed: {res.status_code}", res.status_code)
+    data = res.json()["data"]
+    m = data.get("public_metrics", {})
+    return {
+        "likes": int(m.get("like_count", 0)),
+        "replies": int(m.get("reply_count", 0)),
+        "reposts": int(m.get("retweet_count", 0)),
+        "quotes": int(m.get("quote_count", 0)),
+        "impressions": int(m["impression_count"]) if "impression_count" in m else None,
+    }

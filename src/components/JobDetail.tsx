@@ -3,7 +3,8 @@
 import { useState } from "react";
 import PipelineStepper from "@/components/PipelineStepper";
 import Timeline from "@/components/Timeline";
-import type { JobFull, TimelineEvent } from "@/components/Dashboard";
+import type { JobFull } from "@/components/jobTypes";
+import type { TimelineEvent } from "@/components/Timeline";
 import type { PlannedAction, Receipt } from "@/lib/types";
 
 type Tab = "overview" | "drafts" | "actions" | "receipts" | "packet";
@@ -33,38 +34,24 @@ function Chip({ children, tone = "zinc" }: { children: React.ReactNode; tone?: s
 
 function ActionPreview({ action }: { action: PlannedAction }) {
   const p = action.payload as Record<string, unknown>;
-  if (action.type === "publish_x_post") {
-    const content = String(p.content ?? "");
-    const truncated = content.length > 4000;
+  if (action.type === "generate_image") {
     return (
-      <div className="mt-2 space-y-1 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
-        <p>
-          <span className="text-zinc-400">path:</span> {String(p.path)}{" "}
-          <span className="text-zinc-400">branch:</span> {String(p.branch ?? "main")}
-        </p>
-        <p className="truncate"><span className="text-zinc-400">commit:</span> {String(p.commitMessage ?? "")}</p>
-        <details open={action.risk === "high"}>
-          <summary className="cursor-pointer select-none text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
-            file content ({content.length} chars{truncated ? ", preview truncated" : ""})
-          </summary>
-          <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap rounded-md border border-zinc-200 bg-white p-3 leading-4 dark:border-zinc-700 dark:bg-zinc-950">
-            {truncated ? `${content.slice(0, 4000)}\n… (${content.length - 4000} more chars)` : content}
-          </pre>
-        </details>
+      <p className="mt-2 line-clamp-3 font-mono text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
+        <span className="text-zinc-400">prompt:</span> {String(p.prompt)}
+      </p>
+    );
+  }
+  if (action.type === "publish_x_post") {
+    return (
+      <div className="mt-2 whitespace-pre-wrap rounded-md border border-zinc-200 bg-white p-2.5 text-xs leading-5 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
+        {String(p.text)}
       </div>
     );
   }
-  const body = String((p as { body?: string }).body ?? "");
   return (
-    <div className="mt-2 space-y-1 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
-      <p><span className="text-zinc-400">labels:</span> {JSON.stringify((p as { labels?: string[] }).labels ?? [])}</p>
-      <details>
-        <summary className="cursor-pointer select-none hover:text-zinc-700 dark:hover:text-zinc-300">
-          issue body ({body.length} chars)
-        </summary>
-        <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap rounded-md border border-zinc-200 bg-white p-3 leading-4 dark:border-zinc-700 dark:bg-zinc-950">{body}</pre>
-      </details>
-    </div>
+    <p className="mt-2 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
+      bundles moments, angles and drafts into a markdown pack.
+    </p>
   );
 }
 
@@ -82,12 +69,14 @@ export default function JobDetail({
   job,
   events,
   receipts,
+  assets,
   onDecide,
   onRetry,
 }: {
   job: JobFull;
   events: TimelineEvent[];
   receipts: Receipt[];
+  assets: NonNullable<JobFull["assets"]>;
   onDecide: (actionId: string, decision: "approved" | "rejected") => Promise<void>;
   onRetry: () => Promise<void>;
 }) {
@@ -104,6 +93,7 @@ export default function JobDetail({
 
   const pendingActions = job.actions.filter((a) => a.approvalState === "pending");
   const verifiedCount = (job.verifications ?? []).filter((v) => v.verified).length;
+  const assetMime = new Map(assets.map((a) => [a.actionId, a.mime]));
 
   async function decide(actionId: string, decision: "approved" | "rejected") {
     setBusy(true);
@@ -118,8 +108,8 @@ export default function JobDetail({
     <div className="flex flex-col gap-4">
       <section className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-mono text-sm font-semibold">
-            {job.config.youtubeUrl.replace(/^https?:\/\//, "").slice(0, 60)}
+          <h2 className="max-w-md truncate font-mono text-sm font-semibold" title={job.config.youtubeUrl ?? job.config.brief}>
+            {(job.config.youtubeUrl ?? `brief: ${job.config.brief ?? ""}`).replace(/^https?:\/\//, "").slice(0, 60)}
           </h2>
           <div className="flex items-center gap-2">
             {job.status === "complete" && <Chip tone="green">complete</Chip>}
@@ -153,6 +143,27 @@ export default function JobDetail({
         )}
 
         <div className="mt-4 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+          {job.learnings && (
+            <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs dark:border-sky-900 dark:bg-sky-950/50">
+              <p className="font-semibold text-sky-800 dark:text-sky-300">Learned from reactions</p>
+              <p className="mt-0.5 leading-5 text-sky-700 dark:text-sky-400">{job.learnings.summary}</p>
+              {job.engagement && job.engagement.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {job.engagement.map((e) => (
+                    <li key={e.postId} className="flex gap-3 font-mono text-[11px] text-sky-700 dark:text-sky-400">
+                      <a href={e.url ?? `https://x.com/i/web/status/${e.postId}`} target="_blank" rel="noopener noreferrer" className="underline">
+                        post
+                      </a>
+                      <span>{e.likes} likes</span>
+                      <span>{e.reposts} reposts</span>
+                      <span>{e.replies} replies</span>
+                      {typeof e.impressions === "number" && <span>{e.impressions} impressions</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           <Timeline events={events} />
         </div>
       </section>
@@ -184,13 +195,13 @@ export default function JobDetail({
                 <p className="mt-1 text-xs leading-5 text-zinc-600 dark:text-zinc-400">{a.description}</p>
                 <ActionPreview action={a} />
                 <div className="mt-3 flex gap-2">
-                  <button
-                    onClick={() => void decide(a.id, "approved")}
-                    disabled={busy}
-                    className="rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
-                  >
-                    Approve write to {String((a.payload as { branch?: string }).branch ?? "main")}
-                  </button>
+                    <button
+                      onClick={() => void decide(a.id, "approved")}
+                      disabled={busy}
+                      className="rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
+                    >
+                      Approve
+                    </button>
                   <button
                     onClick={() => void decide(a.id, "rejected")}
                     disabled={busy}
@@ -305,7 +316,7 @@ export default function JobDetail({
           {tab === "actions" && (
             <>
               {job.actions.length === 0 ? (
-                <Empty text="Corrective actions appear after the plan stage." />
+                <Empty text="Proposed actions appear after the draft stage." />
               ) : (
                 <ul className="flex flex-col gap-2">
                   {job.actions.map((a) => (
@@ -320,6 +331,21 @@ export default function JobDetail({
                         </div>
                       </div>
                       <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{a.description}</p>
+                      {a.state === "executed" && assetMime.get(a.id) === "video/mp4" && (
+                        <video
+                          src={`/api/jobs/${job.id}/assets/${a.id}`}
+                          controls
+                          className="mt-2 max-h-72 rounded-lg border border-zinc-200 dark:border-zinc-800"
+                        />
+                      )}
+                      {a.state === "executed" && assetMime.get(a.id)?.startsWith("image/") && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={`/api/jobs/${job.id}/assets/${a.id}`}
+                          alt={a.title}
+                          className="mt-2 max-h-64 rounded-lg border border-zinc-200 dark:border-zinc-800"
+                        />
+                      )}
                     </li>
                   ))}
                 </ul>

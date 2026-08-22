@@ -1,4 +1,4 @@
-const TOKEN_KEY = "closefold-operator-token";
+const TOKEN_KEY = "harmonia-operator-token";
 
 export function getOperatorToken(): string {
   if (typeof window === "undefined") return "";

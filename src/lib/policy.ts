@@ -44,6 +44,19 @@ export function evaluateActionPolicy(
         requiresApproval: false,
         reason: "assembles a local content pack; no external side effect",
       };
+    case "generate_image":
+      return {
+        risk: "low",
+        requiresApproval: false,
+        reason: "generates an internal image asset with Gemini; nothing is published",
+      };
+    case "render_clip":
+    case "render_reel":
+      return {
+        risk: "low",
+        requiresApproval: false,
+        reason: "renders an internal video clip locally with ffmpeg; nothing is published",
+      };
   }
 }
 

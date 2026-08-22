@@ -22,16 +22,28 @@ from .config import settings
 from .stages import HANDLERS, dispatch
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("closefold.worker")
+logger = logging.getLogger("harmonia.worker")
 
-app = FastAPI(title="closefold-agent", version="1.0.0")
+app = FastAPI(title="harmonia-agent", version="1.0.0")
+
+
+def _start_telegram_if_configured() -> None:
+    from . import telegram_bot
+
+    try:
+        telegram_bot.start_background()
+    except Exception:  # noqa: BLE001 - misconfiguration must be visible, not silent
+        logger.exception("telegram bot failed to start")
+
+
+_start_telegram_if_configured()
 
 
 @app.get("/healthz")
 async def healthz() -> dict[str, Any]:
     return {
         "ok": True,
-        "service": "closefold-agent",
+        "service": "harmonia-agent",
         "project": settings().gcp_project,
         "model": settings().model_id,
         "stages": sorted(HANDLERS.keys()),
@@ -64,7 +76,7 @@ def _run_pull_loop() -> None:
     from google.cloud import pubsub_v1
 
     project = settings().gcp_project
-    topic_name = os.environ.get("PUBSUB_STAGE_TOPIC", "closefold-stages")
+    topic_name = os.environ.get("PUBSUB_STAGE_TOPIC", "harmonia-stages")
     subscriber = pubsub_v1.SubscriberClient()
     subscription_path = subscriber.subscription_path(project, f"{topic_name}-local-pull")
 

@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-closefold-local}"
+PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-harmonia-local}"
 export GOOGLE_CLOUD_PROJECT="$PROJECT_ID"
 export FIRESTORE_EMULATOR_HOST="127.0.0.1:8081"
 export PUBSUB_EMULATOR_HOST="127.0.0.1:8082"
@@ -23,7 +23,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "== Next.js dev server (:3000) =="
-npm run dev &
+./node_modules/.bin/next dev &
 WEB_PID=$!
 
 echo "== ADK worker (pull loop against emulator) =="
@@ -31,8 +31,8 @@ pushd agent >/dev/null
 if [[ ! -d .venv ]]; then python3 -m venv .venv && ./.venv/bin/pip install -q -r requirements.txt; fi
 export WEB_INTERNAL_URL="http://localhost:3000"
 export INTERNAL_API_TOKEN="${INTERNAL_API_TOKEN:-local-dev-token}"
-export PUBSUB_STAGE_TOPIC="closefold-stages"
-./.venv/bin/uvicorn closefold_agent.main:app --port 8080 &
+export PUBSUB_STAGE_TOPIC="harmonia-stages"
+./.venv/bin/uvicorn harmonia_agent.main:app --port 8080 &
 popd >/dev/null
 
 wait $WEB_PID

@@ -7,6 +7,7 @@ export const STAGES = [
   "awaiting_approval",
   "publish",
   "verify",
+  "learn",
   "packet",
   "complete",
   "failed",
@@ -21,7 +22,9 @@ export type JobStatus =
   | "failed";
 
 export interface JobConfig {
-  youtubeUrl: string;
+  youtubeUrl?: string;
+  /** Operator-supplied topic/brief for concept jobs that skip ingest+transcribe. */
+  brief?: string;
   platforms: string[];
 }
 
@@ -51,7 +54,8 @@ export interface EvidenceRef {
     | "gemini_call"
     | "x_api"
     | "http_probe"
-    | "firestore_doc";
+    | "firestore_doc"
+    | "asset_store";
   url: string;
   fetchedAt: string;
   digest?: string | null;
@@ -59,7 +63,12 @@ export interface EvidenceRef {
 
 export type RiskLevel = "low" | "medium" | "high";
 
-export type ActionType = "export_content_pack" | "publish_x_post";
+export type ActionType =
+  | "export_content_pack"
+  | "publish_x_post"
+  | "generate_image"
+  | "render_clip"
+  | "render_reel";
 
 export interface PlannedAction {
   id: string;
@@ -151,4 +160,24 @@ export interface EvidencePacket {
   drafts: PostDraft[];
   verifications: VerificationResult[];
   unresolved: string[];
+}
+
+/** Reaction metrics captured for one published post during the learn stage. */
+export interface Engagement {
+  actionId: string;
+  postId: string;
+  url?: string;
+  likes: number;
+  replies: number;
+  reposts: number;
+  quotes: number;
+  impressions?: number;
+  checkedAt: string;
+}
+
+/** Deterministic takeaways fed back into future research/ideation prompts. */
+export interface Learnings {
+  summary: string;
+  notes: string[];
+  generatedAt: string;
 }

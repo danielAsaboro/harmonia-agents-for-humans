@@ -2,13 +2,13 @@
 
 const FLOW = [
   { key: "ingest", label: "Ingest" },
-  { key: "normalize", label: "Normalize" },
-  { key: "collect", label: "Collect" },
-  { key: "evaluate", label: "Evaluate" },
-  { key: "plan", label: "Plan" },
+  { key: "transcribe", label: "Transcribe" },
+  { key: "understand", label: "Understand" },
+  { key: "draft", label: "Draft" },
   { key: "awaiting_approval", label: "Approval" },
-  { key: "act", label: "Act" },
+  { key: "publish", label: "Publish" },
   { key: "verify", label: "Verify" },
+  { key: "learn", label: "Learn" },
 ] as const;
 
 export default function PipelineStepper({

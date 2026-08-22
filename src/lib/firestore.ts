@@ -1,8 +1,10 @@
 import { Firestore, FieldValue } from "@google-cloud/firestore";
 import type {
   EvidencePacket,
+  Engagement,
   Job,
   JobConfig,
+  Learnings,
   PlannedAction,
   Receipt,
   PostDraft,
@@ -39,6 +41,57 @@ interface JobDoc extends Omit<Job, "id"> {
 const JOBS = "jobs";
 const EVENTS = "events";
 const RECEIPTS = "receipts";
+const ASSETS = "assets";
+const CONFIG = "config";
+
+export interface OperatorGoals {
+  weeklyPostTarget?: number;
+  audience?: string;
+  voice?: string;
+  topics: string[];
+}
+
+export async function getGoals(): Promise<OperatorGoals> {
+  const snap = await db().collection(CONFIG).doc("operator").get();
+  const data = snap.data() as { goals?: OperatorGoals } | undefined;
+  return { topics: [], ...data?.goals };
+}
+
+export async function saveGoals(goals: OperatorGoals): Promise<void> {
+  await db().collection(CONFIG).doc("operator").set({ goals }, { merge: true });
+}
+
+export interface AssetDoc {
+  jobId: string;
+  actionId: string;
+  mime: string;
+  digest: string;
+  sizeBytes: number;
+  storageUri: string;
+  createdAt: string;
+}
+
+export function assetRef(jobId: string, actionId: string) {
+  return db().collection(ASSETS).doc(`${jobId}_${actionId}`);
+}
+
+export async function saveAsset(asset: AssetDoc): Promise<void> {
+  await assetRef(asset.jobId, asset.actionId).set(asset);
+}
+
+export async function getAsset(jobId: string, actionId: string): Promise<AssetDoc | null> {
+  const snap = await assetRef(jobId, actionId).get();
+  if (!snap.exists) return null;
+  return snap.data() as AssetDoc;
+}
+
+export async function listAssets(jobId: string): Promise<AssetDoc[]> {
+  const snaps = await db()
+    .collection(ASSETS)
+    .where("jobId", "==", jobId)
+    .get();
+  return snaps.docs.map((d) => d.data() as AssetDoc);
+}
 
 function jobRef(jobId: string) {
   return db().collection(JOBS).doc(jobId);
@@ -278,10 +331,54 @@ export async function saveVerifications(
 export async function savePacket(jobId: string, packet: EvidencePacket) {
   await jobRef(jobId).update({
     packet,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function saveLearnings(
+  jobId: string,
+  engagement: Engagement[],
+  learnings: Learnings,
+): Promise<void> {
+  await jobRef(jobId).update({
+    engagement,
+    learnings,
     status: "complete",
     stage: "complete",
     updatedAt: new Date().toISOString(),
   });
+}
+
+export interface PriorInsight {
+  jobId: string;
+  text: string;
+  likes: number;
+  reposts: number;
+  replies: number;
+}
+
+export async function listRecentEngagement(limit = 20): Promise<PriorInsight[]> {
+  const snaps = await db()
+    .collection(JOBS)
+    .orderBy("createdAt", "desc")
+    .limit(limit)
+    .get();
+  const out: PriorInsight[] = [];
+  for (const doc of snaps.docs) {
+    const data = doc.data() as JobDoc & { engagement?: Engagement[]; drafts?: PostDraft[] };
+    for (const e of data.engagement ?? []) {
+      const draft = (data.drafts ?? []).find((d) => d.id === e.actionId);
+      const action = (data.actions ?? []).find((a) => a.id === e.actionId);
+      out.push({
+        jobId: doc.id,
+        text: draft?.text ?? action?.title ?? e.postId,
+        likes: e.likes,
+        reposts: e.reposts,
+        replies: e.replies,
+      });
+    }
+  }
+  return out.sort((a, b) => b.likes - a.likes);
 }
 
 export async function markFailed(

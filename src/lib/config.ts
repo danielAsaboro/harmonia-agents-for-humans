@@ -1,12 +1,13 @@
 import { z } from "zod";
 
 const envSchema = z.object({
-  GOOGLE_CLOUD_PROJECT: z.string().min(1).default("closefold-local"),
+  GOOGLE_CLOUD_PROJECT: z.string().min(1).default("harmonia-local"),
   GOOGLE_CLOUD_LOCATION: z.string().default("us-central1"),
   FIRESTORE_JOB_COLLECTION: z.string().default("jobs"),
-  PUBSUB_STAGE_TOPIC: z.string().default("closefold-stages"),
+  PUBSUB_STAGE_TOPIC: z.string().default("harmonia-stages"),
   INTERNAL_API_TOKEN: z.string().min(1),
   OPERATOR_TOKEN: z.string().min(8).optional(),
+  GEMINI_API_KEY: z.string().min(1).optional(),
   MODEL_ID: z.string().default("gemini-3.5-flash"),
   PUBLIC_BASE_URL: z.string().url().optional(),
 });

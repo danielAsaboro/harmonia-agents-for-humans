@@ -1,4 +1,4 @@
-"""Closefold ADK worker service configuration (12-factor environment)."""
+"""Harmonia ADK worker service configuration (12-factor environment)."""
 
 from __future__ import annotations
 
@@ -21,6 +21,9 @@ class Settings:
     gemini_api_key: str | None
     github_token: str | None
     gcp_project: str
+    operator_token: str | None
+    telegram_bot_token: str | None
+    telegram_allowed_chat_id: str | None
 
     @classmethod
     def load(cls) -> "Settings":
@@ -31,7 +34,10 @@ class Settings:
             model_id=os.environ.get("MODEL_ID", "gemini-3.5-flash"),
             gemini_api_key=gemini_key,
             github_token=os.environ.get("GITHUB_TOKEN"),
-            gcp_project=os.environ.get("GOOGLE_CLOUD_PROJECT", "closefold-local"),
+            gcp_project=os.environ.get("GOOGLE_CLOUD_PROJECT", "harmonia-local"),
+            operator_token=os.environ.get("OPERATOR_TOKEN") or None,
+            telegram_bot_token=os.environ.get("TELEGRAM_BOT_TOKEN") or None,
+            telegram_allowed_chat_id=os.environ.get("TELEGRAM_ALLOWED_CHAT_ID") or None,
         )
 
 

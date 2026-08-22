@@ -1,5 +1,5 @@
-from closefold_agent.youtube import extract_video_id, iso8601_to_seconds
-from closefold_agent.stages import classify_failure
+from harmonia_agent.youtube import extract_video_id, iso8601_to_seconds
+from harmonia_agent.stages import classify_failure
 import httpx
 
 
@@ -11,7 +11,7 @@ def test_video_id_extraction():
 
 def test_bad_url_raises():
     import pytest
-    from closefold_agent.youtube import IngestError
+    from harmonia_agent.youtube import IngestError
     with pytest.raises(IngestError):
         extract_video_id("https://vimeo.com/123")
 

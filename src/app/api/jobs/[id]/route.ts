@@ -1,4 +1,4 @@
-import { getJob, listEvents, listReceipts } from "@/lib/firestore";
+import { getJob, listAssets, listEvents, listReceipts } from "@/lib/firestore";
 
 export async function GET(
   _req: Request,
@@ -6,9 +6,20 @@ export async function GET(
 ) {
   const { id } = await params;
   const job = await getJob(id);
-  const [events, receipts] = await Promise.all([
+  const [events, receipts, assets] = await Promise.all([
     listEvents(id),
     listReceipts(id),
+    listAssets(id),
   ]);
-  return Response.json({ job, events, receipts });
+  return Response.json({
+    job,
+    events,
+    receipts,
+    assets: assets.map((a) => ({
+      actionId: a.actionId,
+      mime: a.mime,
+      sizeBytes: a.sizeBytes,
+      digest: a.digest,
+    })),
+  });
 }

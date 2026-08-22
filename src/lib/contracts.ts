@@ -8,6 +8,7 @@ export const evidenceRefSchema = z.object({
     "x_api",
     "firestore_doc",
     "http_probe",
+    "asset_store",
   ]),
   url: z.string(),
   fetchedAt: z.string(),
@@ -82,7 +83,13 @@ export const draftsSubmissionSchema = z.object({
     .array(
       z.object({
         id: z.string().min(1),
-        type: z.enum(["publish_x_post", "export_content_pack"]),
+        type: z.enum([
+          "publish_x_post",
+          "export_content_pack",
+          "generate_image",
+          "render_clip",
+          "render_reel",
+        ]),
         title: z.string().min(1),
         description: z.string().min(1),
         momentId: z.string().optional(),
@@ -93,6 +100,22 @@ export const draftsSubmissionSchema = z.object({
             text: z.string().min(1),
           }),
           z.object({ type: z.literal("export_content_pack") }),
+          z.object({
+            type: z.literal("generate_image"),
+            prompt: z.string().min(1).max(4000),
+          }),
+          z.object({
+            type: z.literal("render_clip"),
+            momentId: z.string().min(1),
+            format: z.enum(["vertical", "square", "native"]).default("vertical"),
+            captions: z.boolean().default(true),
+          }),
+          z.object({
+            type: z.literal("render_reel"),
+            momentIds: z.array(z.string().min(1)).min(2).max(6),
+            format: z.enum(["vertical", "square", "native"]).default("vertical"),
+            captions: z.boolean().default(true),
+          }),
         ]),
       }),
     )
@@ -103,7 +126,7 @@ export const draftsSubmissionSchema = z.object({
 export const receiptSubmissionSchema = z.object({
   jobId: z.string().min(1),
   actionId: z.string().min(1),
-  actionType: z.enum(["export_content_pack", "publish_x_post"]),
+  actionType: z.enum(["export_content_pack", "publish_x_post", "generate_image"]),
   idempotencyKey: z.string().min(16),
   outcome: z.enum(["applied", "already_applied", "rejected", "failed"]),
   artifact: evidenceRefSchema.nullable().optional(),
@@ -121,6 +144,27 @@ export const verificationSubmissionSchema = z.object({
       note: z.string().optional(),
     }),
   ),
+});
+
+export const engagementRecordSchema = z.object({
+  actionId: z.string().min(1),
+  postId: z.string().min(1),
+  url: z.string().optional(),
+  likes: z.number().int().nonnegative(),
+  replies: z.number().int().nonnegative(),
+  reposts: z.number().int().nonnegative(),
+  quotes: z.number().int().nonnegative(),
+  impressions: z.number().int().nonnegative().optional(),
+});
+
+export const engagementSubmissionSchema = z.object({
+  jobId: z.string().min(1),
+  stage: z.literal("learn"),
+  engagement: z.array(engagementRecordSchema).max(20).default([]),
+  learnings: z.object({
+    summary: z.string().min(1),
+    notes: z.array(z.string()).max(10).default([]),
+  }),
 });
 
 export const failureSubmissionSchema = z.object({

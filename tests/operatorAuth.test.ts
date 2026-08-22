@@ -26,7 +26,7 @@ async function loadWithEnv(
 }
 
 function req(headers: Record<string, string>): Request {
-  return new Request("https://closefold.test/api/jobs", { headers });
+  return new Request("https://harmonia.test/api/jobs", { headers });
 }
 
 describe("operator gate", () => {

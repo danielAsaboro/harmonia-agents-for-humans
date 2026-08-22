@@ -5,9 +5,11 @@ import {
   listReceipts,
   savePacket,
   saveVerifications,
+  setStage,
 } from "@/lib/firestore";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
+import { publishStage } from "@/lib/pubsub";
 import { assemblePacket } from "@/lib/packet";
 import type { VerificationResult } from "@/lib/types";
 
@@ -40,6 +42,10 @@ export async function POST(req: Request) {
     });
     await savePacket(body.jobId, packet);
     await appendEvent(body.jobId, "packet", `evidence packet assembled: ${verifiedCount} verified, ${packet.unresolved.length} unresolved gap(s)`, "system");
+
+    // Reaction learning happens after verification; its handler completes the job.
+    await setStage(body.jobId, "learn");
+    await publishStage(body.jobId, "learn");
     return Response.json({ ok: true, unresolved: packet.unresolved.length });
   });
 }

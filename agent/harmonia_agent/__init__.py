@@ -1,4 +1,4 @@
-"""Closefold ADK worker service."""
+"""Harmonia ADK worker service."""
 
 from .stages import dispatch
 

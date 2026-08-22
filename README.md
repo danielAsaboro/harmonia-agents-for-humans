@@ -1,105 +1,123 @@
-# Closefold
+# Harmonia
 
-**Closefold is an autonomous evidence-closing agent for high-stakes submissions.** It ingests a live requirements source (a Devpost hackathon page), converts every requirement into a traceable rubric, audits an authorized GitHub repository and Google Cloud deployment for proof, proposes corrective actions behind a human approval gate, executes approved actions idempotently against real APIs, independently re-verifies that the artifacts now exist, and assembles an auditable evidence packet.
+**Harmonia is an asynchronous social media content agent for startups.** Give it a YouTube video — a founder interview, a product walkthrough, a podcast appearance — and it runs a full content-engine workflow: ingest, transcribe with Gemini, understand what is clip-worthy (moments, trend angles, meme angles), draft platform-native posts, then **stop and wait for explicit human approval** before anything leaves the building. Approved actions execute through official platform APIs with idempotent audit receipts, and published state is independently re-verified afterwards.
 
-Its first demonstration audits **itself**: Closefold reads the official requirements of the All Things Agentic Hackathon, audits its own repository and Cloud Run deployment, finds its own documentation gaps (for example a missing architecture doc), opens a tracking issue and writes the missing artifact after operator approval — then re-fetches everything from GitHub to prove the gap actually closed.
+Operators drive Harmonia from three equivalent surfaces: the web dashboard, a conversational chat drawer (`/api/chat`), and a Telegram bot. Every surface shares one intent grammar and one approval gate; no side-effecting action happens without an approval receipt.
 
-## Why this is not a chatbot
+## The pipeline
 
-Closefold runs as an asynchronous, event-driven workflow on Pub/Sub. A single job travels through eight stages across two services with durable state in Firestore at each step:
+Harmonia runs as an asynchronous, event-driven workflow on Pub/Sub. A single job travels across two services with durable state in Firestore at every step:
 
 ```
-ingest → normalize → collect → evaluate → plan → awaiting_approval → act → verify
+ingest → transcribe → understand → draft → awaiting_approval → publish → verify
 ```
 
-- The agent detects gaps; it does not wait to be asked.
-- Risky external effects (writing files into the repository) are gated by a deterministic policy engine and require explicit human approval in the dashboard.
-- Verification is mechanical: a rubric item is marked verified only when a fresh fetch of the underlying artifact (GitHub blob digest, HTTP 200 probe) proves it — never because a model said so.
+- **Ingest**: YouTube metadata via oEmbed / YouTube Data API; audio pulled with yt-dlp.
+- **Transcribe**: Gemini 3.5 Flash transcribes the audio into timed segments.
+- **Understand**: Gemini identifies clip-worthy moments (timestamps, hooks, quotes), trend angles, and meme angles.
+- **Draft**: Gemini writes platform-native posts (X today, more platforms planned) against specific moments/angles; a deterministic policy engine validates each draft.
+- **Awaiting approval**: publishing is proposed as discrete actions. The model cannot self-authorize.
+- **Publish**: approved actions execute idempotently (stable idempotency keys from `jobId + actionId + contentHash`); X posts go through the official X API v2.
+- **Verify**: published state is confirmed by fresh independent API reads — never because a model said so.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    subgraph Client
+    subgraph Clients
         U[Operator browser]
+        C[Chat drawer]
+        T[Telegram bot]
     end
 
-    subgraph "Cloud Run — closefold-web (Next.js)"
+    subgraph "Cloud Run — harmonia-web (Next.js)"
         UI[Operator dashboard]
-        API[Job / approval API]
+        CHAT["POST /api/chat<br/>Gemini structured-output intents"]
+        API[Job / approval / retry API]
         INT[Internal stage API<br/>Bearer-token scoped]
-        SM[(State machine +<br/>packet assembler)]
     end
 
-    subgraph "Cloud Run — closefold-agent (Python ADK)"
-        PUSH["/pubsub/push receiver"]
-        NORM[rubric_normalizer<br/>ADK LlmAgent]
-        EVAL[evidence_evaluator<br/>ADK LlmAgent]
-        PLAN[action_planner<br/>ADK LlmAgent]
+    subgraph "Cloud Run — harmonia-agent (Python ADK worker)"
+        PUSH["Pub/Sub push receiver"]
+        TG["Telegram long-poll worker"]
+        STAGES[ingest · transcribe · understand ·<br/>draft · publish · verify handlers]
+        GEMC[Gemini 3.5 Flash calls]
     end
 
-    PS[[Pub/Sub topic<br/>closefold-stages]]
+    PS[[Pub/Sub topic]]
     FS[(Firestore<br/>jobs · events · receipts)]
-    DP[Devpost live page]
-    GH[GitHub REST API]
-    GEM[Gemini 3.5 Flash<br/>via Gemini API]
+    YT[YouTube]
+    X[X API v2]
 
     U --> UI --> API
-    API -- publish job --> PS
+    C --> CHAT --> API
+    T -- long polling --> TG -- same /api/chat grammar --> CHAT
+    T -- inline-button approvals --> API
+    API -- stage transitions --> PS
     API <--> FS
-    PS -- push subscription --> PUSH
-    PUSH --> NORM & EVAL & PLAN
-    PUSH -- deterministic probes --> GH & DP
-    NORM & EVAL & PLAN --> GEM
-    PUSH -- results --> INT
-    INT --> SM --> FS
-    SM -- next trigger --> PS
-    PLAN -- proposed actions --> INT
-    U -- approve/reject --> API
-    API -- dispatch act --> PS
+    PS -- push subscription --> PUSH --> STAGES
+    STAGES <--> GEMC
+    STAGES -- ingest --> YT
+    STAGES -- publish + verify --> X
+    STAGES -- results --> INT --> FS
 ```
 
 ### Separation of concerns
 
 | Concern | Where | Interface |
 |---|---|---|
-| Requirement ingestion | `agent/closefold_agent/devpost.py` | fetch + deterministic HTML extraction |
-| Rubric normalization | ADK agent `rubric_normalizer` | structured output (`RubricOutput`) |
-| Evidence collection | `agent/closefold_agent/probes.py` | observations: URL, status, sha256 digest, excerpt |
-| Policy evaluation | ADK agent `evidence_evaluator` | one finding per rubric item, cited URLs only |
-| Action planning | ADK agent `action_planner` | typed action proposals |
-| Approval gating | web `src/lib/policy.ts` | deterministic risk rules — the model cannot self-authorize |
-| External action | `agent/closefold_agent/github_client.py` | idempotent upserts/issues + audit receipts |
-| Verification | `agent/closefold_agent/verify.py` | mechanical predicates over freshly fetched artifacts |
-| Packet assembly | web `src/lib/packet.ts` | unresolved-gap ledger |
+| Ingestion | `agent/harmonia_agent/youtube.py` | metadata fetch + bounded audio download |
+| Transcription / understanding / drafting | `agent/harmonia_agent/content.py` | Gemini 3.5 Flash, JSON responses |
+| Intent parsing (chat + Telegram) | web `src/lib/chatIntent.ts` | Gemini structured output: `{intent, youtubeUrl?, jobId?}` |
+| Approval gate | web `src/lib/policy.ts`, `src/lib/decisions.ts` | deterministic risk rules; single decision writer shared by REST, chat, and Telegram |
+| Publishing | `agent/harmonia_agent/x_client.py` | official X API v2, idempotent |
+| Verification | `agent/harmonia_agent/stages.py` | fresh GET of the published artifact |
+| Operator surfaces | dashboard UI, `/api/chat`, `telegram_bot.py` | identical grammar; mutating actions require operator token |
 
 ## Technology
 
-- **Gemini 3.5 Flash** (`gemini-3.5-flash`, GA) through the Gemini API for requirement extraction, evidence classification, and action planning — three schema-constrained ADK agents.
-- **Google ADK** (Python) for the agent workflow: `google.adk.agents.llm_agent.Agent` with structured output schemas, run through the ADK `Runner`.
+- **Gemini 3.5 Flash** (`gemini-3.5-flash`) through the Gemini API for transcription, analysis, drafting, and chat intent parsing (structured output).
+- **Google ADK** (Python) for the worker service and agent scaffolding.
 - **Cloud Run** hosts both services (web: Next.js standalone build; agent: Python container).
-- **Firestore** persists job state, stage events, approvals, receipts, verifications, and the final packet.
-- **Pub/Sub** drives every stage transition; transient failures nack for redelivery, permanent failures are recorded as visible unresolved gaps.
+- **Firestore** persists job state, stage events, approvals, receipts, verifications, and packets.
+- **Pub/Sub** drives every stage transition; transient failures nack for redelivery, permanent failures stay visible.
 
 ## Local spin-up
 
-Prerequisites: Node 20+, Python 3.12+, [`gcloud` CLI](https://cloud.google.com/sdk/docs/install). The emulators make local development free and hermetic.
+Prerequisites: Node 20+, Python 3.12+, [`gcloud` CLI](https://cloud.google.com/sdk/docs/install). Emulators make local development free and hermetic.
 
 ```bash
-git clone https://github.com/danielAsaboro/closefold.git
-cd closefold
+git clone https://github.com/danielAsaboro/harmonia.git
+cd harmonia
 npm install
-cp .env.example .env.local   # fill GEMINI_API_KEY and GITHUB_TOKEN
-./scripts/dev.sh             # starts Firestore + Pub/Sub emulators, web :3000, worker
+cp .env.example .env.local   # at minimum: GEMINI_API_KEY (+ INTERNAL_API_TOKEN)
+./scripts/dev.sh             # Firestore + Pub/Sub emulators, web :3000, ADK worker
 ```
 
-Open http://localhost:3000, enter the Devpost URL, your `owner/repo`, optionally a Cloud Run URL, and start a job. The worker pulls stages from the Pub/Sub emulator using the identical dispatch path as production.
+Open http://localhost:3000, paste a YouTube URL, and watch the job move through the stages. Approve or reject the proposed actions in the dashboard when the job reaches the approval gate.
+
+### Operator chat
+
+Click the chat bubble on the dashboard (or `POST /api/chat` with `{message}`):
+
+```
+"create a job from https://youtu.be/<id>"
+"status of job <id>"          # or just "status"
+"show drafts for <id>"
+"approve job <id>"            # mutating: requires x-operator-token when configured
+```
+
+Mutating chat intents are gated exactly like the REST routes. Set `GEMINI_API_KEY` in the web environment to enable intent parsing.
+
+### Telegram bot
+
+Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_CHAT_ID` (both required together) and restart the worker — the bot starts automatically inside the FastAPI process (or run `python -m harmonia_agent.telegram_bot`). The bot only responds inside the allow-listed chat. Messages go through the same `/api/chat` grammar; **approvals require tapping an inline button**, which triggers the same decision endpoint the dashboard uses. Bot tokens are never echoed into chats.
 
 Run tests:
 
 ```bash
 npm test                     # TypeScript: policy gate, idempotency, state machine, packet assembly
-npm run test:agent           # Python: ingestion parsing, verification predicates, failure classification
+npm run test:agent           # Python: ingest parsing, telegram callbacks, failure classification
 ```
 
 ## Deploy to Google Cloud
@@ -110,42 +128,49 @@ One-time bootstrap, then repeatable deploys:
 gcloud auth login
 export PROJECT_ID=your-project-id
 export REGION=us-central1
-export GEMINI_API_KEY=...    # picked up by setup.sh to create Secret Manager entries
-export GITHUB_TOKEN=...
+export GEMINI_API_KEY=...            # required
+export OPERATOR_TOKEN=...            # recommended: gates all mutations
+export X_BEARER_TOKEN=...            # optional: enables real X publishing + verification
+export YOUTUBE_API_KEY=...           # optional: richer ingest metadata
+export TELEGRAM_BOT_TOKEN=...        # optional: Telegram operator surface
+export TELEGRAM_ALLOWED_CHAT_ID=...
 
 ./infra/setup.sh             # enables APIs, Firestore, topics, SAs, IAM, secrets
-./infra/deploy.sh            # builds both services from source via Cloud Build,
-                             # deploys to Cloud Run, wires the push subscription
+./infra/deploy.sh            # builds both services via Cloud Build, deploys to Cloud Run,
+                             # wires the Pub/Sub push subscription
 ```
 
-Both services scale to zero. The web service is public-read (dashboard), the agent service accepts only Pub/Sub push invocations authenticated via OIDC + Cloud Run IAM. Secrets stay in Secret Manager; nothing sensitive lives in the repo or client bundle.
+Optional integrations are mounted only if their secrets exist, so missing tokens never block deployment — the corresponding capability stays visibly disabled rather than fake-succeeding.
+
+Both services scale to zero. The web service is public-read; all mutations require the operator token. The agent accepts only Pub/Sub push invocations authenticated via OIDC + Cloud Run IAM. Secrets live in Secret Manager; nothing sensitive lives in the repo or client bundle.
 
 ## Security and reliability model
 
-- **Minimum permissions**: two dedicated service accounts; web gets datastore + pubsub publisher, agent gets secretAccessor only. GitHub token is scoped to the audited repository.
-- **Operator gate**: job creation, approval decisions, and retries require an `x-operator-token` header (`OPERATOR_TOKEN` secret) — the public dashboard can be browsed read-only, but only token holders mutate. The dashboard stores the token in localStorage and attaches it automatically.
-- **Idempotency**: every corrective action carries a stable key derived from `(jobId, actionId, contentHash)`; file upserts compare digests before writing, issue creation searches for a marker before creating.
-- **Audit receipts**: each execution records outcome (`applied` / `already_applied` / `failed`), the artifact URL, and the commit/blob SHA in Firestore.
-- **Resumable state**: jobs survive worker crashes; Pub/Sub redelivery plus server-side stage guards (`assertTransition`) prevent duplicated side effects. Duplicate receipts are suppressed by idempotency key, and permanently failed jobs can be retried from their failure point via the dashboard.
-- **Failure honesty**: permanent failures (bad permissions, invalid payloads) are preserved as visible unresolved gaps; errors never become simulated success.
+- **Minimum permissions**: two dedicated service accounts; web gets datastore + pubsub publisher, agent gets datastore + secretAccessor. Platform tokens are scoped to what they publish.
+- **Human approval gate**: publishing requires an explicit approval per action. Chat can propose; only token-holding operators decide. On Telegram, decisions require an inline-button tap scoped to the allow-listed chat.
+- **Idempotency**: every action carries a stable key derived from `(jobId, actionId, contentHash)`; duplicate deliveries produce `already_applied` receipts instead of duplicate posts.
+- **Audit receipts**: each execution records outcome (`applied` / `already_applied` / `failed`), artifact URL, and platform response in Firestore.
+- **Resumable state**: jobs survive worker crashes; Pub/Sub redelivery plus server-side stage guards (`assertTransition`) prevent duplicated side effects. Failed jobs retry from their failure point.
+- **Failure honesty**: permanent failures are preserved as visible unresolved gaps; errors never become simulated success.
 
 ## Project structure
 
 ```
-closefold/
+harmonia/
 ├── src/
-│   ├── app/                    # Next.js App Router: dashboard + public/internal APIs
-│   ├── components/             # Operator console (jobs, approvals, evidence ledger)
-│   └── lib/                    # types, config, Firestore/Pub/Sub adapters,
-│                               # policy engine, state machine, packet assembler
+│   ├── app/api/                  # REST + internal APIs + POST /api/chat (NL ops surface)
+│   ├── components/               # dashboard, job console, chat drawer
+│   └── lib/                      # types, config, Firestore/Pub/Sub adapters,
+│                                 # policy engine, decision writer, intent parser
 ├── agent/
-│   ├── closefold_agent/        # FastAPI worker, ADK agents, Devpost/GitHub/GCP integrations
-│   └── tests/                  # pytest units for parsing, verification, failures
-├── infra/                      # setup.sh (one-time) and deploy.sh (revisions)
-├── scripts/dev.sh              # emulator-based local loop
-└── tests/                      # vitest units for policy/idempotency/state/packet
+│   ├── harmonia_agent/          # FastAPI worker, ADK agents, YouTube/X/Gemini,
+│   │                             # Telegram long-poll bot
+│   └── tests/                    # pytest units
+├── infra/                        # setup.sh (one-time) and deploy.sh (revisions)
+├── scripts/dev.sh                # emulator-based local loop
+└── tests/                        # vitest units
 ```
 
 ## Status
 
-Built for the [All Things Agentic Hackathon](https://allthingsagentichackathon.devpost.com/) — **The Taskmaster** category. Known limitations are tracked honestly in the dashboard itself: anything Closefold cannot mechanically verify shows up as an unresolved gap rather than a green checkmark.
+Built for the [All Things Agentic Hackathon](https://allthingsagentichackathon.devpost.com/) — **The Taskmaster** category. Known limitations are tracked honestly in the dashboard itself: anything Harmonia cannot mechanically verify shows up as an unresolved gap rather than a green checkmark.

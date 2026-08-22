@@ -18,7 +18,7 @@ import { newId } from "./idempotency";
 
 let client: Firestore | null = null;
 
-function db(): Firestore {
+export function db(): Firestore {
   if (!client) {
     client = new Firestore();
   }
@@ -43,6 +43,42 @@ const EVENTS = "events";
 const RECEIPTS = "receipts";
 const ASSETS = "assets";
 const CONFIG = "config";
+const CONNECTIONS = "connections";
+
+export interface ConnectionDoc {
+  platform: string;
+  mode: "oauth" | "manual" | "env";
+  handle?: string;
+  accountId?: string;
+  scopes?: string;
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt?: string;
+  connectedAt: string;
+}
+
+export function connectionRef(platform: string) {
+  return db().collection(CONNECTIONS).doc(platform);
+}
+
+export async function getConnection(platform: string): Promise<ConnectionDoc | null> {
+  const snap = await connectionRef(platform).get();
+  if (!snap.exists) return null;
+  return snap.data() as ConnectionDoc;
+}
+
+export async function saveConnection(conn: ConnectionDoc): Promise<void> {
+  await connectionRef(conn.platform).set(conn);
+}
+
+export async function deleteConnection(platform: string): Promise<void> {
+  await connectionRef(platform).delete();
+}
+
+export async function listConnections(): Promise<ConnectionDoc[]> {
+  const snaps = await db().collection(CONNECTIONS).get();
+  return snaps.docs.map((d) => d.data() as ConnectionDoc);
+}
 
 export interface OperatorGoals {
   weeklyPostTarget?: number;

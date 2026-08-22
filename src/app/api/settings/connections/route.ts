@@ -1,18 +1,45 @@
+import { getConnection } from "@/lib/firestore";
 import { PLATFORMS, platformStatus } from "@/lib/platforms";
 
 /**
- * Live connection status per platform, derived from actual server env config.
- * Never reports "connected" unless the credentials really exist server-side.
+ * Live connection status per platform. A connection is "connected" only when
+ * a stored OAuth/manual connection exists (with valid expiry) or the env
+ * credentials are genuinely present. Tokens never leave the server.
  */
 export async function GET() {
   return Response.json({
-    connections: PLATFORMS.map((def) => ({
-      id: def.id,
-      label: def.label,
-      capabilities: def.capabilities,
-      note: def.note,
-      docsUrl: def.docsUrl,
-      ...platformStatus(def),
-    })),
+    connections: await Promise.all(
+      PLATFORMS.map(async (def) => {
+        const conn = await getConnection(def.id);
+        const expired = conn?.expiresAt ? Date.parse(conn.expiresAt) < Date.now() : false;
+        if (conn && !expired) {
+          return {
+            id: def.id,
+            label: def.label,
+            capabilities: def.capabilities,
+            note: def.note,
+            docsUrl: def.docsUrl,
+            status: "connected" as const,
+            mode: conn.mode,
+            handle: conn.handle,
+            connectedAt: conn.connectedAt,
+            expiresAt: conn.expiresAt,
+            missingActive: [],
+            missingRequired: [],
+          };
+        }
+        return {
+          id: def.id,
+          label: def.label,
+          capabilities: def.capabilities,
+          note: def.note,
+          docsUrl: def.docsUrl,
+          ...platformStatus(def),
+          ...(conn && expired
+            ? { detail: "token expired — reconnect or refresh needed" }
+            : {}),
+        };
+      }),
+    ),
   });
 }

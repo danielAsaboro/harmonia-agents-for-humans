@@ -1,0 +1,79 @@
+import { Timestamp } from "@google-cloud/firestore";
+import { db, saveConnection } from "@/lib/firestore";
+import { exchangeCode, fetchIdentity, getPlatform } from "@/lib/oauth";
+
+function backToSettings(platform: string, result: "ok" | "error", reason?: string): Response {
+  const q = new URLSearchParams({ connection: platform, result });
+  if (reason) q.set("reason", reason);
+  return new Response(null, {
+    status: 302,
+    headers: { location: `/dashboard/settings?${q.toString()}` },
+  });
+}
+
+/**
+ * OAuth callback: validates single-use state, exchanges the code server-side,
+ * stores tokens (browser never sees them), then returns to Settings.
+ * NOTE: tokens live in Firestore; production should mirror them to Secret
+ * Manager before real accounts are connected.
+ */
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ platform: string }> },
+) {
+  const { platform } = await params;
+  const def = getPlatform(platform);
+  if (!def) return backToSettings(platform, "error", "unknown platform");
+
+  const url = new URL(req.url);
+  const error = url.searchParams.get("error_description") ?? url.searchParams.get("error");
+  if (error) return backToSettings(platform, "error", error);
+
+  const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+  if (!code || !state) return backToSettings(platform, "error", "missing code/state");
+
+  const stateRef = db().collection("oauth_states").doc(state);
+  const stateSnap = await stateRef.get();
+  if (!stateSnap.exists) {
+    return backToSettings(platform, "error", "invalid or expired state");
+  }
+  const stored = stateSnap.data() as { platform: string; codeVerifier: string; redirectUri: string; createdAt: string };
+  await stateRef.delete(); // single use
+
+  if (stored.platform !== platform) {
+    return backToSettings(platform, "error", "state/platform mismatch");
+  }
+  const ageMin = (Date.now() - Timestamp.fromMillis(Date.parse(stored.createdAt)).toMillis()) / 60_000;
+  if (ageMin > 10) {
+    return backToSettings(platform, "error", "authorization attempt expired; try again");
+  }
+
+  let tokens;
+  try {
+    tokens = await exchangeCode(def, {
+      code,
+      redirectUri: stored.redirectUri,
+      codeVerifier: stored.codeVerifier || undefined,
+    });
+  } catch (e) {
+    return backToSettings(platform, "error", e instanceof Error ? e.message : String(e));
+  }
+
+  const identity = await fetchIdentity(def, tokens.accessToken);
+  await saveConnection({
+    platform,
+    mode: "oauth",
+    handle: identity?.handle,
+    accountId: identity?.accountId,
+    scopes: tokens.scopes ?? def.oauth.scopes.join(def.oauth.scopeSeparator),
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    expiresAt: tokens.expiresInSeconds
+      ? new Date(Date.now() + tokens.expiresInSeconds * 1000).toISOString()
+      : undefined,
+    connectedAt: new Date().toISOString(),
+  });
+
+  return backToSettings(platform, "ok");
+}

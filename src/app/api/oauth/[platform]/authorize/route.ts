@@ -1,0 +1,65 @@
+import { db } from "@/lib/firestore";
+import { getPlatform, pkcePair, randomState } from "@/lib/oauth";
+import { isOperatorAuthorized, operatorForbidden } from "@/lib/operatorAuth";
+import { platformStatus } from "@/lib/platforms";
+
+function backToSettings(status: string, reason: string): Response {
+  return new Response(null, {
+    status: 302,
+    headers: { location: `/dashboard/settings?connection=${encodeURIComponent(reason)}&result=${status}` },
+  });
+}
+
+/**
+ * Starts the OAuth 2.0 authorization-code flow: stores a single-use state
+ * (with PKCE verifier where supported) and redirects to the platform's
+ * consent screen. Client IDs/secrets never leave the server.
+ */
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ platform: string }> },
+) {
+  if (!isOperatorAuthorized(req)) return operatorForbidden();
+  const { platform } = await params;
+  const def = getPlatform(platform);
+  if (!def) return backToSettings("error", `unknown platform ${platform}`);
+
+  const status = platformStatus(def);
+  if (status.status === "credentials_needed") {
+    return backToSettings("error", `${def.label}: missing app config (${status.missingRequired.join(", ")})`);
+  }
+  if (def.requiredEnv.some((e) => !process.env[e])) {
+    return backToSettings("error", `${def.label}: missing app credentials`);
+  }
+
+  const origin = new URL(req.url).origin;
+  const redirectUri = `${origin}/api/oauth/${platform}/callback`;
+  const state = randomState();
+  const pkce = def.oauth.usesPkce ? pkcePair() : null;
+
+  await db()
+    .collection("oauth_states")
+    .doc(state)
+    .set({
+      platform,
+      codeVerifier: pkce?.verifier ?? "",
+      redirectUri,
+      createdAt: new Date().toISOString(),
+    });
+
+  const url = new URL(def.oauth.authorizeUrl);
+  url.searchParams.set("client_id", process.env[def.requiredEnv.find((e) => e.includes("CLIENT_ID") || e.includes("CLIENT_KEY")) ?? ""] ?? "");
+  url.searchParams.set("redirect_uri", redirectUri);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("state", state);
+  url.searchParams.set("scope", def.oauth.scopes.join(def.oauth.scopeSeparator));
+  for (const [k, v] of Object.entries(def.oauth.extraAuthorizeParams ?? {})) {
+    url.searchParams.set(k, v);
+  }
+  if (pkce) {
+    url.searchParams.set("code_challenge", pkce.challenge);
+    url.searchParams.set("code_challenge_method", "S256");
+  }
+
+  return new Response(null, { status: 302, headers: { location: url.toString() } });
+}

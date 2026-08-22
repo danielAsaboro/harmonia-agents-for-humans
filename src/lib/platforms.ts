@@ -5,6 +5,19 @@
  */
 export type PlatformCapability = "publish" | "verify" | "metrics";
 
+export interface OAuthConfig {
+  authorizeUrl: string;
+  tokenUrl: string;
+  scopes: string[];
+  /** PKCE S256 is mandatory for X; Google supports it. */
+  usesPkce: boolean;
+  /** Token endpoint auth style. */
+  tokenAuth: "basic" | "body";
+  /** Scope list joiner expected by the platform's authorize URL. */
+  scopeSeparator: string;
+  extraAuthorizeParams?: Record<string, string>;
+}
+
 export interface PlatformDef {
   id: string;
   label: string;
@@ -15,6 +28,7 @@ export interface PlatformDef {
   capabilities: PlatformCapability[];
   docsUrl: string;
   note: string;
+  oauth: OAuthConfig;
 }
 
 export const PLATFORMS: PlatformDef[] = [
@@ -24,6 +38,14 @@ export const PLATFORMS: PlatformDef[] = [
     requiredEnv: ["X_BEARER_TOKEN"],
     activeEnv: ["X_BEARER_TOKEN"],
     capabilities: ["publish", "verify", "metrics"],
+    oauth: {
+    authorizeUrl: "https://x.com/i/oauth2/authorize",
+    tokenUrl: "https://api.x.com/2/oauth2/token",
+    scopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
+    usesPkce: true,
+    scopeSeparator: " ",
+    tokenAuth: "basic",
+  },
     docsUrl: "https://developer.x.com/en/portal/dashboard",
     note: "Publishes via official X API v2. Posting requires a project with Read & Write access; metrics use public_metrics.",
   },
@@ -33,6 +55,14 @@ export const PLATFORMS: PlatformDef[] = [
     requiredEnv: ["TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"],
     activeEnv: ["TIKTOK_ACCESS_TOKEN"],
     capabilities: ["publish", "verify"],
+    oauth: {
+    authorizeUrl: "https://www.tiktok.com/v2/auth/authorize/",
+    tokenUrl: "https://open.tiktokapis.com/v2/oauth/token/",
+    scopes: ["user.info.basic", "video.publish", "video.upload"],
+    usesPkce: false,
+    scopeSeparator: ",",
+    tokenAuth: "body",
+  },
     docsUrl: "https://developers.tiktok.com/doc/content-posting-api-get-started",
     note: "Direct Post via Content Posting API requires an approved app + unaudited/posting permissions. AIC labels apply to AI-generated content.",
   },
@@ -42,6 +72,14 @@ export const PLATFORMS: PlatformDef[] = [
     requiredEnv: ["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"],
     activeEnv: ["INSTAGRAM_ACCESS_TOKEN"],
     capabilities: ["publish", "verify"],
+    oauth: {
+    authorizeUrl: "https://www.facebook.com/v21.0/dialog/oauth",
+    tokenUrl: "https://graph.facebook.com/v21.0/oauth/access_token",
+    scopes: ["instagram_basic", "instagram_content_publish", "pages_show_list"],
+    usesPkce: false,
+    scopeSeparator: ",",
+    tokenAuth: "body",
+  },
     docsUrl: "https://developers.facebook.com/docs/instagram-api/getting-started",
     note: "Reels/posts via Instagram Graph API — requires a Professional (Business/Creator) account linked to a Facebook Page.",
   },
@@ -51,6 +89,14 @@ export const PLATFORMS: PlatformDef[] = [
     requiredEnv: ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"],
     activeEnv: ["LINKEDIN_ACCESS_TOKEN"],
     capabilities: ["publish", "verify", "metrics"],
+    oauth: {
+    authorizeUrl: "https://www.linkedin.com/oauth/v2/authorization",
+    tokenUrl: "https://www.linkedin.com/oauth/v2/accessToken",
+    scopes: ["openid", "profile", "w_member_social"],
+    usesPkce: false,
+    scopeSeparator: " ",
+    tokenAuth: "body",
+  },
     docsUrl: "https://learn.microsoft.com/en-us/linkedin/marketing/",
     note: "Posts via LinkedIn API (w_member_social or w_organization_social scopes). OAuth 2.0 three-legged flow.",
   },
@@ -60,6 +106,14 @@ export const PLATFORMS: PlatformDef[] = [
     requiredEnv: ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"],
     activeEnv: ["FACEBOOK_PAGE_TOKEN"],
     capabilities: ["publish", "verify", "metrics"],
+    oauth: {
+    authorizeUrl: "https://www.facebook.com/v21.0/dialog/oauth",
+    tokenUrl: "https://graph.facebook.com/v21.0/oauth/access_token",
+    scopes: ["pages_show_list", "pages_read_engagement", "pages_manage_posts"],
+    usesPkce: false,
+    scopeSeparator: ",",
+    tokenAuth: "body",
+  },
     docsUrl: "https://developers.facebook.com/docs/pages-api",
     note: "Page posts via Pages API with pages_manage_posts permission and a Page access token.",
   },
@@ -69,6 +123,15 @@ export const PLATFORMS: PlatformDef[] = [
     requiredEnv: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
     activeEnv: ["YOUTUBE_REFRESH_TOKEN"],
     capabilities: ["publish", "verify", "metrics"],
+    oauth: {
+    authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+    tokenUrl: "https://oauth2.googleapis.com/token",
+    scopes: ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube.readonly"],
+    usesPkce: true,
+    scopeSeparator: " ",
+    tokenAuth: "basic",
+    extraAuthorizeParams: { access_type: "offline", prompt: "consent" },
+  },
     docsUrl: "https://developers.google.com/youtube/v3/guides/auth/installed-apps",
     note: "Uploads via YouTube Data API v3 (youtube.upload scope). Also enriches ingest metadata.",
   },

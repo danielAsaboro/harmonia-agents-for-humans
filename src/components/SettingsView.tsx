@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { apiFetch, getOperatorToken, setOperatorToken } from "@/lib/clientApi";
 
 interface HealthInfo {
@@ -152,85 +152,199 @@ interface ConnectionInfo {
   note: string;
   docsUrl: string;
   status: "connected" | "connectable" | "credentials_needed";
+  mode?: string;
+  handle?: string;
+  connectedAt?: string;
+  expiresAt?: string;
   missingActive: string[];
   missingRequired: string[];
 }
 
-const CAP_LABELS: Record<string, string> = {
-  publish: "publish",
-  verify: "verify",
-  metrics: "metrics",
+const RING: Record<string, string> = {
+  connected: "ring-2 ring-emerald-400",
+  connectable: "ring-2 ring-sky-400",
+  credentials_needed: "ring-1 ring-zinc-200 dark:ring-zinc-800",
 };
 
 function ConnectionsSection() {
   const [connections, setConnections] = useState<ConnectionInfo[] | null>(null);
+  const [banner, setBanner] = useState<{ result: string; connection: string; reason?: string } | null>(null);
+  const [pasteFor, setPasteFor] = useState<string | null>(null);
+  const [pasteToken, setPasteToken] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetch("/api/settings/connections", { cache: "no-store" })
+  const load = useCallback(() => {
+    return fetch("/api/settings/connections", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => setConnections(d.connections))
       .catch(() => setConnections([]));
   }, []);
 
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void load();
+      const q = new URLSearchParams(window.location.search);
+      if (q.get("connection")) {
+        setBanner({
+          result: q.get("result") ?? "error",
+          connection: q.get("connection") ?? "",
+          reason: q.get("reason") ?? undefined,
+        });
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    }, 0);
+    return () => clearTimeout(t);
+  }, [load]);
+
+  async function disconnect(id: string) {
+    setBusy(id);
+    try {
+      await apiFetch(`/api/settings/connections/${id}`, { method: "DELETE" });
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function pasteSave(id: string) {
+    if (!pasteToken.trim()) return;
+    setBusy(id);
+    try {
+      const res = await apiFetch(`/api/settings/connections/${id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accessToken: pasteToken.trim() }),
+      });
+      if (!res.ok) throw new Error();
+      setPasteFor(null);
+      setPasteToken("");
+      await load();
+    } catch {
+      setBanner({ result: "error", connection: id, reason: "token could not be saved" });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function startOauth(id: string) {
+    const token = getOperatorToken();
+    const url = `/api/oauth/${id}/authorize${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+    // Full navigation is intentional: the route 302s to an external consent
+    // screen, so client-side routing would be wrong here.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    window.location.assign(url);
+  }
+
   return (
     <section className="rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
       <h2 className="text-sm font-semibold">Connected accounts</h2>
       <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-        Official platform APIs only — no scraping, no automation evasion. Status reflects the
-        actual server configuration; nothing shows as connected until its credentials exist
-        server-side. Publishing always passes the human approval gate.
+        Official platform APIs only — OAuth 2.0 sign-in, tokens stored server-side, never in
+        your browser. Publishing always passes the human approval gate.
       </p>
+
+      {banner && (
+        <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+          banner.result === "ok"
+            ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+            : "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+        }`}>
+          {banner.result === "ok"
+            ? `${banner.connection} connected successfully.`
+            : `${banner.connection} failed to connect${banner.reason ? `: ${banner.reason}` : "."}`}
+        </div>
+      )}
+
       {!connections ? (
         <p className="mt-3 text-xs text-zinc-400">Loading…</p>
       ) : (
-        <ul className="mt-4 flex flex-col gap-3">
-          {connections.map((c) => (
-            <li key={c.id} className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold uppercase ${
-                    c.status === "connected"
-                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
-                      : c.status === "connectable"
-                        ? "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-400"
-                        : "bg-zinc-100 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400"
-                  }`}>
-                    {c.label.slice(0, 2)}
-                  </span>
-                  <span className="text-sm font-medium">{c.label}</span>
+        <>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {connections.map((c) => (
+              <div key={c.id} className={`flex flex-col rounded-xl bg-white p-4 dark:bg-zinc-950 ${RING[c.status]}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold">{c.label}</span>
+                  <span className={`h-2.5 w-2.5 rounded-full ${
+                    c.status === "connected" ? "bg-emerald-500"
+                    : c.status === "connectable" ? "bg-sky-500"
+                    : "bg-zinc-300 dark:bg-zinc-700"
+                  }`} />
                 </div>
-                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
-                  c.status === "connected"
-                    ? "border-emerald-400 text-emerald-600 dark:text-emerald-400"
-                    : c.status === "connectable"
-                      ? "border-sky-400 text-sky-600 dark:text-sky-400"
-                      : "border-zinc-300 text-zinc-500 dark:border-zinc-700 dark:text-zinc-400"
-                }`}>
-                  {c.status === "connected" ? "connected" : c.status === "connectable" ? "ready to connect" : "credentials needed"}
-                </span>
+                <p className="mt-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                  {c.status === "connected"
+                    ? `${c.mode === "oauth" ? "OAuth 2.0" : c.mode === "manual" ? "manual token" : "env"} · ${c.handle ?? "account"}${c.expiresAt ? ` · expires ${new Date(c.expiresAt).toLocaleDateString()}` : ""}`
+                    : c.capabilities.join(" · ") || "\u00a0"}
+                </p>
+
+                <div className="mt-auto flex flex-col gap-1.5 pt-3">
+                  {c.status === "connected" ? (
+                    <button
+                      onClick={() => disconnect(c.id)}
+                      disabled={busy === c.id}
+                      className="w-full rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+                    >
+                      Disconnect
+                    </button>
+                  ) : c.status === "connectable" ? (
+                    <button
+                      onClick={() => startOauth(c.id)}
+                      className="w-full rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-white dark:text-black dark:hover:bg-zinc-300"
+                    >
+                      Connect with OAuth 2.0
+                    </button>
+                  ) : (
+                    <button
+                      disabled
+                      title={c.missingRequired.length ? `Add ${c.missingRequired.join(", ")} server-side first` : undefined}
+                      className="w-full cursor-not-allowed rounded-full border border-dashed border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-400 dark:border-zinc-800"
+                    >
+                      App config needed
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setPasteFor(pasteFor === c.id ? null : c.id)}
+                    className="text-[10px] text-zinc-400 underline hover:text-zinc-600 dark:hover:text-zinc-300"
+                  >
+                    advanced: paste token instead
+                  </button>
+                  {pasteFor === c.id && (
+                    <div className="flex gap-1">
+                      <input
+                        value={pasteToken}
+                        onChange={(e) => setPasteToken(e.target.value)}
+                        placeholder="access token"
+                        className="w-full rounded border border-zinc-300 bg-white px-2 py-1 font-mono text-[11px] outline-none dark:border-zinc-700 dark:bg-zinc-950"
+                      />
+                      <button
+                        onClick={() => pasteSave(c.id)}
+                        disabled={busy === c.id}
+                        className="shrink-0 rounded bg-zinc-800 px-2 py-1 text-[10px] font-medium text-white dark:bg-zinc-200 dark:text-black"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
-              <p className="mt-1.5 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{c.note}</p>
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]">
-                <span className="text-zinc-400">
-                  capabilities: {c.capabilities.map((k) => CAP_LABELS[k] ?? k).join(", ") || "—"}
-                </span>
-                {c.missingActive.length > 0 && (
-                  <span className="font-mono text-amber-600 dark:text-amber-400">
-                    needs token: {c.missingActive.join(", ")}
-                  </span>
-                )}
-                {c.missingRequired.length > 0 && (
-                  <span className="font-mono text-zinc-400">
-                    app config missing: {c.missingRequired.join(", ")}
-                  </span>
-                )}
-                <a href={c.docsUrl} target="_blank" rel="noopener noreferrer" className="ml-auto underline text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
-                  developer docs ↗
-                </a>
-              </div>
-            </li>
-          ))}
-        </ul>
+            ))}
+          </div>
+          <details className="mt-3">
+            <summary className="cursor-pointer select-none text-[11px] uppercase tracking-wide text-zinc-400">
+              developer setup notes
+            </summary>
+            <ul className="mt-2 space-y-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+              {connections.map((c) => (
+                <li key={c.id}>
+                  <span className="font-medium">{c.label}:</span> {c.note}{" "}
+                  {c.missingRequired.length > 0 && (
+                    <span className="font-mono">missing app env: {c.missingRequired.join(", ")}.</span>
+                  )}{" "}
+                  <a href={c.docsUrl} target="_blank" rel="noopener noreferrer" className="underline">docs ↗</a>
+                </li>
+              ))}
+            </ul>
+          </details>
+        </>
       )}
     </section>
   );

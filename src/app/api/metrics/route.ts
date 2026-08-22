@@ -1,4 +1,5 @@
-import { listEvents, listJobs, listReceipts } from "@/lib/firestore";
+import { aggregateModelUsage, microsToUsd, usdToMicros } from "@/lib/costs";
+import { listEvents, listJobs, listReceipts, listUsageRecords } from "@/lib/firestore";
 import { STAGES } from "@/lib/types";
 
 export interface StageDwell {
@@ -28,6 +29,19 @@ export interface MetricsResponse {
   receipts: { applied: number; already_applied: number; failed: number; rejected: number };
   stageDwell: StageDwell[];
   stageStats: StageStat[];
+  modelUsage: Array<{
+    model: string;
+    role: string;
+    calls: number;
+    inputUnits: number;
+    outputUnits: number;
+    estimatedCostUsd: string;
+  }>;
+  costs: {
+    estimatedUsd: string;
+    observedUsd: string;
+    reservedUsd: string;
+  };
   recentEvents: Array<{ at: string | null; jobId: string; stage: string; message: string; actor: string }>;
 }
 
@@ -58,10 +72,11 @@ export async function GET() {
   })).filter((s) => s.count > 0);
 
   const sample = jobs.slice(0, DWELL_SAMPLE_JOBS);
-  const [dwellLists, receiptLists, eventLists] = await Promise.all([
+  const [dwellLists, receiptLists, eventLists, usageLists] = await Promise.all([
     Promise.all(sample.map((j) => listEvents(j.id))),
     Promise.all(sample.map((j) => listReceipts(j.id))),
     Promise.all(sample.map((j) => listEvents(j.id))),
+    Promise.all(sample.map((j) => listUsageRecords(j.id))),
   ]);
 
   const dwellAcc = new Map<string, number[]>();
@@ -124,5 +139,25 @@ export async function GET() {
     .slice(0, RECENT_EVENTS_LIMIT)
     .map((e) => ({ at: e.at, jobId: e.jobId, stage: e.stage, message: e.message, actor: e.actor }));
 
-  return Response.json({ totals, stages, receipts, stageDwell, stageStats, recentEvents } satisfies MetricsResponse);
+  const usage = aggregateModelUsage(usageLists.flat());
+  const reservedMicros = sample.reduce(
+    (total, job) => total + usdToMicros(job.budget?.reservedUsd ?? "0.00"),
+    BigInt(0),
+  );
+  const costs = {
+    estimatedUsd: usage.estimatedUsd,
+    observedUsd: usage.observedUsd,
+    reservedUsd: microsToUsd(reservedMicros),
+  };
+
+  return Response.json({
+    totals,
+    stages,
+    receipts,
+    stageDwell,
+    stageStats,
+    modelUsage: usage.modelUsage,
+    costs,
+    recentEvents,
+  } satisfies MetricsResponse);
 }

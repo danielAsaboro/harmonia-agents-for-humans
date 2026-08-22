@@ -13,7 +13,8 @@ gcloud config set project "${PROJECT_ID}"
 echo "-- Enabling services"
 for svc in run.googleapis.com firestore.googleapis.com pubsub.googleapis.com \
            cloudbuild.googleapis.com secretmanager.googleapis.com iam.googleapis.com \
-           aiplatform.googleapis.com; do
+           aiplatform.googleapis.com cloudtrace.googleapis.com \
+           telemetry.googleapis.com monitoring.googleapis.com logging.googleapis.com; do
   gcloud services enable "$svc" --project "${PROJECT_ID}"
 done
 
@@ -30,6 +31,12 @@ echo "-- Service accounts"
 for sa in harmonia-web harmonia-agent; do
   gcloud iam service-accounts create "$sa" --project "${PROJECT_ID}" \
     --display-name "Harmonia ${sa}" 2>/dev/null || echo "sa $sa exists"
+done
+
+for sa in harmonia-web harmonia-agent; do
+  gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+    --member "serviceAccount:${sa}@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --role roles/cloudtrace.agent >/dev/null
 done
 
 echo "-- IAM (least privilege)"

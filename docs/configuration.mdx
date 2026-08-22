@@ -28,6 +28,19 @@ description: "Every environment variable Harmonia reads, with defaults and requi
 | `PROACTIVE_<NAME>_INTERVAL_SECONDS` | no | per check | Override a single proactive check's cadence (see [Proactive Agent](/proactive-agent)) |
 | `TELEGRAM_BOT_TOKEN` | no | — | Enables the Telegram surface + briefing push |
 | `TELEGRAM_ALLOWED_CHAT_ID` | with bot | — | Only this chat id is served |
+| `MODEL_PRICING_VERSION` | no | `2026-08-23` | Immutable rate-catalog version; unknown versions fail startup |
+| `DEFAULT_JOB_BUDGET_USD` | no | `5.00` | Maximum reserved plus observed model cost per job |
+| `DEFAULT_JOB_APPROVAL_THRESHOLD_USD` | no | `0.25` | Cost threshold surfaced for operator policy |
+| `IMAGE_MAX_COST_USD` | no | `0.500000` | Explicit per-image reservation while media pricing is not token-based |
+| `HARMONIA_TELEMETRY_ENABLED` | cloud | `false` | Export metadata-only OpenTelemetry spans |
+| `HARMONIA_TELEMETRY_SAMPLE_RATE` | no | `1.0` | Parent-based trace sampling ratio from 0 to 1 |
+| `OTEL_SERVICE_NAME` | no | `harmonia-agent` | Service label used by the trace backend |
+| `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | yes in cloud | `NO_CONTENT` | Prevent prompt and response content capture |
+| `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` | yes in cloud | `false` | Disable ADK legacy content-bearing span attributes |
+
+The pricing catalog uses decimal arithmetic and labels estimates with its version. A configured model without a catalog entry is not budget-authorized. Image calls reserve the configured maximum instead of being represented as free.
+
+Telemetry contains identifiers, stage and role names, model names, usage units, costs, validation outcomes, and errors. It excludes prompts, responses, transcripts, draft text, and media bytes. These are execution/delegation traces, not private model reasoning.
 
 ## Dev-only flags
 

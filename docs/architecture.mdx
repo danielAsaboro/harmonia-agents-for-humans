@@ -17,6 +17,7 @@ flowchart TB
         CHAT[Chat intent parser<br/>Gemini structured output]
         DEC[Decision engine<br/>policy + approval gates]
         FS[(Firestore)]
+        LEDGER[(Budget reservations<br/>+ immutable usage records)]
         PS[Pub/Sub topics]
         STOR[Asset store<br/>.data/artifacts or GCS]
     end
@@ -36,12 +37,14 @@ flowchart TB
     subgraph External
         YT[YouTube<br/>oEmbed + yt-dlp]
         HN[Hacker News front page<br/>Algolia API]
+        TRACE[Cloud Trace / Telemetry API<br/>metadata-only OpenTelemetry]
     end
 
     UI --> API
     TG --> API
     API --> CHAT --> FS
     API --> DEC --> FS
+    API --> LEDGER
     API --> PS
     PS --> PULL
     PULL --> CONTENT --> YT
@@ -57,6 +60,10 @@ flowchart TB
     X --> FS
     FFMPEG --> STOR
     PULL --> FS
+    API -. W3C trace context .-> PS
+    PULL -. stage + agent + model spans .-> TRACE
+    COORD -. delegation + validation spans .-> TRACE
+    LEDGER -. traceId correlation .-> TRACE
 ```
 
 ## Design principles
@@ -75,6 +82,16 @@ Every mutating action (approve, publish, schedule) flows through the same decisi
 
 Each stage transition is persisted first, then a stage trigger is published. The worker consumes stages through a push subscription on Cloud Run or an identical pull loop locally against the emulators. Jobs carry their full state (`transcriptSegments`, `moments`, `angles`, `drafts`, `actions`), so any stage can resume after a crash.
 
+The coordinator is the cognitive dispatcher, not the durable workflow engine. Pub/Sub owns asynchronous delivery and retry; Firestore owns resumable stage state, approvals, reservations, usage, receipts, and verification evidence.
+
+### Correlated observability and cost controls
+
+The web process creates or continues W3C context and places `traceparent`/`tracestate` in Pub/Sub attributes. The worker continues that context through `harmonia.stage.execute`, `harmonia.agent.invoke`, `harmonia.model.generate`, and `harmonia.output.validate`. Delegation is an explicit `harmonia.agent.delegate` event. Internal HTTP callbacks carry the same context.
+
+Before dispatch, every real ADK role, transcription call, and image generation reserves a deterministic operation cost in a Firestore transaction. Successful calls finalize immutable usage records grouped by job, stage, role, and model. Retried operation IDs reuse their reservation and usage document, preventing double charging. `/api/metrics` exposes calls, units, and estimated cost by role/model plus current reserved cost.
+
+Trace attributes are metadata-only. Harmonia disables both current and legacy ADK message-content capture and never attaches prompts, responses, transcripts, drafts, or media bytes. The trace shows the execution graph and explicit structured decisions; it does not expose private chain-of-thought.
+
 ### Idempotent external effects
 
 Every executable action derives a deterministic idempotency key from `(jobId, actionId, payload)` hashed with SHA-256. Before executing, the publish stage checks existing receipts; re-delivery yields `already_applied`, never a duplicate post.
@@ -88,5 +105,5 @@ Verification never trusts the executor. Published posts are re-fetched from the 
 The learn stage measures published posts via public metrics, stores takeaways per job, and the insights feed is injected into future ideation prompts — closing the loop between what performed and what gets proposed next.
 
 <Warning>
-  The multi-agent code and offline delegation tests are verified locally. An authenticated Gemini team invocation is not yet verified and must not be claimed until separate evidence is captured with a valid API key.
+  The multi-agent code, budget enforcement, usage normalization, and metadata-only trace behavior are verified offline. Authenticated Gemini execution and exported Cloud Trace correlation remain unverified until separate live evidence is captured.
 </Warning>

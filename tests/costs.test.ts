@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyFinalizedUsage,
   applyReservation,
+  aggregateModelUsage,
   canReserve,
   summarizeUsage,
 } from "@/lib/costs";
@@ -39,6 +40,38 @@ describe("job budgets", () => {
     ])).toEqual({
       totalEstimatedUsd: "0.305001",
       byModel: { m1: "0.30", m2: "0.005001" },
+    });
+  });
+
+  it("aggregates usage by model and role with microdollar precision", () => {
+    const records = [
+      {
+        model: "gemini-3.5-flash", role: "analyst", inputUnits: 100,
+        outputUnits: 20, estimatedCostUsd: "0.000330", observedCostUsd: "0.000300",
+      },
+      {
+        model: "gemini-3.5-flash", role: "analyst", inputUnits: 50,
+        outputUnits: 10, estimatedCostUsd: "0.000165",
+      },
+      {
+        model: "gemini-3.5-flash-lite", role: "strategist", inputUnits: 10,
+        outputUnits: 2, estimatedCostUsd: "0.000008",
+      },
+    ];
+
+    expect(aggregateModelUsage(records)).toEqual({
+      modelUsage: [
+        {
+          model: "gemini-3.5-flash", role: "analyst", calls: 2,
+          inputUnits: 150, outputUnits: 30, estimatedCostUsd: "0.000495",
+        },
+        {
+          model: "gemini-3.5-flash-lite", role: "strategist", calls: 1,
+          inputUnits: 10, outputUnits: 2, estimatedCostUsd: "0.000008",
+        },
+      ],
+      estimatedUsd: "0.000503",
+      observedUsd: "0.0003",
     });
   });
 });

@@ -21,14 +21,15 @@ Harmonia's local stack runs the real Firestore and Pub/Sub emulators, so the dep
 
 ```bash
 gcloud services enable run.googleapis.com firestore.googleapis.com \
-  pubsub.googleapis.com storage.googleapis.com
+  pubsub.googleapis.com storage.googleapis.com cloudtrace.googleapis.com \
+  telemetry.googleapis.com monitoring.googleapis.com logging.googleapis.com
 
 gcloud firestore databases create --location=<region>
 
 gcloud pubsub topics create harmonia-stages
 ```
 
-Create one runtime service account for each Cloud Run service; grant the worker's account only `roles/pubsub.subscriber`, `roles/datastore.user`, and object-level access to the assets bucket.
+Create one runtime service account for each Cloud Run service. Both receive `roles/cloudtrace.agent`; preserve the existing least-privilege data, messaging, and asset permissions.
 
 ## Deploying
 
@@ -44,11 +45,21 @@ Set the [configuration](/configuration) secrets as Cloud Run environment variabl
 - `GET /healthz` on the worker reports model id and registered stages
 - The job event log, receipts ledger, and verification records in Firestore provide end-to-end audit trails
 - Every stage failure is classified permanent vs transient; transient failures rely on Pub/Sub redelivery
+- W3C context crosses Pub/Sub and internal HTTP, correlating web, stage, agent, model, and validation spans
+- Firestore usage records retain the trace ID, operation ID, role, model, usage units, cost estimate, and pricing version
+- `/api/metrics` aggregates model calls and estimated cost by role/model using integer microdollars
+
+Content capture must remain disabled in every deployed revision. Raw prompts, responses, transcripts, draft text, and media bytes are excluded; observability records the execution graph and explicit validation/delegation metadata, not private reasoning.
 
 ## Post-deploy verification checklist
 
-1. Create a job from the deployed dashboard URL and watch it reach `awaiting_approval`
-2. Approve; confirm receipts appear with real X post ids
-3. Confirm verification records show `independent_refetch:x_api` results
-4. Check the learn stage stored engagement takeaways
-5. Trigger a proactive check by shortening its `PROACTIVE_*_INTERVAL_SECONDS` temporarily and confirming proposals arrive in the inbox
+1. Create a job from the deployed dashboard URL and watch it reach `awaiting_approval`.
+2. Read one job usage record and copy its `traceId`.
+3. Locate the same trace in Cloud Trace; confirm the Pub/Sub stage, agent invocation, model generation, and validation spans are correlated.
+4. Confirm span attributes contain identifiers and usage metadata but none of the job's source or generated text.
+5. Compare the usage record's estimate with `/api/metrics`; keep platform estimates distinct from observed billing data.
+6. Approve an action and confirm its receipt and independent verification record.
+
+<Warning>
+Authenticated model execution and Cloud telemetry are not verified merely by deploying this code. Capture a correlated trace plus its persisted usage record before presenting either integration as live evidence.
+</Warning>

@@ -176,6 +176,62 @@ function ReceiptStats({ receipts }: { receipts: MetricsResponse["receipts"] }) {
   );
 }
 
+function ModelCostStats({
+  usage,
+  costs,
+}: {
+  usage: MetricsResponse["modelUsage"];
+  costs: MetricsResponse["costs"];
+}) {
+  return (
+    <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800 lg:col-span-2">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">Model usage and cost comparison</h3>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            Versioned application estimates; observed provider charges stay separately labeled.
+          </p>
+        </div>
+        <dl className="flex gap-4 text-right text-xs tabular-nums">
+          <div><dt className="text-zinc-400">estimated</dt><dd>${costs.estimatedUsd}</dd></div>
+          <div><dt className="text-zinc-400">observed</dt><dd>${costs.observedUsd}</dd></div>
+          <div><dt className="text-zinc-400">reserved</dt><dd>${costs.reservedUsd}</dd></div>
+        </dl>
+      </div>
+      {usage.length === 0 ? (
+        <p className="py-6 text-center text-xs text-zinc-400">No finalized model usage yet.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left text-xs">
+            <thead className="border-b border-zinc-200 text-[10px] uppercase tracking-wide text-zinc-400 dark:border-zinc-800">
+              <tr>
+                <th className="pb-2 font-medium">Model</th>
+                <th className="pb-2 font-medium">Role</th>
+                <th className="pb-2 text-right font-medium">Calls</th>
+                <th className="pb-2 text-right font-medium">Input</th>
+                <th className="pb-2 text-right font-medium">Output</th>
+                <th className="pb-2 text-right font-medium">Estimated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {usage.map((item) => (
+                <tr key={`${item.model}:${item.role}`} className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
+                  <td className="py-2.5 font-mono">{item.model}</td>
+                  <td className="py-2.5 text-zinc-500 dark:text-zinc-400">{item.role}</td>
+                  <td className="py-2.5 text-right tabular-nums">{item.calls}</td>
+                  <td className="py-2.5 text-right tabular-nums">{item.inputUnits.toLocaleString()}</td>
+                  <td className="py-2.5 text-right tabular-nums">{item.outputUnits.toLocaleString()}</td>
+                  <td className="py-2.5 text-right font-mono">${item.estimatedCostUsd}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReliabilityChart({ stats }: { stats: MetricsResponse["stageStats"] }) {
   return (
     <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
@@ -277,6 +333,7 @@ export default function MonitoringView() {
       <DwellChart dwell={metrics.stageDwell} />
       <ReliabilityChart stats={metrics.stageStats} />
       <ReceiptStats receipts={metrics.receipts} />
+      <ModelCostStats usage={metrics.modelUsage} costs={metrics.costs} />
       <div className="lg:col-span-2">
         <ActivityFeed events={metrics.recentEvents} />
       </div>

@@ -66,3 +66,69 @@ export function summarizeUsage(
     ),
   };
 }
+
+export interface ModelUsageSummary {
+  model: string;
+  role: string;
+  calls: number;
+  inputUnits: number;
+  outputUnits: number;
+  estimatedCostUsd: string;
+}
+
+export function aggregateModelUsage(records: Array<{
+  model: string;
+  role: string;
+  inputUnits: number;
+  outputUnits: number;
+  estimatedCostUsd: string;
+  observedCostUsd?: string;
+}>): {
+  modelUsage: ModelUsageSummary[];
+  estimatedUsd: string;
+  observedUsd: string;
+} {
+  const groups = new Map<string, {
+    model: string;
+    role: string;
+    calls: number;
+    inputUnits: number;
+    outputUnits: number;
+    estimatedMicros: bigint;
+  }>();
+  let estimatedMicros = BigInt(0);
+  let observedMicros = BigInt(0);
+  for (const record of records) {
+    const estimated = usdToMicros(record.estimatedCostUsd);
+    estimatedMicros += estimated;
+    if (record.observedCostUsd !== undefined) {
+      observedMicros += usdToMicros(record.observedCostUsd);
+    }
+    const key = `${record.model}\u0000${record.role}`;
+    const group = groups.get(key) ?? {
+      model: record.model,
+      role: record.role,
+      calls: 0,
+      inputUnits: 0,
+      outputUnits: 0,
+      estimatedMicros: BigInt(0),
+    };
+    group.calls += 1;
+    group.inputUnits += record.inputUnits;
+    group.outputUnits += record.outputUnits;
+    group.estimatedMicros += estimated;
+    groups.set(key, group);
+  }
+  return {
+    modelUsage: [...groups.values()].map((group) => ({
+      model: group.model,
+      role: group.role,
+      calls: group.calls,
+      inputUnits: group.inputUnits,
+      outputUnits: group.outputUnits,
+      estimatedCostUsd: microsToUsd(group.estimatedMicros),
+    })),
+    estimatedUsd: microsToUsd(estimatedMicros),
+    observedUsd: microsToUsd(observedMicros),
+  };
+}

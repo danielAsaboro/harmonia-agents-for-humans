@@ -57,17 +57,37 @@ function JobCardView({
 }
 
 export default function ChatConsole() {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: "assistant",
-      text:
-        "I'm your Harmonia operator agent. Give me a topic and I'll ideate and draft posts; give me a YouTube URL and I'll cut clips and drafts from it. Everything stops at your approval before publishing.",
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [detail, setDetail] = useState<JobDetailBundle | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      fetch("/api/chat/history?limit=120", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+        .then((d: { messages: Array<{ role: string; text: string; data?: ChatResponse; surface?: string }> }) => {
+          setMessages(
+            d.messages.map((m) => ({
+              role: m.role === "user" ? "user" : "assistant",
+              text: m.text,
+              data: m.data,
+            })),
+          );
+        })
+        .catch(() => {
+          setMessages([
+            {
+              role: "assistant",
+              text:
+                "I'm your Harmonia operator agent. Give me a topic and I'll ideate and draft posts; give me a YouTube URL and I'll cut clips and drafts from it. Everything stops at your approval before publishing.",
+            },
+          ]);
+        });
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });

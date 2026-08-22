@@ -80,6 +80,43 @@ export async function listConnections(): Promise<ConnectionDoc[]> {
   return snaps.docs.map((d) => d.data() as ConnectionDoc);
 }
 
+// ---------- operator chat history ----------
+
+const CHATS = "chat_messages";
+
+export interface ChatMessageDoc {
+  surface: "dashboard" | "telegram";
+  role: "user" | "assistant";
+  text: string;
+  data?: Record<string, unknown>;
+  at?: FirebaseFirestore.FieldValue | string;
+}
+
+export async function saveChatMessage(m: Omit<ChatMessageDoc, "at"> & { at?: ChatMessageDoc["at"] }): Promise<void> {
+  await db().collection(CHATS).add({ ...m, at: FieldValue.serverTimestamp() });
+}
+
+export async function listChatMessages(
+  limit = 100,
+): Promise<Array<{ id: string; surface: string; role: string; text: string; data?: Record<string, unknown>; at: string | null }>> {
+  const snaps = await db()
+    .collection(CHATS)
+    .orderBy("at", "asc")
+    .limitToLast(limit)
+    .get();
+  return snaps.docs.map((d) => {
+    const data = d.data() as { surface?: string; role: string; text: string; data?: Record<string, unknown>; at?: { toDate(): Date } };
+    return {
+      id: d.id,
+      surface: data.surface ?? "dashboard",
+      role: data.role,
+      text: data.text,
+      data: data.data,
+      at: data.at ? data.at.toDate().toISOString() : null,
+    };
+  });
+}
+
 export interface OperatorGoals {
   weeklyPostTarget?: number;
   audience?: string;

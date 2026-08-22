@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { resolveDecision } from "@/lib/decisions";
-import { appendEvent, createJob, getJob, listJobs, saveIngestMeta } from "@/lib/firestore";
+import { appendEvent, createJob, getJob, listJobs, saveChatMessage, saveIngestMeta } from "@/lib/firestore";
 import { isOperatorAuthorized, operatorForbidden } from "@/lib/operatorAuth";
 import { parseIntent } from "@/lib/chatIntent";
 import { publishStage } from "@/lib/pubsub";
@@ -62,6 +62,10 @@ function summarizeActions(actions: PlannedAction[]): PendingActionSummary[] {
 }
 
 export async function POST(req: Request) {
+  return handleChat(req);
+}
+
+async function handleChat(req: Request): Promise<Response> {
   const body = await req.json().catch(() => null);
   const parsed = chatSchema.safeParse(body);
   if (!parsed.success) {
@@ -69,18 +73,54 @@ export async function POST(req: Request) {
   }
   const { message, surface } = parsed.data;
 
-  let intent;
+  let payload: ChatResponse;
+  let status = 200;
   try {
-    intent = await parseIntent(message);
+    const result = await buildResponse(req, message, surface);
+    if ("__http" in result) return result.__http; // e.g. operator forbidden
+    payload = result.payload;
+    status = result.status ?? 200;
   } catch (e) {
     return Response.json(
-      { error: `intent parsing failed: ${e instanceof Error ? e.message : String(e)}` },
+      { error: `chat failed: ${e instanceof Error ? e.message : String(e)}` },
       { status: 502 },
     );
   }
 
+  // Persist the exchange so past conversations render in the console.
+  try {
+    await saveChatMessage({ surface, role: "user", text: message });
+    await saveChatMessage({
+      surface,
+      role: "assistant",
+      text: payload.reply,
+      data: payload as unknown as Record<string, unknown>,
+    });
+  } catch (e) {
+    console.error("chat history persistence failed:", e);
+  }
+
+  return Response.json(payload, { status });
+}
+
+type HandlerResult =
+  | { payload: ChatResponse; status?: number }
+  | { __http: Response };
+
+async function buildResponse(req: Request, message: string, surface: "dashboard" | "telegram"): Promise<HandlerResult> {
+
+  let intent;
+  try {
+    intent = await parseIntent(message);
+  } catch (e) {
+    return { __http: Response.json(
+      { error: `intent parsing failed: ${e instanceof Error ? e.message : String(e)}` },
+      { status: 502 },
+    ) };
+  }
+
   const mutating = intent.intent === "create_job" || intent.intent === "approve";
-  if (mutating && !isOperatorAuthorized(req)) return operatorForbidden();
+  if (mutating && !isOperatorAuthorized(req)) return { __http: operatorForbidden() };
 
   switch (intent.intent) {
     case "create_job": {
@@ -92,12 +132,12 @@ export async function POST(req: Request) {
         );
         await appendEvent(job.id, "queued", `job created via ${surface} chat for video ${videoId}`, "operator");
         await publishStage(job.id, "ingest");
-        return Response.json({
+        return { payload: {
           intent: intent.intent,
           reply: `Created job ${job.id} for video ${videoId}. Pipeline is running: ingest → transcribe → understand → draft. I'll pause at the approval gate before anything is published.`,
           jobId: job.id,
           job: toCard(job),
-        } satisfies ChatResponse);
+        } satisfies ChatResponse };
       }
       if (intent.topic && intent.topic.length >= 20) {
         const title = intent.topic.length > 60 ? `${intent.topic.slice(0, 57)}...` : intent.topic;
@@ -105,17 +145,17 @@ export async function POST(req: Request) {
         await saveIngestMeta(job.id, { videoId: "brief", title, channel: "operator", durationSec: 0 });
         await appendEvent(job.id, "understand", `concept job created via ${surface} chat`, "operator");
         await publishStage(job.id, "understand");
-        return Response.json({
+        return { payload: {
           intent: intent.intent,
           reply: `Created concept job ${job.id} from your brief. Running research + ideation + drafting — I'll pause at the approval gate before anything is published.`,
           jobId: job.id,
           job: toCard(job),
-        } satisfies ChatResponse);
+        } satisfies ChatResponse };
       }
-      return Response.json({
+      return { payload: {
         intent: intent.intent,
         reply: "Give me either a YouTube video URL or a topic to post about (a sentence or two works best).",
-      } satisfies ChatResponse);
+      } satisfies ChatResponse };
     }
 
     case "status": {
@@ -126,49 +166,49 @@ export async function POST(req: Request) {
           : job.stage === "awaiting_approval"
             ? `Job ${job.id} is waiting for your approval on ${pendingOf(job).length} action(s).`
             : `Job ${job.id} is at stage '${job.stage}' (${job.status}).`;
-        return Response.json({
+        return { payload: {
           intent: intent.intent,
           reply,
           jobId: job.id,
           job: toCard(job),
           pendingActions: job.stage === "awaiting_approval" ? summarizeActions(pendingOf(job)) : undefined,
-        } satisfies ChatResponse);
+        } satisfies ChatResponse };
       }
       const jobs = await listJobs();
-      return Response.json({
+      return { payload: {
         intent: intent.intent,
         reply: jobs.length
           ? `${jobs.length} recent job(s), newest first:`
           : "No jobs yet. Send me a YouTube URL to create one.",
         jobs: jobs.slice(0, 5).map(toCard),
-      } satisfies ChatResponse);
+      } satisfies ChatResponse };
     }
 
     case "list_drafts": {
       if (!intent.jobId) {
         const jobs = await listJobs();
-        return Response.json({
+        return { payload: {
           intent: intent.intent,
           reply: "Which job? Recent jobs:",
           jobs: jobs.slice(0, 5).map(toCard),
-        } satisfies ChatResponse);
+        } satisfies ChatResponse };
       }
       const job = await getJob(intent.jobId);
       if (job.drafts.length === 0) {
-        return Response.json({
+        return { payload: {
           intent: intent.intent,
           reply: `Job ${job.id} has no drafts yet (stage: ${job.stage}).`,
           jobId: job.id,
           job: toCard(job),
-        } satisfies ChatResponse);
+        } satisfies ChatResponse };
       }
-      return Response.json({
+      return { payload: {
         intent: intent.intent,
         reply: `${job.drafts.length} drafted post(s) for "${job.ingestedTitle ?? job.id}":`,
         jobId: job.id,
         job: toCard(job),
         drafts: job.drafts,
-      } satisfies ChatResponse);
+      } satisfies ChatResponse };
     }
 
     case "approve": {
@@ -181,40 +221,40 @@ export async function POST(req: Request) {
         if (awaiting.length === 1) {
           job = await getJob(awaiting[0].id);
         } else if (awaiting.length === 0) {
-          return Response.json({
+          return { payload: {
             intent: intent.intent,
             reply: "No jobs are currently awaiting approval.",
             jobs: jobs.slice(0, 5).map(toCard),
-          } satisfies ChatResponse);
+          } satisfies ChatResponse };
         } else {
-          return Response.json({
+          return { payload: {
             intent: intent.intent,
             reply: `${awaiting.length} jobs are awaiting approval — which one?`,
             jobs: awaiting.map(toCard),
-          } satisfies ChatResponse);
+          } satisfies ChatResponse };
         }
       }
 
       const pending = pendingOf(job);
       if (pending.length === 0) {
-        return Response.json({
+        return { payload: {
           intent: intent.intent,
           reply: `Job ${job.id} has no pending approvals (stage: ${job.stage}).`,
           jobId: job.id,
           job: toCard(job),
-        } satisfies ChatResponse);
+        } satisfies ChatResponse };
       }
 
       // Telegram surface: approvals must come through an explicit inline-button
       // callback, so never execute directly from the parsed message.
       if (surface === "telegram") {
-        return Response.json({
+        return { payload: {
           intent: intent.intent,
           reply: `Job ${job.id} has ${pending.length} pending action(s). Confirm below:`,
           jobId: job.id,
           job: toCard(job),
           pendingActions: summarizeActions(pending),
-        } satisfies ChatResponse);
+        } satisfies ChatResponse };
       }
 
       const target = pending[0];
@@ -224,17 +264,17 @@ export async function POST(req: Request) {
         : outcome.remainingApprovals
           ? ` Approved. ${outcome.remainingApprovals} approval(s) still pending.`
           : "";
-      return Response.json({
+      return { payload: {
         intent: intent.intent,
         reply: `Approved '${target.title}' for job ${job.id}.${note}`,
         jobId: job.id,
         job: toCard(await getJob(job.id)),
         outcome,
-      } satisfies ChatResponse);
+      } satisfies ChatResponse };
     }
 
     default:
-      return Response.json({
+      return { payload: {
         intent: "unknown",
         reply:
           "I can run your Harmonia content pipeline. Try:\n" +
@@ -242,6 +282,6 @@ export async function POST(req: Request) {
           "- \"status of job <id>\" or \"status\"\n" +
           "- \"show drafts for <id>\"\n" +
           "- \"approve job <id>\" (publishing still requires this explicit approval)",
-      } satisfies ChatResponse);
+      } satisfies ChatResponse };
   }
 }

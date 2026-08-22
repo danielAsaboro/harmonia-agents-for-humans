@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, getOperatorToken, setOperatorToken } from "@/lib/clientApi";
+import { PlatformIcon } from "@/components/socialIcons";
 
 interface HealthInfo {
   ok: boolean;
@@ -263,7 +264,10 @@ function ConnectionsSection() {
             {connections.map((c) => (
               <div key={c.id} className={`flex flex-col rounded-xl bg-white p-4 dark:bg-zinc-950 ${RING[c.status]}`}>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold">{c.label}</span>
+                  <div className="flex items-center gap-2">
+                    <PlatformIcon id={c.id} />
+                    <span className="text-sm font-semibold">{c.label}</span>
+                  </div>
                   <span className={`h-2.5 w-2.5 rounded-full ${
                     c.status === "connected" ? "bg-emerald-500"
                     : c.status === "connectable" ? "bg-sky-500"

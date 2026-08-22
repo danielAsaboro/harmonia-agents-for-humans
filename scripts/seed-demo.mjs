@@ -121,6 +121,12 @@ async function wipeDemo() {
   return snap.size;
 }
 
+async function wipeChats() {
+  const snap = await db.collection("chat_messages").get();
+  await Promise.all(snap.docs.map((d) => d.ref.delete()));
+  return snap.size;
+}
+
 // ---------- dataset ----------
 async function main() {
   const removed = await wipeDemo();
@@ -292,6 +298,32 @@ async function main() {
       ] },
     );
   }
+
+  // ---------- demo chat history ----------
+  await wipeChats();
+  const chats = [
+    { at: daysAgo(2, 9, 12), surface: "dashboard", role: "user", text: "create posts about our usage-based billing launch" },
+    { at: daysAgo(2, 9, 12, 20), surface: "dashboard", role: "assistant", text: "Created concept job demo-launch from your brief. Running research + ideation + drafting — I'll pause at the approval gate before anything is published.", data: { intent: "create_job", reply: "", jobId: "demo-launch", job: { id: "demo-launch", stage: "awaiting_approval", status: "waiting_for_approval", title: "Usage-based billing launch (demo)" } } },
+    { at: daysAgo(2, 10, 2), surface: "dashboard", role: "user", text: "show drafts for demo-clips" },
+    { at: daysAgo(2, 10, 2, 15), surface: "dashboard", role: "assistant", text: '1 drafted post(s) for "How we rebuilt onboarding around time-to-value (demo)":', data: { intent: "list_drafts", reply: "", jobId: "demo-clips", drafts: [{ id: "d1", platform: "x", text: "Your signup flow is an obstacle course. Ours was too — until we treated every step as a suspect.", valid: true }] } },
+    { at: daysAgo(1, 14, 30), surface: "telegram", role: "user", text: "status" },
+    { at: daysAgo(1, 14, 30, 25), surface: "telegram", role: "assistant", text: "4 recent job(s), newest first:", data: { intent: "status", reply: "", jobs: [
+      { id: "demo-podcast", stage: "understand", status: "running" },
+      { id: "demo-launch", stage: "awaiting_approval", status: "waiting_for_approval" },
+      { id: "demo-failed", stage: "failed", status: "failed", failure: { stage: "transcribe", error: "GEMINI_API_KEY is not configured", permanent: true } },
+      { id: "demo-clips", stage: "complete", status: "complete" },
+    ] } },
+    { at: daysAgo(1, 16, 45), surface: "dashboard", role: "user", text: "approve job demo-onboarding" },
+    { at: daysAgo(1, 16, 45, 18), surface: "dashboard", role: "assistant", text: "Approved 'We deleted 11 onboarding steps…' for job demo-onboarding. Approved. Publishing dispatched (publish).", data: { intent: "approve", reply: "", jobId: "demo-onboarding", outcome: { ok: true, triggered: "publish" } } },
+    { at: daysAgo(0, 8, 55), surface: "dashboard", role: "user", text: "turn https://www.youtube.com/watch?v=jNQXAC9IVRw into clips" },
+    { at: daysAgo(0, 8, 55, 20), surface: "dashboard", role: "assistant", text: "Created job demo-clips for video jNQXAC9IVRw. Pipeline ran end to end: 2 captioned vertical clips + a stitched reel are ready in the Actions tab.", data: { intent: "create_job", reply: "", jobId: "demo-clips", job: { id: "demo-clips", stage: "complete", status: "complete", title: "How we rebuilt onboarding around time-to-value (demo)" } } },
+  ];
+  for (let i = 0; i < chats.length; i++) {
+    // guarantee strictly ascending timestamps for stable history order
+    const at = new Date(chats[i].at.getTime() + i * 41_000);
+    await db.collection("chat_messages").add({ ...chats[i], at: ts(at) });
+  }
+  console.log(`seeded ${chats.length} chat messages (dashboard + telegram history)`);
 
   console.log("seeded 5 demo jobs (2 complete w/ engagement, 1 complete w/ assets, 1 awaiting approval, 1 running, 1 failed)");
   console.log("assets written to .data/artifacts (image, clip, reel)");

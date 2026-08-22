@@ -416,7 +416,7 @@ def _run_loop() -> None:
         logger.info("  check %-20s every %ss", c["name"], c["seconds"])
     while True:
         try:
-            results = asyncio.run(run_due_checks())
+            results = run_due_checks()
             for r in results:
                 logger.info("proactive [%s]: %s", r["check"], r["summary"])
         except Exception:  # noqa: BLE001 - keep the loop alive

@@ -16,7 +16,8 @@ export async function GET(req: Request) {
 
 const putSchema = z.object({
   key: z.string().min(1),
-  lastRunAt: z.string().datetime().optional(),
+  // Worker emits ISO timestamps with a +00:00 offset.
+  lastRunAt: z.string().datetime({ offset: true }).optional(),
   data: z.record(z.string(), z.unknown()).optional(),
 });
 

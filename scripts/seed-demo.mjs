@@ -122,6 +122,11 @@ async function wipeDemo() {
   return snap.size;
 }
 
+async function wipeCollection(name) {
+  const snap = await db.collection(name).get();
+  await Promise.all(snap.docs.map((d) => d.ref.delete()));
+}
+
 async function wipeChats() {
   const snap = await db.collection("chat_messages").get();
   await Promise.all(snap.docs.map((d) => d.ref.delete()));
@@ -302,6 +307,85 @@ async function main() {
       ] },
     );
   }
+
+  // ---------- demo content items (calendar) + notifications ----------
+  await wipeCollection("content_items");
+  await wipeCollection("notifications");
+
+  const future = new Date();
+  future.setDate(future.getDate() + 2);
+  future.setHours(10, 30, 0, 0);
+  const future2 = new Date();
+  future2.setDate(future2.getDate() + 4);
+  future2.setHours(17, 0, 0, 0);
+
+  const items = [
+    {
+      id: "item-act-pub-1", jobId: "demo-onboarding", draftId: "d1",
+      text: "We deleted 11 onboarding steps and activation went from 9 days to 40 hours. Subtraction is a growth strategy.",
+      platforms: ["x"], status: "published", publishMode: "auto",
+      publishedPostId: "1800000000000001",
+      publishedUrl: "https://x.com/i/web/status/1800000000000001",
+      publishedAt: iso(daysAgo(11, 14, 30)),
+      createdAt: iso(daysAgo(12, 9)), updatedAt: iso(daysAgo(10)),
+    },
+    {
+      id: "item-launch", jobId: "demo-launch",
+      text: "Shipping today: usage-based billing for agent workloads. Pay for outcomes, not idle tokens.",
+      platforms: ["x"], status: "scheduled", publishMode: "approval",
+      scheduledFor: iso(future),
+      createdAt: iso(daysAgo(1)), updatedAt: iso(daysAgo(1)),
+    },
+    {
+      id: "item-clips-thread", jobId: "demo-clips",
+      text: "Your signup flow is an obstacle course. Ours was too — until we treated every step as a suspect. Thread on what we cut 🧵",
+      platforms: ["x"], status: "awaiting_final_review", publishMode: "approval",
+      scheduledFor: iso(new Date(Date.now() - 3600_000)),
+      createdAt: iso(daysAgo(2)), updatedAt: iso(daysAgo(1)),
+    },
+    {
+      id: "item-meme-slot", jobId: "demo-clips",
+      text: "POV: your onboarding has a step that just says \"wait\". We removed it and activation doubled.",
+      platforms: ["x"], status: "draft", publishMode: "approval",
+      createdAt: iso(daysAgo(1)), updatedAt: iso(daysAgo(1)),
+    },
+    {
+      id: "item-podcast-takeaway", jobId: "demo-podcast",
+      text: "The EU AI Act in plain terms for startups: what ships in August, what you can ignore until 2027.",
+      platforms: ["x"], status: "scheduled", publishMode: "auto",
+      scheduledFor: iso(future2),
+      createdAt: iso(daysAgo(0, 9)), updatedAt: iso(daysAgo(0, 9)),
+    },
+  ];
+  for (const it of items) {
+    await db.collection("content_items").doc(it.id).set(it);
+  }
+
+  const notifications = [
+    {
+      kind: "final_review_needed", title: "Final review needed",
+      body: '"Your signup flow is an obstacle course…" is due for x. Approve to publish.',
+      severity: "warning", refType: "content_item", refId: "item-clips-thread",
+      href: "/dashboard/calendar", createdAt: iso(daysAgo(0, 8)), readAt: null,
+    },
+    {
+      kind: "job_failed", title: "Job failed",
+      body: "Job demo-failed failed permanently at \'transcribe\': GEMINI_API_KEY is not configured",
+      severity: "critical", refType: "job", refId: "demo-failed",
+      href: "/dashboard/monitoring", createdAt: iso(daysAgo(1, 13, 21)), readAt: null,
+    },
+    {
+      kind: "learnings_ready", title: "Learnings ready",
+      body: "demo-onboarding completed — top post earned 214 likes / 41 reposts.",
+      severity: "info", refType: "job", refId: "demo-onboarding",
+      href: "/dashboard/monitoring", createdAt: iso(daysAgo(10, 16)), readAt: iso(daysAgo(9)),
+    },
+  ];
+  let nid = 0;
+  for (const n of notifications) {
+    await db.collection("notifications").doc(`demo-notif-${++nid}`).set(n);
+  }
+  console.log(`seeded ${items.length} content items + ${notifications.length} notifications`);
 
   // ---------- demo chat history ----------
   await wipeChats();

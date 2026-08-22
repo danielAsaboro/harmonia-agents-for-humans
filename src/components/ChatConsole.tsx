@@ -182,6 +182,23 @@ export default function ChatConsole() {
     }
   }, []);
 
+  // Deep-link handoff from calendar item drawer ("Open in chat").
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const q = new URLSearchParams(window.location.search);
+      const jobParam = q.get("job");
+      if (jobParam) {
+        void openJob(jobParam);
+        window.history.replaceState({}, "", window.location.pathname);
+        if (q.get("item")) {
+          setInput("Refine the post from this job — make it punchier and suggest a better posting time.");
+        }
+      }
+    }, 0);
+    return () => clearTimeout(t);
+  }, [openJob]);
+
+
   async function decide(jobId: string, actionId: string, decision: "approved" | "rejected") {
     await apiFetch(`/api/jobs/${jobId}/actions/${actionId}/decision`, {
       method: "POST",

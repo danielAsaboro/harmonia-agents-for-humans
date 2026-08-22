@@ -6,3 +6,4 @@ beautifulsoup4>=4.12
 google-cloud-firestore>=2.19
 google-cloud-pubsub>=2.21
 pydantic>=2.8
+pytest>=9

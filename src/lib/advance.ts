@@ -2,6 +2,7 @@ import {
   appendEvent,
   getJob,
   markFailed,
+  notifyPermanentFailure,
   setStage,
 } from "./firestore";
 import { publishStage } from "./pubsub";
@@ -40,4 +41,7 @@ export async function recordFailure(
     `${permanent ? "permanent failure" : "transient failure (will be retried by Pub/Sub redelivery)"}: ${error}`,
     "system",
   );
+  if (permanent) {
+    await notifyPermanentFailure(jobId, stage, error);
+  }
 }

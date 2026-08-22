@@ -1,0 +1,101 @@
+import { z } from "zod";
+import {
+  getConnection,
+  getContentItem,
+  listContentItems,
+  updateContentItem,
+} from "@/lib/firestore";
+import { isOperatorAuthorized, operatorForbidden } from "@/lib/operatorAuth";
+import { validateDraftText } from "@/lib/policy";
+
+/** All items for the calendar / trays. */
+export async function GET() {
+  return Response.json({ items: await listContentItems() });
+}
+
+const patchSchema = z.object({
+  id: z.string().min(1),
+  text: z.string().min(1).max(2000).optional(),
+  scheduledFor: z.string().datetime().nullable().optional(),
+  publishMode: z.enum(["auto", "approval"]).optional(),
+  status: z.enum(["draft", "scheduled", "cancelled"]).optional(),
+});
+
+function badRequest(error: string, detail?: unknown) {
+  return Response.json({ error, detail }, { status: 400 });
+}
+
+/**
+ * Edits, schedules, reschedules, or cancels a content item. Published items
+ * are immutable. Auto mode requires every target channel to be connected.
+ */
+export async function PATCH(req: Request) {
+  if (!isOperatorAuthorized(req)) return operatorForbidden();
+  const body = await req.json().catch(() => null);
+  const parsed = patchSchema.safeParse(body);
+  if (!parsed.success) return badRequest("invalid patch", parsed.error.flatten());
+  const { id, ...patch } = parsed.data;
+  const item = await getContentItem(id);
+  if (!item) return Response.json({ error: "item not found" }, { status: 404 });
+  if (["published", "publishing"].includes(item.status)) {
+    return Response.json({ error: "published items are immutable" }, { status: 409 });
+  }
+  const updates: Record<string, unknown> = {};
+
+  if (patch.text !== undefined && patch.text !== item.text) {
+    const check = validateDraftText(item.platforms[0] ?? "x", patch.text);
+    if (!check.valid) return badRequest(check.note);
+    updates.text = patch.text;
+    // keep an audit trail of pre-publication edits
+    updates.revisions = [...(item.revisions ?? []), { text: item.text, at: new Date().toISOString() }];
+  }
+
+  if (patch.publishMode === "auto") {
+    // Guardrail: auto-publishing requires live connections on all targets.
+    const unconnected: string[] = [];
+    for (const p of item.platforms) {
+      const conn = await getConnection(p);
+      const expired = conn?.expiresAt ? Date.parse(conn.expiresAt) < Date.now() : false;
+      if (!conn || expired || conn.mode === "manual") unconnected.push(p);
+    }
+    if (unconnected.length > 0) {
+      return Response.json(
+        {
+          error: `auto mode needs connected channels; not connected: ${unconnected.join(", ")}`,
+          degradedTo: "approval",
+        },
+        { status: 409 },
+      );
+    }
+    updates.publishMode = "auto";
+  } else if (patch.publishMode) {
+    updates.publishMode = patch.publishMode;
+  }
+
+  if (patch.scheduledFor !== undefined) {
+    if (patch.scheduledFor === null) {
+      updates.scheduledFor = undefined as unknown as string | undefined;
+      updates.status = "draft";
+    } else {
+      updates.scheduledFor = patch.scheduledFor;
+      updates.status = "scheduled";
+    }
+  }
+
+  if (patch.status === "cancelled") {
+    updates.status = "cancelled";
+    updates.scheduledFor = undefined as unknown as string | undefined;
+  } else if (patch.status === "draft" && !("scheduledFor" in updates)) {
+    updates.status = "draft";
+  } else if (patch.status === "scheduled") {
+    updates.status = "scheduled";
+    if (!updates.scheduledFor && !item.scheduledFor) {
+      return badRequest("cannot schedule without a time");
+    }
+  }
+
+  // Strip undefined values — Firestore rejects them even in merge writes.
+  const clean = Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined));
+  await updateContentItem(id, clean);
+  return Response.json({ ok: true, item: await getContentItem(id) });
+}

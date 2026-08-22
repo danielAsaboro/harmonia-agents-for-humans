@@ -45,6 +45,67 @@ const RECEIPTS = "receipts";
 const ASSETS = "assets";
 const CONFIG = "config";
 const CONNECTIONS = "connections";
+const CONTENT_ITEMS = "content_items";
+const NOTIFICATIONS = "notifications";
+
+// ---------- content items ----------
+
+export function contentItemRef(id: string) {
+  return db().collection(CONTENT_ITEMS).doc(id);
+}
+
+export async function createContentItem(item: import("./types").ContentItem): Promise<void> {
+  await contentItemRef(item.id).set(item);
+}
+
+export async function getContentItem(id: string) {
+  const snap = await contentItemRef(id).get();
+  return snap.exists ? (snap.data() as import("./types").ContentItem) : null;
+}
+
+export async function updateContentItem(
+  id: string,
+  patch: Partial<import("./types").ContentItem>,
+): Promise<void> {
+  await contentItemRef(id).set({ ...patch, updatedAt: new Date().toISOString() }, { merge: true });
+}
+
+export async function listContentItems(): Promise<import("./types").ContentItem[]> {
+  const snaps = await db()
+    .collection(CONTENT_ITEMS)
+    .orderBy("createdAt", "desc")
+    .limit(200)
+    .get();
+  return snaps.docs.map((d) => d.data() as import("./types").ContentItem);
+}
+
+// ---------- notifications ----------
+
+export async function createNotification(n: import("./types").AppNotification): Promise<void> {
+  const id = n.id ?? newId();
+  await db()
+    .collection(NOTIFICATIONS)
+    .doc(id)
+    .set({ ...n, id, createdAt: n.createdAt || new Date().toISOString() });
+}
+
+export async function listNotifications(limit = 100): Promise<import("./types").AppNotification[]> {
+  const snaps = await db()
+    .collection(NOTIFICATIONS)
+    .orderBy("createdAt", "desc")
+    .limit(limit)
+    .get();
+  return snaps.docs.map((d) => d.data() as import("./types").AppNotification);
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  await db().collection(NOTIFICATIONS).doc(id).update({ readAt: new Date().toISOString() });
+}
+
+export async function markAllNotificationsRead(): Promise<void> {
+  const snaps = await db().collection(NOTIFICATIONS).where("readAt", "==", null).get();
+  await Promise.all(snaps.docs.map((d) => d.ref.update({ readAt: new Date().toISOString() })));
+}
 
 export interface ConnectionDoc {
   platform: string;
@@ -503,6 +564,24 @@ export async function markFailed(
       at: new Date().toISOString(),
     },
     updatedAt: new Date().toISOString(),
+  });
+}
+
+/** Critical notification for permanent pipeline failures (fire-and-forget). */
+export async function notifyPermanentFailure(
+  jobId: string,
+  stage: Stage,
+  error: string,
+): Promise<void> {
+  await createNotification({
+    kind: "job_failed",
+    title: "Job failed",
+    body: `Job ${jobId.slice(0, 12)} failed permanently at '${stage}': ${error.slice(0, 160)}`,
+    severity: "critical",
+    refType: "job",
+    refId: jobId,
+    href: "/dashboard/monitoring",
+    createdAt: new Date().toISOString(),
   });
 }
 

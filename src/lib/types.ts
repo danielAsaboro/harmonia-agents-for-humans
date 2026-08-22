@@ -181,3 +181,52 @@ export interface Learnings {
   notes: string[];
   generatedAt: string;
 }
+
+export type ContentItemStatus =
+  | "draft"
+  | "scheduled"
+  | "awaiting_final_review"
+  | "publishing"
+  | "published"
+  | "failed"
+  | "cancelled";
+
+export type PublishMode = "auto" | "approval";
+
+export interface ContentItemRevision {
+  text: string;
+  at: string;
+}
+
+export interface ContentItem {
+  id: string;
+  jobId: string;
+  draftId?: string;
+  text: string;
+  platforms: string[];
+  status: ContentItemStatus;
+  publishMode: PublishMode;
+  scheduledFor?: string;
+  revisions?: ContentItemRevision[];
+  publishedPostId?: string;
+  publishedUrl?: string;
+  publishedAt?: string;
+  failureReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type NotificationSeverity = "info" | "warning" | "critical";
+
+export interface AppNotification {
+  id?: string;
+  kind: string;
+  title: string;
+  body: string;
+  severity: NotificationSeverity;
+  refType?: "job" | "content_item" | "connection";
+  refId?: string;
+  href?: string;
+  readAt?: string | null;
+  createdAt: string;
+}

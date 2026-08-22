@@ -1,36 +1,33 @@
-import { listJobs, listReceipts } from "@/lib/firestore";
+import { listContentItems, listJobs } from "@/lib/firestore";
+import type { ContentItem } from "@/lib/types";
 
 export interface CalendarEvent {
   date: string; // YYYY-MM-DD
-  kind: "job_created" | "published";
+  kind: "job_created";
   jobId: string;
   label: string;
 }
 
-/** Content calendar feed: job creation dates + real published-post dates. */
+export interface CalendarItem extends Omit<ContentItem, "updatedAt"> {
+  updatedAt: string;
+}
+
+/**
+ * Calendar feed: content items are the planning surface (draft → scheduled →
+ * review → published); job-created markers give creation context.
+ */
 export async function GET() {
-  const jobs = await listJobs(100);
-  const events: CalendarEvent[] = [];
+  const [jobs, items] = await Promise.all([listJobs(100), listContentItems()]);
+  const events: CalendarEvent[] = jobs.map((job) => ({
+    date: (job.createdAt ?? "").slice(0, 10),
+    kind: "job_created" as const,
+    jobId: job.id,
+    label: job.ingestedTitle ?? job.config.youtubeUrl ?? job.config.brief ?? "content job",
+  }));
 
-  for (const job of jobs) {
-    events.push({
-      date: (job.createdAt ?? "").slice(0, 10),
-      kind: "job_created",
-      jobId: job.id,
-      label: job.ingestedTitle ?? job.config.youtubeUrl ?? job.config.brief ?? "content job",
-    });
-    const receipts = await listReceipts(job.id);
-    for (const r of receipts) {
-      if (r.outcome === "applied" && r.actionType === "publish_x_post") {
-        events.push({
-          date: r.performedAt.slice(0, 10),
-          kind: "published",
-          jobId: job.id,
-          label: `Published post (${job.ingestedTitle ?? job.id.slice(0, 8)})`,
-        });
-      }
-    }
-  }
-
-  return Response.json({ events: events.filter((e) => e.date && e.date !== "") });
+  return Response.json({
+    events,
+    items,
+    jobTitles: Object.fromEntries(jobs.map((j) => [j.id, j.ingestedTitle ?? j.config.brief?.slice(0, 60) ?? j.id])),
+  });
 }

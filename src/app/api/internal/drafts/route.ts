@@ -1,6 +1,8 @@
 import { draftsSubmissionSchema } from "@/lib/contracts";
 import {
   appendEvent,
+  createContentItem,
+  createNotification,
   getJob,
   saveActions,
   saveDrafts,
@@ -39,9 +41,37 @@ export async function POST(req: Request) {
     const autoRun = actionable.filter((a) => !a.requiresApproval);
     const invalid = drafts.filter((d) => !d.valid);
 
+    // Every X-post action becomes a calendar content item (idempotent by id).
+    for (const a of actionable) {
+      if (a.type !== "publish_x_post") continue;
+      const text = String((a.payload as { text?: unknown }).text ?? "");
+      if (!text) continue;
+      await createContentItem({
+        id: `item-${a.id}`,
+        jobId: body.jobId,
+        draftId: drafts.find((d) => d.text === text)?.id,
+        text,
+        platforms: ["x"],
+        status: "draft",
+        publishMode: "approval",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
     if (needsApproval.length > 0) {
       await setStage(body.jobId, "awaiting_approval", "waiting_for_approval");
       await appendEvent(body.jobId, "draft", `${drafts.length} draft(s); ${autoRun.length} auto action(s), ${needsApproval.length} awaiting approval${invalid.length ? `, ${invalid.length} rejected by limits` : ""}`, "agent");
+      await createNotification({
+        kind: "approval_needed",
+        title: "Approval needed",
+        body: `Job ${job.ingestedTitle ?? body.jobId.slice(0, 8)} has ${needsApproval.length} action(s) waiting for your decision.`,
+        severity: "warning",
+        refType: "job",
+        refId: body.jobId,
+        href: "/dashboard",
+        createdAt: new Date().toISOString(),
+      });
       return Response.json({ ok: true, awaitingApproval: true });
     }
     if (autoRun.length > 0) {

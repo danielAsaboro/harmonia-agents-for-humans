@@ -36,7 +36,14 @@ def _start_telegram_if_configured() -> None:
         logger.exception("telegram bot failed to start")
 
 
+def _start_scheduler() -> None:
+    from . import scheduler
+
+    scheduler.start_background()
+
+
 _start_telegram_if_configured()
+_start_scheduler()
 
 
 @app.get("/healthz")

@@ -1,13 +1,13 @@
 import { Firestore, FieldValue } from "@google-cloud/firestore";
 import type {
   EvidencePacket,
-  Finding,
   Job,
   JobConfig,
-  Observation,
   PlannedAction,
   Receipt,
-  RubricItem,
+  PostDraft,
+  Moment,
+  Angle,
   Stage,
   StageEvent,
   VerificationResult,
@@ -24,11 +24,15 @@ function db(): Firestore {
 }
 
 interface JobDoc extends Omit<Job, "id"> {
-  rubric?: RubricItem[];
-  findings?: Finding[];
+  transcriptSegments?: Array<{ id: string; startSec: number; endSec: number; text: string }>;
+  transcriptLanguage?: string;
+  moments?: Moment[];
+  angles?: Angle[];
+  summary?: string;
+  drafts?: PostDraft[];
+  contentPack?: { markdown: string; digest: string; generatedAt: string };
   actions?: PlannedAction[];
   verifications?: VerificationResult[];
-  observations?: Observation[];
   packet?: EvidencePacket;
 }
 
@@ -41,11 +45,15 @@ function jobRef(jobId: string) {
 }
 
 function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
-  rubric: RubricItem[];
-  findings: Finding[];
+  transcriptSegments: Array<{ id: string; startSec: number; endSec: number; text: string }>;
+  transcriptLanguage?: string;
+  moments: Moment[];
+  angles: Angle[];
+  summary?: string;
+  drafts: PostDraft[];
+  contentPack?: { markdown: string; digest: string; generatedAt: string };
   actions: PlannedAction[];
   verifications: VerificationResult[];
-  observations: Observation[];
   packet?: EvidencePacket;
 } {
   if (!snap.exists) throw new Error(`job not found: ${snap.id}`);
@@ -58,11 +66,15 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
     stage: data.stage,
     config: data.config,
     failure: data.failure,
-    rubric: data.rubric ?? [],
-    findings: data.findings ?? [],
+    transcriptSegments: data.transcriptSegments ?? [],
+    transcriptLanguage: data.transcriptLanguage,
+    moments: data.moments ?? [],
+    angles: data.angles ?? [],
+    summary: data.summary,
+    drafts: data.drafts ?? [],
+    contentPack: data.contentPack,
     actions: data.actions ?? [],
     verifications: data.verifications ?? [],
-    observations: data.observations ?? [],
     packet: data.packet,
   };
 }
@@ -74,9 +86,6 @@ export async function createJob(
   const id = newId();
   const now = new Date().toISOString();
   const storedConfig: JobConfig = { ...config };
-  if (storedConfig.cloudRunUrl === undefined) {
-    delete storedConfig.cloudRunUrl;
-  }
   const doc: JobDoc = {
     createdAt: now,
     updatedAt: now,
@@ -91,16 +100,6 @@ export async function createJob(
 export async function getJob(jobId: string) {
   const snap = await jobRef(jobId).get();
   return requireJobDoc(snap);
-}
-
-export async function saveObservations(
-  jobId: string,
-  observations: Observation[],
-): Promise<void> {
-  await jobRef(jobId).update({
-    observations,
-    updatedAt: new Date().toISOString(),
-  });
 }
 
 export async function listJobs(limit = 25): Promise<Job[]> {
@@ -124,16 +123,46 @@ export async function setStage(
   });
 }
 
-export async function saveRubric(jobId: string, items: RubricItem[]) {
+export async function saveTranscript(
+  jobId: string,
+  segments: Array<{ id: string; startSec: number; endSec: number; text: string }>,
+  language: string,
+) {
   await jobRef(jobId).update({
-    rubric: items,
+    transcriptSegments: segments,
+    transcriptLanguage: language,
     updatedAt: new Date().toISOString(),
   });
 }
 
-export async function saveFindings(jobId: string, findings: Finding[]) {
+export async function saveAnalysis(
+  jobId: string,
+  moments: Moment[],
+  angles: Angle[],
+  summary: string,
+) {
   await jobRef(jobId).update({
-    findings,
+    moments,
+    angles,
+    summary,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function saveDrafts(jobId: string, drafts: PostDraft[]) {
+  await jobRef(jobId).update({
+    drafts,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function saveContentPack(
+  jobId: string,
+  markdown: string,
+  digest: string,
+) {
+  await jobRef(jobId).update({
+    contentPack: { markdown, digest, generatedAt: new Date().toISOString() },
     updatedAt: new Date().toISOString(),
   });
 }

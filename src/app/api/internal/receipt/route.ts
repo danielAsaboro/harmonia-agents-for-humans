@@ -16,9 +16,9 @@ export async function POST(req: Request) {
   if (!isInternalAuthorized(req)) return unauthorized();
   return internalRoute(req, receiptSubmissionSchema, async (body) => {
     const job = await getJob(body.jobId);
-    if (job.stage !== "act") {
+    if (job.stage !== "publish") {
       return Response.json(
-        { error: `job stage is '${job.stage}', receipts accepted at 'act'` },
+        { error: `job stage is '${job.stage}', receipts accepted at 'publish'` },
         { status: 409 },
       );
     }
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
         );
         await appendEvent(
           body.jobId,
-          "act",
+          "publish",
           `duplicate receipt suppressed for '${action.title}' (state reconciled)`,
           "system",
         );
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
     }
     await appendEvent(
       body.jobId,
-      "act",
+      "publish",
       `${body.outcome}: ${action?.title ?? body.actionId}`,
       "agent",
     );

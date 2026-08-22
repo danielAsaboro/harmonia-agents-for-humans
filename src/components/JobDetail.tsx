@@ -4,14 +4,13 @@ import { useState } from "react";
 import PipelineStepper from "@/components/PipelineStepper";
 import Timeline from "@/components/Timeline";
 import type { JobFull, TimelineEvent } from "@/components/Dashboard";
-import { evidenceJson, evidenceMarkdown, download } from "@/lib/evidenceExport";
 import type { PlannedAction, Receipt } from "@/lib/types";
 
-type Tab = "overview" | "evidence" | "actions" | "receipts" | "packet";
+type Tab = "overview" | "drafts" | "actions" | "receipts" | "packet";
 
 const TABS: Array<{ key: Tab; label: string }> = [
-  { key: "overview", label: "Rubric & findings" },
-  { key: "evidence", label: "Evidence" },
+  { key: "overview", label: "Analysis" },
+  { key: "drafts", label: "Drafts" },
   { key: "actions", label: "Actions" },
   { key: "receipts", label: "Receipts" },
   { key: "packet", label: "Packet" },
@@ -34,7 +33,7 @@ function Chip({ children, tone = "zinc" }: { children: React.ReactNode; tone?: s
 
 function ActionPreview({ action }: { action: PlannedAction }) {
   const p = action.payload as Record<string, unknown>;
-  if (action.type === "github_upsert_file") {
+  if (action.type === "publish_x_post") {
     const content = String(p.content ?? "");
     const truncated = content.length > 4000;
     return (
@@ -67,6 +66,16 @@ function ActionPreview({ action }: { action: PlannedAction }) {
       </details>
     </div>
   );
+}
+
+function download(filename: string, content: string, mime = "text/plain") {
+  const blob = new Blob([content], { type: `${mime};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export default function JobDetail({
@@ -110,7 +119,7 @@ export default function JobDetail({
       <section className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-mono text-sm font-semibold">
-            {job.config.githubOwner}/{job.config.githubRepo}
+            {job.config.youtubeUrl.replace(/^https?:\/\//, "").slice(0, 60)}
           </h2>
           <div className="flex items-center gap-2">
             {job.status === "complete" && <Chip tone="green">complete</Chip>}
@@ -219,127 +228,72 @@ export default function JobDetail({
         <div className="p-4">
           {tab === "overview" && (
             <>
-              {job.rubric.length === 0 ? (
-                <Empty text="Rubric appears after the normalize stage completes." />
-              ) : (
-                <table className="w-full text-left text-xs">
-                  <thead className="text-zinc-500 dark:text-zinc-400">
-                    <tr>
-                      <th className="pb-2 pr-2 font-medium">Requirement</th>
-                      <th className="pb-2 pr-2 font-medium">Finding</th>
-                      <th className="pb-2 pr-2 font-medium">Verified</th>
-                      <th className="pb-2 font-medium">Artifact</th>
-                    </tr>
-                  </thead>
-                  <tbody className="align-top">
-                    {job.rubric.map((item) => {
-                      const finding = job.findings.find((f) => f.rubricItemId === item.id);
-                      const v = verificationByItem.get(item.id);
-                      const links: Array<{ url: string }> = [...(finding?.evidence ?? [])];
-                      if (v?.evidence.url && !links.some((l) => l.url === v.evidence.url)) links.push({ url: v.evidence.url });
-                      return (
-                        <tr key={item.id} className="border-t border-zinc-100 dark:border-zinc-800">
-                          <td className="py-2.5 pr-3">
-                            <Chip tone={item.status === "verified" ? "green" : item.status === "pending" ? "zinc" : "red"}>
-                              {item.status}
-                            </Chip>
-                            <span className="mt-1 block leading-5">{String(item.requirement)}</span>
-                            <span className="text-[10px] uppercase tracking-wide text-zinc-400">{item.category}</span>
-                          </td>
-                          <td className="py-2.5 pr-3 text-zinc-600 dark:text-zinc-400">
-                            {finding ? (
-                              <>
-                                <span
-                                  className={`font-semibold ${
-                                    finding.status === "satisfied"
-                                      ? "text-emerald-600 dark:text-emerald-400"
-                                      : finding.status === "missing"
-                                        ? "text-red-600 dark:text-red-400"
-                                        : ""
-                                  }`}
-                                >
-                                  {finding.status}
-                                </span>
-                                <span className="mt-0.5 block leading-5">{finding.rationale}</span>
-                              </>
-                            ) : (
-                              <span className="text-zinc-400">—</span>
-                            )}
-                          </td>
-                          <td className="py-2.5 pr-3">
-                            {v ? (
-                              <span title={v.note} className={v.verified ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}>
-                                {v.verified ? "confirmed" : "not confirmed"}
-                                <span className="block font-mono text-[10px] text-zinc-400">{v.method}</span>
-                              </span>
-                            ) : (
-                              <span className="text-zinc-400">—</span>
-                            )}
-                          </td>
-                          <td className="py-2.5">
-                            {links.length > 0 ? (
-                              <ul className="space-y-1">
-                                {links.slice(0, 3).map((l, i) => (
-                                  <li key={i}>
-                                    <a
-                                      href={l.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="break-all font-mono text-[11px] text-blue-600 underline dark:text-blue-400"
-                                    >
-                                      {l.url.replace(/^https?:\/\/(api\.)?/, "").slice(0, 48)}
-                                    </a>
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <span className="text-zinc-400">—</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              {job.transcriptSegments.length > 0 && (
+                <details open>
+                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-zinc-500">Transcript ({job.transcriptSegments.length})</summary>
+                  <ol className="mt-2 max-h-56 space-y-1 overflow-y-auto text-xs leading-5">
+                    {job.transcriptSegments.map((seg) => (
+                      <li key={seg.id}>
+                        <span className="mr-2 font-mono text-[10px] text-zinc-400">{Math.floor(seg.startSec / 60)}:{String(Math.round(seg.startSec % 60)).padStart(2, "0")}</span>
+                        {seg.text}
+                      </li>
+                    ))}
+                  </ol>
+                </details>
+              )}
+              {job.moments.length > 0 && (
+                <div className="mt-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Clip moments</h3>
+                  <ul className="mt-2 space-y-2">
+                    {job.moments.map((m) => (
+                      <li key={m.id} className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-medium">{m.title}</span>
+                          <span className="font-mono text-[10px] text-zinc-400">{Math.floor(m.startSec / 60)}:{String(Math.round(m.startSec % 60)).padStart(2, "0")}–{Math.floor(m.endSec / 60)}:{String(Math.round(m.endSec % 60)).padStart(2, "0")}</span>
+                        </div>
+                        <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{m.hook}</p>
+                        <p className="mt-1 border-l-2 border-zinc-300 pl-2 text-xs italic text-zinc-500 dark:border-zinc-600">“{m.quote}”</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {job.angles.length > 0 && (
+                <div className="mt-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Trend & meme angles</h3>
+                  <ul className="mt-2 space-y-1.5">
+                    {job.angles.map((a) => (
+                      <li key={a.id} className="text-xs leading-5">
+                        <span className={`mr-2 rounded px-1.5 py-px text-[10px] font-semibold uppercase ${a.kind === "trend" ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" : "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900 dark:text-fuchsia-200"}`}>{a.kind}</span>
+                        <span className="font-medium">{a.title}</span> — <span className="text-zinc-600 dark:text-zinc-400">{a.rationale}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {job.moments.length === 0 && job.angles.length === 0 && job.transcriptSegments.length === 0 && (
+                <Empty text="Transcript and analysis appear after the transcribe and understand stages." />
               )}
             </>
           )}
 
-          {tab === "evidence" && (
+          {tab === "drafts" && (
             <>
-              {(job.observations?.length ?? 0) === 0 ? (
-                <Empty text="Raw evidence appears here after the collect stage." />
+              {(job.drafts?.length ?? 0) === 0 ? (
+                <Empty text="Platform drafts appear after the draft stage." />
               ) : (
-                <ul className="grid gap-2 sm:grid-cols-2">
-                  {(job.observations ?? []).map((o, i) => (
-                    <li key={i} className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
-                      <div className="flex items-center justify-between gap-2">
-                        <Chip tone={o.ok ? "green" : "red"}>{o.kind.replace("_", " ")}</Chip>
-                        {o.httpStatus != null && <span className="font-mono text-[10px] text-zinc-400">HTTP {o.httpStatus}</span>}
+                <ul className="flex flex-col gap-2">
+                  {job.drafts.map((d) => (
+                    <li key={d.id} className={`rounded-lg border p-3 dark:border-zinc-800 ${d.valid ? "border-emerald-200 dark:border-emerald-900" : "border-red-200 dark:border-red-900"}`}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Chip tone={d.valid ? "green" : "red"}>{d.platform.toUpperCase()}</Chip>
+                        <span className="font-mono text-[10px] text-zinc-400">{d.validationNote ?? `${d.text.length} chars`}</span>
                       </div>
-                      <p className="mt-1 break-all font-mono text-[11px] font-medium">{o.target}</p>
-                      <a href={o.url} target="_blank" rel="noopener noreferrer" className="break-all font-mono text-[10px] text-blue-600 underline dark:text-blue-400">
-                        {o.url.replace(/^https?:\/\/(api\.)?/, "").slice(0, 52)}
-                      </a>
-                      {o.digest && (
-                        <p className="mt-1 truncate font-mono text-[10px] text-zinc-400" title={o.digest ?? ""}>
-                          sha256 {o.digest.slice(0, 20)}…
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{d.text}</p>
+                      {d.momentId && (
+                        <p className="mt-1 font-mono text-[10px] text-zinc-400">
+                          from moment: {job.moments.find((m) => m.id === d.momentId)?.title ?? d.momentId}
                         </p>
-                      )}
-                      {(o.excerpt || Object.keys(o.detail).length > 0) && (
-                        <details className="mt-1">
-                          <summary className="cursor-pointer select-none text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
-                            raw data
-                          </summary>
-                          {o.excerpt && (
-                            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-50 p-2 text-[10px] leading-4 dark:bg-zinc-950">
-                              {o.excerpt.slice(0, 1200)}
-                            </pre>
-                          )}
-                          <pre className="mt-1 max-h-40 overflow-auto rounded-md bg-zinc-50 p-2 text-[10px] leading-4 dark:bg-zinc-950">
-                            {JSON.stringify(o.detail, null, 2).slice(0, 1200)}
-                          </pre>
-                        </details>
                       )}
                     </li>
                   ))}
@@ -415,12 +369,18 @@ export default function JobDetail({
 
           {tab === "packet" && (
             <>
+              {job.contentPack && (
+                <details className="mb-4">
+                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-zinc-500">Content pack (sha256 {job.contentPack.digest.slice(0, 12)}…)</summary>
+                  <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-zinc-200 bg-white p-3 text-[11px] leading-5 dark:border-zinc-700 dark:bg-zinc-950">{job.contentPack.markdown}</pre>
+                </details>
+              )}
               {!job.packet ? (
                 <Empty text="The evidence packet is assembled after independent verification completes." />
               ) : (
                 <div className="flex flex-col gap-4">
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <Stat label="requirements" value={String(job.rubric.length)} />
+                    <Stat label="clip moments" value={String(job.moments.length)} />
                     <Stat label="verifications passed" value={`${verifiedCount}/${(job.verifications ?? []).length}`} tone="green" />
                     <Stat label="audit receipts" value={String(receipts.length)} tone="blue" />
                     <Stat
@@ -438,16 +398,10 @@ export default function JobDetail({
                   )}
                   <div className="flex gap-2">
                     <button
-                      onClick={() => download(`closefold-evidence-${job.id.slice(0, 8)}.md`, evidenceMarkdown(job), "text/markdown")}
+                      onClick={() => download(`harmonia-pack-${job.id.slice(0, 8)}.md`, job.contentPack?.markdown ?? "No content pack generated yet.", "text/markdown")}
                       className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-white dark:text-black dark:hover:bg-zinc-300"
                     >
                       Download packet (.md)
-                    </button>
-                    <button
-                      onClick={() => download(`closefold-evidence-${job.id.slice(0, 8)}.json`, evidenceJson(job), "application/json")}
-                      className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium transition-colors hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
-                    >
-                      Download raw JSON
                     </button>
                   </div>
                 </div>

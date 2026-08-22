@@ -1,64 +1,57 @@
 import type {
   EvidencePacket,
-  Finding,
   PlannedAction,
+  PostDraft,
   Receipt,
-  RubricItem,
   VerificationResult,
 } from "./types";
 
 export interface PacketInputs {
   jobId: string;
   config: EvidencePacket["config"];
-  rubric: RubricItem[];
-  findings: Finding[];
+  drafts: PostDraft[];
   actions: PlannedAction[];
   receipts: Receipt[];
   verifications: VerificationResult[];
 }
 
 /**
- * Assembles the final evidence packet. An item is "verified" only when a
- * verification result with verified=true exists for it; everything else is
- * listed as an unresolved gap. Model assertions never satisfy this rule.
+ * Assembles the final content evidence packet. A publish is "verified" only
+ * when an independent re-fetch confirmed it; everything else stays listed as
+ * an unresolved gap.
  */
 export function assemblePacket(inputs: PacketInputs): EvidencePacket {
-  const verificationByItem = new Map<string, VerificationResult>();
-  for (const v of inputs.verifications) {
-    if (!verificationByItem.has(v.rubricItemId) || v.verified) {
-      verificationByItem.set(v.rubricItemId, v);
-    }
-  }
-
   const unresolved: string[] = [];
-  for (const item of inputs.rubric) {
-    const v = verificationByItem.get(item.id);
-    if (!v || !v.verified) {
-      const f = inputs.findings.find((x) => x.rubricItemId === item.id);
-      unresolved.push(
-        `${item.requirement} (${f?.status ?? "no finding"}; ${v ? `verification failed via ${v.method}` : "never verified"})`,
-      );
-    } else if (item.status !== "verified") {
-      item.status = "verified";
-    }
-  }
 
   for (const action of inputs.actions) {
     if (action.approvalState === "pending") {
       unresolved.push(`approval still pending: ${action.title}`);
     }
     if (action.approvalState === "rejected" && action.state === "skipped") {
-      unresolved.push(`operator rejected corrective action: ${action.title}`);
+      unresolved.push(`operator rejected action: ${action.title}`);
     }
+    if (action.state === "failed") {
+      unresolved.push(`action failed: ${action.title}`);
+    }
+  }
+
+  for (const v of inputs.verifications) {
+    if (!v.verified) unresolved.push(`not verified: ${v.target} (${v.note ?? v.method})`);
+  }
+
+  for (const d of inputs.drafts) {
+    if (!d.valid) unresolved.push(`draft rejected by platform limits (${d.platform}): ${d.validationNote}`);
+  }
+
+  if (inputs.receipts.length === 0 && inputs.actions.length > 0) {
+    unresolved.push("no publish receipts recorded");
   }
 
   return {
     jobId: inputs.jobId,
     generatedAt: new Date().toISOString(),
     config: inputs.config,
-    rubric: inputs.rubric,
-    findings: inputs.findings,
-    receipts: inputs.receipts,
+    drafts: inputs.drafts,
     verifications: inputs.verifications,
     unresolved,
   };

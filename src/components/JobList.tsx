@@ -60,7 +60,7 @@ export default function JobList({
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate font-mono text-xs font-medium">
-                    {job.config.githubOwner}/{job.config.githubRepo}
+                    {job.config.youtubeUrl.replace(/^https?:\/\//, "").slice(0, 34)}
                   </span>
                   <span className={`h-2 w-2 shrink-0 rounded-full ${statusColor(job.status)}`} />
                 </div>

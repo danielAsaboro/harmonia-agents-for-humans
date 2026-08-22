@@ -57,10 +57,10 @@ export async function POST(
   }
 
   if (executable.length > 0) {
-    await setStage(id, "act");
-    await appendEvent(id, "awaiting_approval", `${executable.length} approved action(s) dispatched`, "system");
-    await publishStage(id, "act");
-    return Response.json({ ok: true, triggered: "act" });
+    await setStage(id, "publish");
+    await appendEvent(id, "draft", `${executable.length} approved action(s) dispatched to publishing`, "system");
+    await publishStage(id, "publish");
+    return Response.json({ ok: true, triggered: "publish" });
   }
 
   await setStage(id, "verify");

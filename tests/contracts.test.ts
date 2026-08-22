@@ -1,88 +1,38 @@
 import { describe, expect, it } from "vitest";
 import {
-  findingsSubmissionSchema,
+  draftsSubmissionSchema,
   ingestSubmissionSchema,
-  observationsSubmissionSchema,
   receiptSubmissionSchema,
-  verificationSubmissionSchema,
 } from "@/lib/contracts";
 
-describe("internal contract nullability (Python workers serialize None)", () => {
-  const baseObservation = {
-    kind: "github_file",
-    target: "README.md",
-    url: "https://api.github.com/repos/o/r/contents/README.md",
-    ok: false,
-  };
+describe("internal contracts", () => {
+  it("accepts a valid ingest submission", () => {
+    const parsed = ingestSubmissionSchema.safeParse({
+      jobId: "j1", stage: "ingest", videoId: "dQw4w9WgXcQ", title: "t",
+      channel: "c", durationSec: 90, mediaBytes: 1024, mediaDigest: "a".repeat(32),
+    });
+    expect(parsed.success).toBe(true);
+  });
 
-  it("accepts null httpStatus/digest/excerpt", () => {
-    const parsed = observationsSubmissionSchema.safeParse({
-      jobId: "j1",
-      stage: "collect",
-      observations: [
-        { ...baseObservation, httpStatus: null, digest: null, excerpt: null, detail: {} },
+  it("validates drafts with proposed publish actions", () => {
+    const parsed = draftsSubmissionSchema.safeParse({
+      jobId: "j1", stage: "draft",
+      drafts: [{ id: "d1", platform: "x", text: "hello world" }],
+      proposedActions: [
+        { id: "a1", type: "publish_x_post", title: "post", description: "d",
+          payload: { type: "publish_x_post", text: "hello world" } },
+        { id: "a2", type: "export_content_pack", title: "pack", description: "d",
+          payload: { type: "export_content_pack" } },
       ],
     });
     expect(parsed.success).toBe(true);
   });
 
-  it("rejects malformed observation urls", () => {
-    const parsed = observationsSubmissionSchema.safeParse({
-      jobId: "j1",
-      stage: "collect",
-      observations: [{ ...baseObservation, url: "not-a-url", detail: {} }],
+  it("rejects receipts for unknown action types", () => {
+    const parsed = receiptSubmissionSchema.safeParse({
+      jobId: "j1", actionId: "a1", actionType: "github_upsert_file",
+      idempotencyKey: "k".repeat(32), outcome: "applied", detail: {},
     });
     expect(parsed.success).toBe(false);
-  });
-
-  it("accepts a receipt whose artifact is explicitly null", () => {
-    const parsed = receiptSubmissionSchema.safeParse({
-      jobId: "j1",
-      actionId: "a1",
-      actionType: "github_create_issue",
-      idempotencyKey: "k".repeat(64),
-      outcome: "failed",
-      artifact: null,
-      detail: {},
-    });
-    expect(parsed.success).toBe(true);
-  });
-
-  it("keeps verification evidence digest nullable", () => {
-    const parsed = verificationSubmissionSchema.safeParse({
-      jobId: "j1",
-      results: [
-        {
-          rubricItemId: "r1",
-          verified: false,
-          method: "mechanical:test",
-          evidence: {
-            kind: "http_probe",
-            url: "https://svc.example.run.app/",
-            fetchedAt: new Date().toISOString(),
-            digest: null,
-          },
-        },
-      ],
-    });
-    expect(parsed.success).toBe(true);
-  });
-
-  it("still enforces required strings on ingest submissions", () => {
-    const parsed = ingestSubmissionSchema.safeParse({
-      jobId: "j1",
-      stage: "ingest",
-      sourceUrl: "https://x.devpost.com/",
-      httpStatus: 200,
-      bytes: 10,
-      digest: "a".repeat(20),
-    });
-    expect(parsed.success).toBe(true);
-    const bad = findingsSubmissionSchema.safeParse({
-      jobId: "j1",
-      stage: "evaluate",
-      findings: [{ rubricItemId: "", status: "satisfied", rationale: "r", evidence: [] }],
-    });
-    expect(bad.success).toBe(false);
   });
 });

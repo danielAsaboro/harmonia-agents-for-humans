@@ -26,33 +26,20 @@ export async function POST(req: Request) {
       checkedAt: new Date().toISOString(),
     }));
     await saveVerifications(body.jobId, results);
-
     const verifiedCount = results.filter((r) => r.verified).length;
-    await appendEvent(
-      body.jobId,
-      "verify",
-      `verification re-fetched artifacts: ${verifiedCount}/${results.length} confirmed`,
-      "agent",
-    );
+    await appendEvent(body.jobId, "verify", `verification re-checked artifacts: ${verifiedCount}/${results.length} confirmed`, "agent");
 
-    // Packet assembly is deterministic web-side logic; no model involved.
     const receipts = await listReceipts(body.jobId);
     const packet = assemblePacket({
       jobId: body.jobId,
       config: job.config,
-      rubric: job.rubric,
-      findings: job.findings,
+      drafts: job.drafts,
       actions: job.actions,
       receipts,
       verifications: results,
     });
     await savePacket(body.jobId, packet);
-    await appendEvent(
-      body.jobId,
-      "packet",
-      `evidence packet assembled: ${packet.rubric.length - packet.unresolved.length} verified, ${packet.unresolved.length} unresolved gap(s)`,
-      "system",
-    );
+    await appendEvent(body.jobId, "packet", `evidence packet assembled: ${verifiedCount} verified, ${packet.unresolved.length} unresolved gap(s)`, "system");
     return Response.json({ ok: true, unresolved: packet.unresolved.length });
   });
 }

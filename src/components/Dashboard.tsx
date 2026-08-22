@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { EvidenceRef, Finding, Observation, PlannedAction, Receipt, RubricItem, Stage } from "@/lib/types";
+import type { EvidenceRef, Angle, Moment, PlannedAction, PostDraft, Receipt, Stage } from "@/lib/types";
 import NewJobForm from "@/components/NewJobForm";
 import JobList from "@/components/JobList";
 import JobDetail from "@/components/JobDetail";
@@ -13,15 +13,17 @@ export interface JobSummary {
   stage: Stage;
   createdAt: string;
   updatedAt: string;
-  config: { devpostUrl: string; githubRepo: string; githubOwner: string; cloudRunUrl?: string };
+  config: { youtubeUrl: string; platforms: string[] };
   failure?: { stage: Stage; error: string; permanent: boolean; at: string };
 }
 
 export interface JobFull extends JobSummary {
-  rubric: RubricItem[];
-  findings: Finding[];
+  transcriptSegments: Array<{ id: string; startSec: number; endSec: number; text: string }>;
+  moments: Moment[];
+  angles: Angle[];
+  drafts: PostDraft[];
+  contentPack?: { markdown: string; digest: string; generatedAt: string };
   actions: PlannedAction[];
-  observations?: Observation[];
   verifications?: Array<{
     rubricItemId: string;
     verified: boolean;

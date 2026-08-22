@@ -1,14 +1,27 @@
 import { createJob, appendEvent, listJobs } from "@/lib/firestore";
+import { saveTranscript, saveAnalysis, saveDrafts, saveContentPack } from "@/lib/firestore";
 import { isOperatorAuthorized, operatorForbidden } from "@/lib/operatorAuth";
 import { publishStage } from "@/lib/pubsub";
 import { z } from "zod";
 
+const YOUTUBE_HOSTS = new Set(["youtube.com", "www.youtube.com", "youtu.be", "m.youtube.com"]);
+
+function parseYouTubeUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    if (!YOUTUBE_HOSTS.has(url.hostname)) return null;
+    const id = url.hostname === "youtu.be"
+      ? url.pathname.slice(1)
+      : url.searchParams.get("v") ?? url.pathname.split("/shorts/")[1]?.split("/")[0];
+    return id && /^[\w-]{11}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 const createJobSchema = z.object({
-  devpostUrl: z.string().url(),
-  githubRepo: z
-    .string()
-    .regex(/^[\w.-]+\/[\w.-]+$/, "expected owner/repo"),
-  cloudRunUrl: z.string().url().optional(),
+  youtubeUrl: z.string().url(),
+  platforms: z.array(z.enum(["x"])).default(["x"]),
 });
 
 export async function GET() {
@@ -36,17 +49,15 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  const [owner, repo] = parsed.data.githubRepo.split("/");
+  const videoId = parseYouTubeUrl(parsed.data.youtubeUrl);
+  if (!videoId) {
+    return Response.json({ error: "invalid YouTube URL" }, { status: 400 });
+  }
   const job = await createJob(
-    {
-      devpostUrl: parsed.data.devpostUrl,
-      githubRepo: repo,
-      githubOwner: owner,
-      cloudRunUrl: parsed.data.cloudRunUrl,
-    },
+    { youtubeUrl: parsed.data.youtubeUrl, platforms: parsed.data.platforms },
     "ingest",
   );
-  await appendEvent(job.id, "queued", `job created for ${owner}/${repo}`, "operator");
+  await appendEvent(job.id, "queued", `job created for video ${videoId}`, "operator");
   await publishStage(job.id, "ingest");
   return Response.json({ jobId: job.id }, { status: 201 });
 }

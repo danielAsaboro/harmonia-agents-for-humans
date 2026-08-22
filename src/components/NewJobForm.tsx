@@ -4,7 +4,7 @@ import { useState } from "react";
 import { apiFetch } from "@/lib/clientApi";
 
 export default function NewJobForm({ onCreated }: { onCreated: (jobId: string) => void }) {
-  const [devpostUrl, setDevpostUrl] = useState("https://allthingsagentichackathon.devpost.com/");
+  const [youtubeUrl, setYoutubeUrl] = useState("");
   const [githubRepo, setGithubRepo] = useState("");
   const [cloudRunUrl, setCloudRunUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -15,9 +15,7 @@ export default function NewJobForm({ onCreated }: { onCreated: (jobId: string) =
     setSubmitting(true);
     setError(null);
     try {
-      const body: Record<string, string> = { devpostUrl };
-      if (githubRepo.trim()) body.githubRepo = githubRepo.trim();
-      if (cloudRunUrl.trim()) body.cloudRunUrl = cloudRunUrl.trim();
+      const body: Record<string, unknown> = { youtubeUrl };
       const res = await apiFetch("/api/jobs", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -41,34 +39,14 @@ export default function NewJobForm({ onCreated }: { onCreated: (jobId: string) =
       className="grid gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900 sm:grid-cols-2"
     >
       <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400 sm:col-span-2">
-        Devpost requirements URL
+        YouTube video URL
         <input
           type="url"
           required
-          value={devpostUrl}
-          onChange={(e) => setDevpostUrl(e.target.value)}
+          placeholder="https://www.youtube.com/watch?v=…"
+          value={youtubeUrl}
+          onChange={(e) => setYoutubeUrl(e.target.value)}
           className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-        />
-      </label>
-      <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-        Authorized GitHub repository (owner/repo)
-        <input
-          required
-          placeholder="owner/repo"
-          pattern="[\w.-]+/[\w.-]+"
-          value={githubRepo}
-          onChange={(e) => setGithubRepo(e.target.value)}
-          className="rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-        />
-      </label>
-      <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-        Cloud Run deployment URL (optional)
-        <input
-          type="url"
-          placeholder="https://service-xxxx.run.app"
-          value={cloudRunUrl}
-          onChange={(e) => setCloudRunUrl(e.target.value)}
-          className="rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
         />
       </label>
       <div className="flex items-center gap-3 sm:col-span-2">
@@ -77,7 +55,7 @@ export default function NewJobForm({ onCreated }: { onCreated: (jobId: string) =
           disabled={submitting}
           className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-zinc-300"
         >
-          {submitting ? "Dispatching…" : "Start evidence job"}
+          {submitting ? "Dispatching…" : "Start content job"}
         </button>
         {error && <span className="text-sm text-red-600 dark:text-red-400">{error}</span>}
       </div>

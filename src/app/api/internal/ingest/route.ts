@@ -10,9 +10,9 @@ export async function POST(req: Request) {
     await appendEvent(
       body.jobId,
       "ingest",
-      `fetched ${body.sourceUrl} (HTTP ${body.httpStatus}, ${body.bytes} bytes, sha256 ${body.digest.slice(0, 12)}…, sections: ${body.extractedSections.join(", ") || "none"})`,
+      `ingested YouTube video "${body.title}" by ${body.channel} (${Math.round(body.durationSec)}s, media sha256 ${body.mediaDigest.slice(0, 12)}…, ${body.mediaBytes} bytes)`,
       "agent",
     );
-    return advance(body.jobId, "ingest", "source ingested; normalizing rubric");
+    return advance(body.jobId, "ingest", "source ingested; transcribing");
   });
 }

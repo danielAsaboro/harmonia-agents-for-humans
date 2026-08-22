@@ -1,12 +1,11 @@
 export const STAGES = [
   "queued",
   "ingest",
-  "normalize",
-  "collect",
-  "evaluate",
-  "plan",
+  "transcribe",
+  "understand",
+  "draft",
   "awaiting_approval",
-  "act",
+  "publish",
   "verify",
   "packet",
   "complete",
@@ -22,10 +21,8 @@ export type JobStatus =
   | "failed";
 
 export interface JobConfig {
-  devpostUrl: string;
-  githubRepo: string;
-  githubOwner: string;
-  cloudRunUrl?: string;
+  youtubeUrl: string;
+  platforms: string[];
 }
 
 export interface Job {
@@ -43,44 +40,22 @@ export interface Job {
   };
 }
 
-export type RubricItemStatus = "pending" | "verified" | "unresolved" | "failed";
-
-export interface RubricItem {
-  id: string;
-  source: string;
-  requirement: string;
-  category: string;
-  evidenceHint?: string;
-  status: RubricItemStatus;
-  weight: number;
-}
-
 export interface EvidenceRef {
   kind:
-    | "github_blob"
-    | "github_api"
+    | "youtube_api"
+    | "media_file"
+    | "gemini_call"
+    | "x_api"
     | "http_probe"
-    | "devpost_page"
-    | "cloud_run_revision"
-    | "pubsub_message"
     | "firestore_doc";
   url: string;
   fetchedAt: string;
   digest?: string | null;
 }
 
-export type FindingStatus = "satisfied" | "missing" | "partial" | "unknown";
-
-export interface Finding {
-  rubricItemId: string;
-  status: FindingStatus;
-  rationale: string;
-  evidence: EvidenceRef[];
-}
-
 export type RiskLevel = "low" | "medium" | "high";
 
-export type ActionType = "github_upsert_file" | "github_create_issue";
+export type ActionType = "export_content_pack" | "publish_x_post";
 
 export interface PlannedAction {
   id: string;
@@ -88,7 +63,8 @@ export interface PlannedAction {
   type: ActionType;
   title: string;
   description: string;
-  rubricItemIds?: string[];
+  momentId?: string;
+  angleId?: string;
   risk: RiskLevel;
   requiresApproval: boolean;
   approvalState: "not_required" | "pending" | "approved" | "rejected";
@@ -109,7 +85,7 @@ export interface Receipt {
 }
 
 export interface VerificationResult {
-  rubricItemId: string;
+  target: string;
   actionId?: string;
   verified: boolean;
   method: string;
@@ -138,13 +114,37 @@ export interface Observation {
   detail: Record<string, unknown>;
 }
 
+export interface Moment {
+  id: string;
+  title: string;
+  startSec: number;
+  endSec: number;
+  hook: string;
+  quote: string;
+}
+
+export interface Angle {
+  id: string;
+  kind: "trend" | "meme";
+  title: string;
+  rationale: string;
+}
+
+export interface PostDraft {
+  id: string;
+  platform: string;
+  momentId?: string;
+  angleId?: string;
+  text: string;
+  valid: boolean;
+  validationNote?: string;
+}
+
 export interface EvidencePacket {
   jobId: string;
   generatedAt: string;
   config: JobConfig;
-  rubric: RubricItem[];
-  findings: Finding[];
-  receipts: Receipt[];
+  drafts: PostDraft[];
   verifications: VerificationResult[];
   unresolved: string[];
 }

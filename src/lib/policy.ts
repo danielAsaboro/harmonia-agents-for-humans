@@ -1,54 +1,55 @@
-import type { ActionType, PlannedAction, RiskLevel } from "./types";
+import type { ActionType, PlannedAction } from "./types";
 
 export interface PolicyDecision {
-  risk: RiskLevel;
+  risk: "low" | "medium" | "high";
   requiresApproval: boolean;
   reason: string;
 }
 
+export const PLATFORM_LIMITS: Record<string, number> = {
+  x: 280,
+};
+
+export function validateDraftText(platform: string, text: string): { valid: boolean; note: string } {
+  const limit = PLATFORM_LIMITS[platform];
+  if (!limit) return { valid: false, note: `unsupported platform '${platform}'` };
+  if (text.length > limit)
+    return { valid: false, note: `${text.length} chars exceeds ${platform} limit of ${limit}` };
+  return { valid: true, note: `${text.length}/${limit} chars` };
+}
+
 /**
- * Deterministic action-risk policy. The model may propose actions, but the
- * approval gate is computed here so the model can never self-authorize a
- * risky external effect.
+ * Deterministic action-risk policy. Publishing to a live social account is
+ * always approval-gated; exporting a content pack is additive and safe.
  */
 export function evaluateActionPolicy(
   type: ActionType,
   payload: Record<string, unknown>,
 ): PolicyDecision {
   switch (type) {
-    case "github_upsert_file": {
-      const targetPath = typeof payload.path === "string" ? payload.path : "";
-      if (!targetPath || targetPath.includes("..")) {
-        return {
-          risk: "high",
-          requiresApproval: true,
-          reason: "unsafe repository path",
-        };
-      }
-      const protectedPath =
-        /^(README\.md|LICENSE|\.github\/workflows\/.*|package-lock\.json)$/i.test(
-          targetPath,
-        );
+    case "publish_x_post": {
+      const text = typeof payload.text === "string" ? payload.text : "";
+      const check = validateDraftText("x", text);
       return {
-        risk: protectedPath ? "high" : "medium",
+        risk: check.valid ? "high" : "high",
         requiresApproval: true,
-        reason: protectedPath
-          ? `overwrites protected repository file ${targetPath}`
-          : `creates or updates repository content at ${targetPath}`,
+        reason: check.valid
+          ? `posts live content to X (${check.note})`
+          : `blocked: draft invalid for X — ${check.note}`,
       };
     }
-    case "github_create_issue":
+    case "export_content_pack":
       return {
         risk: "low",
         requiresApproval: false,
-        reason: "additive, reversible issue creation scoped to authorized repo",
+        reason: "assembles a local content pack; no external side effect",
       };
   }
 }
 
 export type ActionSeed = Pick<
   PlannedAction,
-  "id" | "jobId" | "type" | "title" | "description" | "payload" | "rubricItemIds"
+  "id" | "jobId" | "type" | "title" | "description" | "payload" | "momentId" | "angleId"
 >;
 
 export function applyPolicy(actions: ActionSeed[]): PlannedAction[] {
@@ -58,7 +59,7 @@ export function applyPolicy(actions: ActionSeed[]): PlannedAction[] {
       ...a,
       risk: decision.risk,
       requiresApproval: decision.requiresApproval,
-      approvalState: decision.requiresApproval ? "pending" : "not_required",
+      approvalState: decision.requiresApproval ? ("pending" as const) : ("not_required" as const),
       state: "planned" as const,
     };
   });
@@ -72,6 +73,9 @@ export function approvedPendingExecution(actions: PlannedAction[]): PlannedActio
   return actions.filter(
     (a) =>
       a.state === "planned" &&
-      (!a.requiresApproval || a.approvalState === "approved"),
+      (!a.requiresApproval || a.approvalState === "approved") &&
+      !(a.type === "publish_x_post" &&
+        typeof (a.payload as { text?: unknown }).text === "string" &&
+        !validateDraftText("x", String((a.payload as { text: unknown }).text)).valid),
   );
 }

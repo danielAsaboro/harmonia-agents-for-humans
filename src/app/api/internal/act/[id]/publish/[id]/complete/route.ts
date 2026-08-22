@@ -13,11 +13,11 @@ export async function POST(
   if (!isInternalAuthorized(req)) return unauthorized();
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
-  if (body?.stage !== "act") {
-    return Response.json({ error: "expected stage 'act'" }, { status: 400 });
+  if (body?.stage !== "publish") {
+    return Response.json({ error: "expected stage 'publish'" }, { status: 400 });
   }
   const job = await getJob(id);
-  if (job.stage !== "act") {
+  if (job.stage !== "publish") {
     return Response.json({ error: `job stage is '${job.stage}'` }, { status: 409 });
   }
   const outstanding = job.actions.filter((a) => a.state === "planned");
@@ -28,7 +28,7 @@ export async function POST(
     );
   }
   await setStage(id, "verify");
-  await appendEvent(id, "act", "action phase complete", "system");
+  await appendEvent(id, "publish", "action phase complete", "system");
   await publishStage(id, "verify");
   return Response.json({ ok: true });
 }

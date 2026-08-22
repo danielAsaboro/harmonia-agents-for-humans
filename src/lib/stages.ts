@@ -5,11 +5,10 @@ import type { Stage } from "./types";
  * to the stage that Pub/Sub should trigger once the current stage completes.
  */
 const NEXT_STAGE: Partial<Record<Stage, Stage>> = {
-  ingest: "normalize",
-  normalize: "collect",
-  collect: "evaluate",
-  evaluate: "plan",
-  plan: "awaiting_approval",
+  ingest: "transcribe",
+  transcribe: "understand",
+  understand: "draft",
+  draft: "awaiting_approval",
 };
 
 export function nextStage(current: Stage): Stage | null {
@@ -20,10 +19,9 @@ export function isKnownStage(stage: string): stage is Stage {
   return [
     "queued",
     "ingest",
-    "normalize",
-    "collect",
-    "evaluate",
-    "plan",
+    "transcribe",
+    "understand",
+    "draft",
     "awaiting_approval",
     "act",
     "verify",

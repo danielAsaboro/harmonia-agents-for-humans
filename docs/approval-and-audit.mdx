@@ -1,0 +1,44 @@
+---
+title: "Approvals & Audit"
+description: "The approval gate, idempotency receipts, and independent verification."
+---
+
+## The approval gate
+
+Harmonia never takes a side-effecting external action without explicit operator approval. Actions proposed by the planner carry `requiresApproval: true` and `approvalState: pending`; only an operator decision moves them to `approved`, and only approved actions execute at the publish stage.
+
+All approval paths converge on one decision engine:
+
+- Dashboard approval queue (job detail view)
+- Chat: "approve" or "approve job \<id\>" on the dashboard surface
+- Telegram: parsed intent alone can *never* approve — the bot renders inline buttons and only the callback executes
+
+Scheduling is treated as approval for calendar items in `auto` mode; `approval` mode items additionally require a final review when they come due.
+
+## Idempotent receipts
+
+Every executed action writes a receipt containing:
+
+```json
+{
+  "actionType": "publish_x_post",
+  "idempotencyKey": "sha256(jobId + actionId + payload)",
+  "outcome": "applied | already_applied | rejected | failed",
+  "artifact": { "kind": "x_api", "url": "...", "fetchedAt": "..." },
+  "detail": { "id": "1800000000000001", "url": "..." }
+}
+```
+
+Before executing, the publish stage checks receipts by idempotency key. A retried or re-delivered action yields `already_applied` — never a duplicate tweet, image, or clip.
+
+## Independent verification
+
+Verification re-fetches evidence through a different path than execution:
+
+| Artifact | Method |
+|---|---|
+| Published post | GET from X API v2 by post id |
+| Content pack | digest comparison against Firestore |
+| Image / clip / reel | byte-digest comparison against the asset store |
+
+Each result records target, method, evidence (with fetch timestamp), and a boolean. Jobs also assemble an **evidence packet** listing verified artifacts and any unresolved gaps — failures stay visible forever; nothing converts an error into simulated success.

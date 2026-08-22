@@ -1,0 +1,56 @@
+---
+title: "The Pipeline"
+description: "Stage by stage: ingest, transcribe, understand, draft, approve, publish, verify, learn."
+---
+
+Harmonia's pipeline is a linear stage machine. Each completed stage persists its payload to Firestore, then advances the job and publishes the next Pub/Sub trigger.
+
+```mermaid
+flowchart LR
+    Q[queued] > I[ingest] > T[transcribe] > U[understand] > D[draft] > A[awaiting_approval]
+    A -- approved --> P[publish] > V[verify] > L[learn] > C[complete]
+    A -- rejected/skipped --> C2[complete]
+```
+
+## ingest
+
+Resolves the video id, fetches official metadata (YouTube oEmbed; Data API adds duration when `YOUTUBE_API_KEY` is set), downloads bestaudio via yt-dlp, and — when the Data API is unavailable — measures the real duration locally with ffprobe so downstream stages never see a zero-length timeline.
+
+## transcribe
+
+Gemini 3.5 Flash returns `{language, segments:[{id,startSec,endSec,text}]}` from the audio inline payload.
+
+## understand
+
+For video jobs, the formatted transcript goes to Gemini for clip-worthy moments (timestamps + hook + exact quote), trend angles, and meme angles. For concept jobs created from an operator brief or an approved proposal, the ideation path produces key points with zero timestamps instead — there is no media timeline.
+
+## draft
+
+Drafted X posts are generated against the analysis JSON. The **ADK planner agent** (`harmonia_planner`) then decides corrective publishing actions: one `publish_x_post` per valid draft plus an `export_content_pack`. The stage additionally proposes meme image generations, captioned vertical clips cut around the strongest moments, and a stitched highlight reel.
+
+Every action lands with `requiresApproval`, risk level, and its own idempotency key material.
+
+## awaiting_approval
+
+Hard gate. Approvals arrive through the dashboard queue, chat ("approve job \<id\>"), or a Telegram inline-button callback — all through the same decision engine, which records who approved what and when.
+
+## publish
+
+Executes approved actions in order, checking receipts first for idempotency:
+
+| Action | Effect |
+|---|---|
+| `publish_x_post` | POST to X API v2 `/2/tweets`; receipt carries post id + URL |
+| `export_content_pack` | Markdown bundle of moments, angles, drafts stored with a digest |
+| `generate_image` | Gemini image bytes into the asset store |
+| `render_clip` / `render_reel` | Real ffmpeg cuts/captions/reframes into the asset store |
+
+Failures are classified: permanent errors stop the job visibly, transient errors nack for redelivery.
+
+## verify
+
+Independent re-fetch of every executed action: tweets re-read from X by id, pack digests compared against Firestore, asset digests re-checked from the store. Results are immutable verification records — the receipt says what we *did*, verification says what is *true*.
+
+## learn
+
+Measures published posts via public metrics, derives takeaways (top post, winning patterns), and stores them where the insights feed can inject them into future ideation prompts.

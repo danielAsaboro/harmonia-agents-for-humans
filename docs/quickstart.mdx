@@ -1,0 +1,70 @@
+---
+title: "Quickstart"
+description: "Run Harmonia locally with emulators in under five minutes."
+---
+
+## Prerequisites
+
+- Node.js 20+
+- Python 3.12+ (a 3.14 venv works)
+- `gcloud` CLI (provides the Firestore and Pub/Sub emulators; needs a Java 8+ JRE on PATH)
+- `ffmpeg` and `ffprobe` on PATH
+- `yt-dlp` on PATH (for YouTube ingestion)
+
+## Spin up the full stack
+
+```bash
+./scripts/dev.sh
+```
+
+This single script starts everything:
+
+| Service | Port |
+|---|---|
+| Firestore emulator | 8081 |
+| Pub/Sub emulator | 8082 |
+| Next.js dashboard | 3000 |
+| ADK worker (FastAPI) | 8080 |
+
+The script sources `.env.local` if present. At minimum it expects:
+
+```bash
+INTERNAL_API_TOKEN=local-dev-token
+```
+
+## Seed demo data
+
+With the stack running:
+
+```bash
+node scripts/seed-demo.mjs
+```
+
+This populates realistic jobs (complete, awaiting approval, running, failed), content items for the calendar, chat history, and real ffmpeg-rendered assets — everything lives only in your local emulator.
+
+> **Note:** re-seeding wipes existing `content_items` and `notifications` in the emulator.
+
+## Run your first job
+
+Open [http://localhost:3000](http://localhost:3000) and send the console:
+
+```
+turn https://www.youtube.com/watch?v=jNQXAC9IVRw into clips
+```
+
+Watch the job walk ingest → transcribe → understand → draft, then pause at the approval gate. Approve with:
+
+```
+approve
+```
+
+The publish, verify, and learn stages execute; receipts and verification records appear under Monitoring.
+
+## Run checks
+
+```bash
+npm run lint && npx tsc --noEmit && npm test
+cd agent && ./.venv/bin/python -m pytest tests -q
+```
+
+Next: read [Development](/development) to work fully offline, or jump to [Configuration](/configuration) for the full environment variable reference.

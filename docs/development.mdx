@@ -1,0 +1,65 @@
+---
+title: "Development"
+description: "Work offline with mock-AI mode, understand the emulator setup, and run the test suites."
+---
+
+## Offline mock modes
+
+Harmonia's AI legs can run fully offline behind two explicit, dev-only flags. With either flag unset, behavior is exactly the real path — mock code is unreachable.
+
+### `HARMONIA_MOCK_AI=1`
+
+Replaces every Gemini call with deterministic local fixtures that satisfy the exact JSON shapes of the real stages:
+
+- **Transcription** — segments derived from audio size, plausible startup-podcast text
+- **Analysis / ideation** — summary, moments (real timestamps for video jobs, zero for briefs), trend + meme angles
+- **Drafting** — three ≤280-char X posts referencing moment/angle ids
+- **Image generation** — renders a *real* PNG locally via ffmpeg lavfi
+- **Chat intent parsing** — keyword rules instead of structured output
+- **Proactive ideation** — proposals derived from fixture signals; signal fetching uses fixtures too, so the loop needs zero network
+
+Every mock path logs loudly (`[MOCK-AI] ...`) and persisted `modelUsed` labels read `mock-local (HARMONIA_MOCK_AI)` so offline runs are never mistaken for real model calls.
+
+### `HARMONIA_MOCK_X=1`
+
+Independent flag covering the X API client only. Publishing returns a deterministic id derived from the post text hash (`mock-<sha256[:12]>`), and verification/metrics return small stable payloads. Useful for a fully green end-to-end demo without credentials — or leave it off to exercise honest publish failures.
+
+### What is never mocked
+
+Firestore and Pub/Sub always run as real emulators locally; ffmpeg rendering, the asset store, receipts, and verification are always real. YouTube ingestion (yt-dlp) is real in both modes — it needs network access to YouTube itself.
+
+## Emulator-based workflow
+
+`scripts/dev.sh` pins both emulators to fixed ports and exports:
+
+```bash
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8081
+PUBSUB_EMULATOR_HOST=127.0.0.1:8082
+GOOGLE_CLOUD_PROJECT=harmonia-local   # any project id works against emulators
+```
+
+The worker consumes stage triggers through a pull loop against the Pub/Sub emulator — the same dispatch path as the Cloud Run push receiver in production.
+
+## Test suites
+
+```bash
+# Web: lint, types, unit tests (vitest)
+npm run lint && npx tsc --noEmit && npm test
+
+# Worker: pytest
+cd agent && ./.venv/bin/python -m pytest tests -q
+```
+
+Worker tests set safe dummy credentials via `agent/tests/conftest.py`; mock-mode tests exercise the fixture generators and assert their output shapes match the real stages' contracts.
+
+## Useful local endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/proposals` | Proactive proposal inbox feed |
+| `GET /api/content-items` | Calendar items |
+| `GET /api/notifications` | Bell notifications |
+| `POST /api/chat` | Chat surface (`{message, surface}`) |
+| `GET /api/internal/insights` | Engagement insights fed into ideation |
+
+Internal routes require the `INTERNAL_API_TOKEN` bearer header; mutating operator routes accept `x-operator-token`.

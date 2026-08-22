@@ -1,0 +1,33 @@
+---
+title: "Operator Interfaces"
+description: "Dashboard, chat console, and Telegram — one pipeline behind every surface."
+---
+
+Harmonia exposes the same job submission, status, drafting, and approval surface through three interfaces. None of them bypasses the approval gate.
+
+## Dashboard
+
+- **Console** — conversational home; create jobs, check status, list drafts, approve
+- **Proposals** — inbox for the proactive agent's autonomous topic ideas
+- **Calendar** — content item lifecycle (draft → scheduled → awaiting final review → published), scheduling modes, media attachments
+- **Monitoring** — searchable event log, job table, asset gallery, receipts ledger
+- **Settings** — operator goals (voice, topics, weekly target) that feed ideation
+- **Notifications** — bell with unread counts for approvals needed, proposals, failures, learnings
+
+## Chat console
+
+Natural-language control via `POST /api/chat`:
+
+| Say | Intent |
+|---|---|
+| "turn \<youtube url\> into clips" | `create_job` from video |
+| "make posts about our billing launch" (≥20 chars) | `create_job` from topic brief |
+| "status" / "status of job \<id\>" | `status` |
+| "show drafts for \<id\>" | `list_drafts` |
+| "approve [job \<id\>]" | `approve` |
+
+Intent parsing uses Gemini structured output in production; keyword rules offline under `HARMONIA_MOCK_AI=1`. Conversations persist per surface so history renders in the console.
+
+## Telegram bot
+
+The same intents over the official Bot API, scoped to an allow-listed chat id (`TELEGRAM_ALLOWED_CHAT_ID`) using a bot token (`TELEGRAM_BOT_TOKEN`). Approvals require an explicit inline-button callback — a plain "approve" message only lists pending actions. The bot never echoes its own credentials into chats.

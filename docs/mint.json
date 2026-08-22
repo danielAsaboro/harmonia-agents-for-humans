@@ -1,0 +1,30 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Harmonia",
+  "description": "Autonomous social media content engine for startups",
+  "theme": "venice",
+  "colors": {
+    "primary": "#7c3aed",
+    "light": "#a78bfa",
+    "dark": "#5b21b6"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": [
+    {
+      "group": "Overview",
+      "pages": ["index", "architecture"]
+    },
+    {
+      "group": "Getting Started",
+      "pages": ["quickstart", "development"]
+    },
+    {
+      "group": "How It Works",
+      "pages": ["pipeline", "proactive-agent", "approval-and-audit", "interfaces"]
+    },
+    {
+      "group": "Operations",
+      "pages": ["configuration", "deployment"]
+    }
+  ]
+}

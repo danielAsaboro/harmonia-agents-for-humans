@@ -1,0 +1,58 @@
+---
+title: "Proactive Agent"
+description: "How Harmonia monitors trends and engagement on its own and proposes topics with reasons and sources."
+---
+
+Harmonia is not just reactive. A background agent inside the worker wakes on a schedule (`PROACTIVE_INTERVAL_SECONDS`, default 900s) and runs two independent legs. Neither can publish anything — proposals are suggestions that require operator approval.
+
+## Leg 1: trend scan
+
+1. **Gather signals** from official, keyless sources: the Hacker News front page via the Algolia API (`https://hn.algolia.com/api/v1/search?tags=front_page`). Each signal carries title, link, points, and comment count.
+2. **Ideate** (Gemini): propose 2-3 concrete post topics connecting a signal to the founder's own experience. Every proposal must include:
+   - `topic` — what to post about
+   - `angle` — the take
+   - `reason` — *why now* (the attention window)
+   - `sources` — the backing URLs
+   - optionally a `suggestedPost` ≤280 chars
+3. **Submit** to the web inbox, deduplicated by deterministic id (`prop-sha256(source:topic)[:16]`).
+
+Under `HARMONIA_MOCK_AI=1` both the signals and ideation come from deterministic fixtures — no network at all.
+
+## Leg 2: engagement watch
+
+Reads the engagement insights feed (public metrics of published posts) and flags outliers: any post earning ≥2× the median likes of recent posts becomes a follow-up proposal with a quantified reason ("earned 214 likes vs a median of 40 across recent posts — 5.4× baseline"). This is how wins compound without an operator asking.
+
+Each leg fails independently and visibly; one failing source never blocks the other.
+
+## The proposal inbox
+
+Proposals appear in the dashboard under **Proposals** (sparkle icon in the nav rail), each showing source badge, status, reason, source links, and suggested post. New proposals also fire bell notifications.
+
+| Decision | Effect |
+|---|---|
+| **Approve & create job** | Composes topic + angle + reason + sources into an operator brief and starts a standard concept job through the normal pipeline — including its own approval gate before anything publishes |
+| **Dismiss** | Marks the proposal rejected; it never resurfaces |
+
+```mermaid
+sequenceDiagram
+    participant W as Proactive agent (worker)
+    participant S as External sources
+    participant Web as Web API
+    participant DB as Firestore
+    participant O as Operator
+    W->>S: fetch signals / insights
+    W->>W: ideate (Gemini or mock)
+    W->>Web: POST /api/internal/proposals
+    Web->>DB: save proposals (dedup by id)
+    Web->>O: bell notifications
+    O->>Web: POST /api/proposals/decide {approved}
+    Web->>DB: create concept job (brief)
+    Web->>Web: publish understand stage trigger
+    Note over Web: pipeline proceeds; publishing still gated
+```
+
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PROACTIVE_INTERVAL_SECONDS` | `900` | Tick cadence for the whole proactive loop |

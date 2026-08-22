@@ -1,0 +1,54 @@
+---
+title: "Deployment"
+description: "Target production topology on Google Cloud Run, Firestore, and Pub/Sub."
+---
+
+<Info>
+Harmonia's local stack runs the real Firestore and Pub/Sub emulators, so the deployment path exercises the same code. This page describes the target topology and per-service steps.
+</Info>
+
+## Target topology
+
+| Component | Service |
+|---|---|
+| Next.js web app | Cloud Run (with Firestore + Pub/Sub access) |
+| ADK worker | Cloud Run service with a Pub/Sub **push subscription** to `/pubsub/push`, authenticated via OIDC service account |
+| State | Cloud Firestore (native mode) |
+| Stage triggers | Pub/Sub topic `harmonia-stages` |
+| Media assets | Cloud Storage (`GCS_BUCKET`) |
+
+## Provisioning outline
+
+```bash
+gcloud services enable run.googleapis.com firestore.googleapis.com \
+  pubsub.googleapis.com storage.googleapis.com
+
+gcloud firestore databases create --location=<region>
+
+gcloud pubsub topics create harmonia-stages
+```
+
+Create one runtime service account for each Cloud Run service; grant the worker's account only `roles/pubsub.subscriber`, `roles/datastore.user`, and object-level access to the assets bucket.
+
+## Deploying
+
+Both services containerize from the repo root:
+
+- Web app: standard Next.js build (`infra/` holds deployment scaffolding)
+- Worker: see `agent/Dockerfile`
+
+Set the [configuration](/configuration) secrets as Cloud Run environment variables (Secret Manager for tokens). With `PUBSUB_EMULATOR_HOST` unset, both clients connect to real Google Cloud services automatically.
+
+## Health and observability
+
+- `GET /healthz` on the worker reports model id and registered stages
+- The job event log, receipts ledger, and verification records in Firestore provide end-to-end audit trails
+- Every stage failure is classified permanent vs transient; transient failures rely on Pub/Sub redelivery
+
+## Post-deploy verification checklist
+
+1. Create a job from the deployed dashboard URL and watch it reach `awaiting_approval`
+2. Approve; confirm receipts appear with real X post ids
+3. Confirm verification records show `independent_refetch:x_api` results
+4. Check the learn stage stored engagement takeaways
+5. Trigger the proactive agent by shortening `PROACTIVE_INTERVAL_SECONDS` temporarily and confirming proposals arrive in the inbox

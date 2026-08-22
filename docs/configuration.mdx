@@ -1,0 +1,42 @@
+---
+title: "Configuration"
+description: "Every environment variable Harmonia reads, with defaults and requirements."
+---
+
+## Web application (Next.js)
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `GEMINI_API_KEY` | for real AI | — | Gemini API key used by chat intent parsing |
+| `INTERNAL_API_TOKEN` | yes | — | Bearer token the worker must present to internal routes |
+| `OPERATOR_TOKEN` | cloud: yes | unset = open locally | Gate on mutating operator endpoints |
+| `MODEL_ID` | no | `gemini-3.5-flash` | Gemini model id |
+| `FIRESTORE_EMULATOR_HOST` | local dev | — | e.g. `127.0.0.1:8081`; unset = real Firestore |
+| `GOOGLE_CLOUD_PROJECT` | cloud | `harmonia-local` | Project id |
+| `GCS_BUCKET` | no | local `.data/artifacts` | Use Cloud Storage for assets when set |
+| `X_BEARER_TOKEN` | for publishing | — | X API v2 bearer; without it publish fails honestly |
+| `YOUTUBE_API_KEY` | recommended | — | Data API durations at ingest (ffprobe fallback otherwise) |
+
+## Worker (FastAPI)
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `WEB_INTERNAL_URL` | yes | — | Base URL of the web app's internal API |
+| `INTERNAL_API_TOKEN` | yes | — | Must match the web app's token |
+| `PUBSUB_STAGE_TOPIC` | no | `harmonia-stages` | Stage trigger topic |
+| `PROACTIVE_INTERVAL_SECONDS` | no | `900` | Proactive agent tick cadence |
+| `TELEGRAM_BOT_TOKEN` | no | — | Enables the Telegram surface |
+| `TELEGRAM_ALLOWED_CHAT_ID` | with bot | — | Only this chat id is served |
+
+## Dev-only flags
+
+| Variable | Effect |
+|---|---|
+| `HARMONIA_MOCK_AI=1` | Deterministic offline fixtures for all Gemini calls + signal fetching. Unset = real model calls. |
+| `HARMONIA_MOCK_X=1` | Deterministic X publish/verify/metrics payloads. Unset = real X calls (fails honestly without a token). |
+
+Both flags are dev-only conveniences; production deployments run with them unset, and every mock path logs `[MOCK-AI]` / `[MOCK-X]` so it can never pass as a real call.
+
+## Secrets policy
+
+Credentials stay server-side in environment configuration and never enter Git. The Telegram client sends its operator token to the web service but never echoes it into chats. Scope integration credentials to minimum permissions.

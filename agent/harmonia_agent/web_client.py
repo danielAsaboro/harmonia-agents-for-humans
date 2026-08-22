@@ -57,6 +57,31 @@ def get_insights() -> dict[str, Any]:
     return res.json()
 
 
+def get_feed() -> dict[str, Any]:
+    """One-stop proactive-agent feed: items, job health, goals, recent posts."""
+    with _client() as c:
+        res = c.get("/api/internal/proactive-feed")
+    if res.status_code != 200:
+        raise WebApiError(f"get_feed failed: {res.status_code} {res.text}", res.status_code)
+    return res.json()
+
+
+def get_state(key: str) -> dict[str, Any] | None:
+    """Persisted cadence marker for a proactive check (may be absent)."""
+    with _client() as c:
+        res = c.get("/api/internal/agent-state", params={"key": key})
+    if res.status_code != 200:
+        raise WebApiError(f"get_state failed: {res.status_code} {res.text}", res.status_code)
+    return res.json().get("state")
+
+
+def put_state(key: str, last_run_at: str) -> None:
+    with _client() as c:
+        res = c.put("/api/internal/agent-state", json={"key": key, "lastRunAt": last_run_at})
+    if res.status_code >= 300:
+        raise WebApiError(f"put_state failed: {res.status_code} {res.text}", res.status_code)
+
+
 def post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     with _client() as c:
         res = c.post(path, json=payload)

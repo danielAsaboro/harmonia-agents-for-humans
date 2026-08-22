@@ -117,7 +117,7 @@ export async function markAllNotificationsRead(): Promise<void> {
 
 export interface ContentProposal {
   id: string;
-  source: "trend_scan" | "engagement_watch";
+  source: "trend_scan" | "engagement_watch" | "calendar_gap" | "recycle";
   topic: string;
   angle: string;
   reason: string;
@@ -161,6 +161,28 @@ export async function decideProposal(
     { status: decision, decidedAt: new Date().toISOString(), ...clean },
     { merge: true },
   );
+}
+
+// ---------- agent state (proactive check cadence bookkeeping) ----------
+
+const AGENT_STATE = "agent_state";
+
+export interface AgentStateDoc {
+  lastRunAt?: string;
+  data?: Record<string, unknown>;
+  updatedAt: string;
+}
+
+export async function getAgentState(key: string): Promise<AgentStateDoc | null> {
+  const snap = await db().collection(AGENT_STATE).doc(key).get();
+  return snap.exists ? (snap.data() as AgentStateDoc) : null;
+}
+
+export async function setAgentState(key: string, patch: Partial<AgentStateDoc>): Promise<void> {
+  await db()
+    .collection(AGENT_STATE)
+    .doc(key)
+    .set({ ...patch, updatedAt: new Date().toISOString() }, { merge: true });
 }
 
 export interface ConnectionDoc {

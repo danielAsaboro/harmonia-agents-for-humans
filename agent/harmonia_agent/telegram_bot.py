@@ -195,6 +195,25 @@ def start_background() -> None:
     _start_if_configured()
 
 
+def notify(text: str) -> bool:
+    """One-way push of a proactive notification to the allow-listed chat.
+
+    Returns True when delivered. Missing configuration is not an error —
+    the Telegram surface is optional; callers log the skip instead.
+    """
+    cfg = settings()
+    if not cfg.telegram_bot_token or not cfg.telegram_allowed_chat_id:
+        return False
+    try:
+        TelegramBot(cfg.telegram_bot_token, cfg.telegram_allowed_chat_id)._api(
+            "sendMessage", {"chat_id": cfg.telegram_allowed_chat_id, "text": text}
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001 - delivery must never crash proactive checks
+        logger.warning("telegram notify failed: %s", exc)
+        return False
+
+
 def main() -> None:
     """Standalone entry point: `python -m harmonia_agent.telegram_bot`."""
     logging.basicConfig(level=logging.INFO)

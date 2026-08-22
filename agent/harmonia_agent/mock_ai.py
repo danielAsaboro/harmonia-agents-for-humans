@@ -181,3 +181,40 @@ def mock_propose_ideas(signals: list[dict]) -> dict:
             "suggestedPost": "",
         })
     return {"ideas": ideas}
+
+
+def mock_propose_gap_fillers(goals_text: str, learnings_text: str) -> dict:
+    """Ideas to fill calendar gaps, grounded in goals and past performance."""
+    return {
+        "ideas": [
+            {
+                "topic": "Teardown: one metric we moved this quarter and exactly how",
+                "angle": "Numbers-first storytelling; matches your activation-time narrative",
+                "reason": f"Calendar has open slots in the next 7 days and your audience rewards concrete before/after stories. Goals on file: {goals_text[:80] or 'consistent posting'}.",
+                "sources": [],
+                "suggestedPost": "",
+            },
+            {
+                "topic": "Build-in-public update: what shipped this week and why it matters",
+                "angle": "Weekly cadence anchor; low effort, high trust",
+                "reason": f"Fills the gap while reinforcing consistency - your top posts came from operational honesty. {learnings_text[:100]}",
+                "sources": [],
+                "suggestedPost": "",
+            },
+        ]
+    }
+
+
+def mock_propose_recycle(post_text: str, likes: int) -> dict:
+    """A refresh angle for an older top-performing post."""
+    return {
+        "ideas": [
+            {
+                "topic": f"Refresh of a proven winner: {post_text[:110]}",
+                "angle": "Same core insight, new framing: what happened AFTER the original post",
+                "reason": f"This post earned {likes} likes and is aging out of feeds. Evergreen winners deserve a second run with updated proof.",
+                "sources": [],
+                "suggestedPost": "",
+            }
+        ]
+    }

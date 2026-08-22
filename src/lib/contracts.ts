@@ -159,7 +159,7 @@ export const proposalSubmissionSchema = z.object({
     .array(
       z.object({
         id: z.string().min(6).max(40),
-        source: z.enum(["trend_scan", "engagement_watch"]),
+        source: z.enum(["trend_scan", "engagement_watch", "calendar_gap", "recycle"]),
         topic: z.string().min(4).max(300),
         angle: z.string().max(300).default(""),
         reason: z.string().max(600).default(""),

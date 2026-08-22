@@ -15,7 +15,9 @@ from .mock_ai import (
     mock_drafts,
     mock_generate_image,
     mock_ideate,
+    mock_propose_gap_fillers,
     mock_propose_ideas,
+    mock_propose_recycle,
     mock_transcribe,
 )
 
@@ -166,6 +168,42 @@ def propose_ideas(signals: list[dict], prior_learnings: str | None = None) -> di
     if mock_ai_enabled():
         print("[MOCK-AI] propose_ideas: returning deterministic local fixture", flush=True)
         return mock_propose_ideas(signals)
+    client = _client()
+    res = client.models.generate_content(model=MODEL, contents=prompt)
+    return _parse_json(res.text)
+
+
+def propose_gap_fillers(goals_text: str, learnings_text: str) -> dict:
+    """Calendar-gap ideation grounded in the operator's goals + own learnings."""
+    prompt = (
+        "You are Harmonia's content strategist filling gaps in a startup founder's "
+        "posting calendar.\n"
+        f"Operator goals: {goals_text[:4000]}\n"
+        f"Past performance takeaways: {learnings_text[:4000]}\n\n"
+        "Propose 2 concrete post topics that fit the founder's voice and reward "
+        "patterns. Each needs topic, angle, reason (why it serves the goals), and "
+        "optionally suggestedPost (max 280 chars). sources may be empty. "
+        "Return JSON: {ideas:[{topic,angle,reason,sources:[],suggestedPost}]}"
+    )
+    if mock_ai_enabled():
+        print("[MOCK-AI] propose_gap_fillers: returning deterministic local fixture", flush=True)
+        return mock_propose_gap_fillers(goals_text, learnings_text)
+    client = _client()
+    res = client.models.generate_content(model=MODEL, contents=prompt)
+    return _parse_json(res.text)
+
+
+def propose_recycle(post_text: str, likes: int) -> dict:
+    """A refresh angle for an older top-performing post."""
+    prompt = (
+        "A startup founder's social post performed exceptionally well but is aging "
+        f"out of feeds.\nOriginal post: {post_text[:1000]}\nLikes at peak: {likes}\n\n"
+        "Propose one refreshed re-post concept: same core insight, new framing or "
+        "updated proof. Return JSON: {ideas:[{topic,angle,reason,sources:[],suggestedPost}]}"
+    )
+    if mock_ai_enabled():
+        print("[MOCK-AI] propose_recycle: returning deterministic local fixture", flush=True)
+        return mock_propose_recycle(post_text, likes)
     client = _client()
     res = client.models.generate_content(model=MODEL, contents=prompt)
     return _parse_json(res.text)

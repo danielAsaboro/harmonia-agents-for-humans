@@ -4,12 +4,19 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
+from datetime import datetime, timezone
+from hashlib import sha256
 from typing import Any
 
 from google import genai
 
 from .config import settings
+from .model_catalog import PRICING_VERSION, estimate_text_cost
 from .mock_ai import mock_ai_enabled, mock_generate_image, mock_transcribe
+from .telemetry import current_trace_id, safe_attributes, tracer
+from .usage import InvocationContext, UsageAccumulator, UsageRecord, estimate_request_tokens
+from .web_client import report_usage, reserve_budget
 
 MODEL = "gemini-3.5-flash"
 IMAGE_MODEL = os.environ.get("IMAGE_MODEL_ID", "gemini-3.5-flash-image")
@@ -36,47 +43,142 @@ def model_used() -> str:
     return "mock-local (HARMONIA_MOCK_AI)" if mock_ai_enabled() else MODEL
 
 
-def transcribe_audio(audio: bytes, mime_type: str) -> dict:
+def transcribe_audio(
+    audio: bytes,
+    mime_type: str,
+    *,
+    invocation: InvocationContext | None = None,
+    budget_reserver: Callable[[dict[str, object]], None] = reserve_budget,
+    usage_reporter: Callable[[dict[str, object]], None] = report_usage,
+) -> dict:
     if mock_ai_enabled():
         print("[MOCK-AI] transcribe_audio: returning deterministic local fixture", flush=True)
         return mock_transcribe(len(audio))
-    client = _client()
-    res = client.models.generate_content(
-        model=MODEL,
-        contents=[
-            {"role": "user", "parts": [
-                {"inlineData": {
-                    "mimeType": mime_type,
-                    "data": __import__("base64").b64encode(audio).decode(),
-                }},
-                {"text": (
-                    "Transcribe this audio. Return JSON: "
-                    "{language, segments:[{id,startSec,endSec,text}]}. "
-                    "startSec/endSec are numbers."
-                )},
-            ]},
-        ],
+    if invocation is None:
+        raise ValueError("real transcription requires invocation context")
+    role = "transcriber"
+    operation_id = invocation.role_operation_id(role)
+    estimated_input, estimated_output = estimate_request_tokens(
+        "x" * len(audio), 4096,
     )
-    return _parse_json(res.text)
+    budget_reserver({
+        "jobId": invocation.job_id,
+        "operationId": operation_id,
+        "stage": invocation.stage,
+        "role": role,
+        "model": MODEL,
+        "estimatedCostUsd": str(estimate_text_cost(
+            MODEL, estimated_input, estimated_output,
+        )),
+        "pricingVersion": PRICING_VERSION,
+    })
+    client = _client()
+    with tracer().start_as_current_span("harmonia.model.generate") as span:
+        span.set_attributes(safe_attributes({
+            "job.id": invocation.job_id,
+            "stage": invocation.stage,
+            "agent": role,
+            "model": MODEL,
+        }))
+        res = client.models.generate_content(
+            model=MODEL,
+            contents=[
+                {"role": "user", "parts": [
+                    {"inlineData": {
+                        "mimeType": mime_type,
+                        "data": __import__("base64").b64encode(audio).decode(),
+                    }},
+                    {"text": (
+                        "Transcribe this audio. Return JSON: "
+                        "{language, segments:[{id,startSec,endSec,text}]}. "
+                        "startSec/endSec are numbers."
+                    )},
+                ]},
+            ],
+        )
+        result = _parse_json(res.text)
+        accumulator = UsageAccumulator(
+            job_id=invocation.job_id,
+            operation_id=operation_id,
+            stage=invocation.stage,
+            role=role,
+            model=MODEL,
+        )
+        accumulator.observe_event(res)
+        record = accumulator.finalize(trace_id=current_trace_id())
+        span.set_attributes(safe_attributes({
+            "input.units": record.input_units,
+            "output.units": record.output_units,
+            "cost.estimated_usd": record.estimated_cost_usd,
+        }))
+        usage_reporter(record.to_wire())
+        return result
 
 
 class ImageGenError(RuntimeError):
     pass
 
 
-def generate_image(prompt: str) -> tuple[bytes, str]:
+def generate_image(
+    prompt: str,
+    *,
+    invocation: InvocationContext | None = None,
+    budget_reserver: Callable[[dict[str, object]], None] = reserve_budget,
+    usage_reporter: Callable[[dict[str, object]], None] = report_usage,
+) -> tuple[bytes, str]:
     """Generate an image with Gemini and return its bytes and MIME type."""
     if mock_ai_enabled():
         print("[MOCK-AI] generate_image: rendering real local PNG via ffmpeg lavfi", flush=True)
         return mock_generate_image(prompt)
+    if invocation is None:
+        raise ValueError("real image generation requires invocation context")
+    role = "image_generator"
+    operation_id = invocation.role_operation_id(role)
+    maximum_cost = settings().image_max_cost_usd
+    budget_reserver({
+        "jobId": invocation.job_id,
+        "operationId": operation_id,
+        "stage": invocation.stage,
+        "role": role,
+        "model": IMAGE_MODEL,
+        "estimatedCostUsd": maximum_cost,
+        "pricingVersion": PRICING_VERSION,
+    })
     client = _client()
     try:
-        res = client.models.generate_images(model=IMAGE_MODEL, contents=prompt)
-        images = getattr(res, "generated_images", None)
-        if not images:
-            raise ImageGenError(f"{IMAGE_MODEL} returned no images")
-        img = images[0].image
-        return img.image_bytes, getattr(img, "mime_type", None) or "image/png"
+        with tracer().start_as_current_span("harmonia.model.generate") as span:
+            span.set_attributes(safe_attributes({
+                "job.id": invocation.job_id,
+                "stage": invocation.stage,
+                "agent": role,
+                "model": IMAGE_MODEL,
+            }))
+            res = client.models.generate_images(model=IMAGE_MODEL, contents=prompt)
+            images = getattr(res, "generated_images", None)
+            if not images:
+                raise ImageGenError(f"{IMAGE_MODEL} returned no images")
+            img = images[0].image
+            record = UsageRecord(
+                id=f"usage-{sha256(operation_id.encode()).hexdigest()[:24]}",
+                job_id=invocation.job_id,
+                operation_id=operation_id,
+                stage=invocation.stage,
+                role=role,
+                model=IMAGE_MODEL,
+                input_units=1,
+                output_units=0,
+                unit_type="images",
+                estimated_cost_usd=maximum_cost,
+                trace_id=current_trace_id(),
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+            span.set_attributes(safe_attributes({
+                "input.units": 1,
+                "output.units": 0,
+                "cost.estimated_usd": maximum_cost,
+            }))
+            usage_reporter(record.to_wire())
+            return img.image_bytes, getattr(img, "mime_type", None) or "image/png"
     except ImageGenError:
         raise
     except Exception as exc:  # noqa: BLE001 - normalized for stage failure classification

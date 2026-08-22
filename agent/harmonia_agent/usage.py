@@ -4,15 +4,36 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from hashlib import sha256
-from typing import Literal
+from collections.abc import Awaitable, Callable
+from typing import Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
 from .model_catalog import PRICING_VERSION, estimate_text_cost
 
 
-class UsageRecord(BaseModel):
+def _to_camel(value: str) -> str:
+    head, *tail = value.split("_")
+    return head + "".join(part.capitalize() for part in tail)
+
+
+class InvocationContext(BaseModel):
+    """Durable identity shared by every model call in one stage invocation."""
+
     model_config = ConfigDict(extra="forbid")
+
+    job_id: str
+    stage: str
+    operation_id: str
+
+    def role_operation_id(self, role: str) -> str:
+        return f"{self.operation_id}:{role}"
+
+
+class UsageRecord(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid", alias_generator=_to_camel, populate_by_name=True,
+    )
 
     id: str
     job_id: str
@@ -30,6 +51,26 @@ class UsageRecord(BaseModel):
     pricing_version: str = PRICING_VERSION
     trace_id: str
     created_at: str
+
+    def to_wire(self) -> dict[str, object]:
+        return self.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+
+ResultT = TypeVar("ResultT")
+
+
+async def run_metered(
+    *,
+    reservation: dict[str, object],
+    reserve: Callable[[dict[str, object]], None],
+    invoke: Callable[[], Awaitable[tuple[ResultT, dict[str, object]]]],
+    finalize: Callable[[dict[str, object]], None],
+) -> ResultT:
+    """Reserve before provider execution and persist usage only after it succeeds."""
+    reserve(reservation)
+    result, usage = await invoke()
+    finalize(usage)
+    return result
 
 
 def estimate_request_tokens(serialized_payload: str, max_output_tokens: int) -> tuple[int, int]:

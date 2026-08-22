@@ -18,6 +18,7 @@ from .agent_models import AnalysisResult, AnalystInput, DraftWorkflowInput, Stra
 from .agents import AgentProtocolError, analyze_with_team, draft_with_team, strategize_with_team
 from .config import settings
 from .telemetry import inject_context, safe_attributes, tracer
+from .usage import InvocationContext
 from .web_client import WebApiError, get_asset, get_insights, get_job, post as web_post
 
 logger = logging.getLogger("harmonia.stages")
@@ -79,7 +80,13 @@ async def run_ingest(job_id: str) -> None:
 async def run_transcribe(job_id: str) -> None:
     job = get_job(job_id)
     audio = _AUDIO_CACHE.get(job_id) or youtube.download_audio(job["config"]["youtubeUrl"])[0]
-    result = content.transcribe_audio(audio, "audio/mp4")
+    result = content.transcribe_audio(
+        audio,
+        "audio/mp4",
+        invocation=InvocationContext(
+            job_id=job_id, stage="transcribe", operation_id=f"{job_id}:transcribe:0",
+        ),
+    )
     web_post("/api/internal/transcript", {
         "jobId": job_id, "stage": "transcribe",
         "language": result.get("language", "en"),
@@ -89,6 +96,9 @@ async def run_transcribe(job_id: str) -> None:
 
 async def run_understand(job_id: str) -> None:
     job = get_job(job_id)
+    invocation = InvocationContext(
+        job_id=job_id, stage="understand", operation_id=f"{job_id}:understand:0",
+    )
     prior = ""
     try:
         insights = get_insights()
@@ -116,7 +126,7 @@ async def run_understand(job_id: str) -> None:
             raise RuntimeError("job has neither transcript nor operator brief")
         strategy = await strategize_with_team(StrategistInput(
             task="brief", brief=brief, prior_learnings=prior,
-        ))
+        ), invocation=invocation)
         if strategy.analysis is None:
             raise AgentProtocolError("strategist brief task returned no analysis")
         result = strategy.analysis.model_dump(mode="json")
@@ -129,7 +139,7 @@ async def run_understand(job_id: str) -> None:
             channel=job["ingestedChannel"],
             transcript=transcript,
             prior_learnings=prior,
-        ))).model_dump(mode="json")
+        ), invocation=invocation)).model_dump(mode="json")
     web_post("/api/internal/analysis", {
         "jobId": job_id, "stage": "understand",
         "moments": result.get("moments", [])[:12],
@@ -157,6 +167,8 @@ async def run_draft(job_id: str) -> None:
         logger.info("draft workflow has no brand goals or engagement context yet")
     package = await draft_with_team(DraftWorkflowInput(
         title=job["ingestedTitle"], analysis=analysis, brand_context=brand_context,
+    ), invocation=InvocationContext(
+        job_id=job_id, stage="draft", operation_id=f"{job_id}:draft:0",
     ))
     drafts = package.reviewed_drafts.model_dump(mode="json")["drafts"]
     plan = package.action_plan.model_dump(mode="json")
@@ -283,7 +295,14 @@ async def run_publish(job_id: str) -> None:
                 if key in done_keys:
                     outcome, detail["note"] = "already_applied", "receipt exists; skipped"
                 else:
-                    img_bytes, mime = content.generate_image(action["payload"]["prompt"])
+                    img_bytes, mime = content.generate_image(
+                        action["payload"]["prompt"],
+                        invocation=InvocationContext(
+                            job_id=job_id,
+                            stage="publish",
+                            operation_id=f"{job_id}:publish:{action['id']}",
+                        ),
+                    )
                     digest = hashlib.sha256(img_bytes).hexdigest()
                     import base64
 

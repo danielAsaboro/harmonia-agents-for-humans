@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 
 from .model_catalog import PRICING_VERSION
 
@@ -37,6 +38,7 @@ class Settings:
     telemetry_enabled: bool
     telemetry_sample_rate: float
     otel_service_name: str
+    image_max_cost_usd: str
 
     @classmethod
     def load(cls) -> "Settings":
@@ -49,6 +51,13 @@ class Settings:
         telemetry_sample_rate = float(os.environ.get("HARMONIA_TELEMETRY_SAMPLE_RATE", "1.0"))
         if not 0 <= telemetry_sample_rate <= 1:
             raise RuntimeError("HARMONIA_TELEMETRY_SAMPLE_RATE must be between 0 and 1")
+        image_max_cost_usd = os.environ.get("IMAGE_MAX_COST_USD", "0.500000")
+        try:
+            image_max_cost_usd = f"{Decimal(image_max_cost_usd):.6f}"
+            if Decimal(image_max_cost_usd) <= 0:
+                raise ValueError
+        except (InvalidOperation, ValueError) as exc:
+            raise RuntimeError("IMAGE_MAX_COST_USD must be a positive decimal") from exc
         return cls(
             web_internal_url=_require("WEB_INTERNAL_URL").rstrip("/"),
             internal_api_token=_require("INTERNAL_API_TOKEN"),
@@ -63,6 +72,7 @@ class Settings:
             telemetry_enabled=_bool_env("HARMONIA_TELEMETRY_ENABLED"),
             telemetry_sample_rate=telemetry_sample_rate,
             otel_service_name=os.environ.get("OTEL_SERVICE_NAME", "harmonia-agent"),
+            image_max_cost_usd=image_max_cost_usd,
         )
 
 

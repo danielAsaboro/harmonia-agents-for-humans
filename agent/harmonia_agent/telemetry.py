@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping, MutableMapping
 from typing import Any
 
@@ -53,6 +54,10 @@ def configure_telemetry(
 ) -> TracerProvider:
     """Configure a tracer provider; tests may inject an in-memory exporter."""
     global _provider, _global_provider_registered
+    # ADK's legacy content capture defaults on. Harmonia's audit policy is
+    # metadata-only, so enforce both the legacy and current controls here.
+    os.environ["ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS"] = "false"
+    os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "NO_CONTENT"
     if _provider is not None and not force:
         return _provider
     if _provider is not None and force:

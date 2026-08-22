@@ -26,8 +26,8 @@ def test_understand_brief_routes_through_strategist_without_schema_changes(monke
     requests = []
     posts = []
 
-    async def fake_strategy(request):
-        requests.append(request)
+    async def fake_strategy(request, *, invocation):
+        requests.append((request, invocation))
         return StrategistResult(analysis=AnalysisResult.model_validate(_analysis()))
 
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
@@ -40,7 +40,11 @@ def test_understand_brief_routes_through_strategist_without_schema_changes(monke
 
     asyncio.run(stages.run_understand("job-1"))
 
-    assert requests[0].task == "brief"
+    request, invocation = requests[0]
+    assert request.task == "brief"
+    assert invocation.job_id == "job-1"
+    assert invocation.stage == "understand"
+    assert invocation.operation_id == "job-1:understand:0"
     path, payload = posts[0]
     assert path == "/api/internal/analysis"
     assert set(payload) == {"jobId", "stage", "moments", "angles", "summary", "modelUsed"}

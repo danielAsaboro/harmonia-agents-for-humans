@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from typing import Any, TypeVar
 
 from google.adk.agents import Agent, SequentialAgent
@@ -26,6 +27,7 @@ from .agent_models import (
     validate_draft_references,
 )
 from .config import settings
+from .model_catalog import PRICING_VERSION, estimate_text_cost
 from .mock_ai import (
     mock_ai_enabled,
     mock_analyze,
@@ -36,8 +38,27 @@ from .mock_ai import (
     mock_propose_ideas,
     mock_propose_recycle,
 )
+from .telemetry import current_trace_id, safe_attributes, tracer
+from .usage import InvocationContext, UsageAccumulator, estimate_request_tokens
+from .web_client import report_usage, reserve_budget
 
 T = TypeVar("T", bound=BaseModel)
+
+_SPECIALIST_ROLES = {
+    "sophia_analyst": ("harmonia_coordinator", "sophia_analyst"),
+    "ryan_strategist": ("harmonia_coordinator", "ryan_strategist"),
+    "flo_draft_workflow": (
+        "harmonia_coordinator", "nimi_copywriter", "dara_editor", "temi_planner",
+    ),
+}
+_MAX_OUTPUT_TOKENS = {
+    "harmonia_coordinator": 1024,
+    "sophia_analyst": 2048,
+    "ryan_strategist": 2048,
+    "nimi_copywriter": 2048,
+    "dara_editor": 2048,
+    "temi_planner": 1024,
+}
 
 
 class AgentProtocolError(RuntimeError):
@@ -49,6 +70,38 @@ def _model(model: str | BaseLlm | None = None) -> str | BaseLlm:
     if cfg.gemini_api_key:
         os.environ.setdefault("GOOGLE_API_KEY", cfg.gemini_api_key)
     return model or cfg.model_id
+
+
+def _model_id(model: str | BaseLlm | None) -> str:
+    resolved = _model(model)
+    return resolved if isinstance(resolved, str) else resolved.model
+
+
+def _reservation_payloads(
+    specialist: str,
+    payload: BaseModel,
+    invocation: InvocationContext,
+    model_id: str,
+) -> list[dict[str, object]]:
+    serialized = payload.model_dump_json(exclude_none=True)
+    reservations: list[dict[str, object]] = []
+    for role in _SPECIALIST_ROLES[specialist]:
+        estimated_input, estimated_output = estimate_request_tokens(
+            serialized * (2 if role == "harmonia_coordinator" else 1),
+            _MAX_OUTPUT_TOKENS[role],
+        )
+        reservations.append({
+            "jobId": invocation.job_id,
+            "operationId": invocation.role_operation_id(role),
+            "stage": invocation.stage,
+            "role": role,
+            "model": model_id,
+            "estimatedCostUsd": str(estimate_text_cost(
+                model_id, estimated_input, estimated_output,
+            )),
+            "pricingVersion": PRICING_VERSION,
+        })
+    return reservations
 
 
 def build_agent_team(model: str | BaseLlm | None = None) -> Agent:
@@ -146,13 +199,44 @@ def build_agent_team(model: str | BaseLlm | None = None) -> Agent:
 
 
 def _validated_state(state: dict[str, Any], key: str, schema: type[T]) -> T:
-    if key not in state:
-        raise AgentProtocolError(f"coordinator did not produce required state key: {key}")
-    value = state[key]
+    with tracer().start_as_current_span("harmonia.output.validate") as span:
+        span.set_attributes(safe_attributes({
+            "output.key": key,
+            "schema": schema.__name__,
+        }))
+        if key not in state:
+            raise AgentProtocolError(f"coordinator did not produce required state key: {key}")
+        value = state[key]
+        try:
+            return schema.model_validate_json(value) if isinstance(value, str) else schema.model_validate(value)
+        except (ValidationError, ValueError, TypeError) as exc:
+            raise AgentProtocolError(f"invalid agent output for {key}: {exc}") from exc
+
+
+def _validate_run_output(
+    specialist: str, payload: BaseModel, state: dict[str, Any],
+) -> None:
+    if specialist == "sophia_analyst":
+        _validated_state(state, "analysis_result", AnalysisResult)
+        return
+    if specialist == "ryan_strategist":
+        result = _validated_state(state, "strategist_result", StrategistResult)
+        _validate_strategy_result(StrategistInput.model_validate(payload), result)
+        return
     try:
-        return schema.model_validate_json(value) if isinstance(value, str) else schema.model_validate(value)
+        copywriter = _validated_state(state, "copywriter_drafts", DraftSet)
+        reviewed = _validated_state(state, "reviewed_drafts", DraftSet)
+        plan = _validated_state(state, "action_plan", ActionPlan)
+        draft_input = DraftWorkflowInput.model_validate(payload)
+        validate_draft_references(copywriter, draft_input.analysis)
+        validate_draft_references(reviewed, draft_input.analysis)
+        DraftWorkflowResult(
+            copywriter_drafts=copywriter, reviewed_drafts=reviewed, action_plan=plan,
+        )
+    except AgentProtocolError:
+        raise
     except (ValidationError, ValueError, TypeError) as exc:
-        raise AgentProtocolError(f"invalid agent output for {key}: {exc}") from exc
+        raise AgentProtocolError(f"invalid draft workflow output: {exc}") from exc
 
 
 async def _run_coordinator(
@@ -160,7 +244,28 @@ async def _run_coordinator(
     payload: BaseModel,
     *,
     model: str | BaseLlm | None = None,
+    invocation: InvocationContext | None = None,
+    budget_reserver: Callable[[dict[str, object]], None] = reserve_budget,
+    usage_reporter: Callable[[dict[str, object]], None] = report_usage,
 ) -> dict[str, Any]:
+    model_id = _model_id(model)
+    roles = _SPECIALIST_ROLES[specialist]
+    accumulators: dict[str, UsageAccumulator] = {}
+    if invocation is not None:
+        for reservation in _reservation_payloads(
+            specialist, payload, invocation, model_id,
+        ):
+            budget_reserver(reservation)
+        accumulators = {
+            role: UsageAccumulator(
+                job_id=invocation.job_id,
+                operation_id=invocation.role_operation_id(role),
+                stage=invocation.stage,
+                role=role,
+                model=model_id,
+            )
+            for role in roles
+        }
     service = InMemorySessionService()
     root = build_agent_team(model)
     runner = Runner(agent=root, app_name="harmonia", session_service=service)
@@ -172,32 +277,64 @@ async def _run_coordinator(
         f"{payload.model_dump_json(exclude_none=True)}"
     )
     try:
-        try:
-            async for _event in runner.run_async(
-                user_id="system",
-                session_id=session.id,
-                new_message=types.Content(role="user", parts=[types.Part(text=prompt)]),
-            ):
-                pass
-        except (ValidationError, ValueError, json.JSONDecodeError) as exc:
-            raise AgentProtocolError(f"agent delegation or structured output failed: {exc}") from exc
-        completed = await service.get_session(
-            app_name="harmonia", user_id="system", session_id=session.id,
-        )
-        if completed is None:
-            raise AgentProtocolError("coordinator session disappeared before output validation")
-        return dict(completed.state)
+        with tracer().start_as_current_span("harmonia.agent.invoke") as invoke_span:
+            invoke_span.set_attributes(safe_attributes({
+                "job.id": invocation.job_id if invocation else None,
+                "stage": invocation.stage if invocation else None,
+                "agent": specialist,
+                "model": model_id,
+            }))
+            invoke_span.add_event("harmonia.agent.delegate", safe_attributes({
+                "agent": specialist,
+                "model": model_id,
+            }))
+            try:
+                with tracer().start_as_current_span("harmonia.model.generate") as model_span:
+                    model_span.set_attributes(safe_attributes({
+                        "job.id": invocation.job_id if invocation else None,
+                        "stage": invocation.stage if invocation else None,
+                        "agent": specialist,
+                        "model": model_id,
+                    }))
+                    async for event in runner.run_async(
+                        user_id="system",
+                        session_id=session.id,
+                        new_message=types.Content(role="user", parts=[types.Part(text=prompt)]),
+                    ):
+                        accumulator = accumulators.get(getattr(event, "author", ""))
+                        if accumulator is not None:
+                            accumulator.observe_event(event)
+                    model_span.set_attributes(safe_attributes({
+                        "input.units": sum(a.input_tokens for a in accumulators.values()),
+                        "output.units": sum(a.output_tokens for a in accumulators.values()),
+                    }))
+            except (ValidationError, ValueError, json.JSONDecodeError) as exc:
+                raise AgentProtocolError(f"agent delegation or structured output failed: {exc}") from exc
+            completed = await service.get_session(
+                app_name="harmonia", user_id="system", session_id=session.id,
+            )
+            if completed is None:
+                raise AgentProtocolError("coordinator session disappeared before output validation")
+            final_state = dict(completed.state)
+            _validate_run_output(specialist, payload, final_state)
+            if invocation is not None:
+                trace_id = current_trace_id()
+                for role in roles:
+                    usage_reporter(accumulators[role].finalize(trace_id=trace_id).to_wire())
+            return final_state
     finally:
         await runner.close()
 
 
-async def analyze_with_team(input: AnalystInput) -> AnalysisResult:
+async def analyze_with_team(
+    input: AnalystInput, *, invocation: InvocationContext | None = None,
+) -> AnalysisResult:
     input = AnalystInput.model_validate(input)
     if mock_ai_enabled():
         print("[MOCK-AI] coordinator -> sophia_analyst", flush=True)
         raw = mock_analyze(input.title, input.channel, input.transcript, input.prior_learnings)
         return AnalysisResult.model_validate({k: v for k, v in raw.items() if k != "mock"})
-    state = await _run_coordinator("sophia_analyst", input)
+    state = await _run_coordinator("sophia_analyst", input, invocation=invocation)
     return _validated_state(state, "analysis_result", AnalysisResult)
 
 
@@ -212,7 +349,9 @@ def _validate_strategy_result(
     return result
 
 
-async def strategize_with_team(input: StrategistInput) -> StrategistResult:
+async def strategize_with_team(
+    input: StrategistInput, *, invocation: InvocationContext | None = None,
+) -> StrategistResult:
     input = StrategistInput.model_validate(input)
     if mock_ai_enabled():
         print("[MOCK-AI] coordinator -> ryan_strategist", flush=True)
@@ -226,12 +365,14 @@ async def strategize_with_team(input: StrategistInput) -> StrategistResult:
         else:
             result = mock_propose_recycle(input.post_text, input.likes)
         return _validate_strategy_result(input, StrategistResult.model_validate(result))
-    state = await _run_coordinator("ryan_strategist", input)
+    state = await _run_coordinator("ryan_strategist", input, invocation=invocation)
     result = _validated_state(state, "strategist_result", StrategistResult)
     return _validate_strategy_result(input, result)
 
 
-async def draft_with_team(input: DraftWorkflowInput) -> DraftWorkflowResult:
+async def draft_with_team(
+    input: DraftWorkflowInput, *, invocation: InvocationContext | None = None,
+) -> DraftWorkflowResult:
     input = DraftWorkflowInput.model_validate(input)
     if mock_ai_enabled():
         print("[MOCK-AI] coordinator -> nimi_copywriter", flush=True)
@@ -250,7 +391,7 @@ async def draft_with_team(input: DraftWorkflowInput) -> DraftWorkflowResult:
             copywriter_drafts=copywriter, reviewed_drafts=reviewed, action_plan=plan,
         )
 
-    state = await _run_coordinator("flo_draft_workflow", input)
+    state = await _run_coordinator("flo_draft_workflow", input, invocation=invocation)
     copywriter = _validated_state(state, "copywriter_drafts", DraftSet)
     reviewed = _validated_state(state, "reviewed_drafts", DraftSet)
     plan = _validated_state(state, "action_plan", ActionPlan)

@@ -165,3 +165,19 @@ def mock_plan_actions(drafts: list[dict]) -> dict:
             actions.append({"type": "publish_x_post", "text": text})
     actions.append({"type": "export_content_pack"})
     return {"actions": actions}
+
+
+def mock_propose_ideas(signals: list[dict]) -> dict:
+    """2-3 topic proposals derived from signals, with reasons + sources."""
+    ideas = []
+    for s in signals[:3]:
+        title = str(s.get("title", ""))[:140]
+        url = str(s.get("url", ""))
+        ideas.append({
+            "topic": f"Founder take: {title}",
+            "angle": "Contrarian operator perspective grounded in what we shipped this week",
+            "reason": f"Currently front-page news ({s.get('points', 0)} points, {s.get('comments', 0)} comments) - high attention window for a credible founder response.",
+            "sources": [url] if url else [],
+            "suggestedPost": "",
+        })
+    return {"ideas": ideas}

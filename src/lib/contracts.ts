@@ -45,8 +45,10 @@ export const transcriptSubmissionSchema = z.object({
 export const momentSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
+  // Concept/brief jobs carry key points with zero timestamps (no media
+  // timeline), so 0 is a valid boundary here.
   startSec: z.number().nonnegative(),
-  endSec: z.number().positive(),
+  endSec: z.number().nonnegative(),
   hook: z.string().min(1),
   quote: z.string().min(1),
 });
@@ -150,6 +152,28 @@ export const verificationSubmissionSchema = z.object({
       note: z.string().optional(),
     }),
   ),
+});
+
+export const proposalSubmissionSchema = z.object({
+  proposals: z
+    .array(
+      z.object({
+        id: z.string().min(6).max(40),
+        source: z.enum(["trend_scan", "engagement_watch"]),
+        topic: z.string().min(4).max(300),
+        angle: z.string().max(300).default(""),
+        reason: z.string().max(600).default(""),
+        sources: z.array(z.string().url()).max(5).default([]),
+        suggestedPost: z.string().max(280).default(""),
+      }),
+    )
+    .min(1)
+    .max(10),
+});
+
+export const proposalDecisionSchema = z.object({
+  id: z.string().min(1),
+  decision: z.enum(["approved", "rejected"]),
 });
 
 export const engagementRecordSchema = z.object({

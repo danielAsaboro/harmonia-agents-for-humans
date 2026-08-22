@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ChatIcon, CalendarIcon, ChartIcon, SettingsIcon } from "@/components/icons";
+import { ChatIcon, CalendarIcon, ChartIcon, SettingsIcon, SparklesIcon } from "@/components/icons";
 
 const RAIL = [
   { href: "/dashboard", label: "Console", Icon: ChatIcon },
+  { href: "/dashboard/proposals", label: "Proposals", Icon: SparklesIcon },
   { href: "/dashboard/calendar", label: "Calendar", Icon: CalendarIcon },
   { href: "/dashboard/monitoring", label: "Monitoring", Icon: ChartIcon },
   { href: "/dashboard/settings", label: "Settings", Icon: SettingsIcon },

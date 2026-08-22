@@ -42,8 +42,15 @@ def _start_scheduler() -> None:
     scheduler.start_background()
 
 
+def _start_proactive_agent() -> None:
+    from . import proactive
+
+    proactive.start_background()
+
+
 _start_telegram_if_configured()
 _start_scheduler()
+_start_proactive_agent()
 
 
 @app.get("/healthz")

@@ -47,6 +47,7 @@ const CONFIG = "config";
 const CONNECTIONS = "connections";
 const CONTENT_ITEMS = "content_items";
 const NOTIFICATIONS = "notifications";
+const PROPOSALS = "proposals";
 
 // ---------- content items ----------
 
@@ -110,6 +111,56 @@ export async function markNotificationRead(id: string): Promise<void> {
 export async function markAllNotificationsRead(): Promise<void> {
   const snaps = await db().collection(NOTIFICATIONS).where("readAt", "==", null).get();
   await Promise.all(snaps.docs.map((d) => d.ref.update({ readAt: new Date().toISOString() })));
+}
+
+// ---------- proactive content proposals ----------
+
+export interface ContentProposal {
+  id: string;
+  source: "trend_scan" | "engagement_watch";
+  topic: string;
+  angle: string;
+  reason: string;
+  sources: string[];
+  suggestedPost: string;
+  status: "proposed" | "approved" | "rejected";
+  jobId?: string;
+  createdAt: string;
+  decidedAt?: string;
+}
+
+function proposalRef(id: string) {
+  return db().collection(PROPOSALS).doc(id);
+}
+
+export async function getProposal(id: string): Promise<ContentProposal | null> {
+  const snap = await proposalRef(id).get();
+  return snap.exists ? (snap.data() as ContentProposal) : null;
+}
+
+export async function saveProposal(p: ContentProposal): Promise<void> {
+  await proposalRef(p.id).set(p);
+}
+
+export async function listProposals(limit = 100): Promise<ContentProposal[]> {
+  const snaps = await db()
+    .collection(PROPOSALS)
+    .orderBy("createdAt", "desc")
+    .limit(limit)
+    .get();
+  return snaps.docs.map((d) => d.data() as ContentProposal);
+}
+
+export async function decideProposal(
+  id: string,
+  decision: "approved" | "rejected",
+  patch: { jobId?: string } = {},
+): Promise<void> {
+  const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+  await proposalRef(id).set(
+    { status: decision, decidedAt: new Date().toISOString(), ...clean },
+    { merge: true },
+  );
 }
 
 export interface ConnectionDoc {

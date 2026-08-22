@@ -15,6 +15,7 @@ from .mock_ai import (
     mock_drafts,
     mock_generate_image,
     mock_ideate,
+    mock_propose_ideas,
     mock_transcribe,
 )
 
@@ -144,6 +145,30 @@ def generate_image(prompt: str) -> tuple[bytes, str]:
         raise
     except Exception as exc:  # noqa: BLE001 - normalized for stage failure classification
         raise ImageGenError(f"image generation failed: {exc}") from exc
+
+
+def propose_ideas(signals: list[dict], prior_learnings: str | None = None) -> dict:
+    """Proactive ideation: turns external signals into topic proposals.
+
+    Same output contract as the other stages:
+    {ideas: [{topic, angle, reason, sources: [url], suggestedPost}]}
+    """
+    prompt = (
+        "You are Harmonia's proactive content strategist. External signals "
+        f"(JSON):\n{json.dumps(signals)[:20000]}\n\n"
+        + _prior_block(prior_learnings)
+        + "Propose 2-3 concrete social post topics for a startup founder. Each must: "
+        "connect a signal to the founder's own experience, include a reason explaining "
+        "why NOW (attention window), cite the signal URLs as sources, and optionally "
+        "include a suggestedPost (max 280 chars). "
+        "Return JSON: {ideas:[{topic,angle,reason,sources:[url],suggestedPost}]}"
+    )
+    if mock_ai_enabled():
+        print("[MOCK-AI] propose_ideas: returning deterministic local fixture", flush=True)
+        return mock_propose_ideas(signals)
+    client = _client()
+    res = client.models.generate_content(model=MODEL, contents=prompt)
+    return _parse_json(res.text)
 
 
 def build_content_pack(title: str, url: str, moments: list, angles: list, drafts: list) -> str:

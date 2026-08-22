@@ -5,6 +5,7 @@ import type {
   Job,
   JobConfig,
   Learnings,
+  JobBudget,
   PlannedAction,
   Receipt,
   PostDraft,
@@ -13,7 +14,10 @@ import type {
   Stage,
   StageEvent,
   VerificationResult,
+  UsageRecord,
 } from "./types";
+import { applyFinalizedUsage, applyReservation, canReserve } from "./costs";
+import { getConfig } from "./config";
 import { newId } from "./idempotency";
 
 let client: Firestore | null = null;
@@ -36,6 +40,7 @@ interface JobDoc extends Omit<Job, "id"> {
   actions?: PlannedAction[];
   verifications?: VerificationResult[];
   packet?: EvidencePacket;
+  budget?: JobBudget;
 }
 
 const JOBS = "jobs";
@@ -48,6 +53,19 @@ const CONNECTIONS = "connections";
 const CONTENT_ITEMS = "content_items";
 const NOTIFICATIONS = "notifications";
 const PROPOSALS = "proposals";
+const COST_RESERVATIONS = "cost_reservations";
+const USAGE_RECORDS = "usage_records";
+
+function initialJobBudget(): JobBudget {
+  const config = getConfig();
+  return {
+    estimatedUsd: "0.00",
+    observedUsd: "0.00",
+    reservedUsd: "0.00",
+    limitUsd: config.DEFAULT_JOB_BUDGET_USD,
+    approvalThresholdUsd: config.DEFAULT_JOB_APPROVAL_THRESHOLD_USD,
+  };
+}
 
 // ---------- content items ----------
 
@@ -379,6 +397,7 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
     actions: data.actions ?? [],
     verifications: data.verifications ?? [],
     packet: data.packet,
+    budget: data.budget ?? initialJobBudget(),
   };
 }
 
@@ -395,6 +414,7 @@ export async function createJob(
     status: "running",
     stage: initialStage,
     config: storedConfig,
+    budget: initialJobBudget(),
   };
   await jobRef(id).set(doc);
   return { id, ...doc };
@@ -424,6 +444,88 @@ export async function setStage(
     status,
     updatedAt: new Date().toISOString(),
   });
+}
+
+export interface BudgetReservation {
+  jobId: string;
+  operationId: string;
+  stage: string;
+  role: string;
+  model: string;
+  estimatedCostUsd: string;
+  pricingVersion: string;
+  accepted: boolean;
+  finalized: boolean;
+  createdAt: string;
+}
+
+export async function reserveJobBudget(
+  input: Omit<BudgetReservation, "accepted" | "finalized" | "createdAt">,
+): Promise<{ reserved: boolean; duplicate: boolean; budget: JobBudget }> {
+  const ref = jobRef(input.jobId);
+  const reservationRef = ref.collection(COST_RESERVATIONS).doc(input.operationId);
+  return db().runTransaction(async (tx) => {
+    const [jobSnap, reservationSnap] = await Promise.all([tx.get(ref), tx.get(reservationRef)]);
+    const job = requireJobDoc(jobSnap);
+    const budget = job.budget ?? initialJobBudget();
+    if (reservationSnap.exists) {
+      const existing = reservationSnap.data() as BudgetReservation;
+      return { reserved: existing.accepted, duplicate: true, budget };
+    }
+
+    const accepted = canReserve(budget, input.estimatedCostUsd);
+    const reservation: BudgetReservation = {
+      ...input,
+      accepted,
+      finalized: false,
+      createdAt: new Date().toISOString(),
+    };
+    tx.set(reservationRef, reservation);
+    if (!accepted) return { reserved: false, duplicate: false, budget };
+
+    const updated = applyReservation(budget, input.estimatedCostUsd);
+    tx.update(ref, { budget: updated, updatedAt: new Date().toISOString() });
+    return { reserved: true, duplicate: false, budget: updated };
+  });
+}
+
+export async function finalizeUsageRecord(record: UsageRecord): Promise<{ duplicate: boolean }> {
+  const ref = jobRef(record.jobId);
+  const reservationRef = ref.collection(COST_RESERVATIONS).doc(record.operationId);
+  const usageRef = ref.collection(USAGE_RECORDS).doc(record.id);
+  return db().runTransaction(async (tx) => {
+    const [jobSnap, reservationSnap, usageSnap] = await Promise.all([
+      tx.get(ref),
+      tx.get(reservationRef),
+      tx.get(usageRef),
+    ]);
+    if (usageSnap.exists) return { duplicate: true };
+    const job = requireJobDoc(jobSnap);
+    if (!reservationSnap.exists) throw new Error(`missing cost reservation: ${record.operationId}`);
+    const reservation = reservationSnap.data() as BudgetReservation;
+    if (!reservation.accepted) throw new Error(`cost reservation was rejected: ${record.operationId}`);
+    if (reservation.finalized) {
+      throw new Error(`cost reservation already finalized by another usage record: ${record.operationId}`);
+    }
+
+    const budget = applyFinalizedUsage(
+      job.budget ?? initialJobBudget(),
+      reservation.estimatedCostUsd,
+      record.observedCostUsd ?? record.estimatedCostUsd,
+    );
+    tx.set(usageRef, record);
+    tx.update(reservationRef, { finalized: true, finalizedAt: new Date().toISOString() });
+    tx.update(ref, { budget, updatedAt: new Date().toISOString() });
+    return { duplicate: false };
+  });
+}
+
+export async function listUsageRecords(jobId: string): Promise<UsageRecord[]> {
+  const snaps = await jobRef(jobId)
+    .collection(USAGE_RECORDS)
+    .orderBy("createdAt", "asc")
+    .get();
+  return snaps.docs.map((doc) => doc.data() as UsageRecord);
 }
 
 export async function saveIngestMeta(

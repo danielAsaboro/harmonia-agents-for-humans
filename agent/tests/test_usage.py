@@ -28,3 +28,15 @@ def test_accumulator_sums_adk_usage_metadata():
     assert record.output_units == 35
     assert record.estimated_cost_usd == "0.000510"
     assert record.operation_id == "j1:draft:nimi:0"
+
+
+def test_usage_record_id_is_stable_across_retries():
+    first = UsageAccumulator(
+        job_id="j1", operation_id="j1:draft:nimi:0", stage="draft",
+        role="nimi", model="gemini-3.5-flash",
+    ).finalize(trace_id="0" * 32)
+    second = UsageAccumulator(
+        job_id="j1", operation_id="j1:draft:nimi:0", stage="draft",
+        role="nimi", model="gemini-3.5-flash",
+    ).finalize(trace_id="f" * 32)
+    assert first.id == second.id

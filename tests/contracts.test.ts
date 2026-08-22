@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  budgetReservationSchema,
   draftsSubmissionSchema,
   ingestSubmissionSchema,
   receiptSubmissionSchema,
+  usageRecordSchema,
 } from "@/lib/contracts";
 
 describe("internal contracts", () => {
@@ -34,5 +36,33 @@ describe("internal contracts", () => {
       idempotencyKey: "k".repeat(32), outcome: "applied", detail: {},
     });
     expect(parsed.success).toBe(false);
+  });
+
+  it("accepts strict budget reservations and usage records", () => {
+    expect(budgetReservationSchema.safeParse({
+      jobId: "j1", operationId: "j1:draft:nimi:0", stage: "draft",
+      role: "nimi", model: "gemini-3.5-flash",
+      estimatedCostUsd: "0.001000", pricingVersion: "2026-08-23",
+    }).success).toBe(true);
+    expect(usageRecordSchema.safeParse({
+      id: "u1", jobId: "j1", operationId: "j1:draft:nimi:0", stage: "draft",
+      role: "nimi", model: "gemini-3.5-flash", inputUnits: 100, outputUnits: 10,
+      unitType: "tokens", estimatedCostUsd: "0.000240",
+      pricingVersion: "2026-08-23", traceId: "a".repeat(32),
+      createdAt: "2026-08-23T12:00:00+00:00",
+    }).success).toBe(true);
+  });
+
+  it("rejects unpriced-looking amounts and malformed trace ids", () => {
+    expect(budgetReservationSchema.safeParse({
+      jobId: "j1", operationId: "op", stage: "draft", role: "nimi", model: "m",
+      estimatedCostUsd: "free", pricingVersion: "2026-08-23",
+    }).success).toBe(false);
+    expect(usageRecordSchema.safeParse({
+      id: "u1", jobId: "j1", operationId: "op", stage: "draft", role: "nimi",
+      model: "m", inputUnits: 1, outputUnits: 1, unitType: "tokens",
+      estimatedCostUsd: "0.01", pricingVersion: "2026-08-23", traceId: "short",
+      createdAt: "2026-08-23T12:00:00+00:00",
+    }).success).toBe(false);
   });
 });

@@ -1,5 +1,34 @@
 import { z } from "zod";
 
+const usdDecimalSchema = z.string().regex(/^\d+\.\d{1,6}$/);
+
+export const budgetReservationSchema = z.object({
+  jobId: z.string().min(1),
+  operationId: z.string().min(1),
+  stage: z.string().min(1),
+  role: z.string().min(1),
+  model: z.string().min(1),
+  estimatedCostUsd: usdDecimalSchema,
+  pricingVersion: z.string().min(1),
+}).strict();
+
+export const usageRecordSchema = z.object({
+  id: z.string().min(1),
+  jobId: z.string().min(1),
+  operationId: z.string().min(1),
+  stage: z.string().min(1),
+  role: z.string().min(1),
+  model: z.string().min(1),
+  inputUnits: z.number().int().nonnegative(),
+  outputUnits: z.number().int().nonnegative(),
+  unitType: z.enum(["tokens", "images", "video_seconds", "audio_seconds", "endpoint_seconds"]),
+  estimatedCostUsd: usdDecimalSchema,
+  observedCostUsd: usdDecimalSchema.optional(),
+  pricingVersion: z.string().min(1),
+  traceId: z.string().regex(/^[0-9a-f]{32}$/),
+  createdAt: z.string().datetime({ offset: true }),
+}).strict();
+
 export const evidenceRefSchema = z.object({
   kind: z.enum([
     "youtube_api",

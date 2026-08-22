@@ -93,6 +93,22 @@ def post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     return res.json()
 
 
+def reserve_budget(payload: dict[str, object]) -> None:
+    with _client() as c:
+        res = c.post("/api/internal/budget/reserve", json=payload)
+    if res.status_code >= 300:
+        raise WebApiError(
+            f"budget reservation failed: {res.status_code} {res.text}", res.status_code
+        )
+
+
+def report_usage(payload: dict[str, object]) -> None:
+    with _client() as c:
+        res = c.post("/api/internal/usage", json=payload)
+    if res.status_code >= 300:
+        raise WebApiError(f"usage reporting failed: {res.status_code} {res.text}", res.status_code)
+
+
 def _operator_client() -> httpx.Client:
     """Client carrying operator authority for the Telegram surface only.
     The token is sent to the web service, never echoed back to chats."""

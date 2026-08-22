@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from hashlib import sha256
 from typing import Literal
-from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 
@@ -66,7 +66,7 @@ class UsageAccumulator:
 
     def finalize(self, *, trace_id: str) -> UsageRecord:
         return UsageRecord(
-            id=str(uuid4()),
+            id=f"usage-{sha256(self.operation_id.encode()).hexdigest()[:24]}",
             job_id=self.job_id,
             operation_id=self.operation_id,
             stage=self.stage,

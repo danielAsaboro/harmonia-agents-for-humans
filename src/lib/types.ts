@@ -39,12 +39,38 @@ export interface Job {
   ingestedChannel?: string;
   ingestedDurationSec?: number;
   videoId?: string;
+  budget?: JobBudget;
   failure?: {
     stage: Stage;
     error: string;
     permanent: boolean;
     at: string;
   };
+}
+
+export interface JobBudget {
+  estimatedUsd: string;
+  observedUsd: string;
+  reservedUsd: string;
+  limitUsd: string;
+  approvalThresholdUsd: string;
+}
+
+export interface UsageRecord {
+  id: string;
+  jobId: string;
+  operationId: string;
+  stage: string;
+  role: string;
+  model: string;
+  inputUnits: number;
+  outputUnits: number;
+  unitType: "tokens" | "images" | "video_seconds" | "audio_seconds" | "endpoint_seconds";
+  estimatedCostUsd: string;
+  observedCostUsd?: string;
+  pricingVersion: string;
+  traceId: string;
+  createdAt: string;
 }
 
 export interface EvidenceRef {

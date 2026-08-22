@@ -67,7 +67,12 @@ export async function updateContentItem(
   id: string,
   patch: Partial<import("./types").ContentItem>,
 ): Promise<void> {
-  await contentItemRef(id).set({ ...patch, updatedAt: new Date().toISOString() }, { merge: true });
+  // Callers use `undefined` fields (e.g. failureReason) to clear values, but
+  // Firestore rejects undefined — strip them so merges stay valid.
+  const clean = Object.fromEntries(
+    Object.entries(patch).filter(([, v]) => v !== undefined),
+  );
+  await contentItemRef(id).set({ ...clean, updatedAt: new Date().toISOString() }, { merge: true });
 }
 
 export async function listContentItems(): Promise<import("./types").ContentItem[]> {

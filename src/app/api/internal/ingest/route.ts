@@ -1,5 +1,5 @@
 import { ingestSubmissionSchema } from "@/lib/contracts";
-import { appendEvent } from "@/lib/firestore";
+import { appendEvent, saveIngestMeta } from "@/lib/firestore";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { advance } from "@/lib/advance";
@@ -7,6 +7,10 @@ import { advance } from "@/lib/advance";
 export async function POST(req: Request) {
   if (!isInternalAuthorized(req)) return unauthorized();
   return internalRoute(req, ingestSubmissionSchema, async (body) => {
+    await saveIngestMeta(body.jobId, {
+      videoId: body.videoId, title: body.title,
+      channel: body.channel, durationSec: body.durationSec,
+    });
     await appendEvent(
       body.jobId,
       "ingest",

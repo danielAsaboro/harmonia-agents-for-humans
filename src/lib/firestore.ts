@@ -66,6 +66,10 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
     stage: data.stage,
     config: data.config,
     failure: data.failure,
+    ingestedTitle: data.ingestedTitle,
+    ingestedChannel: data.ingestedChannel,
+    ingestedDurationSec: data.ingestedDurationSec,
+    videoId: data.videoId,
     transcriptSegments: data.transcriptSegments ?? [],
     transcriptLanguage: data.transcriptLanguage,
     moments: data.moments ?? [],
@@ -119,6 +123,19 @@ export async function setStage(
   await jobRef(jobId).update({
     stage,
     status,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function saveIngestMeta(
+  jobId: string,
+  meta: { videoId: string; title: string; channel: string; durationSec: number },
+) {
+  await jobRef(jobId).update({
+    videoId: meta.videoId,
+    ingestedTitle: meta.title,
+    ingestedChannel: meta.channel,
+    ingestedDurationSec: meta.durationSec,
     updatedAt: new Date().toISOString(),
   });
 }

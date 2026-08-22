@@ -32,6 +32,10 @@ export interface Job {
   status: JobStatus;
   stage: Stage;
   config: JobConfig;
+  ingestedTitle?: string;
+  ingestedChannel?: string;
+  ingestedDurationSec?: number;
+  videoId?: string;
   failure?: {
     stage: Stage;
     error: string;

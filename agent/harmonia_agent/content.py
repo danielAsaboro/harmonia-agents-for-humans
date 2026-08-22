@@ -9,6 +9,14 @@ from typing import Any
 from google import genai
 
 from .config import settings
+from .mock_ai import (
+    mock_ai_enabled,
+    mock_analyze,
+    mock_drafts,
+    mock_generate_image,
+    mock_ideate,
+    mock_transcribe,
+)
 
 MODEL = "gemini-3.5-flash"
 IMAGE_MODEL = os.environ.get("IMAGE_MODEL_ID", "gemini-3.5-flash-image")
@@ -30,7 +38,15 @@ def _parse_json(text: str) -> Any:
     return json.loads(cleaned)
 
 
+def model_used() -> str:
+    """Label recorded in persisted docs; honest about offline mode."""
+    return "mock-local (HARMONIA_MOCK_AI)" if mock_ai_enabled() else MODEL
+
+
 def transcribe_audio(audio: bytes, mime_type: str) -> dict:
+    if mock_ai_enabled():
+        print("[MOCK-AI] transcribe_audio: returning deterministic local fixture", flush=True)
+        return mock_transcribe(len(audio))
     client = _client()
     res = client.models.generate_content(
         model=MODEL,
@@ -62,6 +78,9 @@ def analyze(title: str, channel: str, transcript: str, prior_learnings: str | No
         "Return JSON: {summary, moments:[{id,title,startSec,endSec,hook,quote}], "
         "angles:[{id,kind:'trend'|'meme',title,rationale}]}"
     )
+    if mock_ai_enabled():
+        print("[MOCK-AI] analyze: returning deterministic local fixture", flush=True)
+        return {k: v for k, v in mock_analyze(title, channel, transcript, prior_learnings).items() if k != "mock"}
     client = _client()
     res = client.models.generate_content(model=MODEL, contents=prompt)
     return _parse_json(res.text)
@@ -81,6 +100,9 @@ def ideate_from_brief(brief: str, prior_learnings: str | None = None) -> dict:
         "Return JSON: {summary, moments:[{id,title,startSec,endSec,hook,quote}], "
         "angles:[{id,kind:'trend'|'meme',title,rationale}]}"
     )
+    if mock_ai_enabled():
+        print("[MOCK-AI] ideate_from_brief: returning deterministic local fixture", flush=True)
+        return {k: v for k, v in mock_ideate(brief, prior_learnings).items() if k != "mock"}
     client = _client()
     res = client.models.generate_content(model=MODEL, contents=prompt)
     return _parse_json(res.text)
@@ -93,6 +115,9 @@ def draft_posts(title: str, analysis: dict) -> list[dict]:
         "Each post references one moment or angle by id when applicable. "
         'Return JSON: {drafts:[{id,platform:"x",momentId?,angleId?,text}]}'
     )
+    if mock_ai_enabled():
+        print("[MOCK-AI] draft_posts: returning deterministic local fixture", flush=True)
+        return mock_drafts(title, analysis)
     client = _client()
     res = client.models.generate_content(model=MODEL, contents=prompt)
     return _parse_json(res.text)["drafts"]
@@ -104,6 +129,9 @@ class ImageGenError(RuntimeError):
 
 def generate_image(prompt: str) -> tuple[bytes, str]:
     """Generates an image with Gemini. Returns (bytes, mime_type)."""
+    if mock_ai_enabled():
+        print("[MOCK-AI] generate_image: rendering real local PNG via ffmpeg lavfi", flush=True)
+        return mock_generate_image(prompt)
     client = _client()
     try:
         res = client.models.generate_images(model=IMAGE_MODEL, contents=prompt)

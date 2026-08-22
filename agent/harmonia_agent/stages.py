@@ -78,7 +78,7 @@ async def run_transcribe(job_id: str) -> None:
     web_post("/api/internal/transcript", {
         "jobId": job_id, "stage": "transcribe",
         "language": result.get("language", "en"),
-        "segments": result["segments"], "modelUsed": content.MODEL,
+        "segments": result["segments"], "modelUsed": content.model_used(),
     })
 
 
@@ -122,7 +122,7 @@ async def run_understand(job_id: str) -> None:
         "moments": result.get("moments", [])[:12],
         "angles": result.get("angles", [])[:12],
         "summary": result.get("summary", ""),
-        "modelUsed": content.MODEL,
+        "modelUsed": content.model_used(),
     })
 
 

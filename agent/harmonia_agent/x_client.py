@@ -1,7 +1,13 @@
-"""X (Twitter) API v2 publish + verify client."""
+"""X (Twitter) API v2 publish + verify client.
+
+Offline dev mode: when HARMONIA_MOCK_X=1 is explicitly set (independent of
+HARMONIA_MOCK_AI), publish/verify/metrics return small deterministic payloads
+and never touch the network. With the flag unset every call is real.
+"""
 
 from __future__ import annotations
 
+import hashlib
 import os
 
 import httpx
@@ -17,6 +23,18 @@ class XError(RuntimeError):
         return self.status is not None and 400 <= self.status < 500 and self.status != 429
 
 
+def _mock_x() -> bool:
+    return os.environ.get("HARMONIA_MOCK_X") == "1"
+
+
+def _log(message: str) -> None:
+    print(f"[MOCK-X] {message}", flush=True)
+
+
+def _mock_id(text: str) -> str:
+    return f"mock-{hashlib.sha256(text.encode()).hexdigest()[:12]}"
+
+
 def _bearer() -> str:
     token = os.environ.get("X_BEARER_TOKEN")
     if not token:
@@ -25,6 +43,10 @@ def _bearer() -> str:
 
 
 def publish_post(text: str) -> dict:
+    if _mock_x():
+        pid = _mock_id(text)
+        _log(f"publish_post: returning deterministic id {pid}")
+        return {"id": pid, "url": f"https://x.com/i/web/status/{pid}"}
     with httpx.Client(timeout=30) as c:
         res = c.post(
             "https://api.x.com/2/tweets",
@@ -38,6 +60,9 @@ def publish_post(text: str) -> dict:
 
 
 def get_post(post_id: str) -> dict | None:
+    if _mock_x():
+        _log(f"get_post({post_id}): returning deterministic payload")
+        return {"id": post_id, "text": "(mock offline post)"}
     with httpx.Client(timeout=20) as c:
         res = c.get(
             f"https://api.x.com/2/tweets/{post_id}",
@@ -52,6 +77,17 @@ def get_post(post_id: str) -> dict | None:
 
 def get_post_metrics(post_id: str) -> dict | None:
     """Fetches reaction metrics for a published post (learn stage)."""
+    if _mock_x():
+        h = int(hashlib.sha256(str(post_id).encode()).hexdigest(), 16)
+        metrics = {
+            "likes": 5 + h % 40,
+            "replies": h % 7,
+            "reposts": h % 11,
+            "quotes": h % 3,
+            "impressions": 200 + h % 1800,
+        }
+        _log(f"get_post_metrics({post_id}): returning deterministic payload {metrics}")
+        return metrics
     with httpx.Client(timeout=20) as c:
         res = c.get(
             f"https://api.x.com/2/tweets/{post_id}",

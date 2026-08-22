@@ -12,6 +12,7 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 from .config import settings
+from .mock_ai import mock_ai_enabled, mock_plan_actions
 
 
 class ActionPlan(BaseModel):
@@ -38,6 +39,15 @@ def plan_agent() -> Agent:
 
 
 async def run_structured(agent: Agent, prompt: str) -> dict[str, Any]:
+    if mock_ai_enabled():
+        # Skip the LLM entirely; emit the actions JSON the planner would.
+        import json as _json
+        import re as _re
+
+        print("[MOCK-AI] run_structured: skipping ADK LLM call, emitting deterministic plan", flush=True)
+        m = _re.search(r"Drafts: (\[.*?\])\n", prompt, _re.DOTALL)
+        drafts = _json.loads(m.group(1)) if m else []
+        return mock_plan_actions(drafts)
     runner = Runner(agent=agent, app_name="harmonia", session_service=InMemorySessionService())
     session = await runner.session_service.create_session(app_name="harmonia", user_id="system")
     final: str | None = None

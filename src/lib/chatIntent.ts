@@ -2,8 +2,61 @@
  * Natural-language intent parsing for operator surfaces (dashboard chat,
  * Telegram). Uses Gemini structured output so every surface shares one
  * intent grammar: create_job | status | list_drafts | approve | unknown.
+ *
+ * Offline dev mode: when HARMONIA_MOCK_AI=1, parseIntent() classifies with
+ * deterministic keyword rules and never touches the network. With the flag
+ * unset, behavior is exactly the real Gemini path.
  */
 import { getConfig } from "./config";
+
+export function isMockAi(): boolean {
+  return process.env.HARMONIA_MOCK_AI === "1";
+}
+
+const YT_URL_RE = /https?:\/\/(?:www\.|m\.)?(?:youtube\.com\/(?:watch\?\S*v=|shorts\/)|youtu\.be\/)[\w-]+/i;
+
+/** Extracts a job id mentioned near "job"/"drafts"/"for"/"of" (mock parser only). */
+function extractJobId(message: string): string | undefined {
+  const patterns = [
+    /\b(?:job|drafts?)\s+(?:for\s+|of\s+)?([\w][\w.:-]*)/i,
+    /\b(?:for|of)\s+(?:the\s+)?(?:job\s+)?([\w][\w.:-]*)/i,
+  ];
+  for (const re of patterns) {
+    const id = message.match(re)?.[1];
+    if (id && !/^(the|a|an|it|this|that|please|job)$/i.test(id)) return id;
+  }
+  return undefined;
+}
+
+function parseIntentOffline(message: string): ParsedIntent {
+  const trimmed = message.trim();
+  const yt = trimmed.match(YT_URL_RE)?.[0];
+  if (yt) {
+    return { intent: "create_job", youtubeUrl: yt };
+  }
+  const lower = trimmed.toLowerCase();
+  const jobId = extractJobId(trimmed);
+  if (/\bapprove\b/.test(lower)) {
+    return { intent: "approve", jobId };
+  }
+  if (/\bdrafts?\b/.test(lower)) {
+    return { intent: "list_drafts", jobId };
+  }
+  if (/\bstatus\b/.test(lower)) {
+    return { intent: "status", jobId };
+  }
+  if (trimmed.length >= 20) {
+    const topic = trimmed
+      .replace(
+        /^(please\s+)?(can you\s+)?(make|create|start|run|generate|announce|post|share|write|publish)\s+(me\s+)?(a\s+|an\s+|some\s+)?(new\s+)?(posts?|content|announcement)?\s*(about|for|on|from)?\s*/i,
+        "",
+      )
+      .replace(/^(turn|convert)\s+/i, "")
+      .trim();
+    return { intent: "create_job", topic: topic.length >= 20 ? topic : trimmed };
+  }
+  return { intent: "unknown" };
+}
 
 export type ChatIntent =
   | "create_job"
@@ -48,6 +101,11 @@ interface GeminiCandidatePart {
 }
 
 export async function parseIntent(message: string): Promise<ParsedIntent> {
+  if (isMockAi()) {
+    const mock = parseIntentOffline(message);
+    console.log(`[MOCK-AI] parseIntent offline: "${message.slice(0, 80)}" -> ${mock.intent}`);
+    return mock;
+  }
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not configured for chat intent parsing");

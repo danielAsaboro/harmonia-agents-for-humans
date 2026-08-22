@@ -17,10 +17,11 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from opentelemetry import context as otel_context
 
 from .config import settings
 from .stages import HANDLERS, dispatch
-from .telemetry import configure_telemetry
+from .telemetry import configure_telemetry, extract_context
 
 configure_telemetry()
 
@@ -86,11 +87,17 @@ async def pubsub_push(request: Request) -> JSONResponse:
         data = json.loads(base64.b64decode(message["data"]))
         job_id = str(data["jobId"])
         stage = str(data["stage"])
+        attempt = int(data.get("attempt", 0))
+        carrier = {str(k): str(v) for k, v in (message.get("attributes") or {}).items()}
     except Exception as exc:  # noqa: BLE001 - malformed delivery: ack to stop poison redelivery
         logger.error("malformed push envelope: %s", exc)
         return JSONResponse({"ack": True, "error": "malformed envelope"})
 
-    permanent = await dispatch(job_id, stage)
+    token = otel_context.attach(extract_context(carrier))
+    try:
+        permanent = await dispatch(job_id, stage, attempt=attempt)
+    finally:
+        otel_context.detach(token)
     # 200 acknowledges regardless once reported; transient failures raise below
     # only when they were NOT yet reported as permanent.
     return JSONResponse({"ack": True, "permanent": permanent})
@@ -132,7 +139,13 @@ def _run_pull_loop() -> None:
                 data = json.loads(msg.message.data.decode("utf-8"))
                 job_id = str(data["jobId"])
                 stage = str(data["stage"])
-                permanent = asyncio.run(dispatch(job_id, stage))
+                attempt = int(data.get("attempt", 0))
+                carrier = {str(k): str(v) for k, v in msg.message.attributes.items()}
+                token = otel_context.attach(extract_context(carrier))
+                try:
+                    permanent = asyncio.run(dispatch(job_id, stage, attempt=attempt))
+                finally:
+                    otel_context.detach(token)
                 if permanent:
                     subscriber.acknowledge(subscription=subscription_path, ack_ids=[msg.ack_id])
                 else:

@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from .config import settings
+from .telemetry import inject_context
 
 
 class WebApiError(RuntimeError):
@@ -22,9 +23,11 @@ class WebApiError(RuntimeError):
 
 
 def _client() -> httpx.Client:
+    headers = {"Authorization": f"Bearer {settings().internal_api_token}"}
+    inject_context(headers)
     return httpx.Client(
         base_url=settings().web_internal_url,
-        headers={"Authorization": f"Bearer {settings().internal_api_token}"},
+        headers=headers,
         timeout=30,
     )
 
@@ -97,6 +100,7 @@ def _operator_client() -> httpx.Client:
     operator_token = settings().operator_token
     if operator_token:
         headers["x-operator-token"] = operator_token
+    inject_context(headers)
     return httpx.Client(
         base_url=settings().web_internal_url,
         headers={"Authorization": f"Bearer {settings().internal_api_token}", **headers},

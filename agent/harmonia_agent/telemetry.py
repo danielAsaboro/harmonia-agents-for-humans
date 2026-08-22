@@ -5,8 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping, MutableMapping
 from typing import Any
 
+import google.auth
+import google.auth.transport.grpc
+import google.auth.transport.requests
+import grpc
 from opentelemetry import propagate, trace
-from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor, SpanExporter
@@ -18,6 +22,28 @@ from .config import settings
 _CONTENT_FIELDS = {"body", "content", "media", "prompt", "response", "text", "transcript"}
 _provider: TracerProvider | None = None
 _global_provider_registered = False
+
+
+def _build_channel_credentials():
+    credentials, _ = google.auth.default(
+        scopes=("https://www.googleapis.com/auth/cloud-platform",)
+    )
+    request = google.auth.transport.requests.Request()
+    plugin = google.auth.transport.grpc.AuthMetadataPlugin(
+        credentials=credentials,
+        request=request,
+    )
+    return grpc.composite_channel_credentials(
+        grpc.ssl_channel_credentials(),
+        grpc.metadata_call_credentials(plugin),
+    )
+
+
+def _cloud_exporter() -> OTLPSpanExporter:
+    return OTLPSpanExporter(
+        credentials=_build_channel_credentials(),
+        endpoint="telemetry.googleapis.com:443",
+    )
 
 
 def configure_telemetry(
@@ -34,15 +60,16 @@ def configure_telemetry(
 
     cfg = settings()
     provider = TracerProvider(
-        resource=Resource.create({SERVICE_NAME: cfg.otel_service_name}),
+        resource=Resource.create({
+            SERVICE_NAME: cfg.otel_service_name,
+            "gcp.project_id": cfg.gcp_project,
+        }),
         sampler=ParentBased(TraceIdRatioBased(cfg.telemetry_sample_rate)),
     )
     if exporter is not None:
         provider.add_span_processor(SimpleSpanProcessor(exporter))
     elif cfg.telemetry_enabled:
-        provider.add_span_processor(
-            BatchSpanProcessor(CloudTraceSpanExporter(project_id=cfg.gcp_project))
-        )
+        provider.add_span_processor(BatchSpanProcessor(_cloud_exporter()))
 
     _provider = provider
     propagate.set_global_textmap(TraceContextTextMapPropagator())

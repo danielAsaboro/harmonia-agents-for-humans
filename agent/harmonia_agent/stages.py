@@ -10,12 +10,14 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 import httpx
+from opentelemetry.trace import Status, StatusCode
 from pydantic import ValidationError
 
 from . import clipper, content, x_client, youtube
 from .agent_models import AnalysisResult, AnalystInput, DraftWorkflowInput, StrategistInput
 from .agents import AgentProtocolError, analyze_with_team, draft_with_team, strategize_with_team
 from .config import settings
+from .telemetry import inject_context, safe_attributes, tracer
 from .web_client import WebApiError, get_asset, get_insights, get_job, post as web_post
 
 logger = logging.getLogger("harmonia.stages")
@@ -47,6 +49,7 @@ def web_post_raw_asset(job_id: str, action_id: str, mime: str, digest: str, data
         "x-mime": mime,
         "x-digest": digest,
     }
+    inject_context(headers)
     res = _httpx.post(url, content=data, headers=headers, timeout=180)
     if res.status_code >= 300:
         raise WebApiError(f"asset upload failed: {res.status_code} {res.text}", res.status_code)
@@ -493,19 +496,34 @@ def classify_failure(exc: Exception) -> bool:
     return False
 
 
-async def dispatch(job_id: str, stage: str) -> bool:
-    handler = HANDLERS.get(stage)
-    if handler is None:
-        web_post("/api/internal/failure", {"jobId": job_id, "stage": stage, "error": f"no handler for stage '{stage}'", "permanent": True})
-        return True
-    try:
-        await handler(job_id)
-        return True
-    except Exception as exc:  # noqa: BLE001 - classified then reported
-        permanent = classify_failure(exc)
-        logger.exception("stage %s failed for %s (permanent=%s)", stage, job_id, permanent)
+async def dispatch(job_id: str, stage: str, *, attempt: int = 0) -> bool:
+    with tracer().start_as_current_span("harmonia.stage.execute") as span:
+        span.set_attributes(safe_attributes({
+            "job.id": job_id,
+            "stage": stage,
+            "attempt": attempt,
+        }))
+        handler = HANDLERS.get(stage)
+        if handler is None:
+            error = f"no handler for stage '{stage}'"
+            span.set_status(Status(StatusCode.ERROR, error))
+            web_post("/api/internal/failure", {
+                "jobId": job_id, "stage": stage, "error": error, "permanent": True,
+            })
+            return True
         try:
-            web_post("/api/internal/failure", {"jobId": job_id, "stage": stage, "error": f"{type(exc).__name__}: {exc}", "permanent": permanent})
-        except Exception:  # noqa: BLE001
-            logger.exception("failure reporting also failed")
-        return permanent
+            await handler(job_id)
+            return True
+        except Exception as exc:  # noqa: BLE001 - classified then reported
+            permanent = classify_failure(exc)
+            span.record_exception(exc)
+            span.set_status(Status(StatusCode.ERROR, type(exc).__name__))
+            logger.exception("stage %s failed for %s (permanent=%s)", stage, job_id, permanent)
+            try:
+                web_post("/api/internal/failure", {
+                    "jobId": job_id, "stage": stage,
+                    "error": f"{type(exc).__name__}: {exc}", "permanent": permanent,
+                })
+            except Exception:  # noqa: BLE001
+                logger.exception("failure reporting also failed")
+            return permanent

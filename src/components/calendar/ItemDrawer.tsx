@@ -134,6 +134,37 @@ export default function ItemDrawer({
       </header>
 
       <div className="flex flex-1 flex-col gap-5 p-4">
+        {/* Media attached to this post */}
+        {item.assetActionIds && item.assetActionIds.length > 0 && (
+          <section>
+            <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">Attached media</h3>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {item.assetActionIds.map((actionId) => {
+                const asset = jobData?.assets?.find((a) => a.actionId === actionId);
+                if (asset?.mime.startsWith("video/")) {
+                  return (
+                    <video
+                      key={actionId}
+                      src={`/api/jobs/${item.jobId}/assets/${actionId}`}
+                      controls
+                      className="h-40 rounded-lg border border-zinc-200 dark:border-zinc-800"
+                    />
+                  );
+                }
+                return (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={actionId}
+                    src={`/api/jobs/${item.jobId}/assets/${actionId}`}
+                    alt="attached media"
+                    className="h-40 rounded-lg border border-zinc-200 object-cover dark:border-zinc-800"
+                  />
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         {/* Post content */}
         <section>
           <div className="mb-1.5 flex items-center justify-between">

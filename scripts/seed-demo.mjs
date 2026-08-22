@@ -43,12 +43,14 @@ function ffmpeg(args) {
 }
 
 // ---------- asset generation (real bytes) ----------
-function genImage(jobId, actionId) {
+function genImage(jobId, actionId, variant = "smptebars") {
   const key = `${jobId}_${actionId}`;
   const p = path.join(ARTIFACT_DIR, key);
-  ffmpeg(
-    `-f lavfi -i "testsrc2=s=1080x1080:rate=1:duration=1" -frames:v 1 -f image2 "${p}"`,
-  );
+  if (variant === "color") {
+    ffmpeg(`-f lavfi -i "color=c=0x7c3aed:s=1080x1350:d=1" -frames:v 1 -f image2 "${p}"`);
+  } else {
+    ffmpeg(`-f lavfi -i "testsrc2=s=1080x1080:rate=1:duration=1" -frames:v 1 -f image2 "${p}"`);
+  }
   const bytes = readBytes(p);
   return { key, mime: "image/png", digest: digest(bytes), size: bytes.length };
 }
@@ -61,7 +63,7 @@ function genClip(jobId, actionId, seconds) {
   const bytes = readBytes(p);
   return { key, mime: "video/mp4", digest: digest(bytes), size: bytes.length };
 }
-import { readFileSync as readBytes } from "node:fs";
+import { readFileSync as readBytes, writeFileSync } from "node:fs";
 
 // ---------- document builders ----------
 const SEGMENTS = [
@@ -244,6 +246,14 @@ async function main() {
         jobId: id, actionId: a.key.split("_")[1], mime: a.mime, digest: a.digest, sizeBytes: a.size, storageUri: `file://artifacts/${a.key}`, createdAt: iso(daysAgo(7, 16)),
       });
     }
+    // extra meme image for item-meme-slot (its own visual)
+    {
+      const img2 = genImage(id, "act-img-meme2", "color");
+      await db.collection("assets").doc(`${id}_act-img-meme2`).set({
+        jobId: id, actionId: "act-img-meme2", mime: img2.mime, digest: img2.digest, sizeBytes: img2.size,
+        storageUri: `file://artifacts/${img2.key}`, createdAt: iso(daysAgo(6)),
+      });
+    }
   }
 
   // 3) AWAITING APPROVAL — live approval exercise (today)
@@ -338,6 +348,7 @@ async function main() {
     },
     {
       id: "item-clips-thread", jobId: "demo-clips",
+      assetActionIds: ["act-clip-demo1"],
       text: "Your signup flow is an obstacle course. Ours was too — until we treated every step as a suspect. Thread on what we cut 🧵",
       platforms: ["x"], status: "awaiting_final_review", publishMode: "approval",
       scheduledFor: iso(new Date(Date.now() - 3600_000)),
@@ -347,6 +358,7 @@ async function main() {
       id: "item-meme-slot", jobId: "demo-clips",
       text: "POV: your onboarding has a step that just says \"wait\". We removed it and activation doubled.",
       platforms: ["x"], status: "draft", publishMode: "approval",
+      assetActionIds: ["act-img-meme2"],
       createdAt: iso(daysAgo(1)), updatedAt: iso(daysAgo(1)),
     },
     {
@@ -404,7 +416,16 @@ async function main() {
     { at: daysAgo(1, 16, 45), surface: "dashboard", role: "user", text: "approve job demo-onboarding" },
     { at: daysAgo(1, 16, 45, 18), surface: "dashboard", role: "assistant", text: "Approved 'We deleted 11 onboarding steps…' for job demo-onboarding. Approved. Publishing dispatched (publish).", data: { intent: "approve", reply: "", jobId: "demo-onboarding", outcome: { ok: true, triggered: "publish" } } },
     { at: daysAgo(0, 8, 55), surface: "dashboard", role: "user", text: "turn https://www.youtube.com/watch?v=jNQXAC9IVRw into clips" },
-    { at: daysAgo(0, 8, 55, 20), surface: "dashboard", role: "assistant", text: "Created job demo-clips for video jNQXAC9IVRw. Pipeline ran end to end: 2 captioned vertical clips + a stitched reel are ready in the Actions tab.", data: { intent: "create_job", reply: "", jobId: "demo-clips", job: { id: "demo-clips", stage: "complete", status: "complete", title: "How we rebuilt onboarding around time-to-value (demo)" } } },
+    { at: daysAgo(0, 8, 55, 20), surface: "dashboard", role: "assistant", text: "Created job demo-clips for video jNQXAC9IVRw. Pipeline ran end to end: 2 captioned vertical clips + a stitched reel are ready — here they are:", data: { intent: "create_job", reply: "", jobId: "demo-clips", job: { id: "demo-clips", stage: "complete", status: "complete", title: "How we rebuilt onboarding around time-to-value (demo)" }, assets: [
+      { actionId: "act-clip-demo1", mime: "video/mp4" },
+      { actionId: "act-reel-top2", mime: "video/mp4" },
+      { actionId: "act-img-demo01", mime: "image/png" },
+    ] } },
+    { at: daysAgo(0, 9, 40), surface: "dashboard", role: "user", text: "show drafts for demo-clips" },
+    { at: daysAgo(0, 9, 40, 15), surface: "dashboard", role: "assistant", text: '1 drafted post(s) for "How we rebuilt onboarding around time-to-value (demo)":', data: { intent: "list_drafts", reply: "", jobId: "demo-clips", drafts: [{ id: "d1", platform: "x", text: "Your signup flow is an obstacle course. Ours was too — until we treated every step as a suspect.", valid: true }], assets: [
+      { actionId: "act-img-demo01", mime: "image/png" },
+      { actionId: "act-clip-demo1", mime: "video/mp4" },
+    ] } },
   ];
   for (let i = 0; i < chats.length; i++) {
     // guarantee strictly ascending timestamps for stable history order

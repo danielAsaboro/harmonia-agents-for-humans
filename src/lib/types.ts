@@ -208,6 +208,8 @@ export interface ContentItem {
   publishMode: PublishMode;
   scheduledFor?: string;
   revisions?: ContentItemRevision[];
+  /** Rendered media attached to this post (image/clip action ids on the parent job). */
+  assetActionIds?: string[];
   publishedPostId?: string;
   publishedUrl?: string;
   publishedAt?: string;

@@ -67,8 +67,30 @@ function Bubble({
       >
         {m.text}
       </div>
-      {(m.data?.job || m.data?.jobs || m.data?.drafts || m.data?.pendingActions) && (
+      {(m.data?.job || m.data?.jobs || m.data?.drafts || m.data?.pendingActions || m.data?.assets) && (
         <div className="mt-2 flex max-w-xl flex-col gap-1.5">
+          {m.data?.assets && m.data.assets.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto rounded-lg border border-zinc-200 bg-white p-2 dark:border-zinc-800 dark:bg-zinc-950">
+              {m.data.assets.map((a) =>
+                a.mime.startsWith("video/") ? (
+                  <video
+                    key={a.actionId}
+                    src={`/api/jobs/${m.data!.jobId ?? m.data!.job?.id}/assets/${a.actionId}`}
+                    controls
+                    className="h-28 rounded-lg"
+                  />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={a.actionId}
+                    src={`/api/jobs/${m.data!.jobId ?? m.data!.job?.id}/assets/${a.actionId}`}
+                    alt={`generated asset ${a.actionId}`}
+                    className="h-28 rounded-lg object-cover"
+                  />
+                ),
+              )}
+            </div>
+          )}
           {m.data?.job && <JobCardView job={m.data.job} onOpen={onOpenJob} />}
           {m.data?.jobs?.map((j) => <JobCardView key={j.id} job={j} onOpen={onOpenJob} />)}
           {m.data?.drafts?.map((d: PostDraft) => (

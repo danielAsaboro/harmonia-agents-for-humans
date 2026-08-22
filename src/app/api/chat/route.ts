@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { resolveDecision } from "@/lib/decisions";
-import { appendEvent, createJob, getJob, listJobs, saveChatMessage, saveIngestMeta } from "@/lib/firestore";
+import { appendEvent, createJob, getJob, listAssets, listJobs, saveChatMessage, saveIngestMeta } from "@/lib/firestore";
 import { isOperatorAuthorized, operatorForbidden } from "@/lib/operatorAuth";
 import { parseIntent } from "@/lib/chatIntent";
 import { publishStage } from "@/lib/pubsub";
@@ -27,6 +27,11 @@ export interface PendingActionSummary {
   risk: string;
 }
 
+export interface ChatAsset {
+  actionId: string;
+  mime: string;
+}
+
 export interface ChatResponse {
   intent: string;
   reply: string;
@@ -34,6 +39,8 @@ export interface ChatResponse {
   jobs?: JobCard[];
   drafts?: PostDraft[];
   pendingActions?: PendingActionSummary[];
+  /** Media produced by the referenced job, so conversations render richly. */
+  assets?: ChatAsset[];
   outcome?: Awaited<ReturnType<typeof resolveDecision>>;
   jobId?: string;
 }
@@ -59,6 +66,16 @@ function pendingOf(job: FullJob): PlannedAction[] {
 
 function summarizeActions(actions: PlannedAction[]): PendingActionSummary[] {
   return actions.map((a) => ({ id: a.id, title: a.title, type: a.type, risk: a.risk }));
+}
+
+async function assetsOf(jobId: string) {
+  try {
+    const assets = await listAssets(jobId);
+    if (assets.length === 0) return undefined;
+    return assets.map((a) => ({ actionId: a.actionId, mime: a.mime }));
+  } catch {
+    return undefined;
+  }
 }
 
 export async function POST(req: Request) {
@@ -172,6 +189,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
           jobId: job.id,
           job: toCard(job),
           pendingActions: job.stage === "awaiting_approval" ? summarizeActions(pendingOf(job)) : undefined,
+          assets: await assetsOf(job.id),
         } satisfies ChatResponse };
       }
       const jobs = await listJobs();
@@ -208,6 +226,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
         jobId: job.id,
         job: toCard(job),
         drafts: job.drafts,
+        assets: await assetsOf(job.id),
       } satisfies ChatResponse };
     }
 

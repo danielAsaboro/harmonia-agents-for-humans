@@ -4,12 +4,9 @@ The mock generators must satisfy the exact JSON shapes the real Gemini/X
 paths produce, so downstream pipeline code cannot tell them apart.
 """
 
-import json
-
 import pytest
 
 from harmonia_agent import content, x_client
-from harmonia_agent.agents import run_structured
 from harmonia_agent.mock_ai import (
     MOCK_FLAG,
     mock_ai_enabled,
@@ -92,26 +89,6 @@ def test_generate_image_returns_real_png():
     assert mime == "image/png"
     assert data[:8] == b"\x89PNG\r\n\x1a\n"  # real PNG signature
     assert len(data) > 10_000
-
-
-def test_planner_mock_parses_drafts_from_prompt():
-    import asyncio
-
-    drafts = [
-        {"id": "d1", "platform": "x", "momentId": "m1", "text": "first post"},
-        {"id": "d2", "platform": "x", "angleId": "a2", "text": ""},
-        {"id": "d3", "platform": "x", "text": "third post"},
-    ]
-    prompt = (
-        f"Analysis: {json.dumps({'moments': []})}\nDrafts: {json.dumps(drafts)}\n\n"
-        "Produce the actions JSON per your instructions."
-    )
-    plan = asyncio.run(run_structured(None, prompt))
-    types = [a["type"] for a in plan["actions"]]
-    assert types.count("export_content_pack") == 1
-    pubs = [a for a in plan["actions"] if a["type"] == "publish_x_post"]
-    # empty-text draft is dropped, matching planner intent (text required downstream)
-    assert sorted(a["text"] for a in pubs) == ["first post", "third post"]
 
 
 def test_plan_actions_shape():

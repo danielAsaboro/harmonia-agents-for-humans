@@ -33,7 +33,9 @@ from typing import Any
 
 import httpx
 
-from . import content, telegram_bot, x_client
+from . import telegram_bot, x_client
+from .agent_models import StrategistInput
+from .agents import strategize_with_team_sync
 from .mock_ai import mock_ai_enabled
 from .web_client import WebApiError, get_feed, get_insights, get_state, post as web_post, put_state
 
@@ -175,8 +177,12 @@ def check_trend_scan(ctx: dict[str, Any]) -> str:
     if not signals:
         return "no signals"
     insights = ctx.get("insights") or {}
-    result = content.propose_ideas(signals, prior_learnings=_prior_learnings_line(insights))
-    created, _ = submit_proposals(build_proposals(result.get("ideas", []), "trend_scan"))
+    result = strategize_with_team_sync(StrategistInput(
+        task="trend_scan", signals=signals,
+        prior_learnings=_prior_learnings_line(insights),
+    ))
+    ideas = [idea.model_dump(mode="json") for idea in result.ideas]
+    created, _ = submit_proposals(build_proposals(ideas, "trend_scan"))
     return f"{created} proposal(s)"
 
 
@@ -290,8 +296,11 @@ def check_calendar_gap_scan(ctx: dict[str, Any]) -> str:
         return "calendar full"
     goals_text = _goals_text(feed.get("goals") or {})
     learnings_text = _learnings_text(ctx.get("insights") or {})
-    result = content.propose_gap_fillers(goals_text, learnings_text)
-    created, _ = submit_proposals(build_proposals(result.get("ideas", []), "calendar_gap"))
+    result = strategize_with_team_sync(StrategistInput(
+        task="calendar_gap", goals_text=goals_text, learnings_text=learnings_text,
+    ))
+    ideas = [idea.model_dump(mode="json") for idea in result.ideas]
+    created, _ = submit_proposals(build_proposals(ideas, "calendar_gap"))
     return f"gap={gap}; {created} fill proposal(s)"
 
 
@@ -306,8 +315,11 @@ def check_recycle_winners(ctx: dict[str, Any]) -> str:
     age_days = (time.time() - checked_at) / 86400 if checked_at else RECYCLE_MIN_AGE_DAYS
     if age_days < RECYCLE_MIN_AGE_DAYS or int(best.get("likes", 0)) < 10:
         return "top post still fresh"
-    result = content.propose_recycle(str(best.get("text", "")), int(best.get("likes", 0)))
-    created, _ = submit_proposals(build_proposals(result.get("ideas", []), "recycle"))
+    result = strategize_with_team_sync(StrategistInput(
+        task="recycle", post_text=str(best.get("text", "")), likes=int(best.get("likes", 0)),
+    ))
+    ideas = [idea.model_dump(mode="json") for idea in result.ideas]
+    created, _ = submit_proposals(build_proposals(ideas, "recycle"))
     return f"{created} recycle proposal(s)"
 
 
@@ -404,7 +416,7 @@ def run_due_checks(now_ts: float | None = None) -> list[dict[str, Any]]:
 
 
 async def tick() -> list[dict[str, Any]]:
-    return run_due_checks()
+    return await asyncio.to_thread(run_due_checks)
 
 
 def _run_loop() -> None:

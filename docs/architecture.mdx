@@ -23,8 +23,10 @@ flowchart TB
 
     subgraph Worker["ADK worker (FastAPI / Cloud Run)"]
         PULL[Stage dispatcher<br/>pull loop / push receiver]
-        AGENT[ADK planner agent<br/>Gemini 3.5 Flash]
-        CONTENT[Content stages<br/>Gemini transcription,<br/>analysis, drafting]
+        COORD[ADK coordinator<br/>Gemini 3.5 Flash]
+        SPECIALISTS[Single-turn specialists<br/>Ryan strategist + Sophia analyst]
+        DRAFTFLOW[Flo workflow<br/>Nimi → Dara → Temi]
+        CONTENT[Direct media operations<br/>transcription + image generation]
         PROACT[Proactive agent<br/>trend scan + engagement watch]
         SCHED[Scheduler dispatcher<br/>due content items]
         X[X API v2 client]
@@ -43,11 +45,13 @@ flowchart TB
     API --> PS
     PS --> PULL
     PULL --> CONTENT --> YT
-    PULL --> AGENT
+    PULL --> COORD
+    COORD --> SPECIALISTS
+    COORD --> DRAFTFLOW
     PULL --> FFMPEG
     PULL --> X
     PROACT --> HN
-    PROACT --> CONTENT
+    PROACT --> COORD
     SCHED --> X
     CONTENT --> FS
     X --> FS
@@ -56,6 +60,12 @@ flowchart TB
 ```
 
 ## Design principles
+
+### Typed multi-agent judgment
+
+Harmonia, the ADK root coordinator, delegates strategy to Ryan (`ryan_strategist`) and transcript analysis to Sophia (`sophia_analyst`). Drafting uses Flo (`flo_draft_workflow`), an `AgentTool` around a deterministic `SequentialAgent`: Nimi the copywriter, one revision by Dara the editor, then Temi the planner. Invocation-scoped session keys pass `copywriter_drafts`, `reviewed_drafts`, and `action_plan`; Firestore remains the durable source of truth between Pub/Sub stages.
+
+No agent has publishing, approval, credential, or destructive tools. Temi can propose publish actions only from Dara-reviewed text; deterministic stage code adds packs and media actions before the existing human gate.
 
 ### One decision engine
 
@@ -76,3 +86,7 @@ Verification never trusts the executor. Published posts are re-fetched from the 
 ### Learnings feed forward
 
 The learn stage measures published posts via public metrics, stores takeaways per job, and the insights feed is injected into future ideation prompts — closing the loop between what performed and what gets proposed next.
+
+<Warning>
+  The multi-agent code and offline delegation tests are verified locally. An authenticated Gemini team invocation is not yet verified and must not be claimed until separate evidence is captured with a valid API key.
+</Warning>

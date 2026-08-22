@@ -76,7 +76,7 @@ flowchart LR
 
 ## Technology
 
-- **Gemini 3.5 Flash** (`gemini-3.5-flash`) through the Gemini API for transcription, analysis, drafting, and chat intent parsing (structured output).
+- **Gemini 3.5 Flash** (`gemini-3.5-flash`) through the Gemini API for transcription and chat intent parsing, plus a typed Google ADK team for strategy, analysis, drafting, critique, and action planning.
 - **Google ADK** (Python) for the worker service and agent scaffolding.
 - **Cloud Run** hosts both services (web: Next.js standalone build; agent: Python container).
 - **Firestore** persists job state, stage events, approvals, receipts, verifications, and packets.

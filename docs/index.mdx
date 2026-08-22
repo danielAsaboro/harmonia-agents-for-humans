@@ -17,7 +17,7 @@ Harmonia turns raw material — a YouTube video or a plain topic brief — into 
 
 1. An operator drops a YouTube URL into chat (dashboard or Telegram), or approves one of Harmonia's own topic proposals
 2. Gemini 3.5 transcribes the video, finds clip-worthy moments, trend angles, and meme angles
-3. A Google ADK planner drafts posts and proposes actions: publish to X, render captioned vertical clips, generate meme images, export a content pack
+3. Harmonia delegates to Ryan and Sophia, then Flo runs Nimi → Dara → Temi before proposing gated actions
 4. Everything pauses at an approval gate. The operator approves, rejects, or schedules
 5. Approved actions execute with idempotency keys; every result is re-fetched independently and recorded as verification evidence
 6. Engagement metrics flow back into future ideation
@@ -27,7 +27,7 @@ Harmonia turns raw material — a YouTube video or a plain topic brief — into 
 | Layer | Technology |
 |---|---|
 | Model | Gemini 3.5 Flash (via google-genai) |
-| Agent framework | Google ADK (planner agent) |
+| Agent framework | Google ADK (coordinator, specialists, sequential review workflow) |
 | Web app | Next.js App Router |
 | Worker | Python FastAPI + background threads |
 | State | Cloud Firestore |

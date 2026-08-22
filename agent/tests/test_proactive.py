@@ -2,7 +2,9 @@
 
 import pytest
 
-from harmonia_agent import content, proactive
+from harmonia_agent import proactive
+from harmonia_agent.agent_models import StrategistResult
+from harmonia_agent.agents import strategize_with_team_sync
 from harmonia_agent.mock_ai import MOCK_FLAG
 
 
@@ -41,12 +43,15 @@ def test_fetch_signals_mock_needs_no_network():
         assert s["url"].startswith("http")
 
 
-def test_content_propose_ideas_routes_to_mock():
-    result = content.propose_ideas(proactive.fetch_signals())
-    assert set(result) >= {"ideas"}
-    for idea in result["ideas"]:
-        assert idea["topic"] and idea["reason"]
-        assert isinstance(idea["sources"], list)
+def test_strategist_propose_ideas_routes_to_mock():
+    from harmonia_agent.agent_models import StrategistInput
+
+    result = strategize_with_team_sync(StrategistInput(
+        task="trend_scan", signals=proactive.fetch_signals(),
+    ))
+    for idea in result.ideas:
+        assert idea.topic and idea.reason
+        assert isinstance(idea.sources, list)
 
 
 def test_watch_engagement_flags_outliers(monkeypatch):
@@ -129,6 +134,20 @@ def test_cadence_gating_skips_recent_and_runs_due(monkeypatch):
     assert len(puts) == len(ran)  # every run marks its state
 
 
+def test_async_tick_runs_sync_checks_outside_the_event_loop(monkeypatch):
+    import asyncio
+
+    def sync_scan():
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return [{"check": "trend_scan", "summary": "ok"}]
+        raise AssertionError("run_due_checks executed inside the async event loop")
+
+    monkeypatch.setattr(proactive, "run_due_checks", sync_scan)
+    assert asyncio.run(proactive.tick()) == [{"check": "trend_scan", "summary": "ok"}]
+
+
 def test_morning_briefing_composes_digest(monkeypatch):
     from datetime import datetime, timezone
 
@@ -181,8 +200,10 @@ def test_failure_watchdog_flags_permanent_failures(monkeypatch):
 def test_calendar_gap_scan_proposes_from_goals(monkeypatch):
     calls = []
     monkeypatch.setattr(
-        proactive.content, "propose_gap_fillers",
-        lambda g, l: calls.append((g, l)) or {"ideas": [{"topic": "filler topic"}]},
+        proactive, "strategize_with_team_sync",
+        lambda request: calls.append(request) or StrategistResult.model_validate({
+            "ideas": [{"topic": "filler topic", "reason": "calendar gap"}],
+        }),
     )
     feed = {
         "items": [],
@@ -191,7 +212,7 @@ def test_calendar_gap_scan_proposes_from_goals(monkeypatch):
     _, __, ___, subs = _patch_web(monkeypatch, feed=feed, insights={"topPosts": []})
     summary = proactive.check_calendar_gap_scan({"feed": feed})
     assert "gap=3" in summary
-    assert calls and "weeklyPostTarget: 3" in calls[0][0]
+    assert calls and "weeklyPostTarget: 3" in calls[0].goals_text
     assert any(p["source"] == "calendar_gap" for p in subs)
 
 
@@ -208,7 +229,7 @@ def test_calendar_gap_scan_quiet_when_full(monkeypatch):
         "goals": {"weeklyPostTarget": 3},
     }
     called = []
-    monkeypatch.setattr(proactive.content, "propose_gap_fillers", lambda g, l: called.append(1))
+    monkeypatch.setattr(proactive, "strategize_with_team_sync", lambda request: called.append(1))
     summary = proactive.check_calendar_gap_scan({"feed": feed})
     assert summary == "calendar full"
     assert not called
@@ -220,14 +241,16 @@ def test_recycle_winners_needs_old_high_performer(monkeypatch):
     old_ts = _time.time() - 30 * 86400
     calls = []
     monkeypatch.setattr(
-        proactive.content, "propose_recycle",
-        lambda t, l: calls.append((t, l)) or {"ideas": [{"topic": f"refresh {t[:20]}"}]},
+        proactive, "strategize_with_team_sync",
+        lambda request: calls.append(request) or StrategistResult.model_validate({
+            "ideas": [{"topic": f"refresh {request.post_text[:20]}", "reason": "winner"}],
+        }),
     )
     insights = {"topPosts": [{"text": "evergreen banger", "likes": 220, "checkedAt": _iso(old_ts)}]}
     _, __, ___, subs = _patch_web(monkeypatch, insights=insights)
     summary = proactive.check_recycle_winners({"insights": insights})
     assert "1 recycle proposal" in summary
-    assert calls[0] == ("evergreen banger", 220)
+    assert (calls[0].post_text, calls[0].likes) == ("evergreen banger", 220)
     assert subs[0]["source"] == "recycle"
 
     # fresh top post -> no recycle

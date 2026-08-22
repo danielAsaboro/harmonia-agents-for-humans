@@ -10,9 +10,11 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 import httpx
+from pydantic import ValidationError
 
 from . import clipper, content, x_client, youtube
-from .agents import plan_agent, run_structured
+from .agent_models import AnalysisResult, AnalystInput, DraftWorkflowInput, StrategistInput
+from .agents import AgentProtocolError, analyze_with_team, draft_with_team, strategize_with_team
 from .config import settings
 from .web_client import WebApiError, get_asset, get_insights, get_job, post as web_post
 
@@ -109,14 +111,22 @@ async def run_understand(job_id: str) -> None:
         brief = (job.get("config") or {}).get("brief")
         if not brief:
             raise RuntimeError("job has neither transcript nor operator brief")
-        result = content.ideate_from_brief(brief, prior_learnings=prior)
+        strategy = await strategize_with_team(StrategistInput(
+            task="brief", brief=brief, prior_learnings=prior,
+        ))
+        if strategy.analysis is None:
+            raise AgentProtocolError("strategist brief task returned no analysis")
+        result = strategy.analysis.model_dump(mode="json")
     else:
         transcript = "\n".join(
             f"[{int(s['startSec'])}s] {s['text']}" for s in job["transcriptSegments"]
         )
-        result = content.analyze(
-            job["ingestedTitle"], job["ingestedChannel"], transcript, prior_learnings=prior,
-        )
+        result = (await analyze_with_team(AnalystInput(
+            title=job["ingestedTitle"],
+            channel=job["ingestedChannel"],
+            transcript=transcript,
+            prior_learnings=prior,
+        ))).model_dump(mode="json")
     web_post("/api/internal/analysis", {
         "jobId": job_id, "stage": "understand",
         "moments": result.get("moments", [])[:12],
@@ -128,14 +138,25 @@ async def run_understand(job_id: str) -> None:
 
 async def run_draft(job_id: str) -> None:
     job = get_job(job_id)
-    analysis = {"moments": job["moments"], "angles": job["angles"]}
-    drafts = content.draft_posts(job["ingestedTitle"], analysis)[:10]
-
-    prompt = (
-        f"Analysis: {json.dumps(analysis)[:20000]}\nDrafts: {json.dumps(drafts)[:20000]}\n\n"
-        "Produce the actions JSON per your instructions."
-    )
-    plan = await run_structured(plan_agent(), prompt)
+    analysis = AnalysisResult.model_validate({
+        "summary": job.get("summary") or "Content analysis completed.",
+        "moments": job["moments"],
+        "angles": job["angles"],
+    })
+    brand_context = ""
+    try:
+        insights = get_insights()
+        brand_context = json.dumps({
+            "goals": insights.get("goals") or {},
+            "topPosts": (insights.get("topPosts") or [])[:3],
+        })[:4000]
+    except WebApiError:
+        logger.info("draft workflow has no brand goals or engagement context yet")
+    package = await draft_with_team(DraftWorkflowInput(
+        title=job["ingestedTitle"], analysis=analysis, brand_context=brand_context,
+    ))
+    drafts = package.reviewed_drafts.model_dump(mode="json")["drafts"]
+    plan = package.action_plan.model_dump(mode="json")
 
     def clean(a: dict) -> dict | None:
         if a.get("type") == "publish_x_post" and a.get("text"):
@@ -457,6 +478,8 @@ HANDLERS: dict[str, Handler] = {
 
 
 def classify_failure(exc: Exception) -> bool:
+    if isinstance(exc, (AgentProtocolError, ValidationError)):
+        return True
     if isinstance(exc, WebApiError):
         return exc.permanent
     if isinstance(exc, x_client.XError):

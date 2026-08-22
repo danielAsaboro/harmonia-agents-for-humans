@@ -22,11 +22,11 @@ Gemini 3.5 Flash returns `{language, segments:[{id,startSec,endSec,text}]}` from
 
 ## understand
 
-For video jobs, the formatted transcript goes to Gemini for clip-worthy moments (timestamps + hook + exact quote), trend angles, and meme angles. For concept jobs created from an operator brief or an approved proposal, the ideation path produces key points with zero timestamps instead — there is no media timeline.
+For video jobs, Harmonia delegates the formatted transcript to Sophia (`sophia_analyst`) for clip-worthy moments (timestamps + hook + exact quote), trend angles, and meme angles. For concept jobs created from an operator brief or an approved proposal, it delegates to Ryan (`ryan_strategist`), who produces key points with zero timestamps instead — there is no media timeline.
 
 ## draft
 
-Drafted X posts are generated against the analysis JSON. The **ADK planner agent** (`harmonia_planner`) then decides corrective publishing actions: one `publish_x_post` per valid draft plus an `export_content_pack`. The stage additionally proposes meme image generations, captioned vertical clips cut around the strongest moments, and a stitched highlight reel.
+The coordinator invokes Flo (`flo_draft_workflow`), a fixed ADK workflow: Nimi (`nimi_copywriter`) → Dara (`dara_editor`) → Temi (`temi_planner`). Nimi drafts against the analysis JSON, Dara performs exactly one brand/source editing pass, and Temi may propose `publish_x_post` actions only from the reviewed text. Deterministic stage code adds the content pack, meme image generations, captioned vertical clips, and stitched highlight reel.
 
 Every action lands with `requiresApproval`, risk level, and its own idempotency key material.
 

@@ -20,11 +20,21 @@ from fastapi.responses import JSONResponse
 
 from .config import settings
 from .stages import HANDLERS, dispatch
+from .telemetry import configure_telemetry
+
+configure_telemetry()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("harmonia.worker")
 
 app = FastAPI(title="harmonia-agent", version="1.0.0")
+
+if settings().telemetry_enabled:
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
+    FastAPIInstrumentor.instrument_app(app)
+    HTTPXClientInstrumentor().instrument()
 
 
 def _start_telegram_if_configured() -> None:

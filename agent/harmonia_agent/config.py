@@ -15,6 +15,13 @@ def _require(name: str) -> str:
     return value
 
 
+def _bool_env(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     web_internal_url: str
@@ -27,6 +34,9 @@ class Settings:
     telegram_bot_token: str | None
     telegram_allowed_chat_id: str | None
     pricing_version: str
+    telemetry_enabled: bool
+    telemetry_sample_rate: float
+    otel_service_name: str
 
     @classmethod
     def load(cls) -> "Settings":
@@ -36,6 +46,9 @@ class Settings:
             raise RuntimeError(
                 f"unsupported MODEL_PRICING_VERSION: {pricing_version}; expected {PRICING_VERSION}"
             )
+        telemetry_sample_rate = float(os.environ.get("HARMONIA_TELEMETRY_SAMPLE_RATE", "1.0"))
+        if not 0 <= telemetry_sample_rate <= 1:
+            raise RuntimeError("HARMONIA_TELEMETRY_SAMPLE_RATE must be between 0 and 1")
         return cls(
             web_internal_url=_require("WEB_INTERNAL_URL").rstrip("/"),
             internal_api_token=_require("INTERNAL_API_TOKEN"),
@@ -47,6 +60,9 @@ class Settings:
             telegram_bot_token=os.environ.get("TELEGRAM_BOT_TOKEN") or None,
             telegram_allowed_chat_id=os.environ.get("TELEGRAM_ALLOWED_CHAT_ID") or None,
             pricing_version=pricing_version,
+            telemetry_enabled=_bool_env("HARMONIA_TELEMETRY_ENABLED"),
+            telemetry_sample_rate=telemetry_sample_rate,
+            otel_service_name=os.environ.get("OTEL_SERVICE_NAME", "harmonia-agent"),
         )
 
 

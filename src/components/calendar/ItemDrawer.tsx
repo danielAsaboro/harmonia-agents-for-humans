@@ -1,5 +1,7 @@
 "use client";
 
+import AskAiButton from "@/components/AskAiButton";
+
 import { useEffect, useMemo, useState } from "react";
 import type { ContentItem } from "@/lib/types";
 import { PlatformIcon } from "@/components/socialIcons";
@@ -129,6 +131,7 @@ export default function ItemDrawer({
           }`}>
             {item.publishMode === "auto" ? "auto-publish" : "human review"}
           </span>
+          <AskAiButton kind="content_item" id={item.id} label={item.text.slice(0, 60)} />
         </div>
         <button onClick={onClose} aria-label="Close" className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">✕</button>
       </header>

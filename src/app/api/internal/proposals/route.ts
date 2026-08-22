@@ -31,7 +31,14 @@ export async function POST(req: Request) {
       });
       await createNotification({
         kind: "topic_proposal",
-        title: p.source === "trend_scan" ? "New topic idea from trend scan" : "Follow-up idea from engagement watch",
+        title:
+          p.source === "trend_scan"
+            ? "New topic idea from trend scan"
+            : p.source === "engagement_watch"
+              ? "Follow-up idea from engagement watch"
+              : p.source === "calendar_gap"
+                ? "Idea to fill your content calendar gap"
+                : "Your top post deserves a refresh",
         body: p.topic,
         severity: "info",
         href: "/dashboard/proposals",

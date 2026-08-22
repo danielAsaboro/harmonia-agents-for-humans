@@ -1,6 +1,16 @@
 import { z } from "zod";
 import { resolveDecision } from "@/lib/decisions";
-import { appendEvent, createJob, getJob, listAssets, listJobs, saveChatMessage, saveIngestMeta } from "@/lib/firestore";
+import { answerFromContext, fetchContextRecord, isValidContext, mockContextAnswer } from "@/lib/contextAnswer";
+import { isMockAi } from "@/lib/chatIntent";
+import {
+  appendEvent,
+  createJob,
+  getJob,
+  listAssets,
+  listJobs,
+  saveChatMessage,
+  saveIngestMeta,
+} from "@/lib/firestore";
 import { isOperatorAuthorized, operatorForbidden } from "@/lib/operatorAuth";
 import { parseIntent } from "@/lib/chatIntent";
 import { publishStage } from "@/lib/pubsub";
@@ -10,6 +20,13 @@ import type { PlannedAction, PostDraft, Stage } from "@/lib/types";
 const chatSchema = z.object({
   message: z.string().min(1).max(2000),
   surface: z.enum(["dashboard", "telegram"]).default("dashboard"),
+  /** Grounded Q&A about one record ("chat with any item"). */
+  context: z
+    .object({
+      kind: z.enum(["job", "content_item", "proposal"]),
+      id: z.string().min(1),
+    })
+    .optional(),
 });
 
 export interface JobCard {
@@ -88,12 +105,12 @@ async function handleChat(req: Request): Promise<Response> {
   if (!parsed.success) {
     return Response.json({ error: "invalid chat payload" }, { status: 400 });
   }
-  const { message, surface } = parsed.data;
+  const { message, surface, context } = parsed.data;
 
   let payload: ChatResponse;
   let status = 200;
   try {
-    const result = await buildResponse(req, message, surface);
+    const result = await buildResponse(req, message, surface, context);
     if ("__http" in result) return result.__http; // e.g. operator forbidden
     payload = result.payload;
     status = result.status ?? 200;
@@ -126,7 +143,34 @@ type HandlerResult =
   | { payload: ChatResponse; status?: number }
   | { __http: Response };
 
-async function buildResponse(req: Request, message: string, surface: "dashboard" | "telegram"): Promise<HandlerResult> {
+async function buildResponse(req: Request, message: string, surface: "dashboard" | "telegram", context?: { kind: "job" | "content_item" | "proposal"; id: string }): Promise<HandlerResult> {
+
+  // Grounded Q&A about a specific record ("chat with any item").
+  if (context && isValidContext(context)) {
+    const record = await fetchContextRecord(context);
+    if (!record) {
+      return { payload: {
+        intent: "context_qa",
+        reply: `I could not find that ${context.kind.replace("_", " ")} (${context.id}). It may have been removed.`,
+      } satisfies ChatResponse };
+    }
+    let reply: string;
+    try {
+      reply = isMockAi()
+        ? mockContextAnswer(message, record, context.kind)
+        : await answerFromContext(message, record);
+    } catch (e) {
+      return { payload: {
+        intent: "context_qa",
+        reply: `Contextual answer failed: ${e instanceof Error ? e.message : String(e)}`,
+      } satisfies ChatResponse };
+    }
+    return { payload: {
+      intent: "context_qa",
+      reply,
+      jobId: context.kind === "job" ? context.id : undefined,
+    } satisfies ChatResponse as ChatResponse };
+  }
 
   let intent;
   try {

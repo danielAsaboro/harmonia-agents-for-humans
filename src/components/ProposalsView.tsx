@@ -1,10 +1,12 @@
 "use client";
 
+import AskAiButton from "@/components/AskAiButton";
+
 import { useCallback, useEffect, useState } from "react";
 
 interface Proposal {
   id: string;
-  source: "trend_scan" | "engagement_watch";
+  source: "trend_scan" | "engagement_watch" | "calendar_gap" | "recycle";
   topic: string;
   angle: string;
   reason: string;
@@ -18,6 +20,8 @@ interface Proposal {
 const SOURCE_LABEL: Record<Proposal["source"], string> = {
   trend_scan: "Trend scan",
   engagement_watch: "Engagement watch",
+  calendar_gap: "Calendar gap",
+  recycle: "Recycle winner",
 };
 
 const STATUS_STYLE: Record<Proposal["status"], string> = {
@@ -94,6 +98,7 @@ export default function ProposalsView() {
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_STYLE[p.status]}`}>
               {p.status}
             </span>
+            <AskAiButton kind="proposal" id={p.id} label={p.topic.slice(0, 60)} />
             <time className="ml-auto text-[11px] text-zinc-400">
               {new Date(p.createdAt).toLocaleString()}
             </time>

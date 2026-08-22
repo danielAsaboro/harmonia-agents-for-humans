@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import PipelineStepper from "@/components/PipelineStepper";
+import AskAiButton from "@/components/AskAiButton";
 import Timeline from "@/components/Timeline";
 import type { JobFull } from "@/components/jobTypes";
 import type { TimelineEvent } from "@/components/Timeline";
@@ -117,6 +118,7 @@ export default function JobDetail({
             {job.status === "waiting_for_approval" && <Chip tone="amber">awaiting approval</Chip>}
             {job.status === "running" && <Chip tone="blue">running</Chip>}
             <span className="font-mono text-xs text-zinc-400">{job.id.slice(0, 8)}</span>
+            <AskAiButton kind="job" id={job.id} label={(job.config.youtubeUrl ?? job.config.brief ?? job.id).slice(0, 60)} />
           </div>
         </div>
 

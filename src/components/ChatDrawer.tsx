@@ -31,17 +31,50 @@ function JobCardView({ job }: { job: NonNullable<ChatResponse["job"]> }) {
   );
 }
 
+export interface AskAiContext {
+  kind: "job" | "content_item" | "proposal";
+  id: string;
+  label: string;
+}
+
+/** Fires the global "open chat with this item" event any surface can use. */
+export function askAiAbout(context: AskAiContext) {
+  window.dispatchEvent(new CustomEvent("harmonia:askai", { detail: context }));
+}
+
+const CONTEXT_LABEL: Record<AskAiContext["kind"], string> = {
+  job: "Job",
+  content_item: "Content item",
+  proposal: "Proposal",
+};
+
 export default function ChatDrawer({ onJobCreated }: { onJobCreated?: (id: string) => void }) {
   const [open, setOpen] = useState(false);
+  const [context, setContext] = useState<AskAiContext | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
-      text: 'Ask me to run the pipeline. E.g. "create a job from https://youtu.be/..." or "status".',
+      text: 'Ask me to run the pipeline. E.g. "create a job from https://youtu.be/..." or "status". Or open any item and tap "Ask AI".',
     },
   ]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onAskAi(e: Event) {
+      const detail = (e as CustomEvent<AskAiContext>).detail;
+      if (!detail?.id) return;
+      setContext(detail);
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", text: `Context set: ${CONTEXT_LABEL[detail.kind]} "${detail.label}". Ask me anything about it.` },
+      ]);
+      setOpen(true);
+    }
+    window.addEventListener("harmonia:askai", onAskAi);
+    return () => window.removeEventListener("harmonia:askai", onAskAi);
+  }, []);
 
   useEffect(() => {
     if (open) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -64,12 +97,16 @@ export default function ChatDrawer({ onJobCreated }: { onJobCreated?: (id: strin
     if (!message || busy) return;
     setInput("");
     setBusy(true);
-    setMessages((m) => [...m, { role: "user", text: message }]);
+    setMessages((m) => [...m, { role: "user", text: context ? `[${CONTEXT_LABEL[context.kind]}] ${message}` : message }]);
     try {
       const res = await apiFetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message, surface: "dashboard" }),
+        body: JSON.stringify({
+          message,
+          surface: "dashboard",
+          ...(context ? { context: { kind: context.kind, id: context.id } } : {}),
+        }),
       });
       const data = (await res.json().catch(() => null)) as (ChatResponse & { error?: string }) | null;
       if (!res.ok || !data) {
@@ -104,6 +141,15 @@ export default function ChatDrawer({ onJobCreated }: { onJobCreated?: (id: strin
             <span className="text-xs font-semibold uppercase tracking-wide">Operator chat</span>
             <button onClick={() => setOpen(false)} className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200" aria-label="Close chat">✕</button>
           </div>
+          {context && (
+            <div className="flex items-center gap-2 border-b border-violet-200 bg-violet-50 px-3 py-1.5 dark:border-violet-900 dark:bg-violet-950/40">
+              <span className="rounded bg-violet-600 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                {CONTEXT_LABEL[context.kind]}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[11px] text-violet-800 dark:text-violet-200">{context.label}</span>
+              <button onClick={() => setContext(null)} className="text-violet-400 hover:text-violet-600" aria-label="Clear context">✕</button>
+            </div>
+          )}
           <div ref={scrollRef} className="flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-2">
             {messages.map((m, i) => (
               <div key={i} className={m.role === "user" ? "self-end" : "self-start"}>

@@ -76,6 +76,31 @@ def download_audio(url: str, max_bytes: int = 24_000_000) -> tuple[bytes, str]:
         return data, hashlib.sha256(data).hexdigest()
 
 
+def probe_audio_duration(audio: bytes) -> int:
+    """Measures real audio duration locally with ffprobe (whole seconds).
+
+    Used when the Data API is unavailable (no YOUTUBE_API_KEY), so ingestion
+    never reports durationSec=0 for valid media.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td) / "a.m4a"
+        out.write_bytes(audio)
+        proc = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(out)],
+            capture_output=True, text=True, timeout=60,
+        )
+    if proc.returncode != 0:
+        raise IngestError(f"ffprobe failed: {(proc.stderr or '')[-200:]}")
+    try:
+        seconds = int(float(proc.stdout.strip()))
+    except ValueError as exc:
+        raise IngestError("ffprobe produced no parsable duration") from exc
+    if seconds <= 0:
+        raise IngestError("ffprobe reported non-positive duration")
+    return seconds
+
+
 def iso8601_to_seconds(iso: str) -> int:
     h, m, s = 0, 0, 0
     nums = [int(n) for n in re.findall(r"\d+", iso)]

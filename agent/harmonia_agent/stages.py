@@ -61,6 +61,9 @@ async def run_ingest(job_id: str) -> None:
     video_id = youtube.extract_video_id(job["config"]["youtubeUrl"])
     meta = youtube.fetch_metadata(video_id)
     audio, digest = youtube.download_audio(job["config"]["youtubeUrl"])
+    if int(meta.get("durationSec") or 0) <= 0:
+        # No Data API key: measure real duration from the downloaded media.
+        meta["durationSec"] = youtube.probe_audio_duration(audio)
     web_post("/api/internal/ingest", {
         "jobId": job_id, "stage": "ingest", **meta,
         "mediaBytes": len(audio), "mediaDigest": digest,

@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from .model_catalog import PRICING_VERSION
+
 
 def _require(name: str) -> str:
     value = os.environ.get(name)
@@ -24,10 +26,16 @@ class Settings:
     operator_token: str | None
     telegram_bot_token: str | None
     telegram_allowed_chat_id: str | None
+    pricing_version: str
 
     @classmethod
     def load(cls) -> "Settings":
         gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        pricing_version = os.environ.get("MODEL_PRICING_VERSION", PRICING_VERSION)
+        if pricing_version != PRICING_VERSION:
+            raise RuntimeError(
+                f"unsupported MODEL_PRICING_VERSION: {pricing_version}; expected {PRICING_VERSION}"
+            )
         return cls(
             web_internal_url=_require("WEB_INTERNAL_URL").rstrip("/"),
             internal_api_token=_require("INTERNAL_API_TOKEN"),
@@ -38,6 +46,7 @@ class Settings:
             operator_token=os.environ.get("OPERATOR_TOKEN") or None,
             telegram_bot_token=os.environ.get("TELEGRAM_BOT_TOKEN") or None,
             telegram_allowed_chat_id=os.environ.get("TELEGRAM_ALLOWED_CHAT_ID") or None,
+            pricing_version=pricing_version,
         )
 
 

@@ -105,13 +105,15 @@ async function handleChat(req: Request): Promise<Response> {
   }
 
   // Persist the exchange so past conversations render in the console.
+  // JSON round-trip drops undefined fields (e.g. titles not yet ingested),
+  // which Firestore rejects.
   try {
     await saveChatMessage({ surface, role: "user", text: message });
     await saveChatMessage({
       surface,
       role: "assistant",
       text: payload.reply,
-      data: payload as unknown as Record<string, unknown>,
+      data: JSON.parse(JSON.stringify(payload)) as Record<string, unknown>,
     });
   } catch (e) {
     console.error("chat history persistence failed:", e);

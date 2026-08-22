@@ -42,13 +42,6 @@ function ffmpeg(args) {
   execSync(`ffmpeg -hide_banner -loglevel error -y ${args}`, { stdio: "pipe" });
 }
 
-async function putArtifact(key, bytes, mime) {
-  // Mirrors src/lib/storage.ts local backend (no GCS_BUCKET in dev).
-  const p = path.join(ARTIFACT_DIR, key);
-  writeFileSync(p, bytes);
-  return `file://artifacts/${key}`;
-}
-
 // ---------- asset generation (real bytes) ----------
 function genImage(jobId, actionId) {
   const key = `${jobId}_${actionId}`;

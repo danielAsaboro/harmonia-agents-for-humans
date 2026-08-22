@@ -145,6 +145,97 @@ function GoalsSection() {
   );
 }
 
+interface ConnectionInfo {
+  id: string;
+  label: string;
+  capabilities: string[];
+  note: string;
+  docsUrl: string;
+  status: "connected" | "connectable" | "credentials_needed";
+  missingActive: string[];
+  missingRequired: string[];
+}
+
+const CAP_LABELS: Record<string, string> = {
+  publish: "publish",
+  verify: "verify",
+  metrics: "metrics",
+};
+
+function ConnectionsSection() {
+  const [connections, setConnections] = useState<ConnectionInfo[] | null>(null);
+
+  useEffect(() => {
+    fetch("/api/settings/connections", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d) => setConnections(d.connections))
+      .catch(() => setConnections([]));
+  }, []);
+
+  return (
+    <section className="rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
+      <h2 className="text-sm font-semibold">Connected accounts</h2>
+      <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+        Official platform APIs only — no scraping, no automation evasion. Status reflects the
+        actual server configuration; nothing shows as connected until its credentials exist
+        server-side. Publishing always passes the human approval gate.
+      </p>
+      {!connections ? (
+        <p className="mt-3 text-xs text-zinc-400">Loading…</p>
+      ) : (
+        <ul className="mt-4 flex flex-col gap-3">
+          {connections.map((c) => (
+            <li key={c.id} className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold uppercase ${
+                    c.status === "connected"
+                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
+                      : c.status === "connectable"
+                        ? "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-400"
+                        : "bg-zinc-100 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400"
+                  }`}>
+                    {c.label.slice(0, 2)}
+                  </span>
+                  <span className="text-sm font-medium">{c.label}</span>
+                </div>
+                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+                  c.status === "connected"
+                    ? "border-emerald-400 text-emerald-600 dark:text-emerald-400"
+                    : c.status === "connectable"
+                      ? "border-sky-400 text-sky-600 dark:text-sky-400"
+                      : "border-zinc-300 text-zinc-500 dark:border-zinc-700 dark:text-zinc-400"
+                }`}>
+                  {c.status === "connected" ? "connected" : c.status === "connectable" ? "ready to connect" : "credentials needed"}
+                </span>
+              </div>
+              <p className="mt-1.5 text-xs leading-5 text-zinc-500 dark:text-zinc-400">{c.note}</p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]">
+                <span className="text-zinc-400">
+                  capabilities: {c.capabilities.map((k) => CAP_LABELS[k] ?? k).join(", ") || "—"}
+                </span>
+                {c.missingActive.length > 0 && (
+                  <span className="font-mono text-amber-600 dark:text-amber-400">
+                    needs token: {c.missingActive.join(", ")}
+                  </span>
+                )}
+                {c.missingRequired.length > 0 && (
+                  <span className="font-mono text-zinc-400">
+                    app config missing: {c.missingRequired.join(", ")}
+                  </span>
+                )}
+                <a href={c.docsUrl} target="_blank" rel="noopener noreferrer" className="ml-auto underline text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
+                  developer docs ↗
+                </a>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export default function SettingsView() {
   const [tokenInput, setTokenInput] = useState("");
   const [saved, setSaved] = useState(false);
@@ -170,6 +261,7 @@ export default function SettingsView() {
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
       <GoalsSection />
+      <ConnectionsSection />
 
       <section className="rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
         <h2 className="text-sm font-semibold">Operator token</h2>

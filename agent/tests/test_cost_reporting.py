@@ -6,14 +6,14 @@ from types import SimpleNamespace
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from harmonia_agent import content
-from harmonia_agent.agent_models import DraftWorkflowInput
+from harmonia_agent.agent_models import AnalystInput, DraftWorkflowInput, MediaEvidence
 from harmonia_agent.agents import _run_coordinator
 from harmonia_agent.agents import RoleModelInstances
 from harmonia_agent.gemma_model import VertexGemmaModel
 from harmonia_agent.role_models import RoleModelConfig
 from harmonia_agent.usage import InvocationContext, run_metered
 from harmonia_agent.telemetry import configure_telemetry
-from test_agent_team import ScriptedDraftModel, _analysis
+from test_agent_team import ScriptedDelegationModel, ScriptedDraftModel, _analysis
 
 
 def test_model_call_reserves_budget_before_provider():
@@ -218,3 +218,33 @@ def test_heterogeneous_draft_usage_keeps_each_actual_role_model():
     gemma_usage = next(item for item in reports if item["role"] == "nimi_copywriter")
     assert gemma_usage["unitType"] == "endpoint_seconds"
     assert gemma_usage["estimatedCostUsd"] == "0.100000"
+
+
+def test_multimodal_source_uri_is_not_exported_in_trace_content():
+    exporter = InMemorySpanExporter()
+    configure_telemetry(exporter=exporter, force=True)
+    source = "https://www.youtube.com/watch?v=abc12345678"
+
+    asyncio.run(_run_coordinator(
+        "sophia_analyst",
+        AnalystInput(
+            title="Demo",
+            transcript="[0s] hello",
+            media_evidence=MediaEvidence(
+                video_uri=source,
+                duration_sec=60,
+                source_digest="a" * 64,
+            ),
+        ),
+        model=ScriptedDelegationModel(model="gemini-3.5-flash"),
+    ))
+
+    serialized = " ".join(
+        [str(span.attributes) for span in exporter.get_finished_spans()]
+        + [
+            str(event.attributes)
+            for span in exporter.get_finished_spans()
+            for event in span.events
+        ]
+    )
+    assert source not in serialized

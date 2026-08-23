@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  analysisSubmissionSchema,
   budgetReservationSchema,
   draftsSubmissionSchema,
   ingestSubmissionSchema,
@@ -28,6 +29,27 @@ describe("internal contracts", () => {
       ],
     });
     expect(parsed.success).toBe(true);
+  });
+
+  it("preserves additive visual grounding on analyzed moments", () => {
+    const parsed = analysisSubmissionSchema.parse({
+      jobId: "j1",
+      stage: "understand",
+      summary: "Visible product demo",
+      moments: [{
+        id: "m1", title: "Dashboard reveal", startSec: 2, endSec: 9,
+        hook: "Watch the state change", quote: "The workflow is now live",
+        visualHook: "Dashboard counter changes from zero to one",
+        cropSuitability: "excellent",
+        captionSafeRegion: "lower third",
+        visualEvidenceIds: ["f1"],
+      }],
+      angles: [],
+      modelUsed: "gemini-3.5-flash",
+    });
+
+    expect(parsed.moments[0].visualEvidenceIds).toEqual(["f1"]);
+    expect(parsed.moments[0].cropSuitability).toBe("excellent");
   });
 
   it("rejects receipts for unknown action types", () => {

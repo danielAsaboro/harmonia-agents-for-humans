@@ -22,6 +22,7 @@ from harmonia_agent.agent_models import (
     DraftSet,
     DraftWorkflowInput,
     DraftWorkflowResult,
+    MediaEvidence,
     PublishAction,
     StrategistInput,
     StrategistResult,
@@ -42,6 +43,7 @@ from harmonia_agent.stages import classify_failure
 
 class ScriptedDelegationModel(BaseLlm):
     calls: list[str] = []
+    media_uris: list[str] = []
 
     @property
     def capabilities(self) -> LlmCapabilities:
@@ -56,6 +58,12 @@ class ScriptedDelegationModel(BaseLlm):
         ]
         if llm_request.config.response_schema is not None:
             self.calls.append("sophia_analyst")
+            self.media_uris.extend(
+                part.file_data.file_uri
+                for content in llm_request.contents
+                for part in (content.parts or [])
+                if part.file_data is not None
+            )
             yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text=(
                 '{"summary":"Delegated analysis","moments":[],"angles":[]}'
             ))]))
@@ -192,6 +200,28 @@ def test_coordinator_really_delegates_and_forwards_specialist_state():
     result = _validated_state(state, "analysis_result", AnalysisResult)
     assert result.summary == "Delegated analysis"
     assert model.calls == ["coordinator", "sophia_analyst", "coordinator_return"]
+
+
+def test_analyst_receives_source_video_as_a_real_multimodal_part():
+    model = ScriptedDelegationModel(model="scripted")
+    source = "https://www.youtube.com/watch?v=abc12345678"
+
+    asyncio.run(_run_coordinator(
+        "sophia_analyst",
+        AnalystInput(
+            title="Demo",
+            channel="Harmonia",
+            transcript="[0s] hello [30s] proof",
+            media_evidence=MediaEvidence(
+                video_uri=source,
+                duration_sec=60,
+                source_digest="a" * 64,
+            ),
+        ),
+        model=model,
+    ))
+
+    assert model.media_uris == [source]
 
 
 def test_draft_agent_tool_forwards_all_sequential_state_to_coordinator():

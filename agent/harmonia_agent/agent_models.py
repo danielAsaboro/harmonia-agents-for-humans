@@ -3,12 +3,49 @@
 from __future__ import annotations
 
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class FrameEvidence(StrictModel):
+    id: str = Field(min_length=1)
+    uri: str = Field(min_length=1)
+    timestamp_sec: float = Field(ge=0)
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_uri(self) -> "FrameEvidence":
+        parsed = urlparse(self.uri)
+        if parsed.scheme not in {"https", "gs"}:
+            raise ValueError("frame uri must use https or gs")
+        return self
+
+
+class MediaEvidence(StrictModel):
+    video_uri: str | None = None
+    audio_uri: str | None = None
+    duration_sec: float = Field(gt=0)
+    source_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    frames: list[FrameEvidence] = Field(default_factory=list, max_length=24)
+
+    @model_validator(mode="after")
+    def validate_evidence(self) -> "MediaEvidence":
+        if not self.video_uri and not self.audio_uri and not self.frames:
+            raise ValueError("media evidence requires video, audio, or frames")
+        for uri in (self.video_uri, self.audio_uri):
+            if uri is not None and urlparse(uri).scheme not in {"https", "gs"}:
+                raise ValueError("media uri must use https or gs")
+        frame_ids = [frame.id for frame in self.frames]
+        if len(frame_ids) != len(set(frame_ids)):
+            raise ValueError("frame ids must be unique")
+        if any(frame.timestamp_sec > self.duration_sec for frame in self.frames):
+            raise ValueError("frame timestamp exceeds media duration")
+        return self
 
 
 class Moment(StrictModel):
@@ -18,6 +55,10 @@ class Moment(StrictModel):
     endSec: float = Field(ge=0)
     hook: str = Field(min_length=1)
     quote: str = Field(min_length=1)
+    visualHook: str | None = Field(default=None, max_length=500)
+    cropSuitability: Literal["poor", "fair", "good", "excellent"] | None = None
+    captionSafeRegion: str | None = Field(default=None, max_length=200)
+    visualEvidenceIds: list[str] = Field(default_factory=list, max_length=12)
 
 
 class Angle(StrictModel):
@@ -38,6 +79,7 @@ class AnalystInput(StrictModel):
     channel: str = ""
     transcript: str = Field(min_length=1, max_length=60_000)
     prior_learnings: str = Field(default="", max_length=4_000)
+    media_evidence: MediaEvidence | None = None
 
 
 class Idea(StrictModel):

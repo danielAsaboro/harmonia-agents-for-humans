@@ -530,13 +530,21 @@ export async function listUsageRecords(jobId: string): Promise<UsageRecord[]> {
 
 export async function saveIngestMeta(
   jobId: string,
-  meta: { videoId: string; title: string; channel: string; durationSec: number },
+  meta: {
+    videoId: string;
+    title: string;
+    channel: string;
+    durationSec: number;
+    mediaDigest?: string;
+  },
 ) {
+  const digest = meta.mediaDigest ? { mediaDigest: meta.mediaDigest } : {};
   await jobRef(jobId).update({
     videoId: meta.videoId,
     ingestedTitle: meta.title,
     ingestedChannel: meta.channel,
     ingestedDurationSec: meta.durationSec,
+    ...digest,
     updatedAt: new Date().toISOString(),
   });
 }

@@ -10,6 +10,7 @@ export async function POST(req: Request) {
     await saveIngestMeta(body.jobId, {
       videoId: body.videoId, title: body.title,
       channel: body.channel, durationSec: body.durationSec,
+      mediaDigest: body.mediaDigest,
     });
     await appendEvent(
       body.jobId,

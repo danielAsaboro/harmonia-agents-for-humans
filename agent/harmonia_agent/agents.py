@@ -40,6 +40,7 @@ from .mock_ai import (
     mock_propose_ideas,
     mock_propose_recycle,
 )
+from .multimodal import attach_media_evidence
 from .telemetry import current_trace_id, safe_attributes, tracer
 from .role_models import RoleModelConfig, load_role_model_catalog
 from .usage import (
@@ -214,14 +215,17 @@ def build_agent_team(
         name="sophia_analyst",
         description="Finds clip-worthy moments and defensible trend or meme angles in a transcript.",
         instruction=(
-            "Analyze only the supplied video metadata, transcript, and learnings. Return a concise "
+            "Analyze only the supplied video/audio parts, metadata, transcript, and learnings. "
+            "Use both visible and spoken evidence when media is attached. Return a concise "
             "summary, 3-6 timestamp-bounded moments with exact quotes, and useful trend/meme "
-            "angles. Return only the AnalysisResult JSON contract."
+            "angles. Populate visual production fields only from visible evidence and cite only "
+            "supplied frame IDs. Return only the AnalysisResult JSON contract."
         ),
         input_schema=AnalystInput,
         output_schema=AnalysisResult,
         output_key="analysis_result",
         mode="single_turn",
+        before_model_callback=attach_media_evidence,
     )
     copywriter = Agent(
         model=resolved.copywriter,
@@ -301,7 +305,26 @@ def _validate_run_output(
     specialist: str, payload: BaseModel, state: dict[str, Any],
 ) -> None:
     if specialist == "sophia_analyst":
-        _validated_state(state, "analysis_result", AnalysisResult)
+        result = _validated_state(state, "analysis_result", AnalysisResult)
+        analyst_input = AnalystInput.model_validate(payload)
+        valid_visual_ids = {
+            frame.id
+            for frame in (
+                analyst_input.media_evidence.frames
+                if analyst_input.media_evidence is not None
+                else []
+            )
+        }
+        referenced = {
+            visual_id
+            for moment in result.moments
+            for visual_id in moment.visualEvidenceIds
+        }
+        invalid = referenced - valid_visual_ids
+        if invalid:
+            raise AgentProtocolError(
+                f"analyst returned unknown visual evidence ids: {sorted(invalid)}"
+            )
         return
     if specialist == "ryan_strategist":
         result = _validated_state(state, "strategist_result", StrategistResult)

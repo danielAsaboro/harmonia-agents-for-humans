@@ -14,7 +14,13 @@ from opentelemetry.trace import Status, StatusCode
 from pydantic import ValidationError
 
 from . import clipper, content, x_client, youtube
-from .agent_models import AnalysisResult, AnalystInput, DraftWorkflowInput, StrategistInput
+from .agent_models import (
+    AnalysisResult,
+    AnalystInput,
+    DraftWorkflowInput,
+    MediaEvidence,
+    StrategistInput,
+)
 from .agents import AgentProtocolError, analyze_with_team, draft_with_team, strategize_with_team
 from .config import settings
 from .gemma_model import GemmaProtocolError
@@ -135,11 +141,23 @@ async def run_understand(job_id: str) -> None:
         transcript = "\n".join(
             f"[{int(s['startSec'])}s] {s['text']}" for s in job["transcriptSegments"]
         )
+        media_evidence = None
+        source_url = (job.get("config") or {}).get("youtubeUrl")
+        source_digest = job.get("mediaDigest")
+        duration = job.get("ingestedDurationSec")
+        if source_url and source_digest and duration:
+            media_evidence = MediaEvidence(
+                video_uri=source_url,
+                duration_sec=duration,
+                source_digest=source_digest,
+                frames=[],
+            )
         result = (await analyze_with_team(AnalystInput(
             title=job["ingestedTitle"],
             channel=job["ingestedChannel"],
             transcript=transcript,
             prior_learnings=prior,
+            media_evidence=media_evidence,
         ), invocation=invocation)).model_dump(mode="json")
     web_post("/api/internal/analysis", {
         "jobId": job_id, "stage": "understand",

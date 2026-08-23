@@ -77,3 +77,33 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
     }
     assert publish_text <= draft_text
     assert any(action["id"] == "act-content-pack" for action in payload["proposedActions"])
+
+
+def test_understand_video_passes_direct_source_media_evidence(monkeypatch):
+    requests = []
+    posts = []
+
+    async def fake_analyze(request, *, invocation):
+        requests.append((request, invocation))
+        return AnalysisResult.model_validate(_analysis())
+
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: {
+        "config": {"youtubeUrl": "https://www.youtube.com/watch?v=abc12345678"},
+        "transcriptSegments": [{"id": "s1", "startSec": 0, "endSec": 5, "text": "hello"}],
+        "ingestedTitle": "Demo video",
+        "ingestedChannel": "Harmonia",
+        "ingestedDurationSec": 60,
+        "mediaDigest": "a" * 64,
+    })
+    monkeypatch.setattr(stages, "get_insights", lambda: {})
+    monkeypatch.setattr(stages, "analyze_with_team", fake_analyze)
+    monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
+
+    asyncio.run(stages.run_understand("job-video"))
+
+    request, invocation = requests[0]
+    assert invocation.stage == "understand"
+    assert request.media_evidence.video_uri.endswith("abc12345678")
+    assert request.media_evidence.duration_sec == 60
+    assert request.media_evidence.source_digest == "a" * 64
+    assert "hello" in request.transcript

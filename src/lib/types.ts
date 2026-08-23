@@ -38,6 +38,7 @@ export interface Job {
   ingestedTitle?: string;
   ingestedChannel?: string;
   ingestedDurationSec?: number;
+  mediaDigest?: string;
   videoId?: string;
   budget?: JobBudget;
   failure?: {
@@ -160,6 +161,10 @@ export interface Moment {
   endSec: number;
   hook: string;
   quote: string;
+  visualHook?: string;
+  cropSuitability?: "poor" | "fair" | "good" | "excellent";
+  captionSafeRegion?: string;
+  visualEvidenceIds?: string[];
 }
 
 export interface Angle {

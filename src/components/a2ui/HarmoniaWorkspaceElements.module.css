@@ -3,7 +3,7 @@
 .agentLabel { display:block; margin-bottom:.4rem; color:#6146d7; font-size:.58rem; font-weight:900; letter-spacing:.16em; text-transform:uppercase; }
 .nested { display:grid; gap:.8rem; margin-top:1rem; }
 .brief,.progress,.momentExplorer,.draftComparison,.platformPreview,.evidence,.approval,.receipt,.state { position:relative; margin:0; border:1px solid rgba(22,21,18,.18); background:#fffdf7; color:#161512; padding:clamp(1rem,2.4vw,1.65rem); box-shadow:4px 4px 0 rgba(22,21,18,.08); }
-[data-emphasis="compact"] { padding:.85rem; box-shadow:none; }
+.brief[data-emphasis="compact"],.progress[data-emphasis="compact"],.momentExplorer[data-emphasis="compact"],.draftComparison[data-emphasis="compact"],.platformPreview[data-emphasis="compact"],.evidence[data-emphasis="compact"],.approval[data-emphasis="compact"],.receipt[data-emphasis="compact"] { padding:.85rem; box-shadow:none; }
 .brief { overflow:hidden; background:linear-gradient(145deg,#f0edff 0 28%,#fffdf7 28%); }
 .brief::after { position:absolute; right:-2rem; top:-2rem; width:7rem; height:7rem; border-radius:50%; background:#d9ff43; content:""; opacity:.86; }
 .briefCopy { position:relative; max-width:60ch; margin:0 0 1.25rem; font-size:1rem; line-height:1.65; }

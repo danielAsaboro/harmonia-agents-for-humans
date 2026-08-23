@@ -23,21 +23,22 @@ describe("buildDemoChatRunEvents", () => {
     const operations = events
       .filter((event) => event.type === "a2ui_operation")
       .map((event) => parseHarmoniaA2uiOperation(event.operation));
-    const update = operations.find((operation) => "updateComponents" in operation);
-    expect(update && "updateComponents" in update
-      ? update.updateComponents.components.map((component) => component.component)
-      : []).toEqual(expect.arrayContaining([
-        "MessageContent",
-        "ReasoningSummary",
-        "ActivityTrace",
-        "PlanView",
-        "TaskView",
-        "QueueView",
-        "ToolActivity",
-        "AttachmentCard",
-        "InlineCitation",
-        "ContextUsage",
-        "Confirmation",
-      ]));
+    const componentNames = operations.flatMap((operation) => "updateComponents" in operation
+      ? operation.updateComponents.components.map((component) => component.component)
+      : []);
+    expect(componentNames).toEqual(expect.arrayContaining([
+      "CampaignBrief",
+      "MomentExplorer",
+      "DraftComparison",
+      "PlatformPreview",
+      "SourceEvidence",
+      "JobProgress",
+      "ApprovalReview",
+      "SurfaceUnresolved",
+    ]));
+    const serialized = JSON.stringify(events);
+    expect(serialized).toContain("local persisted A2UI fixture");
+    expect(serialized).not.toContain("Audio generated");
+    expect(serialized).not.toContain("model invocation complete");
   });
 });

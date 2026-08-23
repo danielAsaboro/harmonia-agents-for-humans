@@ -33,6 +33,7 @@ flowchart LR
     subgraph "Cloud Run — harmonia-web (Next.js)"
         UI[Operator dashboard]
         CHAT["POST /api/chat<br/>Gemini structured-output intents"]
+        A2UI["Trusted A2UI hydrator<br/>persisted state → native workspace"]
         API[Job / approval / retry API]
         INT[Internal stage API<br/>Bearer-token scoped]
     end
@@ -42,6 +43,7 @@ flowchart LR
         TG["Telegram long-poll worker"]
         STAGES[ingest · transcribe · understand ·<br/>draft · publish · verify handlers]
         RUNTIME[Vertex AI Agent Engine<br/>managed runtime only]
+        MAYA["Maya presentation specialist<br/>reference-only SurfacePlan"]
     end
 
     PS[[Pub/Sub topic]]
@@ -54,6 +56,10 @@ flowchart LR
 
     U --> UI --> API
     C --> CHAT --> API
+    CHAT --> A2UI
+    A2UI -- bounded IDs + summaries --> MAYA
+    MAYA --> RUNTIME
+    MAYA -- component graph + references --> A2UI
     T -- long polling --> TG -- same /api/chat grammar --> CHAT
     T -- inline-button approvals --> API
     API -- stage transitions --> PS
@@ -74,6 +80,7 @@ flowchart LR
 | Ingestion | `agent/harmonia_agent/youtube.py` | metadata fetch + bounded audio download |
 | Transcription / understanding / drafting | `agent/harmonia_agent/content.py`, `agents.py`, `gemma_model.py` | Gemini transcription, multimodal Sophia, Gemma Nimi, Gemini review/planning |
 | Intent parsing (chat + Telegram) | web `src/lib/chatIntent.ts` | Gemini structured output: `{intent, youtubeUrl?, jobId?}` |
+| Generative interface composition | ADK `maya_presenter` + web `src/lib/a2ui/` | reference-only `SurfacePlan`; server hydration from authenticated Firestore records |
 | Approval gate | web `src/lib/policy.ts`, `src/lib/decisions.ts` | deterministic risk rules; single decision writer shared by REST, chat, and Telegram |
 | Publishing | `agent/harmonia_agent/x_client.py` | official X API v2, idempotent |
 | Verification | `agent/harmonia_agent/stages.py` | fresh GET of the published artifact |
@@ -84,6 +91,7 @@ flowchart LR
 - **Heterogeneous Google models**: Gemini 3.5 Flash-Lite for routing/planning, Gemini 3.5 Flash for strategy/multimodal analysis/editing/transcription, and Gemma 3 12B IT on a Vertex endpoint for copywriting.
 - **Google generative media**: Veo 3.1 Fast for 4-second vertical b-roll and Lyria 3 Clip for 30-second music, both individually priced and always approval-gated.
 - **Google ADK** (Python) for the worker service and agent scaffolding.
+- **Google A2UI v0.9** for streamed, durable generative interfaces. Maya chooses a graph from Harmonia’s fixed campaign vocabulary; the web server resolves every draft, moment, action, asset, and receipt reference from authenticated persisted state before the official A2UI React renderer sees it.
 - **Vertex AI Agent Engine + Memory Bank** as mandatory managed cognition and exact-scope cross-session context; Firestore/Pub/Sub remain the durable workflow engine.
 - **Cloud Run** hosts both services (web: Next.js standalone build; agent: Python container).
 - **Firestore** persists job state, stage events, approvals, receipts, verifications, and packets.
@@ -104,6 +112,8 @@ cp .env.example .env.local   # set Identity Platform, internal service, and Agen
 
 Open http://localhost:3000, continue with Google, then paste a YouTube URL and watch the workspace-scoped job move through the stages. Approve or reject proposed actions when the job reaches the approval gate.
 
+For generated campaign workspaces, `AGENT_SERVICE_URL` must point to the FastAPI worker (normally `http://localhost:8080` locally), `INTERNAL_API_TOKEN` must match across both services, and `AGENT_ENGINE_RESOURCE` plus Google credentials must be configured. There is deliberately no local-model or deterministic production fallback for presentation planning.
+
 > Full documentation lives in [`docs/`](./docs) — a Mintlify site covering the [architecture](./docs/architecture.mdx), [pipeline](./docs/pipeline.mdx), the [proactive agent](./docs/proactive-agent.mdx), offline mock modes, configuration, and deployment.
 
 ### Operator chat
@@ -119,7 +129,9 @@ Click the chat bubble on the dashboard (or `POST /api/chat` with `{message}`):
 
 All chat reads and mutations use the verified Google session and active workspace. Intent parsing never selects tenant identity.
 
-The full Console additionally uses a durable `POST /api/chat/stream` NDJSON transport and a strict Harmonia catalog rendered by Google's official A2UI React packages. It includes real resumable Cloud Storage uploads, activity/tool traces, plans, queues, tasks, citations, safe reasoning summaries, and confirmation cards. Raw hidden chain-of-thought is never requested or displayed. The floating Drawer reuses only message, attachment, and confirmation components.
+The full Console additionally uses a durable `POST /api/chat/stream` NDJSON transport and a strict Harmonia catalog rendered by Google’s official A2UI React packages. The managed Maya specialist can compose three independent revisions—conversation, working canvas, and approval—from `CampaignBrief`, `JobProgress`, `MomentExplorer`, `DraftComparison`, `PlatformPreview`, `SourceEvidence`, `ApprovalReview`, and `VerificationReceipt`. Its output contains references and layout only. Full draft copy, transcript excerpts, action risk, approval state, asset routes, and receipts are hydrated server-side from the active persisted job. Stale references become visible `SurfaceUnresolved` components, and presenter failures terminate the run without a generic-success surface.
+
+Generated approval detail never owns authorization controls. The existing server-protected approval dock remains authoritative and validates the persisted `jobId + actionId` before making a decision request. Raw hidden chain-of-thought is never requested or displayed.
 
 ### Telegram bot
 
@@ -129,6 +141,8 @@ Run tests:
 
 ```bash
 npm test                     # TypeScript: policy gate, idempotency, state machine, packet assembly
+npm run lint                 # Next.js / React / TypeScript lint
+npm run build                # production Next.js build
 npm run test:agent           # Python: ingest parsing, telegram callbacks, failure classification
 ```
 

@@ -1,106 +1,149 @@
 const CATALOG_ID = "https://harmonia.app/a2ui/catalogs/chat/v1";
 
 /**
- * Deterministic local fixture for exercising the same A2UI event protocol as
- * live chat. It never represents a provider invocation or simulated success.
+ * Deterministic local persisted-data fixture for exercising the production
+ * A2UI event protocol. It makes no model, provider, or external-effect claim.
  */
 export function buildDemoChatRunEvents(input) {
-  const surfaceId = `chat-${input.runId}`;
-  const reply = "The source has been analyzed and the multimodal content package is ready for operator review.";
-  const children = [
-    "message", "reasoning", "activity", "plan", "task", "queue", "tool",
-    "source-citation", "context", "image", "clip", "reel", "confirmation",
+  const reply = "The persisted source, moments, draft, local assets, and separate pending launch action are assembled for operator review.";
+  const node = { children: [], emphasis: "primary", agentFraming: false };
+  const draft = {
+    id: "d1",
+    platform: "x",
+    text: "Your signup flow is an obstacle course. Ours was too — until we treated every step as a suspect.",
+    valid: true,
+    validationNote: "100/280 chars",
+    selected: true,
+    sourceCount: 0,
+  };
+  const canvasId = `studio-${input.runId}-canvas-r1`;
+  const conversationId = `studio-${input.runId}-conversation-r1`;
+  const approvalId = `studio-${input.runId}-approval-r1`;
+  const canvas = [
+    { id: "root", component: "Column", children: ["brief", "moments", "preview", "evidence", "audio-gap"] },
+    {
+      ...node,
+      id: "brief",
+      component: "CampaignBrief",
+      jobId: input.jobId,
+      title: "Onboarding, rebuilt around time-to-value",
+      brief: "Turn the persisted onboarding teardown into a founder-led, outcome-first campaign.",
+      sourceKind: "video",
+      platforms: ["x"],
+      angles: [
+        { id: "a1", kind: "trend", title: "Deletion as strategy", rationale: "A contrarian alternative to feature-dump launches." },
+        { id: "a2", kind: "meme", title: "Onboarding obstacle course meme", rationale: "A relatable format grounded in the persisted signup story." },
+      ],
+    },
+    {
+      ...node,
+      id: "moments",
+      component: "MomentExplorer",
+      jobId: input.jobId,
+      title: "Two proof points worth clipping",
+      agentFraming: true,
+      children: ["drafts"],
+      source: { id: "source-video", label: "How we rebuilt onboarding around time-to-value (demo)", kind: "video", externalUrl: "https://www.youtube.com/watch?v=jNQXAC9IVRw", durationSec: 23 },
+      moments: [
+        { id: "m1", title: "Eleven ceremonial steps", startSec: 6, endSec: 14, hook: "Most onboarding steps exist because someone once asked.", quote: "eleven that were pure ceremony", cropSuitability: "good", selected: false },
+        { id: "m2", title: "Nine days to forty hours", startSec: 14, endSec: 23, hook: "Activation time collapsed when we deleted instead of added.", quote: "nine days to forty hours", cropSuitability: "excellent", selected: true },
+      ],
+      transcript: [
+        { id: "s1", startSec: 0, endSec: 6, text: "Everyone told us onboarding had to take two weeks." },
+        { id: "s2", startSec: 6, endSec: 14, text: "We mapped every step and found eleven that were pure ceremony." },
+        { id: "s3", startSec: 14, endSec: 23, text: "Deleting them cut activation time from nine days to forty hours." },
+      ],
+    },
+    { ...node, id: "drafts", component: "DraftComparison", jobId: input.jobId, title: "Choose the launch voice", agentFraming: true, drafts: [draft] },
+    {
+      ...node,
+      id: "preview",
+      component: "PlatformPreview",
+      jobId: input.jobId,
+      title: "X campaign preview",
+      draft,
+      assets: [
+        { actionId: "act-img-demo01", mime: "image/png", previewUrl: `/api/jobs/${input.jobId}/assets/act-img-demo01` },
+        { actionId: "act-clip-demo1", mime: "video/mp4", previewUrl: `/api/jobs/${input.jobId}/assets/act-clip-demo1` },
+        { actionId: "act-reel-top2", mime: "video/mp4", previewUrl: `/api/jobs/${input.jobId}/assets/act-reel-top2` },
+      ],
+    },
+    {
+      ...node,
+      id: "evidence",
+      component: "SourceEvidence",
+      jobId: input.jobId,
+      title: "Persisted source chain",
+      sources: [
+        { id: "source-video", kind: "video", label: "Onboarding interview", url: "https://www.youtube.com/watch?v=jNQXAC9IVRw" },
+        { id: "s2", kind: "transcript", label: "Transcript 00:06–00:14", excerpt: "We mapped every step and found eleven that were pure ceremony." },
+        { id: "s3", kind: "transcript", label: "Transcript 00:14–00:23", excerpt: "Deleting them cut activation time from nine days to forty hours." },
+      ],
+      links: [
+        { fromId: "m1", toId: "s2", label: "grounded in transcript" },
+        { fromId: "m2", toId: "s3", label: "grounded in transcript" },
+      ],
+    },
+    {
+      ...node,
+      id: "audio-gap",
+      component: "SurfaceUnresolved",
+      title: "Audio remains unresolved",
+      message: "No persisted audio asset exists for this local working set.",
+      missingRefs: ["audio-asset"],
+    },
   ];
-  const components = [
-    { id: "root", component: "Column", children },
-    { id: "message", component: "MessageContent", text: reply },
+  const conversation = [
+    { id: "root", component: "Column", children: ["progress"] },
     {
-      id: "reasoning",
-      component: "ReasoningSummary",
-      summary: "Safe summary: the analyst linked two transcript-backed moments to one X draft, then deterministic stage logic prepared the image, clip, and reel previews. Internal chain-of-thought is not exposed.",
-    },
-    {
-      id: "activity",
-      component: "ActivityTrace",
-      title: "Agent activity",
-      steps: [
-        { id: "coordinator", label: "Coordinator routed video understanding", description: "Selected the analyst path from the source-bearing request.", status: "complete" },
-        { id: "analyst", label: "Analyst grounded moments in transcript evidence", description: "Preserved source segment and timestamp references.", status: "complete" },
-        { id: "draft-workflow", label: "Copywriter → critic → planner", description: "Reviewed the X draft once before proposing an approval-gated action.", status: "complete" },
-      ],
-    },
-    {
-      id: "plan",
-      component: "PlanView",
-      title: "Content workflow",
-      steps: [
-        { id: "ingest", label: "Ingest source", status: "complete" },
-        { id: "understand", label: "Understand video", status: "complete" },
-        { id: "draft", label: "Draft and review", status: "complete" },
-        { id: "approval", label: "Operator approval", status: "active" },
-        { id: "publish", label: "Publish and verify", status: "pending" },
-      ],
-    },
-    { id: "task", component: "TaskView", title: "Prepare multimodal launch package", owner: "harmonia_coordinator", status: "complete", jobId: input.jobId, stage: "complete" },
-    {
-      id: "queue",
-      component: "QueueView",
-      title: "Execution queue",
-      items: [
-        { id: "source-ready", label: "Source evidence indexed", status: "complete", jobId: input.jobId },
-        { id: "approval-wait", label: "Launch post awaits operator decision", status: "active", jobId: input.confirmationJobId },
-        { id: "verification-wait", label: "Independent verification waits for publishing", status: "pending", jobId: input.confirmationJobId },
-      ],
-    },
-    {
-      id: "tool",
-      component: "ToolActivity",
-      name: "video_understanding",
+      ...node,
+      id: "progress",
+      component: "JobProgress",
+      jobId: input.jobId,
+      title: "Local persisted job replay",
+      stage: "complete",
       status: "complete",
-      inputSummary: "4 transcript segments and 2 timestamped moments",
-      outputSummary: "2 grounded moments, 2 angles, and 1 reviewed X draft",
-      durationMs: 842,
-      traceId: "demo-local-trace",
+      stages: [
+        { id: "ingest", label: "ingest", status: "complete" },
+        { id: "understand", label: "understand", status: "complete" },
+        { id: "draft", label: "draft", status: "complete" },
+        { id: "approval", label: "operator approval", status: "active" },
+      ],
     },
+  ];
+  const approval = [
+    { id: "root", component: "Column", children: ["approval-review"] },
     {
-      id: "source-citation",
-      component: "InlineCitation",
-      title: "Source video",
-      url: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
-      sourceId: "source-video",
-      excerpt: "Demo source associated with the timestamped transcript and moments.",
-    },
-    {
-      id: "context",
-      component: "ContextUsage",
-      model: "Local demo fixture — no model invocation",
-      inputTokens: 0,
-      outputTokens: 0,
-      contextLimit: 1,
-      cachedTokens: 0,
-      estimatedCostUsd: 0,
-    },
-    { id: "image", component: "AttachmentCard", attachmentId: "act-img-demo01", filename: "onboarding-angle.png", mime: "image/png", sizeBytes: input.imageSizeBytes, state: "ready", previewUrl: `/api/jobs/${input.jobId}/assets/act-img-demo01` },
-    { id: "clip", component: "AttachmentCard", attachmentId: "act-clip-demo1", filename: "nine-days-to-forty-hours.mp4", mime: "video/mp4", sizeBytes: input.clipSizeBytes, state: "ready", previewUrl: `/api/jobs/${input.jobId}/assets/act-clip-demo1` },
-    { id: "reel", component: "AttachmentCard", attachmentId: "act-reel-top2", filename: "top-two-moments-reel.mp4", mime: "video/mp4", sizeBytes: input.reelSizeBytes, state: "ready", previewUrl: `/api/jobs/${input.jobId}/assets/act-reel-top2` },
-    {
-      id: "confirmation",
-      component: "Confirmation",
+      ...node,
+      id: "approval-review",
+      component: "ApprovalReview",
       jobId: input.confirmationJobId,
       actionId: input.confirmationActionId,
-      title: "Approve launch post",
-      description: "Publishing remains blocked until an operator approves this real pending job action.",
+      actionType: "publish_x_post",
+      title: "Approve usage-based billing launch post",
+      description: "Publish the persisted launch draft to X only after the operator uses the protected decision controls.",
       risk: "high",
-      state: "pending",
+      requiresApproval: true,
+      approvalState: "pending",
+      actionState: "planned",
+      destination: "X",
+      previewText: "Shipping today: usage-based billing for agent workloads. Pay for outcomes, not idle tokens. Launch post incoming 🚀",
     },
   ];
 
+  const surfaceMessages = [
+    { version: "v0.9", createSurface: { surfaceId: canvasId, catalogId: CATALOG_ID } },
+    { version: "v0.9", updateComponents: { surfaceId: canvasId, components: canvas } },
+    { version: "v0.9", createSurface: { surfaceId: conversationId, catalogId: CATALOG_ID } },
+    { version: "v0.9", updateComponents: { surfaceId: conversationId, components: conversation } },
+    { version: "v0.9", createSurface: { surfaceId: approvalId, catalogId: CATALOG_ID } },
+    { version: "v0.9", updateComponents: { surfaceId: approvalId, components: approval } },
+  ];
   const payloads = [
     { type: "run_started", startedAt: input.startedAt },
-    { type: "activity", activity: { id: "coordinator", label: "Coordinator routed the request", description: "Local replay fixture using the production event contract.", status: "complete" } },
-    { type: "tool_activity", tool: { name: "harmonia_chat_router", status: "complete", inputSummary: "video source + content request", outputSummary: "intent=create_job", durationMs: 48, traceId: "demo-router-trace" } },
-    { type: "a2ui_operation", operation: { version: "v0.9", createSurface: { surfaceId, catalogId: CATALOG_ID } } },
-    { type: "a2ui_operation", operation: { version: "v0.9", updateComponents: { surfaceId, components } } },
+    { type: "activity", activity: { id: "interface-presenter", label: "Loaded local persisted A2UI fixture", description: "No model or provider invocation is represented.", status: "complete" } },
+    { type: "tool_activity", tool: { name: "local_persisted_fixture", status: "complete", inputSummary: "seeded job, action, receipts, and asset records", outputSummary: "three domain-catalog surfaces", durationMs: 0, traceId: "demo-local-trace" } },
+    ...surfaceMessages.map((operation) => ({ type: "a2ui_operation", operation })),
     { type: "job_updated", jobId: input.jobId, stage: "complete", status: "complete" },
     { type: "run_completed", completedAt: input.completedAt, reply },
   ];

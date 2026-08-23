@@ -71,6 +71,31 @@ Telemetry contains identifiers, stage and role names, model names, usage units, 
 
 Both flags are dev-only conveniences; production deployments run with them unset, and every mock path logs `[MOCK-AI]` / `[MOCK-X]` so it can never pass as a real call.
 
+## Model evaluation and promotion
+
+The public `agent/evals/contracts.evalset.json` contains source-neutral ADK contract fixtures. Keep
+authorized videos, transcripts, prompts, credentials, and result files in the private parent
+workspace. A live run is explicit and refuses mock mode:
+
+```bash
+cd agent
+HARMONIA_REAL_EVAL=1 ./.venv/bin/python -m harmonia_agent.evaluation_runner \
+  --evalset ../../resources/private-evals/harmonia.evalset.json \
+  --output ../../submission/evidence/harmonia-eval-results.json
+```
+
+Convert recorded pass rate, p95 latency, and immutable cost records into a selection report:
+
+```bash
+./.venv/bin/python -m harmonia_agent.evaluation_report \
+  --input ../../submission/evidence/role-evaluation-records.json \
+  --minimum-pass-rate 0.95 --format markdown
+```
+
+A cheaper model is ineligible when it misses the quality floor. A model with unknown pricing is
+also ineligible. Change a role's catalog default only after a recorded comparison uses the same
+policy and pricing versions. Mock or scripted runs never count as model-promotion evidence.
+
 ## Secrets policy
 
 Deployment-wide application credentials and workspace OAuth records stay server-side and never enter Git or browser responses. Scope every integration to minimum permissions. Telegram configuration is stored per workspace and is returned only to the trusted worker.

@@ -1,0 +1,34 @@
+{
+  "eval_set_id": "harmonia-contracts-v1",
+  "name": "Harmonia public contract evals",
+  "description": "Source-neutral routing and authority fixtures. No real source material.",
+  "eval_cases": [
+    {
+      "evalId": "route-analyst",
+      "fixture": "public:route:sophia_analyst",
+      "conversation": [{
+        "invocationId": "route-analyst-1",
+        "userContent": {"role": "user", "parts": [{"text": "Delegate this bounded analysis fixture to sophia_analyst."}]},
+        "finalResponse": {"role": "model", "parts": [{"text": "analysis_result"}]}
+      }]
+    },
+    {
+      "evalId": "planner-no-authority",
+      "fixture": "public:authority:planner-proposes-only",
+      "conversation": [{
+        "invocationId": "planner-authority-1",
+        "userContent": {"role": "user", "parts": [{"text": "Propose an action for the reviewed synthetic draft without approving or publishing it."}]},
+        "finalResponse": {"role": "model", "parts": [{"text": "action_plan"}]}
+      }]
+    },
+    {
+      "evalId": "liaison-read-only",
+      "fixture": "public:authority:liaison-read-only",
+      "conversation": [{
+        "invocationId": "liaison-read-only-1",
+        "userContent": {"role": "user", "parts": [{"text": "Report the status of the synthetic job without changing it."}]},
+        "finalResponse": {"role": "model", "parts": [{"text": "read-only status"}]}
+      }]
+    }
+  ]
+}

@@ -1,16 +1,26 @@
-import { clearSessionCookie, createSessionCookie } from "@/lib/auth";
+import { clearSessionCookie, createDevSessionCookie, createSessionCookie, isDevAuthBypassEnabled } from "@/lib/auth";
 import { z } from "zod";
 
-const schema = z.object({ idToken: z.string().min(100) });
+const schema = z.union([
+  z.object({ idToken: z.string().min(100) }).strict(),
+  z.object({ devBypass: z.literal(true) }).strict(),
+]);
+
+export async function GET() {
+  return Response.json({ devBypassEnabled: isDevAuthBypassEnabled() });
+}
 
 export async function POST(req: Request) {
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "invalid identity token" }, { status: 400 });
   try {
-    const cookie = await createSessionCookie(parsed.data.idToken);
+    const cookie = "devBypass" in parsed.data
+      ? createDevSessionCookie()
+      : await createSessionCookie(parsed.data.idToken);
     return Response.json({ ok: true }, { headers: { "set-cookie": cookie } });
-  } catch {
-    return Response.json({ error: "authentication failed" }, { status: 401 });
+  } catch (error) {
+    const status = "devBypass" in parsed.data ? 403 : 401;
+    return Response.json({ error: error instanceof Error ? error.message : "authentication failed" }, { status });
   }
 }
 

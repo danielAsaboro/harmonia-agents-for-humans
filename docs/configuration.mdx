@@ -63,6 +63,7 @@ Telemetry contains identifiers, stage and role names, model names, usage units, 
 
 | Variable | Effect |
 |---|---|
+| `HARMONIA_DEV_AUTH_BYPASS=1` | Development only: the login button creates a deterministic emulator-backed local session without initializing Firebase. Refused when `NODE_ENV=production`. |
 | `HARMONIA_MOCK_AI=1` | Deterministic offline fixtures for all Gemini calls + signal fetching. Unset = real model calls. |
 | `HARMONIA_MOCK_X=1` | Deterministic X publish/verify/metrics payloads. Unset = real X calls using the current workspace connection. |
 

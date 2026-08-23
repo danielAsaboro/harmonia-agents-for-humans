@@ -6,6 +6,8 @@ import { isInternalAuthorized, withInternalTenant } from "./internalAuth";
 
 export const SESSION_COOKIE = "harmonia_session";
 const SESSION_TTL_MS = 5 * 24 * 60 * 60 * 1000;
+const DEV_SESSION_VALUE = "dev-local";
+const DEV_USER_ID = "dev-local-user";
 
 interface UserDoc {
   defaultWorkspaceId: string;
@@ -23,6 +25,15 @@ function cookieValue(req: Request, name: string): string | null {
 
 function stableId(prefix: string, value: string): string {
   return `${prefix}_${createHash("sha256").update(value).digest("hex").slice(0, 24)}`;
+}
+
+export function isDevAuthBypassEnabled(): boolean {
+  return process.env.NODE_ENV !== "production" && process.env.HARMONIA_DEV_AUTH_BYPASS === "1";
+}
+
+function sessionCookie(value: string): string {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return `${SESSION_COOKIE}=${encodeURIComponent(value)}; Max-Age=${SESSION_TTL_MS / 1000}; Path=/; HttpOnly${secure}; SameSite=Lax`;
 }
 
 async function ensurePersonalWorkspace(uid: string, email?: string): Promise<UserDoc> {
@@ -73,6 +84,15 @@ async function ensurePersonalWorkspace(uid: string, email?: string): Promise<Use
 export async function requireTenantContext(req: Request): Promise<TenantContext> {
   const session = cookieValue(req, SESSION_COOKIE);
   if (!session) throw new AuthError("authentication required", 401);
+  if (isDevAuthBypassEnabled() && session === DEV_SESSION_VALUE) {
+    const user = await ensurePersonalWorkspace(DEV_USER_ID, "local@harmonia.dev");
+    return {
+      userId: DEV_USER_ID,
+      workspaceId: user.defaultWorkspaceId,
+      brandId: user.defaultBrandId,
+      role: "owner",
+    };
+  }
   let decoded;
   try {
     decoded = await adminAuth().verifySessionCookie(session, true);
@@ -141,8 +161,12 @@ export async function createSessionCookie(idToken: string): Promise<string> {
     throw new AuthError("Google sign-in required", 403);
   }
   const value = await adminAuth().createSessionCookie(idToken, { expiresIn: SESSION_TTL_MS });
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  return `${SESSION_COOKIE}=${encodeURIComponent(value)}; Max-Age=${SESSION_TTL_MS / 1000}; Path=/; HttpOnly${secure}; SameSite=Lax`;
+  return sessionCookie(value);
+}
+
+export function createDevSessionCookie(): string {
+  if (!isDevAuthBypassEnabled()) throw new AuthError("development authentication bypass is disabled", 403);
+  return sessionCookie(DEV_SESSION_VALUE);
 }
 
 export function clearSessionCookie(): string {

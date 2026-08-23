@@ -14,6 +14,19 @@ export default function LoginPage() {
     setBusy(true);
     setError("");
     try {
+      const modeResponse = await fetch("/api/auth/session", { cache: "no-store" });
+      const mode = await modeResponse.json() as { devBypassEnabled?: boolean };
+      if (mode.devBypassEnabled) {
+        const response = await fetch("/api/auth/session", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ devBypass: true }),
+        });
+        if (!response.ok) throw new Error("Could not create a local development session.");
+        router.replace("/dashboard");
+        router.refresh();
+        return;
+      }
       const credential = await signInWithPopup(clientAuth(), new GoogleAuthProvider());
       const idToken = await credential.user.getIdToken();
       const response = await fetch("/api/auth/session", {

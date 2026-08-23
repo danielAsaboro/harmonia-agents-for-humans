@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
@@ -41,6 +42,7 @@ from .mock_ai import (
     mock_propose_recycle,
 )
 from .multimodal import attach_media_evidence
+from .memory_bank import MemoryBank, MemoryScope, VertexMemoryBank, format_memory_context
 from .telemetry import current_trace_id, safe_attributes, tracer
 from .team_runtime import AgentEngineTeamRuntime, TeamRuntime, runtime_mode
 from .role_models import RoleModelConfig, load_role_model_catalog
@@ -477,8 +479,15 @@ async def _run_coordinator(
 
 async def analyze_with_team(
     input: AnalystInput, *, invocation: InvocationContext | None = None,
+    memory: tuple[MemoryBank, MemoryScope] | None = None,
 ) -> AnalysisResult:
     input = AnalystInput.model_validate(input)
+    resolved_memory = configured_memory() if memory is None else memory
+    facts = await _retrieve_memory(query=input.title, memory=resolved_memory)
+    if facts:
+        input = input.model_copy(update={
+            "prior_learnings": _merge_memory(input.prior_learnings, facts),
+        })
     if mock_ai_enabled():
         print("[MOCK-AI] coordinator -> sophia_analyst", flush=True)
         raw = mock_analyze(input.title, input.channel, input.transcript, input.prior_learnings)
@@ -498,10 +507,56 @@ def _validate_strategy_result(
     return result
 
 
+def configured_memory() -> tuple[MemoryBank, MemoryScope] | None:
+    cfg = settings()
+    if not cfg.memory_bank_enabled:
+        return None
+    resource = cfg.memory_bank_resource or cfg.agent_engine_resource
+    if not resource or not cfg.memory_workspace_id or not cfg.memory_brand_id:
+        raise ValueError(
+            "MEMORY_BANK_RESOURCE, HARMONIA_WORKSPACE_ID, and HARMONIA_BRAND_ID "
+            "are required when MEMORY_BANK_ENABLED=true"
+        )
+    return (
+        VertexMemoryBank(resource_name=resource),
+        MemoryScope(
+            workspace_id=cfg.memory_workspace_id,
+            brand_id=cfg.memory_brand_id,
+        ),
+    )
+
+
+def _merge_memory(existing: str, facts: list[str]) -> str:
+    memory = format_memory_context(facts)
+    if not memory:
+        return existing
+    suffix = f"\nPersisted brand memory:\n{memory}"
+    return f"{existing[:max(0, 4000 - len(suffix))]}{suffix}".strip()
+
+
+async def _retrieve_memory(
+    *,
+    query: str,
+    memory: tuple[MemoryBank, MemoryScope] | None,
+) -> list[str]:
+    if memory is None:
+        return []
+    bank, scope = memory
+    return await asyncio.to_thread(bank.retrieve, scope=scope, query=query, top_k=3)
+
+
 async def strategize_with_team(
     input: StrategistInput, *, invocation: InvocationContext | None = None,
+    memory: tuple[MemoryBank, MemoryScope] | None = None,
 ) -> StrategistResult:
     input = StrategistInput.model_validate(input)
+    resolved_memory = configured_memory() if memory is None else memory
+    query = input.brief or input.post_text or input.goals_text or input.task
+    facts = await _retrieve_memory(query=query, memory=resolved_memory)
+    if facts:
+        input = input.model_copy(update={
+            "prior_learnings": _merge_memory(input.prior_learnings, facts),
+        })
     if mock_ai_enabled():
         print("[MOCK-AI] coordinator -> ryan_strategist", flush=True)
         if input.task == "brief":
@@ -521,8 +576,15 @@ async def strategize_with_team(
 
 async def draft_with_team(
     input: DraftWorkflowInput, *, invocation: InvocationContext | None = None,
+    memory: tuple[MemoryBank, MemoryScope] | None = None,
 ) -> DraftWorkflowResult:
     input = DraftWorkflowInput.model_validate(input)
+    resolved_memory = configured_memory() if memory is None else memory
+    facts = await _retrieve_memory(query=input.title, memory=resolved_memory)
+    if facts:
+        input = input.model_copy(update={
+            "brand_context": _merge_memory(input.brand_context, facts),
+        })
     if mock_ai_enabled():
         print("[MOCK-AI] coordinator -> nimi_copywriter", flush=True)
         copywriter = DraftSet.model_validate({"drafts": mock_drafts(

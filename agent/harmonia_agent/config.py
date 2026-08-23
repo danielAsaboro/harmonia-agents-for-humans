@@ -41,6 +41,10 @@ class Settings:
     image_max_cost_usd: str
     team_runtime: str
     agent_engine_resource: str | None
+    memory_bank_enabled: bool
+    memory_bank_resource: str | None
+    memory_workspace_id: str | None
+    memory_brand_id: str | None
 
     @classmethod
     def load(cls) -> "Settings":
@@ -77,6 +81,10 @@ class Settings:
             image_max_cost_usd=image_max_cost_usd,
             team_runtime=os.environ.get("TEAM_RUNTIME", "local").strip().lower(),
             agent_engine_resource=os.environ.get("AGENT_ENGINE_RESOURCE") or None,
+            memory_bank_enabled=_bool_env("MEMORY_BANK_ENABLED"),
+            memory_bank_resource=os.environ.get("MEMORY_BANK_RESOURCE") or None,
+            memory_workspace_id=os.environ.get("HARMONIA_WORKSPACE_ID") or None,
+            memory_brand_id=os.environ.get("HARMONIA_BRAND_ID") or None,
         )
 
 

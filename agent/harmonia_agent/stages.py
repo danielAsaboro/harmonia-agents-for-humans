@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
@@ -21,9 +22,20 @@ from .agent_models import (
     MediaEvidence,
     StrategistInput,
 )
-from .agents import AgentProtocolError, analyze_with_team, draft_with_team, strategize_with_team
+from .agents import (
+    AgentProtocolError,
+    analyze_with_team,
+    configured_memory,
+    draft_with_team,
+    strategize_with_team,
+)
 from .config import settings
 from .gemma_model import GemmaProtocolError
+from .memory_bank import (
+    MemoryProtocolError,
+    MemoryProviderError,
+    eligible_job_memories,
+)
 from .team_runtime import AgentEngineProtocolError, AgentEngineProviderError
 from .telemetry import inject_context, safe_attributes, tracer
 from .usage import InvocationContext
@@ -500,6 +512,11 @@ async def run_learn(job_id: str) -> None:
         f"{len(engagement)} published post(s) measured; "
         + (notes[0] if engagement else "insights will accrue as posts publish.")
     )
+    memory = configured_memory()
+    if memory is not None:
+        bank, scope = memory
+        candidates = eligible_job_memories(job, measured_posts=len(engagement))
+        await asyncio.to_thread(bank.generate, scope=scope, candidates=candidates)
     web_post("/api/internal/engagement", {
         "jobId": job_id,
         "stage": "learn",
@@ -521,10 +538,11 @@ HANDLERS: dict[str, Handler] = {
 
 def classify_failure(exc: Exception) -> bool:
     if isinstance(exc, (
-        AgentProtocolError, AgentEngineProtocolError, GemmaProtocolError, ValidationError,
+        AgentProtocolError, AgentEngineProtocolError, GemmaProtocolError,
+        MemoryProtocolError, ValidationError,
     )):
         return True
-    if isinstance(exc, AgentEngineProviderError):
+    if isinstance(exc, (AgentEngineProviderError, MemoryProviderError)):
         return False
     if isinstance(exc, WebApiError):
         return exc.permanent

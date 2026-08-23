@@ -146,6 +146,13 @@ npm run build                # production Next.js build
 npm run test:agent           # Python: ingest parsing, telegram callbacks, failure classification
 ```
 
+Agent evaluation foundations live under `agent/evals/`: ADK-native public contract fixtures,
+deterministic grounding/authority checks, and a quality-cost-latency comparison report. Live model
+evaluation requires `HARMONIA_REAL_EVAL=1`, refuses mock mode, and must write authorized source
+inputs and results to the private parent evidence workspace. See
+[`docs/configuration.mdx`](./docs/configuration.mdx) for the exact commands. Passing offline tests
+is not presented as authenticated Gemini, Gemma, Agent Engine, or deployment proof.
+
 ## Deploy to Google Cloud
 
 One-time bootstrap, then repeatable deploys:

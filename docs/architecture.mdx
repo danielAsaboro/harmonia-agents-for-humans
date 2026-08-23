@@ -104,18 +104,31 @@ The UI exposes only concise activity and reasoning summaries derived from valida
 
 Harmonia, the ADK root coordinator, delegates strategy to Ryan (`ryan_strategist`) and transcript analysis to Sophia (`sophia_analyst`). Drafting uses Flo (`flo_draft_workflow`), an `AgentTool` around a deterministic `SequentialAgent`: Nimi the copywriter, one revision by Dara the editor, then Temi the planner. Invocation-scoped session keys pass `copywriter_drafts`, `reviewed_drafts`, and `action_plan`; Firestore remains the durable source of truth between Pub/Sub stages.
 
-| Role | Default model target | Usage/cost unit |
-|---|---|---|
-| Harmonia coordinator | Gemini 3.5 Flash-Lite | input/output tokens |
-| Ryan strategist | Gemini 3.5 Flash | input/output tokens |
-| Sophia analyst | Gemini 3.5 Flash with direct video + transcript | input/output tokens |
-| Nimi copywriter | Gemma 3 12B IT on a configured Vertex endpoint | endpoint seconds + maximum allocation estimate |
-| Dara editor | Gemini 3.5 Flash | input/output tokens |
-| Temi planner | Gemini 3.5 Flash-Lite | input/output tokens |
-| Veo b-roll generator | Veo 3.1 Fast Generate | one 720p video generation ($0.08 catalog estimate) |
-| Lyria soundtrack generator | Lyria 3 Clip Preview | one 30-second music generation ($0.04 catalog estimate) |
+All cognitive roles use policy `gear-2026-08-24`, pricing catalog `2026-08-23`, the
+`harmonia-standard` safety profile, and a proposed promotion quality floor of `0.95`.
+
+| Role | Default target | Temp / max output | Evaluation focus | State and tools | Prohibited authority |
+|---|---|---:|---|---|---|
+| Harmonia coordinator | Gemini 3.5 Flash-Lite | 0.1 / 1,024 | exact one-specialist route | delegation only; invocation state | answer task, approve, publish |
+| Ryan strategist | Gemini 3.5 Flash | 0.4 / 2,048 | grounded strategy contract | supplied brief/signals; no effect tools | invent evidence, approve, publish |
+| Sophia analyst | Gemini 3.5 Flash multimodal | 0.2 / 2,048 | quote/time/frame grounding | bounded source media + transcript | invent evidence, approve, publish |
+| Nimi copywriter | Gemma 3 12B IT Vertex endpoint | 0.8 / 2,048 | references and X length | typed analysis/session state | create facts, approve, publish |
+| Dara editor | Gemini 3.5 Flash | 0.2 / 2,048 | preserve IDs/references | Nimi drafts + session state | create drafts, approve, publish |
+| Temi planner | Gemini 3.5 Flash-Lite | 0.1 / 1,024 | exact reviewed text; no authority claim | reviewed drafts; proposal only | approve or execute actions |
+| Maya presenter | Gemini 3.5 Flash | 0.2 / 2,048 | bounded component/entity references | typed `UiContext`; no effect tools | invent state or execute actions |
+| Nova liaison | Gemini 3.5 Flash | 0.2 / 2,048 | grounded read-only answers | insight skills + read-only tools | mutate, approve, publish |
+
+Serverless roles record input/output tokens. Nimi records endpoint seconds plus its configured
+maximum allocation because endpoint infrastructure cost is not interchangeable with token cost.
+The public ADK evalset and deterministic authority/grounding evaluators are committed; real-model
+quality, latency, and cost evidence remains pending until an authenticated private run is captured.
 
 The role catalog is strict: an unavailable configured target fails the stage. Nimi does not switch to Gemini when the Gemma endpoint is absent or unavailable.
+
+Model promotion is evaluation-gated. Candidates below the role quality floor or without known
+pricing are rejected before ranking; eligible candidates rank by pass rate, then cost, then p95
+latency. Public fixtures contain no real transcripts or media. Live inputs and outputs remain in
+the private evidence workspace and mock mode is explicitly refused by the live runner.
 
 ### Actual multimodal analysis
 

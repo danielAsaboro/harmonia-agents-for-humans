@@ -47,7 +47,7 @@ class RoleModelConfig(BaseModel):
     policy_version: str = POLICY_VERSION
     pricing_version: str = PRICING_VERSION
     timeout_seconds: int = Field(default=120, gt=0, le=600)
-    eligible_tasks: tuple[str, ...] = ("test",)
+    eligible_tasks: tuple[str, ...] = ("*",)
     minimum_pass_rate: Decimal = Field(default=Decimal("0.95"), ge=0, le=1)
     reservation_usd: str | None = None
     endpoint: str | None = None

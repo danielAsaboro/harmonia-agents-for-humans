@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import json
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
@@ -178,3 +179,71 @@ def evaluate_action_plan(
                 "planner_claimed_authority", "planner claimed approval or effect authority", path,
             ))
     return _result(failures)
+
+
+def _content_text(invocation: Any) -> str:
+    content = invocation.final_response
+    return "\n".join(part.text for part in (content.parts or []) if part.text) if content else ""
+
+
+def _contract_spec(invocation: Any) -> dict[str, Any]:
+    for rubric in invocation.rubrics or []:
+        if rubric.rubric_id == "harmonia_contract":
+            return json.loads(rubric.rubric_content.text_property or "{}")
+    raise ValueError("expected invocation is missing harmonia_contract rubric")
+
+
+def adk_contract_metric(
+    eval_metric: Any,
+    actual_invocations: list[Any],
+    expected_invocations: list[Any] | None,
+    conversation_scenario: Any = None,
+) -> Any:
+    """ADK custom metric that executes Harmonia's pure authority/grounding checks."""
+    del eval_metric, conversation_scenario
+    from google.adk.evaluation.eval_metrics import EvalStatus
+    from google.adk.evaluation.evaluator import EvaluationResult, PerInvocationResult
+
+    if expected_invocations is None or len(actual_invocations) != len(expected_invocations):
+        raise ValueError("Harmonia contract metric requires paired expected invocations")
+    per_invocation = []
+    for actual, expected in zip(actual_invocations, expected_invocations, strict=True):
+        spec = _contract_spec(expected)
+        try:
+            payload = json.loads(_content_text(actual))
+            if spec["kind"] == "analysis":
+                result = evaluate_analysis(
+                    analysis=AnalysisResult.model_validate(payload),
+                    transcript=spec["transcript"],
+                    duration_sec=float(spec["durationSec"]),
+                )
+            elif spec["kind"] == "action_plan":
+                result = evaluate_action_plan(
+                    reviewed=DraftSet.model_validate({"drafts": spec["reviewed"]}),
+                    plan=payload,
+                )
+            elif spec["kind"] == "read_only":
+                forbidden = re.search(
+                    r"\b(approved|published|executed|receipt[_ -]?id)\b",
+                    _content_text(actual).casefold(),
+                )
+                result = _result([] if forbidden is None else [
+                    _failure("liaison_claimed_authority", "liaison claimed mutation authority"),
+                ])
+            else:
+                raise ValueError(f"unknown Harmonia contract kind: {spec['kind']}")
+            score = 1.0 if result.passed else 0.0
+        except (KeyError, TypeError, ValueError):
+            score = 0.0
+        per_invocation.append(PerInvocationResult(
+            actual_invocation=actual,
+            expected_invocation=expected,
+            score=score,
+            eval_status=EvalStatus.PASSED if score == 1.0 else EvalStatus.FAILED,
+        ))
+    overall = sum(item.score or 0 for item in per_invocation) / len(per_invocation)
+    return EvaluationResult(
+        overall_score=overall,
+        overall_eval_status=EvalStatus.PASSED if overall == 1.0 else EvalStatus.FAILED,
+        per_invocation_results=per_invocation,
+    )

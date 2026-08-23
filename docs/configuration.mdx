@@ -87,7 +87,10 @@ HARMONIA_EVAL_EVIDENCE_ROOT="$(cd ../../submission/evidence && pwd)" \
   --output ../../submission/evidence/harmonia-eval-results.json
 ```
 
-Convert recorded pass rate, p95 latency, and immutable cost records into a selection report:
+Create a private comparison-manifest JSON array. Each item contains `evalArtifact`,
+`evalArtifactSha256`, `usageExport`, and `usageExportSha256`. The eval artifact identifies its run,
+role, candidate model, case outcomes/latencies, usage-record IDs, and policy/pricing versions; the
+usage export contains exactly those immutable usage records. Then generate the report:
 
 ```bash
 ./.venv/bin/python -m harmonia_agent.evaluation_report \

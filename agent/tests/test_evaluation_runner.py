@@ -7,6 +7,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from google.genai import types
 
 from harmonia_agent.evaluation_runner import (
     EvaluationPrivacyError,
@@ -14,6 +15,7 @@ from harmonia_agent.evaluation_runner import (
     run_live_eval,
     validate_eval_set_privacy,
 )
+from harmonia_agent.evaluation_contracts import adk_contract_metric
 
 
 def test_public_evalset_is_adk_pydantic_valid():
@@ -24,6 +26,23 @@ def test_public_evalset_is_adk_pydantic_valid():
         "route-analyst", "planner-no-authority", "liaison-read-only",
     }
     validate_eval_set_privacy(eval_set)
+
+
+def test_adk_custom_metric_executes_grounding_contract():
+    expected = load_eval_set(Path("evals/contracts.evalset.json")).eval_cases[0].conversation
+    actual = [expected[0].model_copy(update={
+        "final_response": types.Content(
+            role="model",
+            parts=[types.Part(text=(
+                '{"summary":"Synthetic","moments":[{"id":"m1","title":"Bad",'
+                '"startSec":0,"endSec":9,"hook":"Bad","quote":"invented"}],"angles":[]}'
+            ))],
+        ),
+    })]
+
+    result = adk_contract_metric(None, actual, expected)
+
+    assert result.overall_score == 0.0
 
 
 def test_public_evalset_rejects_private_source_material(tmp_path):
@@ -121,6 +140,20 @@ def test_live_eval_refuses_output_outside_private_root(monkeypatch, tmp_path):
         ))
 
 
+def test_live_eval_refuses_relative_private_root(monkeypatch, tmp_path):
+    monkeypatch.setenv("HARMONIA_REAL_EVAL", "1")
+    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
+    monkeypatch.setenv("HARMONIA_EVAL_EVIDENCE_ROOT", "relative/evidence")
+
+    with pytest.raises(RuntimeError, match="must be absolute"):
+        asyncio.run(run_live_eval(
+            evalset_path=Path("evals/contracts.evalset.json"),
+            output_path=tmp_path / "results.json",
+            agent_module="harmonia_agent",
+            num_runs=1,
+        ))
+
+
 def test_live_eval_awaits_adk_with_explicit_config(monkeypatch, tmp_path):
     evidence = tmp_path / "evidence"
     evidence.mkdir()
@@ -146,4 +179,6 @@ def test_live_eval_awaits_adk_with_explicit_config(monkeypatch, tmp_path):
 
     assert calls[0]["num_runs"] == 1
     assert calls[0]["eval_config"].criteria["tool_trajectory_avg_score"] == 1.0
+    assert calls[0]["eval_config"].criteria["harmonia_contract_score"] == 1.0
+    assert "harmonia_contract_score" in calls[0]["eval_config"].custom_metrics
     assert calls[0]["output_file"] == str((evidence / "results.json").resolve())

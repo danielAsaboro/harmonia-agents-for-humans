@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from decimal import Decimal
 from math import ceil
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+
+from .role_models import RoleModelCatalog, load_role_model_catalog
 
 
 class EvalCaseEvidence(BaseModel):
@@ -36,6 +39,7 @@ class RoleEvaluationRecord(BaseModel):
     model_id: str
     eval_run_id: str
     evidence_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    usage_evidence_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     cases: tuple[EvalCaseEvidence, ...] = Field(min_length=1)
     usage_records: tuple[EvaluationUsageEvidence, ...] = ()
     pricing_version: str
@@ -102,6 +106,88 @@ class RoleComparison(BaseModel):
     selected_model: str | None
     eligible: tuple[RoleEvaluationRecord, ...]
     rejected: tuple[RejectedCandidate, ...]
+
+
+class EvaluationEvidenceManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+
+    eval_artifact: Path = Field(alias="evalArtifact")
+    eval_artifact_sha256: str = Field(alias="evalArtifactSha256", pattern=r"^[0-9a-f]{64}$")
+    usage_export: Path = Field(alias="usageExport")
+    usage_export_sha256: str = Field(alias="usageExportSha256", pattern=r"^[0-9a-f]{64}$")
+
+
+def _verified_json(path: Path, expected_digest: str) -> tuple[object, str]:
+    raw = path.expanduser().resolve().read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != expected_digest:
+        raise ValueError(f"evidence digest mismatch for {path}")
+    return json.loads(raw), digest
+
+
+def load_verified_evaluation_record(
+    manifest: EvaluationEvidenceManifest | dict[str, object],
+    *,
+    catalog: RoleModelCatalog | None = None,
+) -> RoleEvaluationRecord:
+    """Resolve digested eval/usage exports and bind them to the role catalog policy."""
+    manifest = EvaluationEvidenceManifest.model_validate(manifest)
+    artifact, artifact_digest = _verified_json(
+        manifest.eval_artifact, manifest.eval_artifact_sha256,
+    )
+    usage_export, usage_digest = _verified_json(
+        manifest.usage_export, manifest.usage_export_sha256,
+    )
+    if not isinstance(artifact, dict) or not isinstance(usage_export, list):
+        raise ValueError("evaluation artifact or usage export has the wrong shape")
+    role = str(artifact.get("role", ""))
+    config = (catalog or load_role_model_catalog()).model_for(role)
+    if artifact.get("policyVersion") != config.policy_version:
+        raise ValueError("eval artifact policy version does not match role catalog")
+    if artifact.get("pricingVersion") != config.pricing_version:
+        raise ValueError("eval artifact pricing version does not match role catalog")
+    if Decimal(str(artifact.get("minimumPassRate"))) != config.minimum_pass_rate:
+        raise ValueError("eval artifact quality floor does not match role catalog")
+
+    requested_usage_ids = list(artifact.get("usageRecordIds") or [])
+    usage_by_id = {str(item.get("id")): item for item in usage_export if isinstance(item, dict)}
+    if len(requested_usage_ids) != len(set(requested_usage_ids)):
+        raise ValueError("eval artifact usage record IDs must be unique")
+    if set(requested_usage_ids) != set(usage_by_id):
+        raise ValueError("usage export must contain exactly the eval artifact usage IDs")
+    model_id = str(artifact.get("modelId", ""))
+    usage_records = []
+    expected_policy = config.policy_snapshot()
+    for record_id in requested_usage_ids:
+        item = usage_by_id[record_id]
+        if item.get("role") != role or item.get("model") != model_id:
+            raise ValueError("usage record role/model does not match eval artifact")
+        if item.get("pricingVersion") != config.pricing_version:
+            raise ValueError("usage record pricing version does not match role catalog")
+        if item.get("modelPolicy") != expected_policy:
+            raise ValueError("usage record model policy does not match role catalog")
+        usage_records.append(EvaluationUsageEvidence(
+            record_id=record_id,
+            model_id=model_id,
+            estimated_cost_usd=item["estimatedCostUsd"],
+            pricing_version=item["pricingVersion"],
+        ))
+    return RoleEvaluationRecord(
+        role=role,
+        model_id=model_id,
+        eval_run_id=str(artifact.get("runId", "")),
+        evidence_digest=artifact_digest,
+        usage_evidence_digest=usage_digest,
+        cases=tuple(EvalCaseEvidence.model_validate({
+            "case_id": item["caseId"],
+            "passed": item["passed"],
+            "latency_ms": item["latencyMs"],
+        }) for item in artifact.get("cases") or []),
+        usage_records=tuple(usage_records),
+        pricing_version=config.pricing_version,
+        policy_version=config.policy_version,
+        minimum_pass_rate=config.minimum_pass_rate,
+    )
 
 
 def compare_role_candidates(
@@ -193,7 +279,7 @@ def main() -> int:
     parser.add_argument("--minimum-pass-rate")
     parser.add_argument("--format", choices=("json", "markdown"), default="json")
     args = parser.parse_args()
-    records = [RoleEvaluationRecord.model_validate(item) for item in json.loads(
+    records = [load_verified_evaluation_record(item) for item in json.loads(
         args.input.read_text(encoding="utf-8"),
     )]
     comparison = compare_role_candidates(

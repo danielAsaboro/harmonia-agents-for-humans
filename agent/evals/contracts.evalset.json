@@ -23,7 +23,11 @@
         "finalResponse": {"role": "model", "parts": [{"text": "{\"summary\":\"Public synthetic source.\",\"moments\":[],\"angles\":[]}"}]},
         "intermediateData": {
           "toolUses": [{"name": "transfer_to_agent", "args": {"agent_name": "sophia_analyst"}}]
-        }
+        },
+        "rubrics": [{
+          "rubricId": "harmonia_contract",
+          "rubricContent": {"textProperty": "{\"kind\":\"analysis\",\"transcript\":\"[0s] public synthetic source [2s] bounded proof\",\"durationSec\":2}"}
+        }]
       }]
     },
     {
@@ -47,7 +51,11 @@
         "finalResponse": {"role": "model", "parts": [{"text": "{\"actions\":[{\"type\":\"publish_x_post\",\"text\":\"Reviewed synthetic draft\"}]}"}]},
         "intermediateData": {
           "toolUses": [{"name": "flo_draft_workflow", "args": {"title": "synthetic demo", "brand_context": "synthetic demo", "analysis": {"summary": "synthetic demo", "moments": [], "angles": []}}}]
-        }
+        },
+        "rubrics": [{
+          "rubricId": "harmonia_contract",
+          "rubricContent": {"textProperty": "{\"kind\":\"action_plan\",\"reviewed\":[{\"id\":\"d1\",\"platform\":\"x\",\"text\":\"Reviewed synthetic draft\"}]}"}
+        }]
       }]
     },
     {
@@ -68,7 +76,11 @@
         "finalResponse": {"role": "model", "parts": [{"text": "The synthetic job status is available read-only."}]},
         "intermediateData": {
           "toolUses": [{"name": "transfer_to_agent", "args": {"agent_name": "nova_liaison"}}]
-        }
+        },
+        "rubrics": [{
+          "rubricId": "harmonia_contract",
+          "rubricContent": {"textProperty": "{\"kind\":\"read_only\"}"}
+        }]
       }]
     }
   ]

@@ -1,13 +1,17 @@
 """Quality, cost, and latency candidate selection."""
 
 from decimal import Decimal
+import hashlib
+import json
 
 from harmonia_agent.evaluation_report import (
     EvalCaseEvidence,
     EvaluationUsageEvidence,
     RoleEvaluationRecord,
     compare_role_candidates,
+    load_verified_evaluation_record,
 )
+from harmonia_agent.role_models import load_role_model_catalog
 
 
 def record(
@@ -20,6 +24,7 @@ def record(
         model_id=model,
         eval_run_id=f"run-{model}",
         evidence_digest="a" * 64,
+        usage_evidence_digest="b" * 64,
         cases=tuple(
             EvalCaseEvidence(
                 case_id=f"case-{index}",
@@ -96,3 +101,54 @@ def test_record_derives_metrics_from_case_and_usage_evidence():
     assert candidate.case_count == 10
     assert candidate.estimated_cost_usd == Decimal("0.012345")
     assert candidate.p95_latency_ms == 321
+
+
+def test_loader_verifies_artifact_usage_and_catalog_linkage(tmp_path, monkeypatch):
+    monkeypatch.setenv(
+        "GEMMA_VERTEX_ENDPOINT", "projects/p/locations/us-central1/endpoints/123",
+    )
+    artifact = tmp_path / "eval.json"
+    usage = tmp_path / "usage.json"
+    artifact.write_text(json.dumps({
+        "runId": "run-1", "role": "sophia_analyst", "modelId": "candidate-model",
+        "policyVersion": "gear-2026-08-24", "pricingVersion": "2026-08-23",
+        "minimumPassRate": "0.95", "usageRecordIds": ["usage-1"],
+        "cases": [{"caseId": "grounding", "passed": True, "latencyMs": 250}],
+    }, sort_keys=True))
+    usage.write_text(json.dumps([{
+        "id": "usage-1", "role": "sophia_analyst", "model": "candidate-model",
+        "estimatedCostUsd": "0.012000", "pricingVersion": "2026-08-23",
+        "modelPolicy": load_role_model_catalog().analyst.policy_snapshot(),
+    }], sort_keys=True))
+
+    loaded = load_verified_evaluation_record({
+        "evalArtifact": str(artifact),
+        "evalArtifactSha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+        "usageExport": str(usage),
+        "usageExportSha256": hashlib.sha256(usage.read_bytes()).hexdigest(),
+    }, catalog=load_role_model_catalog())
+
+    assert loaded.pass_rate == Decimal("1")
+    assert loaded.estimated_cost_usd == Decimal("0.012000")
+    assert loaded.usage_records[0].record_id == "usage-1"
+
+
+def test_loader_rejects_tampered_artifact_digest(tmp_path, monkeypatch):
+    monkeypatch.setenv(
+        "GEMMA_VERTEX_ENDPOINT", "projects/p/locations/us-central1/endpoints/123",
+    )
+    artifact = tmp_path / "eval.json"
+    usage = tmp_path / "usage.json"
+    artifact.write_text("{}")
+    usage.write_text("[]")
+
+    try:
+        load_verified_evaluation_record({
+            "evalArtifact": str(artifact), "evalArtifactSha256": "0" * 64,
+            "usageExport": str(usage),
+            "usageExportSha256": hashlib.sha256(usage.read_bytes()).hexdigest(),
+        }, catalog=load_role_model_catalog())
+    except ValueError as exc:
+        assert "digest mismatch" in str(exc)
+    else:
+        raise AssertionError("tampered artifact must be rejected")

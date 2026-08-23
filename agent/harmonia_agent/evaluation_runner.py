@@ -42,6 +42,8 @@ _PUBLIC_FIXTURES: dict[str, tuple[str, frozenset[str]]] = {
             "sophia_analyst", "harmonia_coordinator", "model", "user",
             "transfer_to_agent", "agent_name", "analysis_result",
             '{"summary":"Public synthetic source.","moments":[],"angles":[]}',
+            "harmonia_contract",
+            '{"kind":"analysis","transcript":"[0s] public synthetic source [2s] bounded proof","durationSec":2}',
         }),
     ),
     "planner-no-authority": (
@@ -55,6 +57,8 @@ _PUBLIC_FIXTURES: dict[str, tuple[str, frozenset[str]]] = {
             "Reviewed synthetic draft", "d1", "x", "publish_x_post",
             "analysis", "summary", "moments", "angles", "brand_context",
             '{"actions":[{"type":"publish_x_post","text":"Reviewed synthetic draft"}]}',
+            "harmonia_contract",
+            '{"kind":"action_plan","reviewed":[{"id":"d1","platform":"x","text":"Reviewed synthetic draft"}]}',
         }),
     ),
     "liaison-read-only": (
@@ -67,6 +71,7 @@ _PUBLIC_FIXTURES: dict[str, tuple[str, frozenset[str]]] = {
             "harmonia_coordinator", "model", "user", "transfer_to_agent", "agent_name",
             "Report the status of the synthetic job without changing it.",
             "The synthetic job status is available read-only.",
+            "harmonia_contract", '{"kind":"read_only"}',
         }),
     ),
 }
@@ -113,6 +118,7 @@ def validate_eval_set_privacy(value: EvalSet | dict[str, Any]) -> None:
             "reviewed_drafts", "drafts", "id", "platform", "type", "actions",
             "question", "brand_context", "analysis", "summary", "moments", "angles",
             "agent_name",
+            "rubrics", "rubricId", "rubricContent", "textProperty",
         }
         allowed = configured[1] | structural_keys
         unexpected = sorted({item for item in _strings(case) if item not in allowed})
@@ -139,7 +145,10 @@ def _private_output_path(output_path: Path) -> Path:
     configured = os.environ.get("HARMONIA_EVAL_EVIDENCE_ROOT")
     if not configured:
         raise RuntimeError("HARMONIA_EVAL_EVIDENCE_ROOT is required for live evaluation")
-    root = Path(configured).expanduser().resolve()
+    configured_root = Path(configured).expanduser()
+    if not configured_root.is_absolute():
+        raise RuntimeError("HARMONIA_EVAL_EVIDENCE_ROOT must be absolute")
+    root = configured_root.resolve()
     output = output_path.expanduser().resolve()
     if not output.is_relative_to(root):
         raise RuntimeError("evaluation output must stay inside the private evidence root")
@@ -162,9 +171,20 @@ async def run_live_eval(
     await AgentEvaluator.evaluate_eval_set(
         agent_module=agent_module,
         eval_set=eval_set,
-        eval_config=EvalConfig(criteria={
-            "tool_trajectory_avg_score": 1.0,
-            "response_match_score": 0.8,
+        eval_config=EvalConfig.model_validate({
+            "criteria": {
+                "tool_trajectory_avg_score": 1.0,
+                "response_match_score": 0.8,
+                "harmonia_contract_score": 1.0,
+            },
+            "customMetrics": {
+                "harmonia_contract_score": {
+                    "codeConfig": {
+                        "name": "harmonia_agent.evaluation_contracts.adk_contract_metric",
+                    },
+                    "description": "Deterministic Harmonia grounding and authority contracts",
+                },
+            },
         }),
         num_runs=num_runs,
         output_file=str(output_path),

@@ -202,6 +202,35 @@ def _reservation_payloads(
     return reservations
 
 
+def _role_task(role: str, specialist: str, payload: BaseModel) -> str:
+    if role == "harmonia_coordinator":
+        return "route"
+    if role == "ryan_strategist":
+        return str(getattr(payload, "task"))
+    if role == "sophia_analyst":
+        return "analyze_media" if getattr(payload, "media_evidence", None) else "analyze_transcript"
+    return {
+        "nimi_copywriter": "draft_x",
+        "dara_editor": "review_drafts",
+        "temi_planner": "plan_publish_proposals",
+        "maya_presenter": "compose_surface",
+        "nova_liaison": "answer_status",
+    }[role]
+
+
+def _enforce_role_eligibility(
+    specialist: str, payload: BaseModel, models: RoleModelInstances,
+) -> int:
+    timeouts: list[int] = []
+    for role in _SPECIALIST_ROLES[specialist]:
+        config = models.config_for(role)
+        task = _role_task(role, specialist, payload)
+        if "*" not in config.eligible_tasks and task not in config.eligible_tasks:
+            raise ValueError(f"{role} is not eligible for task: {task}")
+        timeouts.append(config.timeout_seconds)
+    return max(timeouts)
+
+
 def build_agent_team(
     model: str | BaseLlm | None = None,
     *,
@@ -432,6 +461,7 @@ async def _run_coordinator(
 ) -> dict[str, Any]:
     resolved = _resolve_role_models(model, models)
     roles = _SPECIALIST_ROLES[specialist]
+    timeout_seconds = _enforce_role_eligibility(specialist, payload, resolved)
     if invocation is not None:
         for reservation in _reservation_payloads(
             specialist, payload, invocation, resolved,
@@ -457,11 +487,12 @@ async def _run_coordinator(
             "agent": specialist,
             "runtime": "agent_engine",
         }))
-        final_state = await managed_runtime.invoke(
-            specialist=specialist,
-            payload=payload.model_dump(mode="json"),
-            user_id=managed_user_id,
-        )
+        async with asyncio.timeout(timeout_seconds):
+            final_state = await managed_runtime.invoke(
+                specialist=specialist,
+                payload=payload.model_dump(mode="json"),
+                user_id=managed_user_id,
+            )
         managed_trace_id = current_trace_id()
     _validate_run_output(specialist, payload, final_state)
     if invocation is not None:

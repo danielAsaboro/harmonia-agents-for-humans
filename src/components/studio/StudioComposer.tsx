@@ -18,14 +18,14 @@ interface StudioComposerProps {
 export function StudioComposer({ value, onChange, attachments, onAttachmentsChange, onSend, busy }: StudioComposerProps) {
   const blocked = busy || !value.trim() || attachments.some((attachment) => attachment.state !== "ready");
   return (
-    <div className="border-t border-black/10 bg-[#f4f0e8]/95 px-4 pb-20 pt-3 backdrop-blur lg:pb-4">
-      <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1">
+    <div className="shrink-0 border-t border-black/10 bg-[#e9e5dc] px-[15px] pb-3 pt-2.5 lg:h-[95px]">
+      <div className="mb-2 hidden gap-1.5 overflow-x-auto pb-1 xl:flex">
         {MODES.map((mode) => (
           <button key={mode} type="button" disabled={busy} onClick={() => onChange(`${mode}: ${value}`.trim())} className="shrink-0 rounded-full border border-black/15 bg-white/55 px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-black/55 hover:border-black hover:text-black disabled:opacity-40">{mode}</button>
         ))}
       </div>
       {attachments.length ? <div className="mb-2"><AttachmentComposer attachments={attachments} onChange={onAttachmentsChange} disabled={busy} /></div> : null}
-      <div className="flex items-end gap-2 rounded-[22px] border-2 border-[#161512] bg-[#fffdf7] p-2 shadow-[4px_4px_0_rgba(22,21,18,0.12)] focus-within:shadow-[4px_4px_0_#3157ff]">
+      <div className="flex items-end gap-2 rounded-[14px] border border-[#11110f] bg-white p-1.5 shadow-[3px_3px_0_#11110f]">
         <AttachmentComposer attachments={[]} onChange={onAttachmentsChange} disabled={busy || attachments.length >= 20} />
         <textarea
           value={value}
@@ -38,11 +38,11 @@ export function StudioComposer({ value, onChange, attachments, onAttachmentsChan
           }}
           rows={1}
           placeholder="Shape the story, request a format, or ask what needs approval…"
-          className="max-h-36 min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-5 outline-none placeholder:text-black/35"
+          className="max-h-28 min-h-8 flex-1 resize-none bg-transparent px-1 py-2 text-[10px] leading-4 outline-none placeholder:text-black/40"
         />
-        <button type="button" aria-label="Send message" disabled={blocked} onClick={() => void onSend()} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#161512] text-white transition hover:scale-105 disabled:opacity-30"><SendIcon /></button>
+        <button type="button" aria-label="Send message" disabled={blocked} onClick={() => void onSend()} className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#11110f] text-white transition hover:scale-105 disabled:opacity-30"><SendIcon /></button>
       </div>
-      <p className="mt-2 text-center text-[9px] font-semibold uppercase tracking-[0.12em] text-black/35">Publishing and material actions still require approval</p>
+      <p className="mt-2 text-center font-mono text-[7px] text-black/40">Working set linked · approval boundary on</p>
     </div>
   );
 }

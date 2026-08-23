@@ -46,6 +46,9 @@ interface StudioConsoleViewProps {
 
 export function StudioConsoleView(props: StudioConsoleViewProps) {
   const chapters = useMemo(() => buildStudioChapters(props.messages), [props.messages]);
+  const workspace = props.detail?.job;
+  const campaignTitle = workspace?.ingestedTitle || workspace?.config.brief || workspace?.config.youtubeUrl || "Untitled campaign";
+  const artifactCount = workspace ? workspace.drafts.length + (workspace.assets?.length ?? 0) : 0;
   const lastPersistedRunMessage = [...props.messages].reverse().find((message) => message.run);
   const persistedRunMatchesCanvas = Boolean(
     lastPersistedRunMessage?.run && props.detail?.job.id && (
@@ -59,7 +62,7 @@ export function StudioConsoleView(props: StudioConsoleViewProps) {
     <StudioShell
       mobilePane={props.mobilePane}
       onMobilePaneChange={props.onMobilePaneChange}
-      conversation={<ConversationPane chapters={chapters} liveRun={props.liveRun} loaded={props.loaded} input={props.input} onInputChange={props.onInputChange} attachments={props.attachments} onAttachmentsChange={props.onAttachmentsChange} busy={props.busy} onSend={props.onSend} onActivateArtifact={(artifactId) => { props.onSelectedArtifactChange(artifactId); props.onMobilePaneChange("canvas"); }} onActivateJob={(jobId) => { props.onOpenJob(jobId); props.onMobilePaneChange("canvas"); }} headerAccessory={props.historyAccessory} />}
+      conversation={<ConversationPane chapters={chapters} liveRun={props.liveRun} loaded={props.loaded} input={props.input} onInputChange={props.onInputChange} attachments={props.attachments} onAttachmentsChange={props.onAttachmentsChange} busy={props.busy} onSend={props.onSend} onActivateArtifact={(artifactId) => { props.onSelectedArtifactChange(artifactId); props.onMobilePaneChange("canvas"); }} onActivateJob={(jobId) => { props.onOpenJob(jobId); props.onMobilePaneChange("canvas"); }} headerAccessory={props.historyAccessory} campaignTitle={campaignTitle} artifactCount={artifactCount} />}
       canvas={<WorkingCanvas job={props.detail?.job ?? null} events={props.detail?.events ?? []} receipts={props.detail?.receipts ?? []} loading={props.detailLoading} error={props.detailError} selectedArtifactId={props.selectedArtifactId} onSelectedArtifactChange={props.onSelectedArtifactChange} onRetry={props.onRetryJob} runId={canvasRun?.runId} operations={canvasRun?.operations ?? []} approvalBusy={props.busy} onDecide={props.onDecide} onOperationDecision={props.onOperationDecision} />}
     />
   );

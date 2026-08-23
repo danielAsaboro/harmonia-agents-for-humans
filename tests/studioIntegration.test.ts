@@ -16,9 +16,13 @@ describe("studio console integration", () => {
       messages: [{ role: "user", text: "Create launch content" }, { role: "assistant", text: "The working set is ready", data: { intent: "create_job", reply: "", jobId: "job-1" } }],
       loaded: true, detail: { job, events: [], receipts: [] }, liveRun: null, input: "", onInputChange: () => {}, attachments: [], onAttachmentsChange: () => {}, busy: false, onSend: () => {}, onOpenJob: () => {}, selectedArtifactId: null, onSelectedArtifactChange: () => {}, mobilePane: "conversation", onMobilePaneChange: () => {}, onDecide: () => {}, onOperationDecision: () => {},
     }));
-    expect(html).toContain("Make the idea travel");
+    expect(html).toContain("Make the launch matter");
     expect(html).toContain("--studio-conversation:2fr");
     expect(html).toContain("Written");
     expect(html).toContain("publish-1");
+    expect(html).toContain("Current working set");
+    expect(html).toContain("One conversation");
+    expect(html).toContain("Campaign direction");
+    expect(html).toContain("Review &amp; decide");
   });
 });

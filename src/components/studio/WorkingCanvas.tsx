@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { JobFull, Receipt } from "@/components/jobTypes";
 import type { TimelineEvent } from "@/components/Timeline";
 import { buildStudioWorkspace } from "@/lib/studio/workspaceModel";
-import { partitionStudioOperations } from "@/lib/a2ui/studioRegions";
+import { countStudioComponents, partitionStudioOperations } from "@/lib/a2ui/studioRegions";
 import { HarmoniaA2uiHost } from "@/components/a2ui/HarmoniaCatalog";
 import { ArtifactBoard } from "./ArtifactBoard";
 import { MediaWorkspace } from "./MediaWorkspace";
@@ -42,9 +42,12 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
           : null;
   const visibleView = selectedView ?? view;
   let canvasOperations: unknown[] = [];
+  let approvalCount = 0;
   let a2uiError: string | null = null;
   try {
-    canvasOperations = runId && operations.length ? partitionStudioOperations(runId, operations).canvas : [];
+    const regions = runId && operations.length ? partitionStudioOperations(runId, operations) : null;
+    canvasOperations = regions?.canvas ?? [];
+    approvalCount = regions ? countStudioComponents(regions.approval, "Confirmation") : 0;
   } catch (partitionError) {
     a2uiError = partitionError instanceof Error ? partitionError.message : String(partitionError);
   }
@@ -56,7 +59,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
   }, [selectedArtifactId]);
 
   const tabs: Array<{ key: CanvasView; label: string; count?: number }> = [
-    { key: "board", label: "Board" },
+    { key: "board", label: "Board", count: model ? model.written.length + model.visual.length + model.motion.length + model.audio.length : undefined },
     { key: "written", label: "Written", count: model?.written.length },
     { key: "visual", label: "Visual", count: model?.visual.length },
     { key: "motion", label: "Motion", count: model?.motion.length },
@@ -70,18 +73,22 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-[#ece7dd]">
-      <header className="border-b border-black/10 bg-[#fffdf7]/85 px-5 py-4 backdrop-blur">
-        <div className="flex items-center justify-between gap-4"><div><p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#ff5c35]">Living canvas</p><h2 className="font-serif text-2xl">{job ? (job.ingestedTitle || job.config.brief || job.config.youtubeUrl || job.id).slice(0, 72) : "No working set selected"}</h2></div>{job ? <div className="hidden items-center gap-2 sm:flex"><span className={`h-2.5 w-2.5 rounded-full ${job.status === "failed" ? "bg-red-600" : job.status === "complete" ? "bg-emerald-500" : "animate-pulse bg-[#3157ff] motion-reduce:animate-none"}`} /><span className="font-mono text-[10px] uppercase text-black/45">{job.stage}</span></div> : null}</div>
-        <nav className="mt-4 flex gap-1 overflow-x-auto" aria-label="Canvas views">{tabs.map((tab) => <button key={tab.key} type="button" onClick={() => { setView(tab.key); onSelectedArtifactChange(null); }} aria-current={visibleView === tab.key ? "page" : undefined} className={`shrink-0 border-b-2 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] ${visibleView === tab.key ? "border-[#3157ff] text-[#3157ff]" : "border-transparent text-black/40 hover:text-black"}`}>{tab.label}{tab.count !== undefined ? <span className="ml-1.5 font-mono opacity-55">{tab.count}</span> : null}</button>)}</nav>
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-r-[23px] bg-[#f3f0e8]">
+      <header className="flex h-[72px] shrink-0 items-center gap-3 border-b border-black/10 px-[22px]">
+        <strong className="text-lg font-extrabold">harmonia</strong>
+        <span className="min-w-0 truncate font-mono text-[9px] text-[#77736b]">/ {job ? (job.ingestedTitle || job.config.brief || job.id).slice(0, 44) : "No campaign"} / Working set</span>
+        <span className="ml-auto hidden rounded-full border border-black/10 px-2 py-1.5 font-mono text-[8px] text-[#77736b] sm:inline"><b className="text-[#33906a]">✓</b> autosaved</span>
+        <button type="button" onClick={() => { const details = document.querySelector<HTMLDetailsElement>("[aria-label='Approval boundary'] > details"); if (details) details.open = true; }} className="rounded-full bg-[#11110f] px-3 py-2.5 text-[9px] font-bold text-white">Review <b className="text-[#d8ff3e]">{(model?.pendingActions.length ?? 0) + approvalCount}</b></button>
       </header>
-      <div className="flex-1 overflow-y-auto p-5 xl:p-7">
+      <div className="flex-1 overflow-y-auto px-[22px] py-5">
         {loading ? <StudioLoading /> : null}
         {!loading && error ? <StudioFailure message={error} onRetry={onRetry} /> : null}
         {!loading && !error && !job ? <StudioEmpty title="Your working canvas is ready">Start a conversation or open a real job. Written posts, visual concepts, clips, video, audio, sources, policy, and verification will assemble here.</StudioEmpty> : null}
         {!loading && !error && job && model ? <>
+          <div className="mb-4 flex items-end gap-4"><div><p className="font-mono text-[7px] uppercase tracking-[0.12em] text-[#817d74]">Current working set</p><h1 className="mt-1 text-[31px] font-extrabold leading-none tracking-[-0.05em]">One conversation,<br /><em className="font-serif text-[#5165ff]">{model.written.length + model.visual.length + model.motion.length + model.audio.length} living artifacts.</em></h1></div><div className="ml-auto text-right font-mono text-[8px] text-[#77736b]">{job.stage}<br />updated from persisted state</div></div>
+          <nav className="mb-[14px] flex gap-1 overflow-x-auto" aria-label="Canvas views">{tabs.map((tab) => <button key={tab.key} type="button" onClick={() => { setView(tab.key); onSelectedArtifactChange(null); }} aria-current={visibleView === tab.key ? "page" : undefined} className={`shrink-0 rounded-full px-2.5 py-1.5 font-mono text-[8px] ${visibleView === tab.key ? "bg-[#11110f] text-white" : "bg-[#e3ded4] text-[#77736b]"}`}><b className={visibleView === tab.key ? "text-[#d8ff3e]" : ""}>{tab.label}</b>{tab.count !== undefined ? ` ${tab.count}` : ""}</button>)}</nav>
           {a2uiError ? <div className="mb-5"><StudioFailure message={`A2UI protocol error: ${a2uiError}`} permanent /></div> : null}
-          {visibleView === "board" && canvasOperations.length ? <HarmoniaA2uiHost operations={canvasOperations} className="mb-5 flex w-full flex-col gap-3" /> : null}
+          {visibleView === "board" && canvasOperations.length ? <details className="mb-3 rounded-xl border border-black/10 bg-white/55 p-3"><summary className="cursor-pointer font-mono text-[8px] text-black/50">Agent-generated interface · {canvasOperations.length} operations</summary><HarmoniaA2uiHost operations={canvasOperations} className="mt-3 flex w-full flex-col gap-3" /></details> : null}
           {supplemental ? <div className="mb-5">{supplemental}</div> : null}
           {visibleView === "board" ? <ArtifactBoard job={job} model={model} onSelect={selectFromBoard} /> : null}
           {visibleView === "written" ? <WrittenWorkspace job={job} traceLinks={model.traceLinks} selectedArtifactId={selectedArtifactId} onSelect={onSelectedArtifactChange} /> : null}

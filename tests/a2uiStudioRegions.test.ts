@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildDemoChatRunEvents } from "../scripts/demo-a2ui-events.mjs";
-import { partitionStudioOperations } from "../src/lib/a2ui/studioRegions";
+import { countStudioComponents, partitionStudioOperations } from "../src/lib/a2ui/studioRegions";
 
 describe("A2UI studio regions", () => {
   it("places validated A2UI components by product role", () => {
@@ -14,6 +14,7 @@ describe("A2UI studio regions", () => {
     expect(JSON.stringify(regions.conversation)).toContain("ReasoningSummary");
     expect(JSON.stringify(regions.canvas)).toContain("AttachmentCard");
     expect(JSON.stringify(regions.approval)).toContain("Confirmation");
+    expect(countStudioComponents(regions.approval, "Confirmation")).toBe(1);
     expect(JSON.stringify(regions.conversation)).not.toContain("Confirmation");
   });
 

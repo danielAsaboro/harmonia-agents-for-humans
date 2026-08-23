@@ -1,23 +1,55 @@
+/* eslint-disable @next/next/no-img-element */
 import type { JobFull } from "@/components/jobTypes";
 import type { StudioWorkspaceModel } from "@/lib/studio/workspaceModel";
 
+function directionFor(job: JobFull): string {
+  return job.angles[0]?.title || job.moments[0]?.hook || job.drafts[0]?.text.split(/[.!?]/)[0] || job.config.brief || job.ingestedTitle || "Content direction in progress";
+}
+
 export function ArtifactBoard({ job, model, onSelect }: { job: JobFull; model: StudioWorkspaceModel; onSelect: (artifactId: string, view?: string) => void }) {
   const invalidTraces = model.traceLinks.filter((trace) => !trace.valid);
+  const draft = model.written.find((candidate) => candidate.valid) ?? model.written[0];
+  const visual = model.visual[0];
+  const audio = model.audio[0];
+  const decisions = [
+    ...job.angles.slice(0, 2).map((angle) => ({ label: angle.title, source: angle.kind })),
+    ...job.moments.slice(0, 3).map((moment) => ({ label: moment.hook || moment.title, source: `${moment.startSec}s` })),
+  ].slice(0, 3);
+
+  if (invalidTraces.length) return <section role="alert" className="rounded-[18px] border-2 border-red-600 bg-red-50 p-4"><strong className="text-sm text-red-800">Source trace protocol error</strong><ul className="mt-2 list-disc pl-5 text-xs text-red-700">{invalidTraces.map((trace, index) => <li key={`${trace.draftId ?? trace.actionId}-${index}`}>{trace.error}</li>)}</ul></section>;
+
   return (
-    <div className="space-y-5">
-      <section className="relative overflow-hidden border-2 border-[#161512] bg-[#fffdf7] p-6 shadow-[9px_9px_0_#161512]">
-        <div className="absolute -right-10 -top-16 h-52 w-52 rotate-12 rounded-full bg-[#d9ff43]" aria-hidden />
-        <div className="relative max-w-2xl"><p className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-[#3157ff]">Working set · {job.id}</p><h2 className="mt-3 max-w-xl font-serif text-4xl leading-[0.95]">{job.ingestedTitle || job.config.brief || job.config.youtubeUrl || "Untitled content direction"}</h2><div className="mt-5 flex flex-wrap gap-2"><span className="bg-[#161512] px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white">{job.stage}</span><span className="border border-black/20 bg-white/70 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider">{job.status}</span>{model.pendingActions.length ? <span className="bg-[#ff5c35] px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white">{model.pendingActions.length} decisions</span> : null}</div></div>
-      </section>
-      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">{[
-        ["Written", model.written.length, "#ff5c35", "written"],
-        ["Visual", model.visual.length, "#d9ff43", "visual"],
-        ["Motion", model.motion.length, "#3157ff", "motion"],
-        ["Audio", model.audio.length, "#8d5cff", "audio"],
-      ].map(([label, count, color, view]) => <button key={String(label)} type="button" onClick={() => onSelect("", String(view))} className="border border-black/15 bg-white/60 p-4 text-left transition hover:-translate-y-1" style={{ boxShadow: `inset 0 -5px 0 ${color}` }}><span className="font-mono text-3xl">{count}</span><span className="mt-4 block text-[10px] font-black uppercase tracking-[0.16em] text-black/45">{label}</span></button>)}</section>
-      {invalidTraces.length ? <section role="alert" className="border-2 border-red-600 bg-red-50 p-4"><strong className="text-sm text-red-800">Source trace protocol error</strong><ul className="mt-2 list-disc pl-5 text-xs text-red-700">{invalidTraces.map((trace, index) => <li key={`${trace.draftId ?? trace.actionId}-${index}`}>{trace.error}</li>)}</ul></section> : (
-        <section className="border border-black/15 bg-white/55 p-5"><div className="flex items-center justify-between"><div><p className="text-[9px] font-black uppercase tracking-[0.16em] text-[#8d5cff]">Trace graph</p><h3 className="font-serif text-xl">Draft → idea → evidence</h3></div><span className="font-mono text-xs text-black/40">{model.traceLinks.length} links</span></div><div className="mt-4 flex flex-wrap gap-2">{model.traceLinks.map((trace, index) => <button type="button" key={`${trace.draftId ?? trace.actionId}-${index}`} onClick={() => trace.draftId && onSelect(`draft:${trace.draftId}`, "written")} className="border border-black/15 bg-[#fffdf7] px-3 py-2 text-left text-[10px] hover:border-[#3157ff]"><span className="font-mono">{trace.draftId ?? trace.actionId}</span><span className="mx-2 text-[#ff5c35]">→</span><span>{trace.momentId ?? trace.angleId ?? "working set"}</span><span className="ml-2 text-black/35">({trace.sourceSegmentIds.length})</span></button>)}</div>{!model.traceLinks.length ? <p className="mt-3 text-xs text-black/40">No source-linked drafts or actions exist yet.</p> : null}</section>
-      )}
+    <div className="grid gap-3 xl:grid-cols-[1.08fr_.92fr] xl:grid-rows-[230px_190px]">
+      <article className="relative flex min-h-[430px] flex-col overflow-hidden rounded-[18px] bg-[#11110f] p-[15px] text-white xl:row-span-2 xl:min-h-0">
+        <div className="flex items-center font-mono text-[8px] uppercase tracking-[0.1em]">Campaign direction <span className="ml-auto rounded-full bg-[#292925] px-2 py-1 text-[#d8ff3e]">from conversation</span></div>
+        <h2 className="mt-6 max-w-md text-[28px] font-extrabold leading-[1.02] tracking-[-0.045em]">{directionFor(job)}</h2>
+        <p className="mt-3 max-w-md text-[10px] leading-[1.55] text-[#aaa]">The thread is the decision history. This canvas is the current truth, assembled only from persisted drafts, media, moments, and source links.</p>
+        <div className="mt-5">
+          {decisions.length ? decisions.map((decision, index) => <div key={`${decision.source}-${index}`} className="grid grid-cols-[20px_1fr_auto] items-center gap-2 border-t border-[#33332e] py-2 text-[9px]"><i className="grid h-[18px] w-[18px] place-items-center rounded-md bg-[#292925] not-italic text-[#d8ff3e]">✓</i><b className="truncate">{decision.label}</b><span className="font-mono text-[7px] text-[#888]">{decision.source}</span></div>) : <div className="border-t border-[#33332e] py-3 text-[9px] text-[#888]">Direction will sharpen as evidence and angles are persisted.</div>}
+        </div>
+        <div className="relative mt-auto h-[90px] before:absolute before:left-[50px] before:right-[40px] before:top-[42px] before:rotate-[8deg] before:border-t before:border-[#444] after:absolute after:left-[50px] after:right-[40px] after:top-[42px] after:-rotate-[10deg] after:border-t after:border-[#444]" aria-label="Source trace graph">
+          <span className="absolute left-2 top-4 z-10 grid h-[52px] w-[52px] place-items-center rounded-full bg-[#d8ff3e] font-mono text-[7px] font-semibold text-black">{job.transcriptSegments.length ? "SOURCE" : "BRIEF"}</span>
+          <span className="absolute left-[43%] top-0 z-10 grid h-[52px] w-[52px] place-items-center rounded-full bg-[#ff765f] font-mono text-[7px] font-semibold text-black">DRAFT</span>
+          <span className="absolute right-2 top-[30px] z-10 grid h-[52px] w-[52px] place-items-center rounded-full bg-[#a566ff] font-mono text-[7px] font-semibold text-black">MEDIA</span>
+        </div>
+      </article>
+
+      <button type="button" onClick={() => draft && onSelect(`draft:${draft.id}`, "written")} className="overflow-hidden rounded-[18px] border border-black/10 bg-white p-[14px] text-left transition hover:-translate-y-0.5 hover:border-[#5165ff] disabled:cursor-default" disabled={!draft}>
+        <div className="flex items-center font-mono text-[8px] uppercase tracking-[0.1em]">Written · X draft <span className="ml-auto rounded-full bg-[#efffb6] px-2 py-1 text-black">{draft ? (draft.valid ? "reviewed" : "needs attention") : "not created"}</span></div>
+        {draft ? <><blockquote className="my-5 line-clamp-4 text-[17px] font-bold leading-[1.25] tracking-[-0.03em]">“{draft.text}”</blockquote><div className="flex gap-2 font-mono text-[7px]"><span className="flex-1 rounded-lg border border-black/10 p-2 text-[#777]">{draft.platform.toUpperCase()} · {draft.text.length}/280</span><span className="flex-1 rounded-lg border border-[#758636] bg-[#f2ffc0] p-2 text-[#414822]">{model.traceLinks.find((trace) => trace.draftId === draft.id)?.sourceSegmentIds.length ?? 0} sources linked</span></div></> : <p className="mt-8 text-sm text-black/45">No persisted written draft exists yet.</p>}
+      </button>
+
+      <article className="grid min-h-[190px] grid-cols-2 gap-2 rounded-[18px] border border-black/10 bg-white p-[14px]">
+        <button type="button" onClick={() => visual && onSelect(`visual:${visual.actionId}`, "visual")} className="relative overflow-hidden rounded-xl bg-[#222] text-left" disabled={!visual}>
+          {visual ? <img src={`/api/jobs/${job.id}/assets/${visual.actionId}`} alt={visual.title} className="h-full w-full object-cover opacity-90" /> : <div className="grid h-full min-h-32 place-items-center bg-[#ded9ce] p-3 text-center font-mono text-[8px] text-black/45">No persisted image</div>}
+          <span className="absolute left-2 top-2 rounded-full bg-white/85 px-2 py-1 font-mono text-[7px] text-black">{visual ? "Image · open asset" : "Visual · unresolved"}</span>
+        </button>
+        <button type="button" onClick={() => audio && onSelect(`audio:${audio.actionId}`, "audio")} className="rounded-xl bg-[#5165ff] p-3 text-left text-white" disabled={!audio}>
+          <div className="flex h-[55px] items-center gap-0.5" aria-hidden>{Array.from({ length: 14 }, (_, index) => <i key={index} className="w-[3px] rounded bg-[#d8ff3e]" style={{ height: `${20 + ((index * 17) % 38)}px` }} />)}</div>
+          <b className="block text-[9px]">{audio?.title ?? "Audio not created"}</b>
+          <p className="mt-1 font-mono text-[7px] text-[#c8cdff]">{audio ? `${audio.mime} · persisted` : "unresolved · no simulated asset"}</p>
+        </button>
+      </article>
     </div>
   );
 }

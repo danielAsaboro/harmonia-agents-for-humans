@@ -19,6 +19,15 @@ const REGION_BY_COMPONENT: Record<string, StudioA2uiRegion | "host"> = {
 
 type ComponentRecord = Record<string, unknown> & { id: string; component: string; children?: string[] };
 
+export function countStudioComponents(operations: unknown[], componentName: string): number {
+  let count = 0;
+  for (const input of operations) {
+    const operation = input as { updateComponents?: { components?: ComponentRecord[] } };
+    count += (operation.updateComponents?.components ?? []).filter((component) => component.component === componentName).length;
+  }
+  return count;
+}
+
 function regionOperations(runId: string, region: StudioA2uiRegion, components: ComponentRecord[]): unknown[] {
   if (components.length === 0) return [];
   const surfaceId = `studio-${runId}-${region}`;

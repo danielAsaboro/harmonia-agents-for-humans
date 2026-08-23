@@ -24,5 +24,9 @@ describe("studio console integration", () => {
     expect(html).toContain("One conversation");
     expect(html).toContain("Campaign direction");
     expect(html).toContain("Review &amp; decide");
+    expect(html).toContain('data-a2ui-slot="conversation"');
+    expect(html).toContain('data-a2ui-slot="canvas"');
+    expect(html).toContain('data-a2ui-slot="approval"');
+    expect(html).not.toContain("Agent-generated interface");
   });
 });

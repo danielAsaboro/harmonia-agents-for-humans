@@ -1,6 +1,10 @@
+"use client";
+
+import { useState } from "react";
 import { AttachmentCard, MessageContent } from "@/components/a2ui/HarmoniaElements";
 import { HarmoniaA2uiHost } from "@/components/a2ui/HarmoniaCatalog";
 import { latestSurfaceOperations } from "@/lib/a2ui/surfaceSlots";
+import { surfaceRevisionRequest } from "@/lib/a2ui/workspaceActions";
 import type { StudioConversationMessage } from "@/lib/studio/conversationModel";
 import { AgentRunSummary } from "./AgentRunSummary";
 import { StudioFailure } from "./StudioStates";
@@ -9,6 +13,7 @@ interface ConversationTurnProps {
   message: StudioConversationMessage;
   onActivateArtifact?: (artifactId: string) => void;
   onActivateJob?: (jobId: string) => void;
+  onRequestSurfaceRevision?: (message: string) => Promise<void> | void;
 }
 
 function formatTime(value?: string | null) {
@@ -16,7 +21,8 @@ function formatTime(value?: string | null) {
   return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export function ConversationTurn({ message, onActivateArtifact, onActivateJob }: ConversationTurnProps) {
+export function ConversationTurn({ message, onActivateArtifact, onActivateJob, onRequestSurfaceRevision }: ConversationTurnProps) {
+  const [actionError, setActionError] = useState<string | null>(null);
   const user = message.role === "user";
   const jobs = [message.data?.job, ...(message.data?.jobs ?? [])].filter(Boolean) as NonNullable<typeof message.data>["job"][];
   let conversationOperations: unknown[] = [];
@@ -45,7 +51,21 @@ export function ConversationTurn({ message, onActivateArtifact, onActivateJob }:
       >
         <MessageContent text={message.text} />
       </div>
-      {conversationOperations.length ? <HarmoniaA2uiHost operations={conversationOperations} className="mt-2 flex w-full flex-col gap-2" /> : null}
+      {conversationOperations.length ? <HarmoniaA2uiHost operations={conversationOperations} className="mt-2 flex w-full flex-col gap-2" onAction={(action) => {
+        if (action.name !== "request_surface_revision") {
+          setActionError(`Unknown A2UI action: ${action.name}`);
+          return;
+        }
+        const jobId = String(action.context.jobId ?? "");
+        const draftId = String(action.context.draftId ?? "");
+        if (!jobId || !draftId || !onRequestSurfaceRevision) {
+          setActionError("The generated revision request did not contain stable job and draft references.");
+          return;
+        }
+        setActionError(null);
+        void onRequestSurfaceRevision(surfaceRevisionRequest(jobId, draftId));
+      }} /> : null}
+      {actionError ? <div className="mt-2 w-full"><StudioFailure message={`A2UI action blocked: ${actionError}`} permanent /></div> : null}
       {protocolError ? <div className="mt-2 w-full"><StudioFailure message={`A2UI protocol error: ${protocolError}`} permanent /></div> : null}
 
       {message.attachments?.length ? (

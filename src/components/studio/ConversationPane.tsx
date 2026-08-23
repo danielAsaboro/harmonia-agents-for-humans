@@ -52,7 +52,7 @@ export function ConversationPane(props: ConversationPaneProps) {
   const turnCount = props.chapters.reduce((sum, chapter) => sum + chapter.messages.length, 0);
 
   return (
-    <section className="flex h-full min-h-0 flex-col border-r border-black/10 bg-[#e9e5dc]">
+    <section className="flex h-full min-h-0 flex-col border-r border-black/10 bg-[#e9e5dc]" data-a2ui-slot="conversation">
       <header className="h-[118px] shrink-0 border-b border-black/10 px-[18px] pb-3 pt-4">
         <div className="flex items-center gap-2">
           <span aria-hidden className="text-lg">‹</span>
@@ -89,12 +89,12 @@ export function ConversationPane(props: ConversationPaneProps) {
             return (
               <section key={chapter.key} id={`chapter-${chapter.key}`} className="scroll-mt-4" aria-labelledby={`chapter-title-${chapter.key}`}>
                 <div className="mb-3 text-center font-mono text-[7px] uppercase tracking-[0.1em] text-[#8a867e]"><span id={`chapter-title-${chapter.key}`}>{chapter.label} chapter</span> · {chapter.messages.length} turns</div>
-                {hidden.length ? <details className="mb-3 rounded-[14px] border border-black/10 bg-[#f3efe6] p-2.5"><summary className="cursor-pointer text-[9px] font-bold">Earlier in this chapter <span className="float-right font-mono text-[7px] font-normal text-[#777]">{hidden.length} turns collapsed</span></summary><p className="mt-1.5 text-[9px] leading-[1.45] text-[#6f6b63]">{chapter.summary}</p><div className="mt-4 space-y-3">{hidden.map((message, index) => <ConversationTurn key={`${message.at ?? "turn"}-${index}`} message={message} onActivateArtifact={props.onActivateArtifact} onActivateJob={props.onActivateJob} />)}</div></details> : null}
-                <div className="space-y-3">{recent.map((message, index) => <ConversationTurn key={`${message.at ?? "turn"}-${index}`} message={message} onActivateArtifact={props.onActivateArtifact} onActivateJob={props.onActivateJob} />)}</div>
+                {hidden.length ? <details className="mb-3 rounded-[14px] border border-black/10 bg-[#f3efe6] p-2.5"><summary className="cursor-pointer text-[9px] font-bold">Earlier in this chapter <span className="float-right font-mono text-[7px] font-normal text-[#777]">{hidden.length} turns collapsed</span></summary><p className="mt-1.5 text-[9px] leading-[1.45] text-[#6f6b63]">{chapter.summary}</p><div className="mt-4 space-y-3">{hidden.map((message, index) => <ConversationTurn key={`${message.at ?? "turn"}-${index}`} message={message} onActivateArtifact={props.onActivateArtifact} onActivateJob={props.onActivateJob} onRequestSurfaceRevision={props.onSend} />)}</div></details> : null}
+                <div className="space-y-3">{recent.map((message, index) => <ConversationTurn key={`${message.at ?? "turn"}-${index}`} message={message} onActivateArtifact={props.onActivateArtifact} onActivateJob={props.onActivateJob} onRequestSurfaceRevision={props.onSend} />)}</div>
               </section>
             );
           })}
-          {liveMessage ? <ConversationTurn message={liveMessage} onActivateArtifact={props.onActivateArtifact} onActivateJob={props.onActivateJob} /> : null}
+          {liveMessage ? <ConversationTurn message={liveMessage} onActivateArtifact={props.onActivateArtifact} onActivateJob={props.onActivateJob} onRequestSurfaceRevision={props.onSend} /> : null}
         </div>
         {awayFromLatest ? <button type="button" onClick={() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" })} className="sticky bottom-3 left-1/2 mt-4 -translate-x-1/2 rounded-full bg-[#3157ff] px-4 py-2 text-xs font-bold text-white shadow-xl">↓ Return to latest</button> : null}
       </div>

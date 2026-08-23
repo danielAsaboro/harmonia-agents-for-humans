@@ -66,6 +66,8 @@ describe("Harmonia generated workspace elements", () => {
     expect(html).toContain("Ship outcomes.");
     expect(html).toContain("1 source");
     expect(html).toContain("Agent framing");
+    expect(html).toContain('aria-label="Compare draft d1"');
+    expect(html).toContain('aria-label="Request revision for draft d1"');
   });
 
   test("renders moments with semantic timing and transcript evidence", () => {

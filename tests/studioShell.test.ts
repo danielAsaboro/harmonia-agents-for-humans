@@ -10,11 +10,14 @@ describe("StudioShell", () => {
       canvas: createElement("div", null, "Canvas"),
       mobilePane: "conversation",
       onMobilePaneChange: () => {},
+      canvasBadge: 1,
+      approvalBadge: 2,
     }));
     expect(html).toContain("--studio-conversation:2fr");
     expect(html).toContain("--studio-canvas:3fr");
     expect(html).toContain('role="separator"');
     expect(html).toContain('aria-valuenow="40"');
+    expect(html).toContain('aria-label="1 generated workspace active, 2 approvals pending"');
   });
 
   it("clamps resized conversation widths", () => {

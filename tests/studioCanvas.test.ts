@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { MediaWorkspace } from "../src/components/studio/MediaWorkspace";
 import { WorkingCanvas } from "../src/components/studio/WorkingCanvas";
+import { surfaceRevisionRequest } from "../src/lib/a2ui/workspaceActions";
 
 describe("studio canvas", () => {
   it("renders native audio only for a persisted audio asset", () => {
@@ -40,5 +41,11 @@ describe("studio canvas", () => {
     }));
     expect(html).not.toContain("Agent-generated interface");
     expect(html).not.toContain("<summary>Agent-generated");
+  });
+
+  it("turns a view revision into a normal grounded chat request", () => {
+    expect(surfaceRevisionRequest("job-1", "draft-2")).toBe(
+      "Show drafts for job job-1. Recompose the generated comparison around draft draft-2.",
+    );
   });
 });

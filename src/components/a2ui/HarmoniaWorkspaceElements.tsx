@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { useRef, useState, type ReactNode } from "react";
 import styles from "./HarmoniaWorkspaceElements.module.css";
 
 type Emphasis = "primary" | "secondary" | "compact";
@@ -77,27 +79,38 @@ export interface MomentExplorerProps extends FrameProps {
 }
 
 export function MomentExplorer({ title, source, moments, transcript, agentFraming, emphasis, children }: MomentExplorerProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [activeMomentId, setActiveMomentId] = useState(moments.find((moment) => moment.selected)?.id ?? moments[0]?.id);
   const duration = source?.durationSec || Math.max(1, ...moments.map((moment) => moment.endSec));
+  function activateMoment(moment: MomentExplorerProps["moments"][number]) {
+    setActiveMomentId(moment.id);
+    if (videoRef.current) {
+      videoRef.current.currentTime = moment.startSec;
+      void videoRef.current.play().catch(() => undefined);
+    }
+  }
   return (
     <figure className={styles.momentExplorer} data-emphasis={emphasis ?? "primary"}>
       <FrameHeading title={title} agentFraming={agentFraming} />
       <div className={styles.momentGrid}>
         <div className={styles.sourcePane}>
-          {source?.previewUrl && source.kind === "video" && <video src={source.previewUrl} controls preload="metadata" aria-label={source.label} />}
+          {source?.previewUrl && source.kind === "video" && <video ref={videoRef} src={source.previewUrl} controls preload="metadata" aria-label={source.label} />}
           {source?.previewUrl && source.kind === "audio" && <audio src={source.previewUrl} controls aria-label={source.label} />}
           {!source?.previewUrl && <div className={styles.sourcePoster}><span>{source?.kind ?? "source"}</span><strong>{source?.label ?? "Source media"}</strong></div>}
           {source?.externalUrl && <a href={source.externalUrl} target="_blank" rel="noreferrer">Open authenticated source ↗</a>}
           <div className={styles.timeline} aria-label="Selected clip timeline">
-            {moments.map((moment) => <span key={moment.id} data-selected={moment.selected} style={{ left: `${Math.min(100, (moment.startSec / duration) * 100)}%`, width: `${Math.max(2, ((moment.endSec - moment.startSec) / duration) * 100)}%` }} title={`${moment.title}, ${clock(moment.startSec)} to ${clock(moment.endSec)}`} />)}
+            {moments.map((moment) => <span key={moment.id} data-selected={moment.id === activeMomentId} style={{ left: `${Math.min(100, (moment.startSec / duration) * 100)}%`, width: `${Math.max(2, ((moment.endSec - moment.startSec) / duration) * 100)}%` }} title={`${moment.title}, ${clock(moment.startSec)} to ${clock(moment.endSec)}`} />)}
           </div>
         </div>
         <ol className={styles.momentList}>{moments.map((moment) => (
-          <li key={moment.id} data-selected={moment.selected}>
+          <li key={moment.id} data-selected={moment.id === activeMomentId}>
+            <button type="button" className={styles.momentButton} aria-label={`Seek to moment ${moment.title} at ${clock(moment.startSec)}`} onClick={() => activateMoment(moment)}>
             <div className={styles.timecode}><time>{clock(moment.startSec)}</time><span>→</span><time>{clock(moment.endSec)}</time></div>
             <h4>{moment.title}</h4>
             <p>{moment.hook}</p>
             <blockquote>{moment.quote}</blockquote>
             {moment.cropSuitability && <small>{moment.cropSuitability} crop</small>}
+            </button>
           </li>
         ))}</ol>
       </div>
@@ -119,18 +132,21 @@ export interface HydratedDraftView {
   sourceCount: number;
 }
 
-export interface DraftComparisonProps extends FrameProps { drafts: HydratedDraftView[] }
+export interface DraftComparisonProps extends FrameProps { drafts: HydratedDraftView[]; onRequestRevision?: (draftId: string) => void }
 
-export function DraftComparison({ title, drafts, agentFraming, emphasis, children }: DraftComparisonProps) {
+export function DraftComparison({ title, drafts, agentFraming, emphasis, children, onRequestRevision }: DraftComparisonProps) {
+  const [activeDraftId, setActiveDraftId] = useState(drafts.find((draft) => draft.selected)?.id ?? drafts[0]?.id);
   return (
     <section className={styles.draftComparison} data-emphasis={emphasis ?? "primary"}>
       <FrameHeading title={title} agentFraming={agentFraming} />
+      <div className={styles.draftTabs} role="tablist" aria-label="Draft comparison">{drafts.map((draft) => <button key={draft.id} type="button" role="tab" aria-selected={draft.id === activeDraftId} onClick={() => setActiveDraftId(draft.id)}>{draft.platform} · {draft.id}</button>)}</div>
       <div className={styles.draftGrid}>{drafts.map((draft) => (
-        <article key={draft.id} data-selected={draft.selected}>
-          <header><span>{draft.platform}</span><strong>{draft.valid ? "Ready" : "Needs revision"}</strong></header>
+        <article key={draft.id} data-selected={draft.id === activeDraftId}>
+          <header><button type="button" aria-label={`Compare draft ${draft.id}`} onClick={() => setActiveDraftId(draft.id)}>{draft.platform}</button><strong>{draft.valid ? "Ready" : "Needs revision"}</strong></header>
           <p className={styles.draftText}>{draft.text}</p>
           <footer><span>{draft.sourceCount} {draft.sourceCount === 1 ? "source" : "sources"}</span><code>{draft.id}</code></footer>
           {draft.validationNote && <p className={styles.validation}>{draft.validationNote}</p>}
+          <button type="button" className={styles.revisionButton} aria-label={`Request revision for draft ${draft.id}`} disabled={!onRequestRevision} onClick={() => onRequestRevision?.(draft.id)}>Recompose this view</button>
         </article>
       ))}</div>
       <Nested>{children}</Nested>

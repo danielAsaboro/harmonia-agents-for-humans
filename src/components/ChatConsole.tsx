@@ -10,6 +10,7 @@ import { WorkingCanvas } from "@/components/studio/WorkingCanvas";
 import { useHarmoniaChat } from "@/hooks/useHarmoniaChat";
 import type { ChatRunState } from "@/lib/a2ui/chatReducer";
 import { historyRunState } from "@/lib/a2ui/historyReplay";
+import { latestSurfaceOperations } from "@/lib/a2ui/surfaceSlots";
 import { apiFetch } from "@/lib/clientApi";
 import { dayLabel, groupSessions, sessionPreview, type ConsoleMessage } from "@/lib/chatSessions";
 import { activeJobIdForConversation, buildStudioChapters } from "@/lib/studio/conversationModel";
@@ -58,12 +59,21 @@ export function StudioConsoleView(props: StudioConsoleViewProps) {
     ),
   );
   const canvasRun = props.liveRun ?? (persistedRunMatchesCanvas ? lastPersistedRunMessage?.run : null) ?? null;
+  let generatedWorkspaceCount = 0;
+  try {
+    generatedWorkspaceCount = canvasRun?.operations.length && latestSurfaceOperations(canvasRun.operations, "canvas").length ? 1 : 0;
+  } catch {
+    generatedWorkspaceCount = 0;
+  }
+  const approvalCount = workspace?.actions.filter((action) => action.approvalState === "pending" && action.state === "planned").length ?? 0;
   return (
     <StudioShell
       mobilePane={props.mobilePane}
       onMobilePaneChange={props.onMobilePaneChange}
+      canvasBadge={generatedWorkspaceCount}
+      approvalBadge={approvalCount}
       conversation={<ConversationPane chapters={chapters} liveRun={props.liveRun} loaded={props.loaded} input={props.input} onInputChange={props.onInputChange} attachments={props.attachments} onAttachmentsChange={props.onAttachmentsChange} busy={props.busy} onSend={props.onSend} onActivateArtifact={(artifactId) => { props.onSelectedArtifactChange(artifactId); props.onMobilePaneChange("canvas"); }} onActivateJob={(jobId) => { props.onOpenJob(jobId); props.onMobilePaneChange("canvas"); }} headerAccessory={props.historyAccessory} campaignTitle={campaignTitle} artifactCount={artifactCount} />}
-      canvas={<WorkingCanvas job={props.detail?.job ?? null} events={props.detail?.events ?? []} receipts={props.detail?.receipts ?? []} loading={props.detailLoading} error={props.detailError} selectedArtifactId={props.selectedArtifactId} onSelectedArtifactChange={props.onSelectedArtifactChange} onRetry={props.onRetryJob} operations={canvasRun?.operations ?? []} approvalBusy={props.busy} onDecide={props.onDecide} onOperationDecision={props.onOperationDecision} />}
+      canvas={<WorkingCanvas job={props.detail?.job ?? null} events={props.detail?.events ?? []} receipts={props.detail?.receipts ?? []} loading={props.detailLoading} error={props.detailError} selectedArtifactId={props.selectedArtifactId} onSelectedArtifactChange={props.onSelectedArtifactChange} onRetry={props.onRetryJob} operations={canvasRun?.operations ?? []} approvalBusy={props.busy} onDecide={props.onDecide} onOperationDecision={props.onOperationDecision} onRequestSurfaceRevision={props.onSend} />}
     />
   );
 }

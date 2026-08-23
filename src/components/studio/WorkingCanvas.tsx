@@ -5,6 +5,7 @@ import type { JobFull, Receipt } from "@/components/jobTypes";
 import type { TimelineEvent } from "@/components/Timeline";
 import { buildStudioWorkspace } from "@/lib/studio/workspaceModel";
 import { latestSurfaceOperations } from "@/lib/a2ui/surfaceSlots";
+import { surfaceRevisionRequest } from "@/lib/a2ui/workspaceActions";
 import { HarmoniaA2uiHost } from "@/components/a2ui/HarmoniaCatalog";
 import { ArtifactBoard } from "./ArtifactBoard";
 import { MediaWorkspace } from "./MediaWorkspace";
@@ -29,10 +30,12 @@ interface WorkingCanvasProps {
   approvalBusy?: boolean;
   onDecide?: (jobId: string, actionId: string, decision: "approved" | "rejected") => Promise<void> | void;
   onOperationDecision?: (operationId: string, decision: "approved" | "rejected") => Promise<void> | void;
+  onRequestSurfaceRevision?: (message: string) => Promise<void> | void;
 }
 
-export function WorkingCanvas({ job, events, receipts, loading, error, selectedArtifactId, onSelectedArtifactChange, onRetry, supplemental, operations = [], approvalBusy = false, onDecide, onOperationDecision }: WorkingCanvasProps) {
+export function WorkingCanvas({ job, events, receipts, loading, error, selectedArtifactId, onSelectedArtifactChange, onRetry, supplemental, operations = [], approvalBusy = false, onDecide, onOperationDecision, onRequestSurfaceRevision }: WorkingCanvasProps) {
   const [view, setView] = useState<CanvasView>("board");
+  const [a2uiActionError, setA2uiActionError] = useState<string | null>(null);
   const model = job ? buildStudioWorkspace(job, receipts) : null;
   const selectedView: CanvasView | null = selectedArtifactId?.startsWith("draft:") ? "written"
     : selectedArtifactId?.startsWith("visual:") ? "visual"
@@ -69,7 +72,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-r-[23px] bg-[#f3f0e8]">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-r-[23px] bg-[#f3f0e8]" data-a2ui-slot="canvas">
       <header className="flex h-[72px] shrink-0 items-center gap-3 border-b border-black/10 px-[22px]">
         <strong className="text-lg font-extrabold">harmonia</strong>
         <span className="min-w-0 truncate font-mono text-[9px] text-[#77736b]">/ {job ? (job.ingestedTitle || job.config.brief || job.id).slice(0, 44) : "No campaign"} / Working set</span>
@@ -84,7 +87,21 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
           <div className="mb-4 flex items-end gap-4"><div><p className="font-mono text-[7px] uppercase tracking-[0.12em] text-[#817d74]">Current working set</p><h1 className="mt-1 text-[31px] font-extrabold leading-none tracking-[-0.05em]">One conversation,<br /><em className="font-serif text-[#5165ff]">{model.written.length + model.visual.length + model.motion.length + model.audio.length} living artifacts.</em></h1></div><div className="ml-auto text-right font-mono text-[8px] text-[#77736b]">{job.stage}<br />updated from persisted state</div></div>
           <nav className="mb-[14px] flex gap-1 overflow-x-auto" aria-label="Canvas views">{tabs.map((tab) => <button key={tab.key} type="button" onClick={() => { setView(tab.key); onSelectedArtifactChange(null); }} aria-current={visibleView === tab.key ? "page" : undefined} className={`shrink-0 rounded-full px-2.5 py-1.5 font-mono text-[8px] ${visibleView === tab.key ? "bg-[#11110f] text-white" : "bg-[#e3ded4] text-[#77736b]"}`}><b className={visibleView === tab.key ? "text-[#d8ff3e]" : ""}>{tab.label}</b>{tab.count !== undefined ? ` ${tab.count}` : ""}</button>)}</nav>
           {a2uiError ? <div className="mb-5"><StudioFailure message={`A2UI protocol error: ${a2uiError}`} permanent /></div> : null}
-          {canvasOperations.length ? <HarmoniaA2uiHost operations={canvasOperations} className="mb-5 flex w-full flex-col gap-3" /> : null}
+          {canvasOperations.length ? <HarmoniaA2uiHost operations={canvasOperations} className="mb-5 flex w-full flex-col gap-3" onAction={(action) => {
+            if (action.name !== "request_surface_revision") {
+              setA2uiActionError(`Unknown A2UI action: ${action.name}`);
+              return;
+            }
+            const actionJobId = String(action.context.jobId ?? "");
+            const draftId = String(action.context.draftId ?? "");
+            if (!job || actionJobId !== job.id || !job.drafts.some((draft) => draft.id === draftId) || !onRequestSurfaceRevision) {
+              setA2uiActionError("The generated revision request did not match the active persisted draft.");
+              return;
+            }
+            setA2uiActionError(null);
+            void onRequestSurfaceRevision(surfaceRevisionRequest(actionJobId, draftId));
+          }} /> : null}
+          {a2uiActionError ? <div className="mb-5"><StudioFailure message={`A2UI action blocked: ${a2uiActionError}`} permanent /></div> : null}
           {supplemental ? <div className="mb-5">{supplemental}</div> : null}
           {visibleView === "board" ? <ArtifactBoard job={job} model={model} onSelect={selectFromBoard} /> : null}
           {visibleView === "written" ? <WrittenWorkspace job={job} traceLinks={model.traceLinks} selectedArtifactId={selectedArtifactId} onSelect={onSelectedArtifactChange} /> : null}

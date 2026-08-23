@@ -17,9 +17,11 @@ interface StudioShellProps {
   canvas: ReactNode;
   mobilePane: "conversation" | "canvas";
   onMobilePaneChange: (pane: "conversation" | "canvas") => void;
+  canvasBadge?: number;
+  approvalBadge?: number;
 }
 
-export function StudioShell({ conversation, canvas, mobilePane, onMobilePaneChange }: StudioShellProps) {
+export function StudioShell({ conversation, canvas, mobilePane, onMobilePaneChange, canvasBadge = 0, approvalBadge = 0 }: StudioShellProps) {
   const rootRef = useRef<HTMLElement>(null);
   const [conversationPercent, setConversationPercent] = useState(DEFAULT_CONVERSATION_PERCENT);
 
@@ -62,7 +64,7 @@ export function StudioShell({ conversation, canvas, mobilePane, onMobilePaneChan
   return (
     <section ref={rootRef} className={`${styles.grid} h-dvh min-h-[640px] overflow-hidden bg-[#c9c5bc] text-[#11110f]`} style={splitStyle}>
       <div className={styles.rail}><StudioNavRail /></div>
-      <div className={`${mobilePane === "conversation" ? "block" : "hidden"} h-full min-w-0 overflow-hidden lg:block`}>
+      <div className={`${styles.pane} h-full min-w-0 overflow-hidden`} data-mobile-active={mobilePane === "conversation"}>
         {conversation}
       </div>
       <button
@@ -80,11 +82,11 @@ export function StudioShell({ conversation, canvas, mobilePane, onMobilePaneChan
       >
         <span className="absolute left-1/2 top-1/2 h-10 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#8d867b] transition group-hover:bg-[#3157ff]" />
       </button>
-      <div className={`${mobilePane === "canvas" ? "block" : "hidden"} h-full min-w-0 overflow-hidden lg:block`}>
+      <div className={`${styles.pane} h-full min-w-0 overflow-hidden`} data-mobile-active={mobilePane === "canvas"}>
         {canvas}
       </div>
 
-      <nav className="fixed inset-x-4 bottom-4 z-50 grid grid-cols-2 rounded-full border border-black/10 bg-[#161512]/95 p-1 text-sm font-bold text-white shadow-2xl backdrop-blur lg:hidden" aria-label="Studio panes">
+      <nav className={`${styles.mobileNav} fixed inset-x-4 bottom-4 z-50 grid-cols-2 rounded-full border border-black/10 bg-[#161512]/95 p-1 text-sm font-bold text-white shadow-2xl backdrop-blur`} aria-label={`${canvasBadge} generated workspace active, ${approvalBadge} approvals pending`}>
         {(["conversation", "canvas"] as const).map((pane) => (
           <button
             key={pane}
@@ -94,6 +96,7 @@ export function StudioShell({ conversation, canvas, mobilePane, onMobilePaneChan
             className={`rounded-full px-4 py-3 capitalize ${mobilePane === pane ? "bg-[#d9ff43] text-[#161512]" : "text-white/70"}`}
           >
             {pane === "conversation" ? "Conversation" : "Studio canvas"}
+            {pane === "canvas" && (canvasBadge > 0 || approvalBadge > 0) ? <span className="ml-2 inline-flex gap-1"><b className="rounded-full bg-[#5165ff] px-1.5 text-[10px] text-white">{canvasBadge}</b>{approvalBadge > 0 ? <b className="rounded-full bg-[#ff5c35] px-1.5 text-[10px] text-white">{approvalBadge}</b> : null}</span> : null}
           </button>
         ))}
       </nav>

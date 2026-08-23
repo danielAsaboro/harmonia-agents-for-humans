@@ -1,138 +1,212 @@
 import Link from "next/link";
 
-const LOOP = [
-  { phase: "Research", desc: "Trends, niche conversations, competitor moves, and your own back catalog feed the idea engine.", status: "in" },
-  { phase: "Ideate", desc: "Angles, hooks, meme formats, thread outlines — ranked and grounded in your positioning.", status: "live" },
-  { phase: "Create", desc: "Written posts, images, memes, video clips cut and stitched from long-form or generated fresh.", status: "part" },
-  { phase: "Edit", desc: "Platform-native crops, captions, thumbnails; every asset versioned and previewable.", status: "planned" },
-  { phase: "Publish", desc: "Official platform APIs behind a human approval gate. Idempotent, receipted, never accidental.", status: "part" },
-  { phase: "Learn", desc: "Reactions and performance metrics flow back into research, so each cycle posts sharper than the last.", status: "planned" },
-];
-
-const STATUS_STYLE: Record<string, string> = {
-  live: "border-emerald-400 text-emerald-600 dark:text-emerald-400",
-  in: "border-sky-400 text-sky-600 dark:text-sky-400",
-  part: "border-amber-400 text-amber-600 dark:text-amber-400",
-  planned: "border-zinc-300 text-zinc-500 dark:border-zinc-700 dark:text-zinc-400",
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  live: "live now",
-  in: "in build",
-  part: "partial",
-  planned: "on the map",
-};
-
-const OUTPUTS = [
-  { title: "Written", desc: "X threads, LinkedIn posts, captions — voice-matched, policy-checked." },
-  { title: "Images & memes", desc: "Generated or remixed from your footage, sized per platform." },
-  { title: "Video clips", desc: "Moments auto-found, cut, captioned, and stitched into shorts." },
-];
+import { ApprovalDemo } from "@/components/landing/ApprovalDemo";
+import { LiveWorkflow } from "@/components/landing/LiveWorkflow";
+import { ReturnGlobe } from "@/components/landing/ReturnGlobe";
+import { SignalWorld } from "@/components/landing/SignalWorld";
+import { WorkflowMorph } from "@/components/landing/WorkflowMorph";
 
 export default function LandingPage() {
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-5 sm:px-8">
-        <span className="text-lg font-semibold tracking-tight">Harmonia</span>
-        <Link
-          href="/dashboard"
-          className="rounded-full bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-white dark:text-black dark:hover:bg-zinc-300"
-        >
-          Open dashboard
-        </Link>
-      </header>
+    <main className="landing-shell">
+      <section className="hero-section">
+        <SignalWorld />
+        <div className="hero-grain" aria-hidden="true" />
 
-      <main className="flex flex-1 flex-col">
-        <section className="mx-auto flex w-full max-w-6xl flex-col items-start gap-6 px-4 pt-16 pb-20 sm:px-8">
-          <span className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium uppercase tracking-wider text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-            The social media content engine for startups
+        <header className="landing-nav">
+          <Link href="/" className="brand-pill" aria-label="Harmonia home">
+            <span className="brand-mark">H</span>
+            <span>Harmonia</span>
+          </Link>
+          <nav className="nav-island" aria-label="Primary navigation">
+            <a href="#workflow">Workflow</a>
+            <a href="#outputs">Outputs</a>
+            <a href="#proof">Proof</a>
+          </nav>
+          <Link href="/dashboard" className="nav-cta">
+            Open studio <span>↗</span>
+          </Link>
+        </header>
+
+        <div className="hero-copy">
+          <span className="eyebrow-pill">
+            <i /> The content agent that closes the loop
           </span>
-          <h1 className="max-w-3xl text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
-            From raw material to published post —
-            <span className="text-zinc-400"> researched, created, edited, approved, learned from.</span>
+          <h1>
+            One source.
+            <span>A living system of content.</span>
           </h1>
-          <p className="max-w-2xl text-base leading-7 text-zinc-600 dark:text-zinc-400">
-            Harmonia runs the whole content gamut as one asynchronous workflow: it researches what&apos;s
-            worth saying, ideates angles, creates written posts, images, memes, and video clips,
-            edits them platform-native, then stops at a human approval gate before publishing through
-            official APIs — and feeds every reaction back into the next cycle.
+          <p>
+            Harmonia finds the signal inside your long-form video, shapes it for every platform,
+            waits for your approval, then publishes and proves what happened.
           </p>
-          <div className="flex gap-3">
-            <Link
-              href="/dashboard"
-              className="rounded-full bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-white dark:text-black dark:hover:bg-zinc-300"
-            >
-              Start a job
+          <div className="hero-actions">
+            <Link href="/dashboard" className="primary-button">
+              Start with a video <span>↗</span>
             </Link>
-            <Link
-              href="/dashboard/monitoring"
-              className="rounded-full border border-zinc-300 px-5 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:border-zinc-500 dark:border-zinc-700 dark:text-zinc-300"
-            >
-              See it run →
-            </Link>
+            <a href="#workflow" className="ghost-button">
+              Watch it transform <span>↓</span>
+            </a>
           </div>
-        </section>
+        </div>
 
-        <section className="border-y border-zinc-200 bg-zinc-50 py-14 dark:border-zinc-800 dark:bg-zinc-900/40">
-          <div className="mx-auto w-full max-w-6xl px-4 sm:px-8">
-            <div className="mb-8 flex items-baseline justify-between gap-4">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-500">The loop</h2>
-              <p className="text-[11px] text-zinc-400">Every phase is a durable pipeline stage with receipts.</p>
-            </div>
-            <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {LOOP.map((step, i) => (
-                <li key={step.phase} className="flex flex-col rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-900 text-[11px] font-bold text-white dark:bg-white dark:text-black">
-                        {i + 1}
-                      </span>
-                      <span className="font-medium">{step.phase}</span>
-                    </div>
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${STATUS_STYLE[step.status]}`}>
-                      {STATUS_LABEL[step.status]}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-400">{step.desc}</p>
-                </li>
+        <div className="source-card glass-card">
+          <span className="card-kicker">SOURCE / 01</span>
+          <div className="source-preview">
+            <span className="play-dot">▶</span>
+            <div className="wave-mini" aria-hidden="true">
+              {Array.from({ length: 18 }, (_, index) => (
+                <i key={index} style={{ height: `${20 + ((index * 17) % 68)}%` }} />
               ))}
-            </ol>
-          </div>
-        </section>
-
-        <section className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-8">
-          <h2 className="mb-8 text-sm font-semibold uppercase tracking-wider text-zinc-500">What it makes</h2>
-          <div className="grid gap-8 sm:grid-cols-3">
-            {OUTPUTS.map((o) => (
-              <div key={o.title}>
-                <h3 className="font-medium">{o.title}</h3>
-                <p className="mt-1.5 text-sm leading-6 text-zinc-600 dark:text-zinc-400">{o.desc}</p>
-              </div>
-            ))}
-          </div>
-          <div className="mt-12 grid gap-8 sm:grid-cols-2">
-            <div>
-              <h3 className="font-medium">Approval is not optional</h3>
-              <p className="mt-1.5 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-                The agent proposes; you dispose. Publishing exists only as discrete approved actions —
-                decided from the dashboard, the chat drawer, or Telegram. Every decision is recorded.
-              </p>
-            </div>
-            <div>
-              <h3 className="font-medium">Receipts, not vibes</h3>
-              <p className="mt-1.5 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-                Idempotency keys prevent duplicate posts under redelivery. Verification re-fetches
-                published state through independent API reads before anything is called done.
-                Failures stay visible instead of pretending to succeed.
-              </p>
             </div>
           </div>
-        </section>
-      </main>
+          <div className="card-row">
+            <strong>Founder story.mp4</strong>
+            <span>16:42</span>
+          </div>
+        </div>
 
-      <footer className="border-t border-zinc-200 py-6 text-center text-xs text-zinc-400 dark:border-zinc-800">
-        Built on Gemini · Google ADK · Cloud Run · Firestore · Pub/Sub
+        <div className="signal-card glass-card">
+          <span className="pulse-ring" />
+          <div>
+            <span className="card-kicker">SIGNAL FOUND</span>
+            <strong>7 moments worth sharing</strong>
+          </div>
+        </div>
+
+        <div className="hero-status">
+          <span>01 / 08</span>
+          <span className="status-line"><i /></span>
+          <span>SCROLL TO FOLLOW THE SIGNAL</span>
+        </div>
+      </section>
+
+      <WorkflowMorph />
+
+      <LiveWorkflow />
+
+      <section id="outputs" className="outputs-section">
+        <div className="section-intro section-intro-wide">
+          <span className="section-index">02 — THE CONTENT ATELIER</span>
+          <h2>One insight. Every shape it needs.</h2>
+          <p>
+            Harmonia doesn&apos;t paste the same caption everywhere. It preserves the idea while the
+            format, crop, pacing, hook, and voice adapt to each platform.
+          </p>
+        </div>
+
+        <div className="atelier-rail">
+          <article className="output-card output-video">
+            <header><span>SHORT / 9:16</span><b>00:42</b></header>
+            <div className="video-frame">
+              <span className="caption-line">Stop chasing reach.</span>
+              <span className="caption-line accent">Start hearing signal.</span>
+              <i className="video-play">▶</i>
+              <div className="safe-zone">SAFE CROP</div>
+            </div>
+            <footer><strong>Founder lesson</strong><span>Auto-captioned · reframed</span></footer>
+          </article>
+
+          <article className="output-card output-thread">
+            <header><span>THREAD / X</span><b>6 POSTS</b></header>
+            <div className="thread-sheet">
+              <span className="platform-avatar dark">𝕏</span>
+              <p><strong>We nearly killed our launch by trying to be everywhere.</strong></p>
+              <p>Then one customer conversation changed the entire content strategy. Here&apos;s the system we built from it:</p>
+              <div className="thread-count">1 / 6</div>
+            </div>
+            <footer><strong>Contrarian hook</strong><span>Voice matched · claims checked</span></footer>
+          </article>
+
+          <article className="output-card output-linkedin">
+            <header><span>POST / LINKEDIN</span><b>1,142 CHARS</b></header>
+            <div className="linkedin-sheet">
+              <div className="linkedin-author"><span className="platform-avatar">in</span><b>Harmonia Studio</b></div>
+              <p>The breakthrough wasn&apos;t more output.</p>
+              <p>It was turning one honest customer insight into a system the whole company could learn from.</p>
+              <div className="linkedin-graph"><i /><i /><i /><i /><i /></div>
+            </div>
+            <footer><strong>Operator narrative</strong><span>Policy checked · ready for review</span></footer>
+          </article>
+        </div>
+
+        <div className="atelier-caption">
+          <span>HOVER TO INSPECT</span>
+          <p>The object branches, but the source remains traceable through every draft.</p>
+        </div>
+      </section>
+
+      <section className="approval-section">
+        <div className="approval-copy">
+          <span className="section-index light">03 — HUMAN CONTROL</span>
+          <h2>Autonomous right up to the line that matters.</h2>
+          <p>
+            Research, editing, and preparation can keep moving asynchronously. Publishing cannot.
+            The interface contracts into a focused decision island and waits for a real operator.
+          </p>
+          <div className="control-notes">
+            <span><i>01</i> Exact action preview</span>
+            <span><i>02</i> Revision stays in the loop</span>
+            <span><i>03</i> Every decision is receipted</span>
+          </div>
+        </div>
+        <ApprovalDemo />
+      </section>
+
+      <section id="proof" className="proof-section">
+        <div className="proof-heading">
+          <span className="section-index">04 — PROOF, NOT VIBES</span>
+          <h2>Done means independently verified.</h2>
+          <p>
+            Harmonia preserves the boring, important parts: permissions, idempotency, retries,
+            visible failures, and an audit trail that explains exactly what the agent did.
+          </p>
+        </div>
+
+        <div className="ledger-window">
+          <header>
+            <div className="window-lights"><i /><i /><i /></div>
+            <span>HARMONIA / RECEIPT LEDGER</span>
+            <span className="ledger-ready"><i /> READY</span>
+          </header>
+          <div className="ledger-body">
+            <aside>
+              <span className="active">Run timeline</span>
+              <span>Assets</span>
+              <span>Approvals</span>
+              <span>External state</span>
+            </aside>
+            <div className="ledger-lines">
+              <div className="ledger-row complete"><i>✓</i><span><b>Source captured</b><small>Original media fingerprint preserved</small></span><time>INGEST</time></div>
+              <div className="ledger-row complete"><i>✓</i><span><b>Draft approved</b><small>Operator decision attached to exact content version</small></span><time>GATE</time></div>
+              <div className="ledger-row complete"><i>✓</i><span><b>Publish dispatched once</b><small>Idempotency key prevents duplicate external effects</small></span><time>ACTION</time></div>
+              <div className="ledger-row verified"><i>↗</i><span><b>External state verified</b><small>Official platform API read confirms publication</small></span><time>PROOF</time></div>
+            </div>
+          </div>
+          <footer>
+            <span>Gemini</span><span>Google ADK</span><span>Cloud Run</span><span>Firestore</span><span>Pub/Sub</span>
+          </footer>
+        </div>
+      </section>
+
+      <section className="loop-section">
+        <ReturnGlobe />
+        <div className="loop-copy">
+          <span className="section-index light">05 — THE RETURN</span>
+          <h2>The receipt becomes the next seed.</h2>
+          <p>
+            Published results flow back into structured memory. The next content cycle begins with
+            evidence—not an empty prompt.
+          </p>
+          <Link href="/dashboard" className="primary-button">Open the content studio <span>↗</span></Link>
+        </div>
+      </section>
+
+      <footer className="landing-footer">
+        <Link href="/" className="footer-brand"><span className="brand-mark">H</span> Harmonia</Link>
+        <p>From source to signal to proof.</p>
+        <div><a href="#workflow">Workflow</a><a href="#outputs">Outputs</a><Link href="/dashboard">Studio ↗</Link></div>
       </footer>
-    </div>
+    </main>
   );
 }

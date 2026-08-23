@@ -27,6 +27,9 @@ _PRIVATE_MARKERS = (
     "google_api_key",
     "authorization: bearer",
 )
+_CREDENTIAL_MARKERS = (
+    "gemini_api_key", "google_api_key", "authorization: bearer", "aiza",
+)
 
 _PUBLIC_FIXTURES: dict[str, tuple[str, frozenset[str]]] = {
     "route-analyst": (
@@ -122,6 +125,10 @@ def validate_eval_set_privacy(value: EvalSet | dict[str, Any]) -> None:
 def load_eval_set(path: Path, *, public: bool = True) -> EvalSet:
     """Load an ADK 2.x evalset after checking its raw and parsed representations."""
     raw = json.loads(path.read_text(encoding="utf-8"))
+    serialized = _serialized_text(raw)
+    credential = next((item for item in _CREDENTIAL_MARKERS if item in serialized), None)
+    if credential is not None:
+        raise EvaluationPrivacyError("credential-shaped material is not allowed")
     if public:
         validate_eval_set_privacy(raw)
     eval_set = EvalSet.model_validate(raw)

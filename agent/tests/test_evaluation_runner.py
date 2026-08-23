@@ -75,6 +75,22 @@ def test_public_evalset_rejects_unlisted_fixture_and_short_freeform_prompt(tmp_p
         load_eval_set(path)
 
 
+def test_private_evalset_still_rejects_embedded_credentials(tmp_path):
+    path = tmp_path / "private.evalset.json"
+    path.write_text(json.dumps({
+        "eval_set_id": "private",
+        "eval_cases": [{
+            "evalId": "private-case",
+            "conversation": [{
+                "userContent": {"parts": [{"text": "Authorization: Bearer secret-token"}]},
+            }],
+        }],
+    }))
+
+    with pytest.raises(EvaluationPrivacyError, match="credential-shaped"):
+        load_eval_set(path, public=False)
+
+
 def test_live_eval_requires_private_output_root(monkeypatch, tmp_path):
     monkeypatch.setenv("HARMONIA_REAL_EVAL", "1")
     monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)

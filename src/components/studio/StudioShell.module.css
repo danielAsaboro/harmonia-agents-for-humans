@@ -1,0 +1,19 @@
+.grid {
+  display: grid;
+  grid-template-columns: minmax(360px, var(--studio-conversation)) 6px minmax(540px, var(--studio-canvas));
+}
+
+.separator {
+  cursor: col-resize;
+  touch-action: none;
+}
+
+@media (max-width: 1023px) {
+  .grid {
+    display: block;
+  }
+
+  .separator {
+    display: none;
+  }
+}

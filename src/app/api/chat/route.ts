@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { resolveDecision } from "@/lib/decisions";
+import { requestAgentAnswer } from "@/lib/agentAskClient";
 import { answerFromContext, fetchContextRecord, isValidContext, mockContextAnswer } from "@/lib/contextAnswer";
 import { isMockAi } from "@/lib/chatIntent";
 import {
@@ -397,7 +398,18 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
       } satisfies ChatResponse };
     }
 
-    default:
+    default: {
+      if (!isMockAi()) {
+        try {
+          const answer = await requestAgentAnswer(message);
+          return { payload: {
+            intent: "agent",
+            reply: answer,
+          } satisfies ChatResponse };
+        } catch (error) {
+          console.error("agent ask failed; falling back to guidance", error);
+        }
+      }
       return { payload: {
         intent: "unknown",
         reply:
@@ -407,5 +419,6 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
           "- \"show drafts for <id>\"\n" +
           "- \"approve job <id>\" (publishing still requires this explicit approval)",
       } satisfies ChatResponse };
+    }
   }
 }

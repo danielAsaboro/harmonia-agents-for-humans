@@ -31,12 +31,9 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-import httpx
-
-from . import telegram_bot, x_client
+from . import signals, telegram_bot, x_client
 from .agent_models import StrategistInput
 from .agents import strategize_with_team_sync
-from .mock_ai import mock_ai_enabled
 from .web_client import (
     WebApiError,
     get_feed,
@@ -51,7 +48,6 @@ from .tenant_context import tenant_scope
 
 logger = logging.getLogger("harmonia.proactive")
 
-HN_FRONT_PAGE = "https://hn.algolia.com/api/v1/search"
 SCAN_SECONDS = int(os.environ.get("PROACTIVE_SCAN_SECONDS", "60"))
 MAX_PROPOSALS_PER_TICK = 3
 OUTLIER_FACTOR = 2.0
@@ -115,38 +111,8 @@ def notify(kind: str, title: str, body: str, severity: str = "info", href: str |
 # ---------- signal gathering (official APIs only) ----------
 
 def fetch_signals(limit: int = 6) -> list[dict[str, Any]]:
-    """Front-page Hacker News stories via the official Algolia API (keyless).
-
-    Under HARMONIA_MOCK_AI=1 returns deterministic fixtures so checks run
-    offline.
-    """
-    if mock_ai_enabled():
-        print("[MOCK-AI] fetch_signals: deterministic local fixtures", flush=True)
-        return [dict(s) for s in _MOCK_SIGNALS[:limit]]
-    with httpx.Client(timeout=20) as c:
-        res = c.get(HN_FRONT_PAGE, params={"tags": "front_page", "hitsPerPage": limit})
-        res.raise_for_status()
-        hits = res.json().get("hits", [])
-    return [
-        {
-            "title": h.get("title") or "",
-            "url": h.get("url") or f"https://news.ycombinator.com/item?id={h.get('objectID')}",
-            "points": int(h.get("points") or 0),
-            "comments": int(h.get("num_comments") or 0),
-        }
-        for h in hits
-        if h.get("title")
-    ]
-
-
-_MOCK_SIGNALS = [
-    {"title": "YC W25 batch shows AI agents replacing internal tools", "url": "https://news.ycombinator.com/item?id=8800001", "points": 412, "comments": 233},
-    {"title": "Study: startups shipping weekly grow 2.3x faster", "url": "https://example.com/weekly-shipping-study", "points": 356, "comments": 187},
-    {"title": "Show HN: I automated my founder content pipeline", "url": "https://news.ycombinator.com/item?id=8800003", "points": 298, "comments": 154},
-    {"title": "Why usage-based pricing wins for AI products", "url": "https://example.com/usage-based-pricing", "points": 241, "comments": 132},
-    {"title": "The death of the dashboard: agents act, humans approve", "url": "https://example.com/death-of-dashboard", "points": 198, "comments": 96},
-    {"title": "Onboarding teardown: activation in 40 hours", "url": "https://example.com/onboarding-teardown", "points": 176, "comments": 88},
-]
+    """Front-page Hacker News stories via the official Algolia API (keyless)."""
+    return signals.fetch_signals(limit=limit)
 
 
 # ---------- checks ----------

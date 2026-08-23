@@ -174,6 +174,12 @@ class DraftWorkflowResult(StrictModel):
         return self
 
 
+class LiaisonInput(StrictModel):
+    """Operator question routed to the skill-enabled insight liaison."""
+
+    question: str = Field(min_length=1, max_length=2000)
+
+
 def validate_draft_references(drafts: DraftSet, analysis: AnalysisResult) -> DraftSet:
     """Reject draft references that are not present in the current analysis."""
     moment_ids = {moment.id for moment in analysis.moments}

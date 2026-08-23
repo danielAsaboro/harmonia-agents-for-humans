@@ -20,6 +20,7 @@ from .agent_models import (
     DraftSet,
     DraftWorkflowInput,
     DraftWorkflowResult,
+    LiaisonInput,
     StrategistInput,
     StrategistResult,
     validate_draft_references,
@@ -31,6 +32,7 @@ from .model_catalog import PRICING_VERSION, estimate_text_cost
 from .mock_ai import (
     mock_ai_enabled,
     mock_analyze,
+    mock_ask,
     mock_drafts,
     mock_ideate,
     mock_plan_actions,
@@ -61,6 +63,7 @@ _SPECIALIST_ROLES = {
         "harmonia_coordinator", "nimi_copywriter", "dara_editor", "temi_planner",
     ),
     "maya_presenter": ("harmonia_coordinator", "maya_presenter"),
+    "nova_liaison": ("harmonia_coordinator", "nova_liaison"),
 }
 _MAX_OUTPUT_TOKENS = {
     "harmonia_coordinator": 1024,
@@ -70,6 +73,7 @@ _MAX_OUTPUT_TOKENS = {
     "dara_editor": 2048,
     "temi_planner": 1024,
     "maya_presenter": 2048,
+    "nova_liaison": 2048,
 }
 
 
@@ -86,6 +90,7 @@ class RoleModelInstances:
     editor: str | BaseLlm
     planner: str | BaseLlm
     presenter: str | BaseLlm
+    liaison: str | BaseLlm
     configs: dict[str, RoleModelConfig] = field(default_factory=dict)
 
     def model_for(self, role: str) -> str | BaseLlm:
@@ -97,6 +102,7 @@ class RoleModelInstances:
             "dara_editor": self.editor,
             "temi_planner": self.planner,
             "maya_presenter": self.presenter,
+            "nova_liaison": self.liaison,
         }
         try:
             return mapping[role]
@@ -143,6 +149,7 @@ def _resolve_role_models(
             editor=shared,
             planner=shared,
             presenter=shared,
+            liaison=shared,
         )
     _model(None)  # Preserve Google Gen AI environment initialization.
     catalog = load_role_model_catalog()
@@ -158,6 +165,7 @@ def _resolve_role_models(
         editor=catalog.editor.model_id,
         planner=catalog.planner.model_id,
         presenter=catalog.presenter.model_id,
+        liaison=catalog.liaison.model_id,
         configs=configs,
     )
 
@@ -295,19 +303,40 @@ def build_agent_team(
         description="Runs copywriting, one editor revision, then safe action planning in fixed order.",
         sub_agents=[copywriter, editor, planner],
     )
+    from .skills_runtime import build_insight_skillset
+
+    liaison = Agent(
+        model=resolved.liaison,
+        name="nova_liaison",
+        description=(
+            "Answers operator questions about jobs, engagement, trends, and posting "
+            "windows using its loaded Harmonia skills and read-only live tools."
+        ),
+        instruction=(
+            "You are Harmonia's insight liaison for operators. Use your load_skill "
+            "tool first, follow the triggered skill's instructions exactly, and ground "
+            "every factual claim in tool output from this conversation. If a tool "
+            "fails or returns no data, say exactly that - never substitute recalled "
+            "facts or invented numbers. You are strictly read-only: never offer to "
+            "publish, approve, delete, or modify anything; point operators to their "
+            "approval queue instead."
+        ),
+        tools=[build_insight_skillset()],
+        output_key="liaison_answer",
+    )
     return Agent(
         model=resolved.coordinator,
         name="harmonia_coordinator",
         description="Routes Harmonia judgment tasks to typed specialists; never performs external effects.",
         instruction=(
             "Delegate exactly once to the specialist named in the user's task instruction. Use "
-            "ryan_strategist for strategy, sophia_analyst for transcript analysis, and "
-            "flo_draft_workflow for the ordered draft-edit-plan workflow, and maya_presenter "
-            "for a reference-only A2UI surface plan. Never answer the task "
-            "yourself and never call "
+            "ryan_strategist for strategy, sophia_analyst for transcript analysis, "
+            "flo_draft_workflow for the ordered draft-edit-plan workflow, maya_presenter "
+            "for a reference-only A2UI surface plan, and nova_liaison for free-form operator "
+            "questions. Never answer the task yourself and never call "
             "publishing or approval systems."
         ),
-        sub_agents=[strategist, analyst, presenter],
+        sub_agents=[strategist, analyst, presenter, liaison],
         tools=[AgentTool(draft_workflow)],
     )
 
@@ -332,6 +361,11 @@ def _validate_run_output(
 ) -> None:
     if specialist == "maya_presenter":
         _validated_state(state, "surface_plan", SurfacePlan)
+        return
+    if specialist == "nova_liaison":
+        answer = state.get("liaison_answer")
+        if not isinstance(answer, str) or not answer.strip():
+            raise AgentProtocolError("liaison returned no answer text")
         return
     if specialist == "sophia_analyst":
         result = _validated_state(state, "analysis_result", AnalysisResult)
@@ -598,3 +632,18 @@ def strategize_with_team_sync(input: StrategistInput) -> StrategistResult:
     import asyncio
 
     return asyncio.run(strategize_with_team(input))
+
+
+async def ask_with_team(
+    question: str, *, invocation: InvocationContext | None = None,
+) -> str:
+    """Answer a free-form operator question via the skill-enabled liaison."""
+    input = LiaisonInput(question=question)
+    if mock_ai_enabled():
+        print("[MOCK-AI] coordinator -> nova_liaison", flush=True)
+        return mock_ask(input.question)
+    state = await _run_coordinator("nova_liaison", input, invocation=invocation)
+    answer = state.get("liaison_answer")
+    if not isinstance(answer, str) or not answer.strip():
+        raise AgentProtocolError("liaison returned no answer text")
+    return answer.strip()

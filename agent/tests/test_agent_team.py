@@ -22,6 +22,7 @@ from harmonia_agent.agent_models import (
     DraftSet,
     DraftWorkflowInput,
     DraftWorkflowResult,
+    LiaisonInput,
     MediaEvidence,
     PublishAction,
     StrategistInput,
@@ -30,6 +31,7 @@ from harmonia_agent.agent_models import (
 from harmonia_agent.agents import (
     AgentProtocolError,
     _run_coordinator,
+    _validate_run_output,
     _validate_strategy_result,
     _validated_state,
     analyze_with_team,
@@ -176,6 +178,7 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
         ("ryan_strategist", "single_turn"),
         ("sophia_analyst", "single_turn"),
         ("maya_presenter", "single_turn"),
+        ("nova_liaison", "chat"),
     ]
     workflow_tools = [
         t for t in root.tools
@@ -204,11 +207,12 @@ def test_team_assigns_the_configured_model_to_each_role():
         editor=scripted("editor-fake"),
         planner=scripted("planner-fake"),
         presenter=scripted("presenter-fake"),
+        liaison=scripted("liaison-fake"),
     ))
 
     assert root.model.model == "coordinator-fake"
     assert [agent.model.model for agent in root.sub_agents] == [
-        "strategist-fake", "analyst-fake", "presenter-fake",
+        "strategist-fake", "analyst-fake", "presenter-fake", "liaison-fake",
     ]
     workflow = next(tool.agent for tool in root.tools if tool.name == "flo_draft_workflow")
     assert [agent.model.model for agent in workflow.sub_agents] == [
@@ -280,6 +284,18 @@ def test_missing_agent_state_is_a_permanent_protocol_failure():
     with pytest.raises(ValidationError) as invalid:
         Draft(id="d1", platform="x", text="x" * 281)
     assert classify_failure(invalid.value) is True
+
+
+def test_liaison_must_return_nonempty_answer_text():
+    with pytest.raises(AgentProtocolError, match="no answer text"):
+        _validate_run_output("nova_liaison", LiaisonInput(question="what is pending?"), {})
+    with pytest.raises(AgentProtocolError, match="no answer text"):
+        _validate_run_output("nova_liaison", LiaisonInput(question="q"), {"liaison_answer": "   "})
+    _validate_run_output(
+        "nova_liaison",
+        LiaisonInput(question="q"),
+        {"liaison_answer": "Two jobs await approval."},
+    )
 
 
 def test_strategist_must_return_the_branch_requested_by_its_task():

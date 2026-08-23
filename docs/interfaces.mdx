@@ -34,6 +34,10 @@ Existing action confirmations call the same `/api/jobs/{jobId}/actions/{actionId
 
 Intent parsing uses Gemini structured output in production; keyword rules offline under `HARMONIA_MOCK_AI=1`. Conversations persist per surface so history renders in the console.
 
+### Agent-answered questions
+
+Anything outside the fixed intent grammar no longer dead-ends in canned help: the question is routed to **Nova**, the skill-enabled ADK liaison (`nova_liaison`) running on Vertex AI Agent Engine. Nova loads one of five filesystem skills — `trend-scan`, `job-status`, `signal-watch`, `posting-schedule`, `engagement-insights` — and answers using read-only live tools: Hacker News' official Algolia API for external signals and Harmonia's own authenticated internal API for job state, engagement insights, the operator feed, and derived posting windows. Every claim must come from a tool call made that turn; tool failures are reported as failures, never papered over. The liaison is strictly read-only — approvals and publishing still require the operator's explicit decision, so both chat surfaces inherit this path without bypassing the gate.
+
 The floating Drawer deliberately stays smaller: it reuses the trusted message, attachment, and confirmation renderers while retaining the JSON chat contract.
 
 ## Chat with any item

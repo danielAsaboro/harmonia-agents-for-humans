@@ -44,7 +44,7 @@ Set the [configuration](/configuration) secrets as Cloud Run environment variabl
 
 Deploy Gemma 3 12B IT to a Vertex endpoint first, then set `GEMMA_VERTEX_ENDPOINT` to its full `projects/.../locations/.../endpoints/...` resource. The deployment script requires it and sends each role model ID separately, including `PRESENTER_MODEL_ID` for Maya. The worker identity needs prediction access to that endpoint; scope the binding to the endpoint/project used by Harmonia. There is no drafting fallback if the endpoint is unavailable.
 
-Deploy a fresh cognitive-hierarchy revision for every rollout that changes ADK agents or schemas, then point the Cloud Run worker at the returned resource:
+Deploy a fresh cognitive-hierarchy revision for every rollout that changes ADK agents, schemas, **or skill definitions** (`agent/harmonia_agent/skills/` — the liaison's skills load from the deployed package at import time), then point the Cloud Run worker at the returned resource:
 
 ```bash
 cd agent

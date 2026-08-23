@@ -46,6 +46,7 @@ class RoleModelCatalog(BaseModel):
     editor: RoleModelConfig
     planner: RoleModelConfig
     presenter: RoleModelConfig
+    liaison: RoleModelConfig
 
     def roles(self) -> tuple[RoleModelConfig, ...]:
         return (
@@ -56,6 +57,7 @@ class RoleModelCatalog(BaseModel):
             self.editor,
             self.planner,
             self.presenter,
+            self.liaison,
         )
 
     def model_for(self, role: str) -> RoleModelConfig:
@@ -101,5 +103,8 @@ def load_role_model_catalog() -> RoleModelCatalog:
         ),
         presenter=_gemini(
             "maya_presenter", "PRESENTER_MODEL_ID", "gemini-3.5-flash", 2048,
+        ),
+        liaison=_gemini(
+            "nova_liaison", "LIAISON_MODEL_ID", "gemini-3.5-flash", 2048,
         ),
     )

@@ -205,6 +205,16 @@ def mock_propose_gap_fillers(goals_text: str, learnings_text: str) -> dict:
     }
 
 
+def mock_ask(question: str) -> str:
+    """Deterministic liaison answer for offline dev; cites mock tool shapes."""
+    return (
+        "(mock) Insight agent offline. I would answer "
+        f"'{question[:120]}' by calling fetch_trend_signals, "
+        "get_engagement_insights, get_job_status, or suggest_posting_windows "
+        "and citing only their live results."
+    )
+
+
 def mock_propose_recycle(post_text: str, likes: int) -> dict:
     """A refresh angle for an older top-performing post."""
     return {

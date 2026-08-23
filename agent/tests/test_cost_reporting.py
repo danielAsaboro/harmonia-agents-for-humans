@@ -191,6 +191,7 @@ def test_heterogeneous_draft_usage_keeps_each_actual_role_model():
         editor=ScriptedDraftModel(model="gemini-3.5-flash"),
         planner=ScriptedDraftModel(model="gemini-3.5-flash-lite"),
         presenter=ScriptedDraftModel(model="gemini-3.5-flash"),
+        liaison=ScriptedDraftModel(model="gemini-3.5-flash"),
         configs={
             "nimi_copywriter": RoleModelConfig(
                 role="nimi_copywriter",

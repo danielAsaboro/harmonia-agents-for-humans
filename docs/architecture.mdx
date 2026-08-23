@@ -8,7 +8,7 @@ description: "How Harmonia wires Gemini, ADK, Firestore, Pub/Sub, Cloud Run, and
 ```mermaid
 flowchart TB
     subgraph Clients
-        UI[Web dashboard<br/>Next.js]
+        UI[2:3 editorial studio<br/>conversation + living canvas]
         TG[Telegram bot]
         IDP[Google sign-in<br/>Identity Platform]
     end
@@ -91,6 +91,8 @@ flowchart TB
 ### Generative operator UI
 
 The full Console uses a versioned Harmonia catalog on Google's A2UI v0.9 protocol, rendered by the official `@a2ui/react` and `@a2ui/web_core` packages. The catalog provides trusted renderers for messages, attachment cards, approval confirmations, safe reasoning summaries, activity traces, plans, queues, tool activity, tasks, citations, and measured context usage. A2UI messages are declarative data: the host accepts no generated JavaScript, HTML, CSS, arbitrary React component, or arbitrary callback. Unknown components, invalid HTTP(S) citations, and attachment preview URLs outside the authenticated chat route fail validation.
+
+The dashboard Console is a long-conversation editorial studio, not a stacked card feed. Desktop reserves two fifths for chaptered operator conversation and three fifths for a living cross-media canvas; narrower screens use an explicit Conversation/Studio canvas switcher. Pure selectors derive the active working set, chapters, artifact groups, and source links from persisted history and job records. Written posts, images, clips/reels, audio, transcript evidence, crop/caption-safe metadata, receipts, policy, cost, and verification appear only when corresponding records exist. Validated A2UI components are partitioned by product role: safe summaries and agent activity stay in conversation, artifacts/plans/citations stay on the canvas, and confirmation metadata stays inside the unchanged trusted approval boundary.
 
 `POST /api/chat/stream` creates a tenant-scoped Firestore run and emits schema-validated NDJSON records with monotonic sequence numbers. Each record is persisted before delivery and can be replayed from `GET /api/chat/runs/{id}/events?after={sequence}`. Activity and tool state arrive while the request is executing; the compatibility chat handler currently returns its Gemini answer as one result, which the stream then delivers in bounded deltas. This is transport streaming, not a claim that provider tokens are streamed directly.
 

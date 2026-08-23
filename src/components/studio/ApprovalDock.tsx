@@ -37,7 +37,7 @@ export function ApprovalDock({ jobId, actions, verifications, receipts, busy, on
   if (!pending.length && !approvalOperations.length && !protocolError) return null;
 
   return (
-    <aside className="border-t-2 border-[#161512] bg-[#fffdf7] p-3 shadow-[0_-14px_34px_rgba(22,21,18,0.13)]" aria-label="Approval boundary">
+    <aside className="border-t-2 border-[#161512] bg-[#fffdf7] p-3 pb-20 shadow-[0_-14px_34px_rgba(22,21,18,0.13)] lg:pb-3" aria-label="Approval boundary">
       {protocolError ? <StudioFailure message={`A2UI protocol error: ${protocolError}`} permanent /> : null}
       {approvalOperations.length ? <HarmoniaA2uiHost operations={approvalOperations} onAction={(action) => {
         if (action.name === "decide_operation" && onOperationDecision) {

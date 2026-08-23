@@ -53,7 +53,7 @@ export default function NavRail() {
   }, [pathname]);
 
   return (
-    <nav className="fixed left-3 top-1/2 z-40 -translate-y-1/2 sm:left-4" aria-label="Primary">
+    <nav className="fixed left-3 top-1/2 z-40 hidden -translate-y-1/2 sm:left-4 sm:block" aria-label="Primary">
       <div className="flex flex-col items-center gap-1 rounded-full border border-zinc-200/80 bg-white/80 px-2 py-4 shadow-xl shadow-zinc-900/5 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-900/80">
         <Link
           href="/"

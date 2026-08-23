@@ -17,7 +17,7 @@ export function AgentRunSummary({ run }: { run: ChatRunState }) {
   return (
     <details open={run.status !== "complete"} className="group border-l-2 border-[#3157ff] bg-[#3157ff]/[0.045] px-3 py-2">
       <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-black uppercase tracking-[0.14em] text-[#2340b8]">
-        <span className={`h-2 w-2 rounded-full ${run.status === "running" ? "animate-pulse bg-[#ff5c35]" : run.status === "failed" ? "bg-red-600" : "bg-[#3157ff]"}`} />
+        <span className={`h-2 w-2 rounded-full ${run.status === "running" ? "animate-pulse bg-[#ff5c35] motion-reduce:animate-none" : run.status === "failed" ? "bg-red-600" : "bg-[#3157ff]"}`} />
         {label}
         {totalDuration > 0 ? <span className="ml-auto font-mono font-medium tracking-normal text-black/40">{(totalDuration / 1000).toFixed(1)}s</span> : null}
       </summary>

@@ -82,8 +82,8 @@ const SEGMENTS = [
 ];
 
 const MOMENTS = [
-  { id: "m1", title: "Eleven ceremonial steps", startSec: 6, endSec: 14, hook: "Most onboarding steps exist because someone once asked.", quote: "eleven that were pure ceremony" },
-  { id: "m2", title: "Nine days to forty hours", startSec: 14, endSec: 23, hook: "Activation time collapsed when we deleted instead of added.", quote: "nine days to forty hours" },
+  { id: "m1", title: "Eleven ceremonial steps", startSec: 6, endSec: 14, hook: "Most onboarding steps exist because someone once asked.", quote: "eleven that were pure ceremony", cropSuitability: "good", captionSafeRegion: "lower-third center", visualEvidenceIds: ["s2"] },
+  { id: "m2", title: "Nine days to forty hours", startSec: 14, endSec: 23, hook: "Activation time collapsed when we deleted instead of added.", quote: "nine days to forty hours", cropSuitability: "excellent", captionSafeRegion: "lower-third center", visualEvidenceIds: ["s3"] },
 ];
 const ANGLES = [
   { id: "a1", kind: "trend", title: "Deletion as strategy", rationale: "Founders love 'we removed things' stories; contrarian vs feature-dump launches." },

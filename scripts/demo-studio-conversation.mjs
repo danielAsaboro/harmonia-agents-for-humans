@@ -21,6 +21,6 @@ export function buildDemoStudioConversation({ runId }) {
     ...pair("Put the image, clip, and reel in one working set.", "all three persisted local artifacts are linked side by side.", { intent: "create_job", jobId: "demo-clips", assets: [{ actionId: "act-img-demo01", mime: "image/png" }, { actionId: "act-clip-demo1", mime: "video/mp4" }, { actionId: "act-reel-top2", mime: "video/mp4" }] }),
     ...pair("What still needs my decision?", "one real seeded publish action is waiting and publishing remains blocked.", { intent: "status", jobId: "demo-launch", pendingActions: [pending] }),
     ...pair("Show the final launch post before I decide.", "the persisted launch draft is ready for review.", { intent: "list_drafts", jobId: "demo-launch", drafts: [{ id: "d1", platform: "x", text: "Shipping today: usage-based billing for agent workloads. Pay for outcomes, not idle tokens. Launch post incoming 🚀", valid: true }] }),
-    ...pair("Keep publishing blocked and show the whole checkpoint.", "no decision was submitted; the working set and pending action remain linked without executing it.", { intent: "approve", jobId: "demo-launch", pendingActions: [pending] }),
+    ...pair("Keep publishing blocked and show the whole checkpoint.", "no decision was submitted; the media working set and separate pending launch action remain linked without executing it.", { intent: "approve", jobId: "demo-clips", pendingActions: [pending] }),
   ];
 }

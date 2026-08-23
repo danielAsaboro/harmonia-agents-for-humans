@@ -40,7 +40,8 @@ export function ConversationPane(props: ConversationPaneProps) {
 
   function goToChapter(key: StudioChapter["key"]) {
     setActiveChapter(key);
-    document.getElementById(`chapter-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    document.getElementById(`chapter-${key}`)?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
   }
 
   const liveMessage: StudioConversationMessage | null = props.liveRun?.status === "running"
@@ -85,7 +86,7 @@ export function ConversationPane(props: ConversationPaneProps) {
           })}
           {liveMessage ? <ConversationTurn message={liveMessage} onActivateArtifact={props.onActivateArtifact} onActivateJob={props.onActivateJob} /> : null}
         </div>
-        {awayFromLatest ? <button type="button" onClick={() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })} className="sticky bottom-3 left-1/2 mt-4 -translate-x-1/2 rounded-full bg-[#3157ff] px-4 py-2 text-xs font-bold text-white shadow-xl">↓ Return to latest</button> : null}
+        {awayFromLatest ? <button type="button" onClick={() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" })} className="sticky bottom-3 left-1/2 mt-4 -translate-x-1/2 rounded-full bg-[#3157ff] px-4 py-2 text-xs font-bold text-white shadow-xl">↓ Return to latest</button> : null}
       </div>
 
       <StudioComposer value={props.input} onChange={props.onInputChange} attachments={props.attachments} onAttachmentsChange={props.onAttachmentsChange} onSend={props.onSend} busy={props.busy} />

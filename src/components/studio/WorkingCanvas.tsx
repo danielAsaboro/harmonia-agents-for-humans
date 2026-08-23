@@ -72,7 +72,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
   return (
     <section className="flex h-full min-h-0 flex-col bg-[#ece7dd]">
       <header className="border-b border-black/10 bg-[#fffdf7]/85 px-5 py-4 backdrop-blur">
-        <div className="flex items-center justify-between gap-4"><div><p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#ff5c35]">Living canvas</p><h2 className="font-serif text-2xl">{job ? (job.config.brief || job.config.youtubeUrl || job.id).slice(0, 72) : "No working set selected"}</h2></div>{job ? <div className="hidden items-center gap-2 sm:flex"><span className={`h-2.5 w-2.5 rounded-full ${job.status === "failed" ? "bg-red-600" : job.status === "complete" ? "bg-emerald-500" : "animate-pulse bg-[#3157ff]"}`} /><span className="font-mono text-[10px] uppercase text-black/45">{job.stage}</span></div> : null}</div>
+        <div className="flex items-center justify-between gap-4"><div><p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#ff5c35]">Living canvas</p><h2 className="font-serif text-2xl">{job ? (job.ingestedTitle || job.config.brief || job.config.youtubeUrl || job.id).slice(0, 72) : "No working set selected"}</h2></div>{job ? <div className="hidden items-center gap-2 sm:flex"><span className={`h-2.5 w-2.5 rounded-full ${job.status === "failed" ? "bg-red-600" : job.status === "complete" ? "bg-emerald-500" : "animate-pulse bg-[#3157ff] motion-reduce:animate-none"}`} /><span className="font-mono text-[10px] uppercase text-black/45">{job.stage}</span></div> : null}</div>
         <nav className="mt-4 flex gap-1 overflow-x-auto" aria-label="Canvas views">{tabs.map((tab) => <button key={tab.key} type="button" onClick={() => { setView(tab.key); onSelectedArtifactChange(null); }} aria-current={visibleView === tab.key ? "page" : undefined} className={`shrink-0 border-b-2 px-3 py-2 text-[10px] font-black uppercase tracking-[0.12em] ${visibleView === tab.key ? "border-[#3157ff] text-[#3157ff]" : "border-transparent text-black/40 hover:text-black"}`}>{tab.label}{tab.count !== undefined ? <span className="ml-1.5 font-mono opacity-55">{tab.count}</span> : null}</button>)}</nav>
       </header>
       <div className="flex-1 overflow-y-auto p-5 xl:p-7">
@@ -81,7 +81,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
         {!loading && !error && !job ? <StudioEmpty title="Your working canvas is ready">Start a conversation or open a real job. Written posts, visual concepts, clips, video, audio, sources, policy, and verification will assemble here.</StudioEmpty> : null}
         {!loading && !error && job && model ? <>
           {a2uiError ? <div className="mb-5"><StudioFailure message={`A2UI protocol error: ${a2uiError}`} permanent /></div> : null}
-          {canvasOperations.length ? <HarmoniaA2uiHost operations={canvasOperations} className="mb-5 grid gap-3 xl:grid-cols-2" /> : null}
+          {visibleView === "board" && canvasOperations.length ? <HarmoniaA2uiHost operations={canvasOperations} className="mb-5 flex w-full flex-col gap-3" /> : null}
           {supplemental ? <div className="mb-5">{supplemental}</div> : null}
           {visibleView === "board" ? <ArtifactBoard job={job} model={model} onSelect={selectFromBoard} /> : null}
           {visibleView === "written" ? <WrittenWorkspace job={job} traceLinks={model.traceLinks} selectedArtifactId={selectedArtifactId} onSelect={onSelectedArtifactChange} /> : null}

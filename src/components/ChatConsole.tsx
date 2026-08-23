@@ -46,8 +46,15 @@ interface StudioConsoleViewProps {
 
 export function StudioConsoleView(props: StudioConsoleViewProps) {
   const chapters = useMemo(() => buildStudioChapters(props.messages), [props.messages]);
-  const lastPersistedRun = [...props.messages].reverse().find((message) => message.run)?.run;
-  const canvasRun = props.liveRun ?? lastPersistedRun ?? null;
+  const lastPersistedRunMessage = [...props.messages].reverse().find((message) => message.run);
+  const persistedRunMatchesCanvas = Boolean(
+    lastPersistedRunMessage?.run && props.detail?.job.id && (
+      lastPersistedRunMessage.data?.jobId === props.detail.job.id ||
+      lastPersistedRunMessage.data?.job?.id === props.detail.job.id ||
+      lastPersistedRunMessage.run.jobUpdates.some((update) => update.jobId === props.detail?.job.id)
+    ),
+  );
+  const canvasRun = props.liveRun ?? (persistedRunMatchesCanvas ? lastPersistedRunMessage?.run : null) ?? null;
   return (
     <StudioShell
       mobilePane={props.mobilePane}

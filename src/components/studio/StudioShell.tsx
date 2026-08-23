@@ -60,7 +60,7 @@ export function StudioShell({ conversation, canvas, mobilePane, onMobilePaneChan
 
   return (
     <section ref={rootRef} className={`${styles.grid} h-dvh min-h-[640px] overflow-hidden bg-[#f4f0e8] text-[#161512]`} style={splitStyle}>
-      <div className={`${mobilePane === "conversation" ? "block" : "hidden"} min-w-0 overflow-hidden lg:block`}>
+      <div className={`${mobilePane === "conversation" ? "block" : "hidden"} h-full min-w-0 overflow-hidden lg:block`}>
         {conversation}
       </div>
       <button
@@ -78,7 +78,7 @@ export function StudioShell({ conversation, canvas, mobilePane, onMobilePaneChan
       >
         <span className="absolute left-1/2 top-1/2 h-10 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#8d867b] transition group-hover:bg-[#3157ff]" />
       </button>
-      <div className={`${mobilePane === "canvas" ? "block" : "hidden"} min-w-0 overflow-hidden lg:block`}>
+      <div className={`${mobilePane === "canvas" ? "block" : "hidden"} h-full min-w-0 overflow-hidden lg:block`}>
         {canvas}
       </div>
 

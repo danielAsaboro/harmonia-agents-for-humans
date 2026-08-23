@@ -7,6 +7,7 @@ export interface JobSummary {
   createdAt: string;
   updatedAt: string;
   config: { youtubeUrl?: string; brief?: string; platforms: string[] };
+  ingestedTitle?: string;
   failure?: { stage: Stage; error: string; permanent: boolean; at: string };
   learnings?: { summary: string; notes: string[] };
 }

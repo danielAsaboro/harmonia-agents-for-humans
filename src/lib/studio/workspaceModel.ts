@@ -10,6 +10,12 @@ export interface StudioAsset {
   sizeBytes: number;
   digest: string;
   provider?: "veo" | "lyria";
+  momentId?: string;
+  momentTitle?: string;
+  startSec?: number;
+  endSec?: number;
+  cropSuitability?: "poor" | "fair" | "good" | "excellent";
+  captionSafeRegion?: string;
 }
 
 export interface TraceLink {
@@ -102,6 +108,17 @@ export function buildStudioWorkspace(job: JobFull, receipts: Receipt[]): StudioW
       sizeBytes: asset.sizeBytes,
       digest: asset.digest,
       ...(action ? { provider: providerFor(action.type) } : {}),
+      ...(action?.momentId ? (() => {
+        const moment = job.moments.find((candidate) => candidate.id === action.momentId);
+        return moment ? {
+          momentId: moment.id,
+          momentTitle: moment.title,
+          startSec: moment.startSec,
+          endSec: moment.endSec,
+          cropSuitability: moment.cropSuitability,
+          captionSafeRegion: moment.captionSafeRegion,
+        } : { momentId: action.momentId };
+      })() : {}),
     };
     if (kind === "visual") visual.push(studioAsset);
     if (kind === "motion") motion.push(studioAsset);

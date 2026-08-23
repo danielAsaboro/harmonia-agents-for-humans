@@ -18,7 +18,7 @@ interface StudioComposerProps {
 export function StudioComposer({ value, onChange, attachments, onAttachmentsChange, onSend, busy }: StudioComposerProps) {
   const blocked = busy || !value.trim() || attachments.some((attachment) => attachment.state !== "ready");
   return (
-    <div className="border-t border-black/10 bg-[#f4f0e8]/95 px-4 pb-4 pt-3 backdrop-blur">
+    <div className="border-t border-black/10 bg-[#f4f0e8]/95 px-4 pb-20 pt-3 backdrop-blur lg:pb-4">
       <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1">
         {MODES.map((mode) => (
           <button key={mode} type="button" disabled={busy} onClick={() => onChange(`${mode}: ${value}`.trim())} className="shrink-0 rounded-full border border-black/15 bg-white/55 px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-black/55 hover:border-black hover:text-black disabled:opacity-40">{mode}</button>

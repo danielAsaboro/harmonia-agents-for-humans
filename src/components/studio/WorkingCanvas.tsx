@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import type { JobFull, Receipt } from "@/components/jobTypes";
 import type { TimelineEvent } from "@/components/Timeline";
 import { buildStudioWorkspace } from "@/lib/studio/workspaceModel";
+import { partitionStudioOperations } from "@/lib/a2ui/studioRegions";
+import { HarmoniaA2uiHost } from "@/components/a2ui/HarmoniaCatalog";
 import { ArtifactBoard } from "./ArtifactBoard";
 import { MediaWorkspace } from "./MediaWorkspace";
 import { SourcesWorkspace } from "./SourcesWorkspace";
@@ -22,9 +24,11 @@ interface WorkingCanvasProps {
   onSelectedArtifactChange: (artifactId: string | null) => void;
   onRetry?: () => void;
   supplemental?: React.ReactNode;
+  runId?: string;
+  operations?: unknown[];
 }
 
-export function WorkingCanvas({ job, events, receipts, loading, error, selectedArtifactId, onSelectedArtifactChange, onRetry, supplemental }: WorkingCanvasProps) {
+export function WorkingCanvas({ job, events, receipts, loading, error, selectedArtifactId, onSelectedArtifactChange, onRetry, supplemental, runId, operations = [] }: WorkingCanvasProps) {
   const [view, setView] = useState<CanvasView>("board");
   const model = job ? buildStudioWorkspace(job, receipts) : null;
   const selectedView: CanvasView | null = selectedArtifactId?.startsWith("draft:") ? "written"
@@ -33,6 +37,13 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
         : selectedArtifactId?.startsWith("audio:") ? "audio"
           : null;
   const visibleView = selectedView ?? view;
+  let canvasOperations: unknown[] = [];
+  let a2uiError: string | null = null;
+  try {
+    canvasOperations = runId && operations.length ? partitionStudioOperations(runId, operations).canvas : [];
+  } catch (partitionError) {
+    a2uiError = partitionError instanceof Error ? partitionError.message : String(partitionError);
+  }
 
   useEffect(() => {
     if (!selectedArtifactId) return;
@@ -65,6 +76,8 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
         {!loading && error ? <StudioFailure message={error} onRetry={onRetry} /> : null}
         {!loading && !error && !job ? <StudioEmpty title="Your working canvas is ready">Start a conversation or open a real job. Written posts, visual concepts, clips, video, audio, sources, policy, and verification will assemble here.</StudioEmpty> : null}
         {!loading && !error && job && model ? <>
+          {a2uiError ? <div className="mb-5"><StudioFailure message={`A2UI protocol error: ${a2uiError}`} permanent /></div> : null}
+          {canvasOperations.length ? <HarmoniaA2uiHost operations={canvasOperations} className="mb-5 grid gap-3 xl:grid-cols-2" /> : null}
           {supplemental ? <div className="mb-5">{supplemental}</div> : null}
           {visibleView === "board" ? <ArtifactBoard job={job} model={model} onSelect={selectFromBoard} /> : null}
           {visibleView === "written" ? <WrittenWorkspace job={job} traceLinks={model.traceLinks} selectedArtifactId={selectedArtifactId} onSelect={onSelectedArtifactChange} /> : null}

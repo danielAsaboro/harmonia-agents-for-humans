@@ -98,7 +98,7 @@ export function parseHarmoniaA2uiOperation(operation: unknown) {
   return parsed;
 }
 
-export function HarmoniaA2uiHost({ operations, onAction, onProtocolError }: { operations: unknown[]; onAction?: (action: A2uiClientAction) => void | Promise<void>; onProtocolError?: (error: Error) => void }) {
+export function HarmoniaA2uiHost({ operations, onAction, onProtocolError, className }: { operations: unknown[]; onAction?: (action: A2uiClientAction) => void | Promise<void>; onProtocolError?: (error: Error) => void; className?: string }) {
   const processor = useMemo(() => new MessageProcessor<ReactComponentImplementation>(
     [harmoniaCatalog],
     (action) => onAction?.(action),
@@ -132,5 +132,5 @@ export function HarmoniaA2uiHost({ operations, onAction, onProtocolError }: { op
     }
   }, [onProtocolError, operations, processor]);
 
-  return <div className="flex flex-col gap-2">{protocolError && <p className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">A2UI protocol error: {protocolError}</p>}{surfaces.map((surface) => <A2uiSurface key={surface.id} surface={surface} />)}</div>;
+  return <div className={className ?? "flex flex-col gap-2"}>{protocolError && <p className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">A2UI protocol error: {protocolError}</p>}{surfaces.map((surface) => <A2uiSurface key={surface.id} surface={surface} />)}</div>;
 }

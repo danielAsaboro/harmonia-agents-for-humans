@@ -66,7 +66,7 @@ export interface UsageRecord {
   model: string;
   inputUnits: number;
   outputUnits: number;
-  unitType: "tokens" | "images" | "video_seconds" | "audio_seconds" | "endpoint_seconds";
+  unitType: "tokens" | "images" | "video_seconds" | "audio_seconds" | "endpoint_seconds" | "media_generations";
   estimatedCostUsd: string;
   observedCostUsd?: string;
   pricingVersion: string;
@@ -94,6 +94,8 @@ export type ActionType =
   | "export_content_pack"
   | "publish_x_post"
   | "generate_image"
+  | "generate_veo_broll"
+  | "generate_lyria_soundtrack"
   | "render_clip"
   | "render_reel";
 

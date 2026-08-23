@@ -20,6 +20,15 @@ describe("evaluateActionPolicy", () => {
     expect(d.risk).toBe("low");
     expect(d.requiresApproval).toBe(false);
   });
+
+  it("always gates Veo and Lyria generation behind operator approval", () => {
+    for (const type of ["generate_veo_broll", "generate_lyria_soundtrack"] as const) {
+      const decision = evaluateActionPolicy(type, { prompt: "launch energy" });
+      expect(decision.risk).toBe("medium");
+      expect(decision.requiresApproval).toBe(true);
+      expect(decision.reason).toContain("paid generative media");
+    }
+  });
 });
 
 describe("validateDraftText", () => {

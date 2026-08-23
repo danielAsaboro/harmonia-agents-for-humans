@@ -50,6 +50,13 @@ export function evaluateActionPolicy(
         requiresApproval: false,
         reason: "generates an internal image asset with Gemini; nothing is published",
       };
+    case "generate_veo_broll":
+    case "generate_lyria_soundtrack":
+      return {
+        risk: "medium",
+        requiresApproval: true,
+        reason: "incurs paid generative media usage; output remains internal until separately published",
+      };
     case "render_clip":
     case "render_reel":
       return {

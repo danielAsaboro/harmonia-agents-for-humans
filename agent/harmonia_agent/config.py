@@ -45,6 +45,8 @@ class Settings:
     memory_bank_resource: str | None
     memory_workspace_id: str | None
     memory_brand_id: str | None
+    generative_media_enabled: bool
+    vertex_media_location: str
 
     @classmethod
     def load(cls) -> "Settings":
@@ -85,6 +87,8 @@ class Settings:
             memory_bank_resource=os.environ.get("MEMORY_BANK_RESOURCE") or None,
             memory_workspace_id=os.environ.get("HARMONIA_WORKSPACE_ID") or None,
             memory_brand_id=os.environ.get("HARMONIA_BRAND_ID") or None,
+            generative_media_enabled=_bool_env("GENERATIVE_MEDIA_ENABLED"),
+            vertex_media_location=os.environ.get("VERTEX_MEDIA_LOCATION", "us-central1"),
         )
 
 

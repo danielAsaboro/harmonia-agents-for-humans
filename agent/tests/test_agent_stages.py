@@ -107,3 +107,25 @@ def test_understand_video_passes_direct_source_media_evidence(monkeypatch):
     assert request.media_evidence.duration_sec == 60
     assert request.media_evidence.source_digest == "a" * 64
     assert "hello" in request.transcript
+
+
+def test_paid_media_actions_are_deterministic_and_reference_reviewed_evidence_only():
+    actions = stages.deterministic_generative_media_actions({
+        "ingestedTitle": "Activation launch",
+        "moments": [{
+            "id": "m1", "title": "Dashboard reveal", "visualHook": "Metric rises on screen",
+            "startSec": 1, "endSec": 8,
+        }],
+        "angles": [{
+            "id": "a1", "kind": "trend", "title": "Speed wins",
+            "rationale": "Founders care about activation.",
+        }],
+    })
+
+    assert [action["type"] for action in actions] == [
+        "generate_veo_broll", "generate_lyria_soundtrack",
+    ]
+    assert actions[0]["momentId"] == "m1"
+    assert actions[0]["payload"]["durationSec"] == 4
+    assert actions[1]["payload"]["durationSec"] == 30
+    assert all("requiresApproval" not in action for action in actions)

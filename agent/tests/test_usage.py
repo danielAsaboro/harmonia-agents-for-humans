@@ -5,6 +5,7 @@ from harmonia_agent.usage import (
     UsageAccumulator,
     endpoint_usage_record,
     estimate_request_tokens,
+    media_usage_record,
 )
 
 
@@ -63,3 +64,18 @@ def test_endpoint_usage_records_elapsed_seconds_without_fake_token_pricing():
     assert record.input_units == 2
     assert record.output_units == 0
     assert record.observed_cost_usd is None
+
+
+def test_media_usage_records_one_priced_generation_without_fake_tokens():
+    record = media_usage_record(
+        invocation=InvocationContext(
+            job_id="j1", stage="publish", operation_id="j1:publish:veo1",
+        ),
+        role="veo_generator",
+        model="veo-3.1-fast-generate-001",
+        estimated_cost_usd="0.080000",
+        trace_id="0" * 32,
+    )
+    assert record.unit_type == "media_generations"
+    assert record.input_units == 1
+    assert record.output_units == 0

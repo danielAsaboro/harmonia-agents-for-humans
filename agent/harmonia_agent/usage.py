@@ -45,7 +45,8 @@ class UsageRecord(BaseModel):
     input_units: int
     output_units: int
     unit_type: Literal[
-        "tokens", "images", "video_seconds", "audio_seconds", "endpoint_seconds"
+        "tokens", "images", "video_seconds", "audio_seconds", "endpoint_seconds",
+        "media_generations",
     ] = "tokens"
     estimated_cost_usd: str
     observed_cost_usd: str | None = None
@@ -103,6 +104,30 @@ def endpoint_usage_record(
         input_units=ceil(elapsed_seconds),
         output_units=0,
         unit_type="endpoint_seconds",
+        estimated_cost_usd=estimated_cost_usd,
+        trace_id=trace_id,
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+def media_usage_record(
+    *,
+    invocation: InvocationContext,
+    role: str,
+    model: str,
+    estimated_cost_usd: str,
+    trace_id: str,
+) -> UsageRecord:
+    return UsageRecord(
+        id=f"usage-{sha256(invocation.operation_id.encode()).hexdigest()[:24]}",
+        job_id=invocation.job_id,
+        operation_id=invocation.operation_id,
+        stage=invocation.stage,
+        role=role,
+        model=model,
+        input_units=1,
+        output_units=0,
+        unit_type="media_generations",
         estimated_cost_usd=estimated_cost_usd,
         trace_id=trace_id,
         created_at=datetime.now(timezone.utc).isoformat(),

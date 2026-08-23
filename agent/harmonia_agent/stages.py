@@ -31,15 +31,34 @@ from .agents import (
 )
 from .config import settings
 from .gemma_model import GemmaProtocolError
+from .generative_media import (
+    LYRIA_MODEL,
+    VEO_MODEL,
+    GoogleMediaTransport,
+    LyriaGenerator,
+    MediaProtocolError,
+    MediaProviderError,
+    VeoGenerator,
+)
 from .memory_bank import (
     MemoryProtocolError,
     MemoryProviderError,
     eligible_job_memories,
 )
 from .team_runtime import AgentEngineProtocolError, AgentEngineProviderError
-from .telemetry import inject_context, safe_attributes, tracer
-from .usage import InvocationContext
-from .web_client import WebApiError, get_asset, get_insights, get_job, post as web_post
+from .telemetry import current_trace_id, inject_context, safe_attributes, tracer
+from .usage import InvocationContext, media_usage_record
+from .web_client import (
+    WebApiError,
+    get_asset,
+    get_insights,
+    get_job,
+    get_media_operation,
+    post as web_post,
+    report_usage,
+    reserve_budget,
+    save_media_operation,
+)
 
 logger = logging.getLogger("harmonia.stages")
 Handler = Callable[[str], Awaitable[None]]
@@ -47,6 +66,53 @@ Handler = Callable[[str], Awaitable[None]]
 
 class ClipRenderError(RuntimeError):
     pass
+
+
+def deterministic_generative_media_actions(job: dict[str, Any]) -> list[dict[str, Any]]:
+    """Propose bounded paid media from validated analysis, outside the planner."""
+    title = str(job.get("ingestedTitle") or "startup launch")[:200]
+    moments = [
+        item for item in (job.get("moments") or [])
+        if item.get("id") and item.get("visualHook")
+    ]
+    angles = [item for item in (job.get("angles") or []) if item.get("id")]
+    actions: list[dict[str, Any]] = []
+    if moments:
+        moment = moments[0]
+        prompt = (
+            f"Vertical cinematic b-roll for {title}. Visual beat: {str(moment['visualHook'])[:500]}. "
+            "Abstract product motion, no people, no logos, no text, no dialogue, silent output."
+        )
+        digest = hashlib.sha256(f"veo|{moment['id']}|{prompt}".encode()).hexdigest()[:12]
+        actions.append({
+            "id": f"act-veo-{digest}",
+            "type": "generate_veo_broll",
+            "title": f"Generate Veo b-roll: {str(moment.get('title') or title)[:36]}",
+            "description": "Generate one 4-second 720p vertical b-roll asset with Veo 3.1 Fast (estimated $0.08).",
+            "momentId": moment["id"],
+            "payload": {
+                "type": "generate_veo_broll", "prompt": prompt,
+                "durationSec": 4, "aspectRatio": "9:16",
+            },
+        })
+    angle = angles[0] if angles else None
+    music_concept = str(angle.get("title")) if angle else title
+    prompt = (
+        f"Instrumental 30-second soundtrack for a startup social clip about {music_concept}. "
+        "Optimistic, modern, focused, no vocals, clean ending."
+    )
+    digest = hashlib.sha256(f"lyria|{music_concept}|{prompt}".encode()).hexdigest()[:12]
+    actions.append({
+        "id": f"act-lyria-{digest}",
+        "type": "generate_lyria_soundtrack",
+        "title": f"Generate Lyria soundtrack: {music_concept[:34]}",
+        "description": "Generate one 30-second instrumental clip with Lyria 3 (estimated $0.04).",
+        **({"angleId": angle["id"]} if angle else {}),
+        "payload": {
+            "type": "generate_lyria_soundtrack", "prompt": prompt, "durationSec": 30,
+        },
+    })
+    return actions
 
 
 def _segments_in_window(job: dict[str, Any], start: float, end: float) -> list[dict[str, Any]]:
@@ -266,6 +332,9 @@ async def run_draft(job_id: str) -> None:
                 },
             })
 
+    if settings().generative_media_enabled:
+        actions.extend(deterministic_generative_media_actions(job))
+
     web_post("/api/internal/drafts", {
         "jobId": job_id, "stage": "draft", "drafts": drafts,
         "proposedActions": actions,
@@ -350,6 +419,105 @@ async def run_publish(job_id: str) -> None:
                         "fetchedAt": _now(), "digest": digest,
                     }
                     detail.update({"digest": digest, "mime": mime, "bytes": len(img_bytes)})
+            elif action["type"] in ("generate_veo_broll", "generate_lyria_soundtrack"):
+                if key in done_keys:
+                    outcome, detail["note"] = "already_applied", "receipt exists; skipped"
+                else:
+                    cfg = settings()
+                    payload = action["payload"]
+                    model_id = VEO_MODEL if action["type"] == "generate_veo_broll" else LYRIA_MODEL
+                    cost = "0.080000" if action["type"] == "generate_veo_broll" else "0.040000"
+                    role = "veo_generator" if action["type"] == "generate_veo_broll" else "lyria_generator"
+                    invocation = InvocationContext(
+                        job_id=job_id,
+                        stage="publish",
+                        operation_id=f"{job_id}:publish:{action['id']}",
+                    )
+                    reserve_budget({
+                        "jobId": job_id,
+                        "operationId": invocation.operation_id,
+                        "stage": "publish",
+                        "role": role,
+                        "model": model_id,
+                        "estimatedCostUsd": cost,
+                        "pricingVersion": "2026-08-23",
+                    })
+                    recorded = get_media_operation(job_id, action["id"])
+                    existing_asset = get_asset(job_id, action["id"])
+                    if recorded is not None and existing_asset is not None:
+                        report_usage(media_usage_record(
+                            invocation=invocation,
+                            role=role,
+                            model=model_id,
+                            estimated_cost_usd=cost,
+                            trace_id=current_trace_id(),
+                        ).to_wire())
+                        outcome = "already_applied"
+                        digest = str(existing_asset["digest"])
+                        artifact = {
+                            "kind": "asset_store",
+                            "url": f"/api/jobs/{job_id}/assets/{action['id']}",
+                            "fetchedAt": _now(), "digest": digest,
+                        }
+                        detail.update({
+                            "digest": digest,
+                            "mime": existing_asset["mime"],
+                            "model": model_id,
+                            "providerOperation": recorded["operationName"],
+                            "note": "persisted provider operation and asset already exist",
+                        })
+                        web_post("/api/internal/receipt", {
+                            "jobId": job_id, "actionId": action["id"],
+                            "actionType": action["type"], "idempotencyKey": key,
+                            "outcome": outcome, "artifact": artifact, "detail": detail,
+                        })
+                        continue
+                    transport = GoogleMediaTransport(
+                        project=cfg.gcp_project, location=cfg.vertex_media_location,
+                    )
+                    if action["type"] == "generate_veo_broll":
+                        generated = VeoGenerator(transport=transport).generate(
+                            prompt=payload["prompt"],
+                            duration_sec=int(payload["durationSec"]),
+                            aspect_ratio=payload["aspectRatio"],
+                            existing_operation=(recorded or {}).get("operationName"),
+                            persist_operation=lambda operation_name: save_media_operation(
+                                job_id, action["id"], "veo", operation_name,
+                            ),
+                        )
+                    else:
+                        generated = LyriaGenerator(transport=transport).generate(
+                            prompt=payload["prompt"],
+                            duration_sec=int(payload["durationSec"]),
+                        )
+                        save_media_operation(
+                            job_id, action["id"], "lyria", generated.provider_id,
+                        )
+                    digest = hashlib.sha256(generated.data).hexdigest()
+                    web_post_raw_asset(
+                        job_id, action["id"], generated.mime, digest, generated.data,
+                    )
+                    report_usage(media_usage_record(
+                        invocation=invocation,
+                        role=role,
+                        model=generated.model,
+                        estimated_cost_usd=generated.estimated_cost_usd,
+                        trace_id=current_trace_id(),
+                    ).to_wire())
+                    outcome = "applied"
+                    artifact = {
+                        "kind": "asset_store",
+                        "url": f"/api/jobs/{job_id}/assets/{action['id']}",
+                        "fetchedAt": _now(), "digest": digest,
+                    }
+                    detail.update({
+                        "digest": digest,
+                        "mime": generated.mime,
+                        "bytes": len(generated.data),
+                        "model": generated.model,
+                        "providerOperation": generated.provider_id,
+                        "durationSec": generated.duration_sec,
+                    })
             elif action["type"] in ("render_clip", "render_reel"):
                 if key in done_keys:
                     outcome, detail["note"] = "already_applied", "receipt exists; skipped"
@@ -451,7 +619,10 @@ async def run_verify(job_id: str) -> None:
                 "evidence": {"kind": "firestore_doc", "url": "", "fetchedAt": _now(), "digest": actual},
                 "note": "pack digest matches receipt" if expected == actual else "pack digest mismatch",
             })
-        elif action["type"] in ("generate_image", "render_clip", "render_reel") and detail.get("digest"):
+        elif action["type"] in (
+            "generate_image", "generate_veo_broll", "generate_lyria_soundtrack",
+            "render_clip", "render_reel",
+        ) and detail.get("digest"):
             stored = get_asset(job_id, action["id"])
             actual = (stored or {}).get("digest", "")
             results.append({
@@ -539,9 +710,11 @@ HANDLERS: dict[str, Handler] = {
 def classify_failure(exc: Exception) -> bool:
     if isinstance(exc, (
         AgentProtocolError, AgentEngineProtocolError, GemmaProtocolError,
-        MemoryProtocolError, ValidationError,
+        MediaProtocolError, MemoryProtocolError, ValidationError,
     )):
         return True
+    if isinstance(exc, MediaProviderError):
+        return exc.permanent
     if isinstance(exc, (AgentEngineProviderError, MemoryProviderError)):
         return False
     if isinstance(exc, WebApiError):

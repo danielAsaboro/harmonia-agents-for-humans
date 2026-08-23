@@ -7,6 +7,7 @@ from harmonia_agent.model_catalog import (
     UnknownModelPrice,
     estimate_text_cost,
     lookup_pricing,
+    lookup_media_price,
 )
 
 
@@ -21,3 +22,8 @@ def test_flash_cost_uses_decimal_rates():
 def test_unknown_model_price_is_not_treated_as_free():
     with pytest.raises(UnknownModelPrice):
         estimate_text_cost("unpriced-model", 100, 100)
+
+
+def test_veo_and_lyria_have_explicit_per_generation_costs():
+    assert lookup_media_price("veo-3.1-fast-generate-001") == Decimal("0.080000")
+    assert lookup_media_price("lyria-3-clip-preview") == Decimal("0.040000")

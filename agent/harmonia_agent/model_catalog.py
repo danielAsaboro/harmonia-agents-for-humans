@@ -36,6 +36,11 @@ CATALOG = {
     ),
 }
 
+MEDIA_CATALOG = {
+    "veo-3.1-fast-generate-001": Decimal("0.080000"),
+    "lyria-3-clip-preview": Decimal("0.040000"),
+}
+
 
 def lookup_pricing(model_id: str) -> PricingEntry:
     try:
@@ -53,3 +58,10 @@ def estimate_text_cost(model_id: str, input_tokens: int, output_tokens: int) -> 
         + Decimal(output_tokens) * entry.output_usd_per_million
     ) / MILLION
     return total.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+
+
+def lookup_media_price(model_id: str) -> Decimal:
+    try:
+        return MEDIA_CATALOG[model_id]
+    except KeyError as exc:
+        raise UnknownModelPrice(f"no media price configured for model: {model_id}") from exc

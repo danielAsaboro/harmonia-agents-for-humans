@@ -21,7 +21,7 @@ export const usageRecordSchema = z.object({
   model: z.string().min(1),
   inputUnits: z.number().int().nonnegative(),
   outputUnits: z.number().int().nonnegative(),
-  unitType: z.enum(["tokens", "images", "video_seconds", "audio_seconds", "endpoint_seconds"]),
+  unitType: z.enum(["tokens", "images", "video_seconds", "audio_seconds", "endpoint_seconds", "media_generations"]),
   estimatedCostUsd: usdDecimalSchema,
   observedCostUsd: usdDecimalSchema.optional(),
   pricingVersion: z.string().min(1),
@@ -122,6 +122,8 @@ export const draftsSubmissionSchema = z.object({
           "publish_x_post",
           "export_content_pack",
           "generate_image",
+          "generate_veo_broll",
+          "generate_lyria_soundtrack",
           "render_clip",
           "render_reel",
         ]),
@@ -140,6 +142,17 @@ export const draftsSubmissionSchema = z.object({
             prompt: z.string().min(1).max(4000),
           }),
           z.object({
+            type: z.literal("generate_veo_broll"),
+            prompt: z.string().min(1).max(2000),
+            durationSec: z.literal(4),
+            aspectRatio: z.enum(["16:9", "9:16"]),
+          }),
+          z.object({
+            type: z.literal("generate_lyria_soundtrack"),
+            prompt: z.string().min(1).max(2000),
+            durationSec: z.literal(30),
+          }),
+          z.object({
             type: z.literal("render_clip"),
             momentId: z.string().min(1),
             format: z.enum(["vertical", "square", "native"]).default("vertical"),
@@ -154,7 +167,7 @@ export const draftsSubmissionSchema = z.object({
         ]),
       }),
     )
-    .max(12)
+    .max(20)
     .default([]),
 });
 
@@ -165,6 +178,8 @@ export const receiptSubmissionSchema = z.object({
     "export_content_pack",
     "publish_x_post",
     "generate_image",
+    "generate_veo_broll",
+    "generate_lyria_soundtrack",
     "render_clip",
     "render_reel",
   ]),
@@ -172,6 +187,11 @@ export const receiptSubmissionSchema = z.object({
   outcome: z.enum(["applied", "already_applied", "rejected", "failed"]),
   artifact: evidenceRefSchema.nullable().optional(),
   detail: z.record(z.string(), z.unknown()).default({}),
+});
+
+export const mediaOperationSchema = z.object({
+  provider: z.enum(["veo", "lyria"]),
+  operationName: z.string().min(1).max(1000),
 });
 
 export const verificationSubmissionSchema = z.object({

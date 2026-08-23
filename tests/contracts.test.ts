@@ -52,6 +52,21 @@ describe("internal contracts", () => {
     expect(parsed.moments[0].cropSuitability).toBe("excellent");
   });
 
+  it("accepts bounded Veo and Lyria action contracts", () => {
+    const parsed = draftsSubmissionSchema.safeParse({
+      jobId: "j1", stage: "draft", drafts: [],
+      proposedActions: [
+        { id: "veo1", type: "generate_veo_broll", title: "b-roll", description: "d",
+          momentId: "m1", payload: { type: "generate_veo_broll", prompt: "abstract launch",
+            durationSec: 4, aspectRatio: "9:16" } },
+        { id: "lyria1", type: "generate_lyria_soundtrack", title: "music", description: "d",
+          payload: { type: "generate_lyria_soundtrack", prompt: "instrumental startup pulse",
+            durationSec: 30 } },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
   it("rejects receipts for unknown action types", () => {
     const parsed = receiptSubmissionSchema.safeParse({
       jobId: "j1", actionId: "a1", actionType: "github_upsert_file",

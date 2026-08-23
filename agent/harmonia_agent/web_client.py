@@ -51,6 +51,32 @@ def get_asset(job_id: str, action_id: str) -> dict[str, Any] | None:
     return res.json()
 
 
+def get_media_operation(job_id: str, action_id: str) -> dict[str, Any] | None:
+    with _client() as c:
+        res = c.get(f"/api/internal/job/{job_id}/actions/{action_id}/operation")
+    if res.status_code == 404:
+        return None
+    if res.status_code != 200:
+        raise WebApiError(
+            f"get_media_operation failed: {res.status_code} {res.text}", res.status_code
+        )
+    return res.json()["operation"]
+
+
+def save_media_operation(
+    job_id: str, action_id: str, provider: str, operation_name: str,
+) -> None:
+    with _client() as c:
+        res = c.post(
+            f"/api/internal/job/{job_id}/actions/{action_id}/operation",
+            json={"provider": provider, "operationName": operation_name},
+        )
+    if res.status_code >= 300:
+        raise WebApiError(
+            f"save_media_operation failed: {res.status_code} {res.text}", res.status_code
+        )
+
+
 def get_insights() -> dict[str, Any]:
     """Cross-job reaction insights for the feedback loop (may be empty early)."""
     with _client() as c:

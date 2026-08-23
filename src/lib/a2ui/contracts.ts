@@ -135,6 +135,176 @@ const confirmationSchema = z.object({
   "confirmation must reference either one operation or one job action",
 );
 
+const generatedNode = {
+  children: z.array(id).max(30).default([]),
+  emphasis: z.enum(["primary", "secondary", "compact"]).default("primary"),
+  agentFraming: z.boolean().default(false),
+} as const;
+
+const campaignBriefSchema = baseComponent.extend({
+  component: z.literal("CampaignBrief"),
+  jobId: id,
+  title: z.string().min(1).max(200),
+  brief: z.string().max(4_000),
+  sourceKind: z.enum(["written", "video", "audio", "mixed"]),
+  platforms: z.array(z.string().min(1).max(50)).max(10),
+  angles: z.array(z.object({
+    id,
+    kind: z.enum(["trend", "meme"]),
+    title: z.string().min(1).max(300),
+    rationale: z.string().max(2_000),
+  }).strict()).max(20),
+  ...generatedNode,
+}).strict();
+
+const jobProgressSchema = baseComponent.extend({
+  component: z.literal("JobProgress"),
+  jobId: id,
+  title: z.string().min(1).max(200),
+  stage: z.string().min(1).max(100),
+  status: z.string().min(1).max(100),
+  stages: z.array(planStepSchema).max(20),
+  ...generatedNode,
+}).strict();
+
+const momentExplorerSchema = baseComponent.extend({
+  component: z.literal("MomentExplorer"),
+  jobId: id,
+  title: z.string().min(1).max(200),
+  source: z.object({
+    id,
+    label: z.string().min(1).max(300),
+    kind: z.enum(["video", "audio", "media"]),
+    previewUrl: authorizedPreviewUrl.optional(),
+    externalUrl: httpUrl.optional(),
+    durationSec: z.number().nonnegative().optional(),
+  }).strict().optional(),
+  moments: z.array(z.object({
+    id,
+    title: z.string().min(1).max(300),
+    startSec: z.number().nonnegative(),
+    endSec: z.number().nonnegative(),
+    hook: z.string().max(2_000),
+    quote: z.string().max(4_000),
+    visualHook: z.string().max(2_000).optional(),
+    cropSuitability: z.enum(["poor", "fair", "good", "excellent"]).optional(),
+    selected: z.boolean(),
+  }).strict()).max(20),
+  transcript: z.array(z.object({
+    id,
+    startSec: z.number().nonnegative(),
+    endSec: z.number().nonnegative(),
+    text: z.string().max(5_000),
+  }).strict()).max(200),
+  ...generatedNode,
+}).strict();
+
+const hydratedDraftSchema = z.object({
+  id,
+  platform: z.string().min(1).max(50),
+  text: z.string().max(20_000),
+  valid: z.boolean(),
+  validationNote: z.string().max(2_000).optional(),
+  momentId: id.optional(),
+  angleId: id.optional(),
+  selected: z.boolean(),
+  sourceCount: z.number().int().nonnegative(),
+}).strict();
+
+const draftComparisonSchema = baseComponent.extend({
+  component: z.literal("DraftComparison"),
+  jobId: id,
+  title: z.string().min(1).max(200),
+  drafts: z.array(hydratedDraftSchema).min(1).max(20),
+  ...generatedNode,
+}).strict();
+
+const platformPreviewSchema = baseComponent.extend({
+  component: z.literal("PlatformPreview"),
+  jobId: id,
+  title: z.string().min(1).max(200),
+  draft: hydratedDraftSchema,
+  assets: z.array(z.object({
+    actionId: id,
+    mime: z.string().min(1).max(120),
+    previewUrl: authorizedPreviewUrl,
+  }).strict()).max(20),
+  ...generatedNode,
+}).strict();
+
+const sourceEvidenceSchema = baseComponent.extend({
+  component: z.literal("SourceEvidence"),
+  jobId: id,
+  title: z.string().min(1).max(200),
+  sources: z.array(z.object({
+    id,
+    kind: z.enum(["video", "audio", "media", "transcript", "moment", "angle", "receipt"]),
+    label: z.string().min(1).max(300),
+    url: httpUrl.optional(),
+    excerpt: z.string().max(4_000).optional(),
+  }).strict()).min(1).max(100),
+  links: z.array(z.object({
+    fromId: id,
+    toId: id,
+    label: z.string().min(1).max(200),
+  }).strict()).max(200),
+  ...generatedNode,
+}).strict();
+
+const approvalReviewSchema = baseComponent.extend({
+  component: z.literal("ApprovalReview"),
+  jobId: id,
+  actionId: id,
+  actionType: z.string().min(1).max(100),
+  title: z.string().min(1).max(500),
+  description: z.string().max(2_000),
+  risk: z.enum(["low", "medium", "high"]),
+  requiresApproval: z.boolean(),
+  approvalState: z.enum(["not_required", "pending", "approved", "rejected"]),
+  actionState: z.enum(["planned", "executed", "skipped", "failed"]),
+  destination: z.string().max(200).optional(),
+  previewText: z.string().max(20_000).optional(),
+  ...generatedNode,
+}).strict();
+
+const verificationReceiptSchema = baseComponent.extend({
+  component: z.literal("VerificationReceipt"),
+  jobId: id,
+  receiptId: id,
+  actionId: id,
+  actionType: z.string().min(1).max(100),
+  title: z.string().min(1).max(500),
+  performedAt: z.string().datetime(),
+  outcome: z.enum(["applied", "already_applied", "rejected", "failed"]),
+  verified: z.boolean(),
+  verificationMethod: z.string().max(500).optional(),
+  verificationNote: z.string().max(2_000).optional(),
+  artifact: z.object({
+    kind: z.string().min(1).max(100),
+    url: httpUrl.optional(),
+    digest: z.string().max(500).nullable().optional(),
+  }).strict().optional(),
+  ...generatedNode,
+}).strict();
+
+const surfaceStateBase = {
+  title: z.string().min(1).max(200),
+  message: z.string().max(2_000),
+  ...generatedNode,
+} as const;
+const surfaceLoadingSchema = baseComponent.extend({ component: z.literal("SurfaceLoading"), ...surfaceStateBase }).strict();
+const surfaceEmptySchema = baseComponent.extend({ component: z.literal("SurfaceEmpty"), ...surfaceStateBase }).strict();
+const surfaceUnresolvedSchema = baseComponent.extend({
+  component: z.literal("SurfaceUnresolved"),
+  ...surfaceStateBase,
+  missingRefs: z.array(id).min(1).max(100),
+}).strict();
+const surfaceFailureSchema = baseComponent.extend({
+  component: z.literal("SurfaceFailure"),
+  ...surfaceStateBase,
+  retryable: z.boolean(),
+}).strict();
+
 export const catalogComponentSchema = z.discriminatedUnion("component", [
   activityTraceSchema,
   reasoningSummarySchema,
@@ -147,6 +317,18 @@ export const catalogComponentSchema = z.discriminatedUnion("component", [
   contextUsageSchema,
   messageContentSchema,
   confirmationSchema,
+  campaignBriefSchema,
+  jobProgressSchema,
+  momentExplorerSchema,
+  draftComparisonSchema,
+  platformPreviewSchema,
+  sourceEvidenceSchema,
+  approvalReviewSchema,
+  verificationReceiptSchema,
+  surfaceLoadingSchema,
+  surfaceEmptySchema,
+  surfaceUnresolvedSchema,
+  surfaceFailureSchema,
 ]);
 
 export type HarmoniaCatalogComponent = z.infer<typeof catalogComponentSchema>;

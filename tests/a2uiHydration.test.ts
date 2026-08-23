@@ -1,0 +1,122 @@
+import { describe, expect, it } from "vitest";
+import type { JobFull, Receipt } from "../src/components/jobTypes";
+import { hydrateSurfacePlan } from "../src/lib/a2ui/hydrateSurfacePlan";
+import type { SurfacePlan } from "../src/lib/a2ui/presentationContracts";
+
+const job: JobFull = {
+  id: "job-1",
+  status: "waiting_for_approval",
+  stage: "awaiting_approval",
+  createdAt: "2026-08-23T00:00:00.000Z",
+  updatedAt: "2026-08-23T00:01:00.000Z",
+  config: { brief: "Lead with measurable outcomes", platforms: ["x"] },
+  transcriptSegments: [{ id: "segment-1", startSec: 4, endSec: 12, text: "We cut setup time by half." }],
+  moments: [{ id: "moment-1", title: "Setup time proof", startSec: 4, endSec: 12, hook: "Half the setup time", quote: "We cut setup time by half." }],
+  angles: [],
+  drafts: [{ id: "draft-1", platform: "x", text: "Half the setup. More time shipping.", valid: true, momentId: "moment-1" }],
+  actions: [{
+    id: "publish-1",
+    jobId: "job-1",
+    type: "publish_x_post",
+    title: "Publish outcome post",
+    description: "Publish the approved X draft.",
+    risk: "high",
+    requiresApproval: true,
+    approvalState: "pending",
+    payload: { text: "Half the setup. More time shipping." },
+    state: "planned",
+  }],
+  assets: [],
+};
+
+const receipts: Receipt[] = [{
+  id: "receipt-1",
+  jobId: "job-1",
+  actionId: "publish-1",
+  idempotencyKey: "key-1",
+  actionType: "publish_x_post",
+  performedAt: "2026-08-23T00:02:00.000Z",
+  outcome: "applied",
+  detail: { remoteId: "post-1" },
+}];
+
+function plan(slot: "canvas" | "conversation" | "approval", node: SurfacePlan["surfaces"][number]["nodes"][number]): SurfacePlan {
+  return {
+    version: "harmonia.ui/v1",
+    surfaces: [{ slot, revision: 1, rootId: node.id, nodes: [node] }],
+  };
+}
+
+describe("A2UI trusted hydration", () => {
+  it("hydrates approval risk and content from the persisted action", () => {
+    const result = hydrateSurfacePlan({
+      runId: "run-1",
+      plan: plan("approval", {
+        id: "approval",
+        component: "ApprovalReview",
+        title: "Decision needed",
+        emphasis: "primary",
+        refs: { jobId: "job-1", actionIds: ["publish-1"], draftIds: [], momentIds: [], sourceIds: [], assetActionIds: [], receiptIds: [] },
+        children: [],
+      }),
+      job,
+      receipts,
+    });
+
+    const serialized = JSON.stringify(result.approval);
+    expect(serialized).toContain('"risk":"high"');
+    expect(serialized).toContain('"actionId":"publish-1"');
+    expect(serialized).toContain("Half the setup. More time shipping.");
+    expect(serialized).toContain('"agentFraming":true');
+  });
+
+  it("renders an unresolved component for a stale draft reference", () => {
+    const result = hydrateSurfacePlan({
+      runId: "run-1",
+      plan: plan("canvas", {
+        id: "drafts",
+        component: "DraftComparison",
+        emphasis: "primary",
+        refs: { jobId: "job-1", draftIds: ["missing-draft"], momentIds: [], sourceIds: [], assetActionIds: [], actionIds: [], receiptIds: [] },
+        children: [],
+      }),
+      job,
+      receipts,
+    });
+
+    const serialized = JSON.stringify(result.canvas);
+    expect(serialized).toContain("SurfaceUnresolved");
+    expect(serialized).toContain("missing-draft");
+    expect(serialized).not.toContain("DraftComparison");
+  });
+
+  it("keeps generated node hierarchy and revision in v0.9 operations", () => {
+    const result = hydrateSurfacePlan({
+      runId: "run-9",
+      plan: {
+        version: "harmonia.ui/v1",
+        surfaces: [{
+          slot: "canvas",
+          revision: 3,
+          rootId: "brief",
+          nodes: [
+            { id: "brief", component: "CampaignBrief", emphasis: "primary", refs: { jobId: "job-1", draftIds: [], momentIds: [], sourceIds: [], assetActionIds: [], actionIds: [], receiptIds: [] }, children: ["drafts"] },
+            { id: "drafts", component: "DraftComparison", emphasis: "secondary", refs: { jobId: "job-1", draftIds: ["draft-1"], momentIds: [], sourceIds: [], assetActionIds: [], actionIds: [], receiptIds: [] }, children: [] },
+          ],
+        }],
+      },
+      job,
+      receipts,
+    });
+
+    expect(result.canvas[0]).toEqual({
+      version: "v0.9",
+      createSurface: { surfaceId: "studio-run-9-canvas-r3", catalogId: "https://harmonia.app/a2ui/catalogs/chat/v1" },
+    });
+    const update = result.canvas[1] as { updateComponents: { components: Array<Record<string, unknown>> } };
+    expect(update.updateComponents.components).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "brief", component: "CampaignBrief", children: ["drafts"] }),
+      expect.objectContaining({ id: "drafts", component: "DraftComparison" }),
+    ]));
+  });
+});

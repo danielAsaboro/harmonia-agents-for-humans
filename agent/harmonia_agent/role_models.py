@@ -45,6 +45,7 @@ class RoleModelCatalog(BaseModel):
     copywriter: RoleModelConfig
     editor: RoleModelConfig
     planner: RoleModelConfig
+    presenter: RoleModelConfig
 
     def roles(self) -> tuple[RoleModelConfig, ...]:
         return (
@@ -54,6 +55,7 @@ class RoleModelCatalog(BaseModel):
             self.copywriter,
             self.editor,
             self.planner,
+            self.presenter,
         )
 
     def model_for(self, role: str) -> RoleModelConfig:
@@ -96,5 +98,8 @@ def load_role_model_catalog() -> RoleModelCatalog:
         ),
         planner=_gemini(
             "temi_planner", "PLANNER_MODEL_ID", "gemini-3.5-flash-lite", 1024,
+        ),
+        presenter=_gemini(
+            "maya_presenter", "PRESENTER_MODEL_ID", "gemini-3.5-flash", 2048,
         ),
     )

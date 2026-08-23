@@ -13,6 +13,7 @@ def test_roles_do_not_collapse_to_one_global_model(monkeypatch):
     monkeypatch.setenv("COPYWRITER_MODEL_ID", "gemma-3-12b-it")
     monkeypatch.setenv("EDITOR_MODEL_ID", "gemini-3.5-flash")
     monkeypatch.setenv("PLANNER_MODEL_ID", "gemini-3.5-flash-lite")
+    monkeypatch.setenv("PRESENTER_MODEL_ID", "gemini-3.5-flash")
     monkeypatch.setenv(
         "GEMMA_VERTEX_ENDPOINT",
         "projects/p/locations/us-central1/endpoints/123",
@@ -23,6 +24,7 @@ def test_roles_do_not_collapse_to_one_global_model(monkeypatch):
     assert catalog.coordinator.model_id == "gemini-3.5-flash-lite"
     assert catalog.copywriter.provider == "vertex_endpoint"
     assert catalog.copywriter.endpoint.endswith("/endpoints/123")
+    assert catalog.presenter.model_id == "gemini-3.5-flash"
     assert len({item.model_id for item in catalog.roles()}) >= 3
 
 

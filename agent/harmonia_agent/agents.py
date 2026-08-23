@@ -24,6 +24,7 @@ from .agent_models import (
     StrategistResult,
     validate_draft_references,
 )
+from .a2ui_models import SurfacePlan, UiContext
 from .config import settings
 from .gemma_model import VertexGemmaModel
 from .model_catalog import PRICING_VERSION, estimate_text_cost
@@ -59,6 +60,7 @@ _SPECIALIST_ROLES = {
     "flo_draft_workflow": (
         "harmonia_coordinator", "nimi_copywriter", "dara_editor", "temi_planner",
     ),
+    "maya_presenter": ("harmonia_coordinator", "maya_presenter"),
 }
 _MAX_OUTPUT_TOKENS = {
     "harmonia_coordinator": 1024,
@@ -67,6 +69,7 @@ _MAX_OUTPUT_TOKENS = {
     "nimi_copywriter": 2048,
     "dara_editor": 2048,
     "temi_planner": 1024,
+    "maya_presenter": 2048,
 }
 
 
@@ -82,6 +85,7 @@ class RoleModelInstances:
     copywriter: str | BaseLlm
     editor: str | BaseLlm
     planner: str | BaseLlm
+    presenter: str | BaseLlm
     configs: dict[str, RoleModelConfig] = field(default_factory=dict)
 
     def model_for(self, role: str) -> str | BaseLlm:
@@ -92,6 +96,7 @@ class RoleModelInstances:
             "nimi_copywriter": self.copywriter,
             "dara_editor": self.editor,
             "temi_planner": self.planner,
+            "maya_presenter": self.presenter,
         }
         try:
             return mapping[role]
@@ -137,6 +142,7 @@ def _resolve_role_models(
             copywriter=shared,
             editor=shared,
             planner=shared,
+            presenter=shared,
         )
     _model(None)  # Preserve Google Gen AI environment initialization.
     catalog = load_role_model_catalog()
@@ -151,6 +157,7 @@ def _resolve_role_models(
         ),
         editor=catalog.editor.model_id,
         planner=catalog.planner.model_id,
+        presenter=catalog.presenter.model_id,
         configs=configs,
     )
 
@@ -227,6 +234,24 @@ def build_agent_team(
         mode="single_turn",
         before_model_callback=attach_media_evidence,
     )
+    presenter = Agent(
+        model=resolved.presenter,
+        name="maya_presenter",
+        description=(
+            "Composes trustworthy Harmonia A2UI workspaces from bounded entity references."
+        ),
+        instruction=(
+            "Compose the smallest useful Harmonia interface for the supplied operator intent. "
+            "Use only component names and entity identifiers present in UiContext. "
+            "Never invent domain content, status, risk, cost, URLs, actions, receipts, or evidence. "
+            "Prefer one canvas surface; add conversation or approval surfaces only when useful. "
+            "Return only the SurfacePlan JSON contract."
+        ),
+        input_schema=UiContext,
+        output_schema=SurfacePlan,
+        output_key="surface_plan",
+        mode="single_turn",
+    )
     copywriter = Agent(
         model=resolved.copywriter,
         name="nimi_copywriter",
@@ -277,11 +302,12 @@ def build_agent_team(
         instruction=(
             "Delegate exactly once to the specialist named in the user's task instruction. Use "
             "ryan_strategist for strategy, sophia_analyst for transcript analysis, and "
-            "flo_draft_workflow for the ordered draft-edit-plan workflow. Never answer the task "
+            "flo_draft_workflow for the ordered draft-edit-plan workflow, and maya_presenter "
+            "for a reference-only A2UI surface plan. Never answer the task "
             "yourself and never call "
             "publishing or approval systems."
         ),
-        sub_agents=[strategist, analyst],
+        sub_agents=[strategist, analyst, presenter],
         tools=[AgentTool(draft_workflow)],
     )
 
@@ -304,6 +330,9 @@ def _validated_state(state: dict[str, Any], key: str, schema: type[T]) -> T:
 def _validate_run_output(
     specialist: str, payload: BaseModel, state: dict[str, Any],
 ) -> None:
+    if specialist == "maya_presenter":
+        _validated_state(state, "surface_plan", SurfacePlan)
+        return
     if specialist == "sophia_analyst":
         result = _validated_state(state, "analysis_result", AnalysisResult)
         analyst_input = AnalystInput.model_validate(payload)

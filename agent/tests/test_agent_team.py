@@ -175,6 +175,7 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
     assert [(a.name, a.mode) for a in root.sub_agents] == [
         ("ryan_strategist", "single_turn"),
         ("sophia_analyst", "single_turn"),
+        ("maya_presenter", "single_turn"),
     ]
     workflow_tools = [
         t for t in root.tools
@@ -202,11 +203,12 @@ def test_team_assigns_the_configured_model_to_each_role():
         copywriter=scripted("gemma-fake"),
         editor=scripted("editor-fake"),
         planner=scripted("planner-fake"),
+        presenter=scripted("presenter-fake"),
     ))
 
     assert root.model.model == "coordinator-fake"
     assert [agent.model.model for agent in root.sub_agents] == [
-        "strategist-fake", "analyst-fake",
+        "strategist-fake", "analyst-fake", "presenter-fake",
     ]
     workflow = next(tool.agent for tool in root.tools if tool.name == "flo_draft_workflow")
     assert [agent.model.model for agent in workflow.sub_agents] == [

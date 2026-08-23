@@ -35,6 +35,7 @@ from harmonia_agent.agents import (
     build_agent_team,
     draft_with_team,
     strategize_with_team,
+    RoleModelInstances,
 )
 from harmonia_agent.stages import classify_failure
 
@@ -154,6 +155,29 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
     ]
     assert [a.output_key for a in workflow.sub_agents] == [
         "copywriter_drafts", "reviewed_drafts", "action_plan",
+    ]
+
+
+def test_team_assigns_the_configured_model_to_each_role():
+    def scripted(name: str) -> ScriptedDraftModel:
+        return ScriptedDraftModel(model=name)
+
+    root = build_agent_team(models=RoleModelInstances(
+        coordinator=scripted("coordinator-fake"),
+        strategist=scripted("strategist-fake"),
+        analyst=scripted("analyst-fake"),
+        copywriter=scripted("gemma-fake"),
+        editor=scripted("editor-fake"),
+        planner=scripted("planner-fake"),
+    ))
+
+    assert root.model.model == "coordinator-fake"
+    assert [agent.model.model for agent in root.sub_agents] == [
+        "strategist-fake", "analyst-fake",
+    ]
+    workflow = next(tool.agent for tool in root.tools if tool.name == "flo_draft_workflow")
+    assert [agent.model.model for agent in workflow.sub_agents] == [
+        "gemma-fake", "editor-fake", "planner-fake",
     ]
 
 

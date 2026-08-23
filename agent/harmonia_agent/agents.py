@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 from google.adk.agents import Agent, SequentialAgent
@@ -27,6 +28,7 @@ from .agent_models import (
     validate_draft_references,
 )
 from .config import settings
+from .gemma_model import VertexGemmaModel
 from .model_catalog import PRICING_VERSION, estimate_text_cost
 from .mock_ai import (
     mock_ai_enabled,
@@ -39,7 +41,13 @@ from .mock_ai import (
     mock_propose_recycle,
 )
 from .telemetry import current_trace_id, safe_attributes, tracer
-from .usage import InvocationContext, UsageAccumulator, estimate_request_tokens
+from .role_models import RoleModelConfig, load_role_model_catalog
+from .usage import (
+    InvocationContext,
+    UsageAccumulator,
+    endpoint_usage_record,
+    estimate_request_tokens,
+)
 from .web_client import report_usage, reserve_budget
 
 T = TypeVar("T", bound=BaseModel)
@@ -65,6 +73,41 @@ class AgentProtocolError(RuntimeError):
     """The agent team returned missing or contract-invalid structured output."""
 
 
+@dataclass(frozen=True)
+class RoleModelInstances:
+    coordinator: str | BaseLlm
+    strategist: str | BaseLlm
+    analyst: str | BaseLlm
+    copywriter: str | BaseLlm
+    editor: str | BaseLlm
+    planner: str | BaseLlm
+    configs: dict[str, RoleModelConfig] = field(default_factory=dict)
+
+    def model_for(self, role: str) -> str | BaseLlm:
+        mapping = {
+            "harmonia_coordinator": self.coordinator,
+            "ryan_strategist": self.strategist,
+            "sophia_analyst": self.analyst,
+            "nimi_copywriter": self.copywriter,
+            "dara_editor": self.editor,
+            "temi_planner": self.planner,
+        }
+        try:
+            return mapping[role]
+        except KeyError as exc:
+            raise KeyError(f"unknown agent role: {role}") from exc
+
+    def config_for(self, role: str) -> RoleModelConfig:
+        if role in self.configs:
+            return self.configs[role]
+        return RoleModelConfig(
+            role=role,
+            provider="gemini",
+            model_id=_instance_model_id(self.model_for(role)),
+            max_output_tokens=_MAX_OUTPUT_TOKENS[role],
+        )
+
+
 def _model(model: str | BaseLlm | None = None) -> str | BaseLlm:
     cfg = settings()
     if cfg.gemini_api_key:
@@ -72,43 +115,84 @@ def _model(model: str | BaseLlm | None = None) -> str | BaseLlm:
     return model or cfg.model_id
 
 
-def _model_id(model: str | BaseLlm | None) -> str:
-    resolved = _model(model)
-    return resolved if isinstance(resolved, str) else resolved.model
+def _instance_model_id(model: str | BaseLlm) -> str:
+    return model if isinstance(model, str) else model.model
+
+
+def _resolve_role_models(
+    model: str | BaseLlm | None = None,
+    models: RoleModelInstances | None = None,
+) -> RoleModelInstances:
+    if model is not None and models is not None:
+        raise ValueError("pass model or models, not both")
+    if models is not None:
+        return models
+    if model is not None:
+        shared = _model(model)
+        return RoleModelInstances(
+            coordinator=shared,
+            strategist=shared,
+            analyst=shared,
+            copywriter=shared,
+            editor=shared,
+            planner=shared,
+        )
+    _model(None)  # Preserve Google Gen AI environment initialization.
+    catalog = load_role_model_catalog()
+    configs = {item.role: item for item in catalog.roles()}
+    return RoleModelInstances(
+        coordinator=catalog.coordinator.model_id,
+        strategist=catalog.strategist.model_id,
+        analyst=catalog.analyst.model_id,
+        copywriter=VertexGemmaModel(
+            model=catalog.copywriter.model_id,
+            endpoint=catalog.copywriter.endpoint or "",
+        ),
+        editor=catalog.editor.model_id,
+        planner=catalog.planner.model_id,
+        configs=configs,
+    )
 
 
 def _reservation_payloads(
     specialist: str,
     payload: BaseModel,
     invocation: InvocationContext,
-    model_id: str,
+    models: RoleModelInstances,
 ) -> list[dict[str, object]]:
     serialized = payload.model_dump_json(exclude_none=True)
     reservations: list[dict[str, object]] = []
     for role in _SPECIALIST_ROLES[specialist]:
+        config = models.config_for(role)
+        model_id = _instance_model_id(models.model_for(role))
         estimated_input, estimated_output = estimate_request_tokens(
             serialized * (2 if role == "harmonia_coordinator" else 1),
-            _MAX_OUTPUT_TOKENS[role],
+            config.max_output_tokens,
         )
+        estimated_cost = config.reservation_usd or str(estimate_text_cost(
+            model_id, estimated_input, estimated_output,
+        ))
         reservations.append({
             "jobId": invocation.job_id,
             "operationId": invocation.role_operation_id(role),
             "stage": invocation.stage,
             "role": role,
             "model": model_id,
-            "estimatedCostUsd": str(estimate_text_cost(
-                model_id, estimated_input, estimated_output,
-            )),
+            "estimatedCostUsd": estimated_cost,
             "pricingVersion": PRICING_VERSION,
         })
     return reservations
 
 
-def build_agent_team(model: str | BaseLlm | None = None) -> Agent:
+def build_agent_team(
+    model: str | BaseLlm | None = None,
+    *,
+    models: RoleModelInstances | None = None,
+) -> Agent:
     """Build one coordinator with two delegated specialists and one draft workflow."""
-    llm = _model(model)
+    resolved = _resolve_role_models(model, models)
     strategist = Agent(
-        model=llm,
+        model=resolved.strategist,
         name="ryan_strategist",
         description=(
             "Develops startup content strategy from briefs, trend signals, calendar gaps, "
@@ -126,7 +210,7 @@ def build_agent_team(model: str | BaseLlm | None = None) -> Agent:
         mode="single_turn",
     )
     analyst = Agent(
-        model=llm,
+        model=resolved.analyst,
         name="sophia_analyst",
         description="Finds clip-worthy moments and defensible trend or meme angles in a transcript.",
         instruction=(
@@ -140,7 +224,7 @@ def build_agent_team(model: str | BaseLlm | None = None) -> Agent:
         mode="single_turn",
     )
     copywriter = Agent(
-        model=llm,
+        model=resolved.copywriter,
         name="nimi_copywriter",
         description="Writes platform-native X drafts grounded in supplied moments and angles.",
         instruction=(
@@ -153,7 +237,7 @@ def build_agent_team(model: str | BaseLlm | None = None) -> Agent:
         output_key="copywriter_drafts",
     )
     editor = Agent(
-        model=llm,
+        model=resolved.editor,
         name="dara_editor",
         description="Performs one editorial revision pass against brand voice and source grounding.",
         instruction=(
@@ -166,7 +250,7 @@ def build_agent_team(model: str | BaseLlm | None = None) -> Agent:
         output_key="reviewed_drafts",
     )
     planner = Agent(
-        model=llm,
+        model=resolved.planner,
         name="temi_planner",
         description="Selects reviewed X drafts for operator-approved publishing actions.",
         instruction=(
@@ -183,7 +267,7 @@ def build_agent_team(model: str | BaseLlm | None = None) -> Agent:
         sub_agents=[copywriter, editor, planner],
     )
     return Agent(
-        model=llm,
+        model=resolved.coordinator,
         name="harmonia_coordinator",
         description="Routes Harmonia judgment tasks to typed specialists; never performs external effects.",
         instruction=(
@@ -244,16 +328,19 @@ async def _run_coordinator(
     payload: BaseModel,
     *,
     model: str | BaseLlm | None = None,
+    models: RoleModelInstances | None = None,
     invocation: InvocationContext | None = None,
     budget_reserver: Callable[[dict[str, object]], None] = reserve_budget,
     usage_reporter: Callable[[dict[str, object]], None] = report_usage,
 ) -> dict[str, Any]:
-    model_id = _model_id(model)
+    resolved = _resolve_role_models(model, models)
+    coordinator_model_id = _instance_model_id(resolved.coordinator)
     roles = _SPECIALIST_ROLES[specialist]
     accumulators: dict[str, UsageAccumulator] = {}
+    endpoint_seconds: dict[str, float] = {}
     if invocation is not None:
         for reservation in _reservation_payloads(
-            specialist, payload, invocation, model_id,
+            specialist, payload, invocation, resolved,
         ):
             budget_reserver(reservation)
         accumulators = {
@@ -262,12 +349,12 @@ async def _run_coordinator(
                 operation_id=invocation.role_operation_id(role),
                 stage=invocation.stage,
                 role=role,
-                model=model_id,
+                model=_instance_model_id(resolved.model_for(role)),
             )
             for role in roles
         }
     service = InMemorySessionService()
-    root = build_agent_team(model)
+    root = build_agent_team(models=resolved)
     runner = Runner(agent=root, app_name="harmonia", session_service=service)
     state = payload.model_dump(mode="json")
     state["requested_specialist"] = specialist
@@ -282,11 +369,15 @@ async def _run_coordinator(
                 "job.id": invocation.job_id if invocation else None,
                 "stage": invocation.stage if invocation else None,
                 "agent": specialist,
-                "model": model_id,
+                "model": coordinator_model_id,
             }))
             invoke_span.add_event("harmonia.agent.delegate", safe_attributes({
                 "agent": specialist,
-                "model": model_id,
+                "model": _instance_model_id(
+                    resolved.model_for(specialist)
+                    if specialist in {"sophia_analyst", "ryan_strategist"}
+                    else resolved.copywriter
+                ),
             }))
             try:
                 with tracer().start_as_current_span("harmonia.model.generate") as model_span:
@@ -294,7 +385,7 @@ async def _run_coordinator(
                         "job.id": invocation.job_id if invocation else None,
                         "stage": invocation.stage if invocation else None,
                         "agent": specialist,
-                        "model": model_id,
+                        "model": coordinator_model_id,
                     }))
                     async for event in runner.run_async(
                         user_id="system",
@@ -304,6 +395,12 @@ async def _run_coordinator(
                         accumulator = accumulators.get(getattr(event, "author", ""))
                         if accumulator is not None:
                             accumulator.observe_event(event)
+                        metadata = getattr(event, "custom_metadata", None) or {}
+                        elapsed = metadata.get("harmonia_endpoint_seconds")
+                        if accumulator is not None and isinstance(elapsed, (int, float)):
+                            endpoint_seconds[event.author] = (
+                                endpoint_seconds.get(event.author, 0.0) + float(elapsed)
+                            )
                     model_span.set_attributes(safe_attributes({
                         "input.units": sum(a.input_tokens for a in accumulators.values()),
                         "output.units": sum(a.output_tokens for a in accumulators.values()),
@@ -320,7 +417,19 @@ async def _run_coordinator(
             if invocation is not None:
                 trace_id = current_trace_id()
                 for role in roles:
-                    usage_reporter(accumulators[role].finalize(trace_id=trace_id).to_wire())
+                    config = resolved.config_for(role)
+                    if config.provider == "vertex_endpoint":
+                        record = endpoint_usage_record(
+                            invocation=invocation,
+                            role=role,
+                            model=_instance_model_id(resolved.model_for(role)),
+                            elapsed_seconds=endpoint_seconds.get(role, 0.0),
+                            estimated_cost_usd=config.reservation_usd or "0.000001",
+                            trace_id=trace_id,
+                        )
+                    else:
+                        record = accumulators[role].finalize(trace_id=trace_id)
+                    usage_reporter(record.to_wire())
             return final_state
     finally:
         await runner.close()

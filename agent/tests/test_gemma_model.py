@@ -6,7 +6,11 @@ import pytest
 from google.adk.models.llm_request import LlmRequest
 from google.genai import types
 
-from harmonia_agent.gemma_model import GemmaEndpointError, VertexGemmaModel
+from harmonia_agent.gemma_model import (
+    GemmaEndpointError,
+    GemmaProtocolError,
+    VertexGemmaModel,
+)
 
 
 def _request_with_text(text: str) -> LlmRequest:
@@ -42,6 +46,7 @@ def test_gemma_adapter_converts_adk_request_and_yields_text():
     responses = asyncio.run(_collect(model, _request_with_text("write")))
 
     assert responses[0].content.parts[0].text == '{"drafts":[]}'
+    assert responses[0].custom_metadata["harmonia_endpoint_seconds"] >= 0
     assert calls[0][0].endswith("/endpoints/1")
     prompt = calls[0][1][0]["prompt"]
     assert "Return JSON only" in prompt
@@ -78,5 +83,5 @@ def test_gemma_adapter_rejects_malformed_prediction(payload):
         predict=predict,
     )
 
-    with pytest.raises(GemmaEndpointError, match="prediction"):
+    with pytest.raises(GemmaProtocolError, match="prediction"):
         asyncio.run(_collect(model, _request_with_text("write")))

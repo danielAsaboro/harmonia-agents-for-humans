@@ -17,6 +17,7 @@ from . import clipper, content, x_client, youtube
 from .agent_models import AnalysisResult, AnalystInput, DraftWorkflowInput, StrategistInput
 from .agents import AgentProtocolError, analyze_with_team, draft_with_team, strategize_with_team
 from .config import settings
+from .gemma_model import GemmaProtocolError
 from .telemetry import inject_context, safe_attributes, tracer
 from .usage import InvocationContext
 from .web_client import WebApiError, get_asset, get_insights, get_job, post as web_post
@@ -500,7 +501,7 @@ HANDLERS: dict[str, Handler] = {
 
 
 def classify_failure(exc: Exception) -> bool:
-    if isinstance(exc, (AgentProtocolError, ValidationError)):
+    if isinstance(exc, (AgentProtocolError, GemmaProtocolError, ValidationError)):
         return True
     if isinstance(exc, WebApiError):
         return exc.permanent

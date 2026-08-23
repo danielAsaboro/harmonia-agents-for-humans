@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from time import monotonic
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -15,7 +16,7 @@ from google.adk.models.base_llm import BaseLlm
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 PredictTransport = Callable[
     [str, list[dict[str, object]], dict[str, object]],
@@ -25,6 +26,10 @@ PredictTransport = Callable[
 
 class GemmaEndpointError(RuntimeError):
     """The configured Vertex Gemma endpoint failed or violated its protocol."""
+
+
+class GemmaProtocolError(GemmaEndpointError):
+    """The endpoint returned an unsupported or contract-invalid payload."""
 
 
 async def _vertex_predict(
@@ -59,7 +64,7 @@ def _content_text(content: types.Content) -> str:
         elif part.function_call is not None:
             chunks.append(json.dumps(part.function_call.model_dump(mode="json")))
         else:
-            raise GemmaEndpointError("Gemma endpoint received an unsupported non-text part")
+            raise GemmaProtocolError("Gemma endpoint received an unsupported non-text part")
     return "\n".join(chunks)
 
 
@@ -76,7 +81,9 @@ def _request_prompt(request: LlmRequest) -> str:
         chunks.append(f"<{content.role or 'user'}>\n{_content_text(content)}\n</{content.role or 'user'}>")
     if request.config.response_schema is not None:
         schema = request.config.response_schema
-        if hasattr(schema, "model_dump"):
+        if isinstance(schema, type) and issubclass(schema, BaseModel):
+            schema = schema.model_json_schema()
+        elif hasattr(schema, "model_dump"):
             schema = schema.model_dump(mode="json", exclude_none=True)
         chunks.append(
             "<output_schema>\n"
@@ -89,7 +96,7 @@ def _request_prompt(request: LlmRequest) -> str:
 def _prediction_text(payload: dict[str, Any]) -> str:
     predictions = payload.get("predictions")
     if not isinstance(predictions, list) or not predictions:
-        raise GemmaEndpointError("Gemma endpoint returned no prediction")
+        raise GemmaProtocolError("Gemma endpoint returned no prediction")
     prediction = predictions[0]
     if isinstance(prediction, str) and prediction:
         return prediction
@@ -98,7 +105,7 @@ def _prediction_text(payload: dict[str, Any]) -> str:
             value = prediction.get(key)
             if isinstance(value, str) and value:
                 return value
-    raise GemmaEndpointError("Gemma endpoint returned a malformed prediction")
+    raise GemmaProtocolError("Gemma endpoint returned a malformed prediction")
 
 
 class VertexGemmaModel(BaseLlm):
@@ -115,7 +122,8 @@ class VertexGemmaModel(BaseLlm):
         stream: bool = False,
     ):
         if stream:
-            raise GemmaEndpointError("Gemma endpoint streaming is not enabled")
+            raise GemmaProtocolError("Gemma endpoint streaming is not enabled")
+        started = monotonic()
         try:
             payload = await self.predict(
                 self.endpoint,
@@ -135,4 +143,5 @@ class VertexGemmaModel(BaseLlm):
                 parts=[types.Part(text=_prediction_text(payload))],
             ),
             model_version=self.model,
+            custom_metadata={"harmonia_endpoint_seconds": monotonic() - started},
         )

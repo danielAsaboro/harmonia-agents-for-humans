@@ -20,6 +20,7 @@ const REGION_BY_COMPONENT: Record<string, StudioA2uiRegion | "host"> = {
 type ComponentRecord = Record<string, unknown> & { id: string; component: string; children?: string[] };
 
 function regionOperations(runId: string, region: StudioA2uiRegion, components: ComponentRecord[]): unknown[] {
+  if (components.length === 0) return [];
   const surfaceId = `studio-${runId}-${region}`;
   return [
     { version: "v0.9", createSurface: { surfaceId, catalogId: HARMONIA_CATALOG_ID } },

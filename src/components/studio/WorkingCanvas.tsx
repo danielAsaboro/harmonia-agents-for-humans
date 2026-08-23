@@ -11,6 +11,7 @@ import { MediaWorkspace } from "./MediaWorkspace";
 import { SourcesWorkspace } from "./SourcesWorkspace";
 import { StudioEmpty, StudioFailure, StudioLoading } from "./StudioStates";
 import { WrittenWorkspace } from "./WrittenWorkspace";
+import { ApprovalDock } from "./ApprovalDock";
 
 export type CanvasView = "board" | "written" | "visual" | "motion" | "audio" | "sources";
 
@@ -26,9 +27,12 @@ interface WorkingCanvasProps {
   supplemental?: React.ReactNode;
   runId?: string;
   operations?: unknown[];
+  approvalBusy?: boolean;
+  onDecide?: (jobId: string, actionId: string, decision: "approved" | "rejected") => Promise<void> | void;
+  onOperationDecision?: (operationId: string, decision: "approved" | "rejected") => Promise<void> | void;
 }
 
-export function WorkingCanvas({ job, events, receipts, loading, error, selectedArtifactId, onSelectedArtifactChange, onRetry, supplemental, runId, operations = [] }: WorkingCanvasProps) {
+export function WorkingCanvas({ job, events, receipts, loading, error, selectedArtifactId, onSelectedArtifactChange, onRetry, supplemental, runId, operations = [], approvalBusy = false, onDecide, onOperationDecision }: WorkingCanvasProps) {
   const [view, setView] = useState<CanvasView>("board");
   const model = job ? buildStudioWorkspace(job, receipts) : null;
   const selectedView: CanvasView | null = selectedArtifactId?.startsWith("draft:") ? "written"
@@ -88,6 +92,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
           {events.length ? <details className="mt-6 border-t border-black/15 pt-3"><summary className="cursor-pointer text-[10px] font-black uppercase tracking-[0.14em] text-black/40">Execution timeline · {events.length} events</summary><ol className="mt-3 space-y-2">{[...events].reverse().map((event, index) => <li key={`${event.at}-${index}`} className="grid grid-cols-[5rem_1fr] gap-3 text-xs"><span className="font-mono text-black/35">{event.at ? new Date(event.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}</span><span>{event.message}</span></li>)}</ol></details> : null}
         </> : null}
       </div>
+      {job && onDecide ? <ApprovalDock jobId={job.id} actions={job.actions} verifications={job.verifications ?? []} receipts={receipts} busy={approvalBusy} onDecide={onDecide} runId={runId} operations={operations} onOperationDecision={onOperationDecision} /> : null}
     </section>
   );
 }

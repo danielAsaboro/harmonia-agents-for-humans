@@ -23,6 +23,11 @@ export type JobStatus =
 
 export interface JobConfig {
   youtubeUrl?: string;
+  /** Tenant-scoped uploaded media selected by the chat request router. */
+  mediaAttachmentId?: string;
+  mediaFilename?: string;
+  mediaMime?: string;
+  mediaStorageUri?: string;
   /** Operator-supplied topic/brief for concept jobs that skip ingest+transcribe. */
   brief?: string;
   platforms: string[];

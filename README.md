@@ -119,6 +119,8 @@ Click the chat bubble on the dashboard (or `POST /api/chat` with `{message}`):
 
 All chat reads and mutations use the verified Google session and active workspace. Intent parsing never selects tenant identity.
 
+The full Console additionally uses a durable `POST /api/chat/stream` NDJSON transport and a strict Harmonia catalog rendered by Google's official A2UI React packages. It includes real resumable Cloud Storage uploads, activity/tool traces, plans, queues, tasks, citations, safe reasoning summaries, and confirmation cards. Raw hidden chain-of-thought is never requested or displayed. The floating Drawer reuses only message, attachment, and confirmation components.
+
 ### Telegram bot
 
 Connect a bot and one allowed chat from workspace Settings. The worker discovers workspace connections independently and the bot can access only that workspace. Messages go through the same `/api/chat` grammar; **approvals require tapping an inline button**, which triggers the same decision endpoint the dashboard uses.

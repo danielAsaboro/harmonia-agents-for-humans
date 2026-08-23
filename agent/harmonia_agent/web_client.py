@@ -4,6 +4,7 @@ through the web service so the state machine has a single writer)."""
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import unquote
 
 import httpx
 
@@ -84,6 +85,19 @@ def get_asset(job_id: str, action_id: str) -> dict[str, Any] | None:
     if res.status_code != 200:
         raise WebApiError(f"get_asset failed: {res.status_code} {res.text}", res.status_code)
     return res.json()
+
+
+def get_chat_attachment(attachment_id: str) -> tuple[bytes, str, str]:
+    """Fetch one ready tenant-scoped operator upload for media processing."""
+    with _client() as c:
+        res = c.get(f"/api/internal/chat-attachments/{attachment_id}")
+    if res.status_code != 200:
+        raise WebApiError(
+            f"chat attachment unavailable: {res.status_code} {res.text}", res.status_code
+        )
+    mime = res.headers.get("content-type") or "application/octet-stream"
+    filename = unquote(res.headers.get("x-attachment-filename") or attachment_id)
+    return res.content, mime, filename
 
 
 def get_media_operation(job_id: str, action_id: str) -> dict[str, Any] | None:

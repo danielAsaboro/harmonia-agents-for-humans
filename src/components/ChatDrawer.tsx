@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/clientApi";
 import type { ChatResponse } from "@/app/api/chat/route";
 import type { PostDraft } from "@/lib/types";
+import { AttachmentCard, ConfirmationCard, MessageContent } from "@/components/a2ui/HarmoniaElements";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -158,10 +159,20 @@ export default function ChatDrawer({ onJobCreated }: { onJobCreated?: (id: strin
                     ? "bg-zinc-800 text-white dark:bg-zinc-200 dark:text-black"
                     : "bg-zinc-100 text-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
                 }`}>
-                  {m.text}
+                  <MessageContent text={m.text} />
                 </div>
                 {m.data && (
                   <div className="mt-1 flex max-w-[280px] flex-col gap-1">
+                    {m.data.assets?.map((asset) => (
+                      <AttachmentCard key={asset.actionId} attachment={{
+                        attachmentId: asset.actionId,
+                        filename: asset.actionId,
+                        mime: asset.mime,
+                        sizeBytes: 0,
+                        state: "ready",
+                        previewUrl: `/api/jobs/${m.data!.jobId ?? m.data!.job?.id}/assets/${asset.actionId}`,
+                      }} />
+                    ))}
                     {m.data.job && <JobCardView job={m.data.job} />}
                     {m.data.jobs?.map((j) => <JobCardView key={j.id} job={j} />)}
                     {m.data.drafts?.map((d: PostDraft) => (
@@ -171,11 +182,14 @@ export default function ChatDrawer({ onJobCreated }: { onJobCreated?: (id: strin
                       </div>
                     ))}
                     {m.data.pendingActions && m.data.job && m.data.pendingActions.map((a) => (
-                      <div key={a.id} className="flex items-center gap-2 rounded-lg border border-amber-300 px-3 py-2 text-xs dark:border-amber-700">
-                        <span className="min-w-0 flex-1 truncate" title={a.title}>{a.title}</span>
-                        <button onClick={() => decide(m.data!.job!.id, a.id, "approved")} className="rounded bg-emerald-600 px-2 py-0.5 font-medium text-white hover:bg-emerald-500">Approve</button>
-                        <button onClick={() => decide(m.data!.job!.id, a.id, "rejected")} className="rounded bg-zinc-300 px-2 py-0.5 font-medium text-black hover:bg-zinc-400 dark:bg-zinc-700 dark:text-white">Reject</button>
-                      </div>
+                      <ConfirmationCard
+                        key={a.id}
+                        title={a.title}
+                        description={`${a.type} · action ${a.id}`}
+                        risk={a.risk === "high" ? "high" : a.risk === "low" ? "low" : "material"}
+                        state="pending"
+                        onDecision={(decision) => decide(m.data!.job!.id, a.id, decision)}
+                      />
                     ))}
                   </div>
                 )}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from harmonia_agent import stages
 from harmonia_agent.agent_models import AnalysisResult, StrategistResult
@@ -110,6 +111,40 @@ def test_understand_video_passes_direct_source_media_evidence(monkeypatch):
     assert request.media_evidence.duration_sec == 60
     assert request.media_evidence.source_digest == "a" * 64
     assert "hello" in request.transcript
+
+
+def test_ingest_uploaded_media_uses_tenant_scoped_attachment(monkeypatch):
+    posts = []
+    media = b"uploaded-media"
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: {
+        "config": {
+            "mediaAttachmentId": "attachment-1",
+            "mediaFilename": "founder-demo.mp4",
+            "mediaMime": "video/mp4",
+            "mediaStorageUri": "gs://bucket/chat-attachments/ws/brand/attachment-1.mp4",
+        },
+    })
+    monkeypatch.setattr(stages, "get_chat_attachment", lambda _id: (media, "video/mp4", "founder-demo.mp4"))
+    monkeypatch.setattr(stages.youtube, "probe_audio_duration", lambda _bytes: 42)
+    monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
+
+    asyncio.run(stages.run_ingest("job-upload"))
+
+    path, payload = posts[0]
+    assert path == "/api/internal/ingest"
+    assert payload["videoId"] == "attachment-1"
+    assert payload["title"] == "founder-demo.mp4"
+    assert payload["durationSec"] == 42
+    assert payload["mediaBytes"] == len(media)
+
+
+def test_uploaded_media_is_materialized_for_clip_rendering(monkeypatch, tmp_path):
+    monkeypatch.setattr(stages, "get_chat_attachment", lambda _id: (b"video", "video/mp4", "demo.mp4"))
+    source = stages._materialize_source_video({
+        "config": {"mediaAttachmentId": "attachment-1", "mediaFilename": "demo.mp4"},
+    }, str(tmp_path))
+    assert source == Path(tmp_path) / "source.mp4"
+    assert source.read_bytes() == b"video"
 
 
 def test_paid_media_actions_are_deterministic_and_reference_reviewed_evidence_only():

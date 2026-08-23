@@ -16,7 +16,11 @@ Harmonia exposes the same job submission, status, drafting, and approval surface
 
 ## Chat console
 
-Natural-language control via `POST /api/chat`:
+The full Console uses `POST /api/chat/stream` for durable, replayable NDJSON events and A2UI surfaces. `POST /api/chat` remains the JSON compatibility contract used by Telegram and contextual Drawer requests.
+
+The Console supports direct resumable uploads for images, video, audio, and documents. A ready uploaded video or audio file can become the source for a new job when the accompanying prompt requests job creation. The interface shows upload progress, agent activity, tool status, task plans, queues, safe reasoning summaries, generated assets, and explicit confirmation cards. It never renders raw chain-of-thought.
+
+Natural-language control:
 
 | Say | Intent |
 |---|---|
@@ -26,7 +30,11 @@ Natural-language control via `POST /api/chat`:
 | "show drafts for \<id\>" | `list_drafts` |
 | "approve [job \<id\>]" | `approve` |
 
+Existing action confirmations call the same `/api/jobs/{jobId}/actions/{actionId}/decision` endpoint as the dashboard. A generic A2UI confirmation can reference only a server-created, tenant-scoped, expiring `pending_operation`; unknown handlers, stale decisions, and replays fail closed.
+
 Intent parsing uses Gemini structured output in production; keyword rules offline under `HARMONIA_MOCK_AI=1`. Conversations persist per surface so history renders in the console.
+
+The floating Drawer deliberately stays smaller: it reuses the trusted message, attachment, and confirmation renderers while retaining the JSON chat contract.
 
 ## Chat with any item
 

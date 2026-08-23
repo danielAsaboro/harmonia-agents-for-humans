@@ -12,7 +12,7 @@ The full Console receives streaming messages, safe agent activity, attachments, 
 
 The existing `POST /api/chat` JSON contract remains available for Telegram and compatibility. The Console uses `POST /api/chat/stream`, which emits newline-delimited, schema-validated `ChatStreamEvent` records. A2UI operations are one event kind and are processed only by the official A2UI web core and React renderer.
 
-The A2UI renderer targets protocol v0.9.1 and a versioned Harmonia catalog. The catalog contains trusted React renderers for `ActivityTrace`, `ReasoningSummary`, `AttachmentCard`, `InlineCitation`, `PlanView`, `QueueView`, `ToolActivity`, `TaskView`, `ContextUsage`, and `MessageContent`. Unknown components and malformed messages fail closed.
+The A2UI renderer targets protocol v0.9 and a versioned Harmonia catalog. The catalog contains trusted React renderers for `ActivityTrace`, `ReasoningSummary`, `AttachmentCard`, `InlineCitation`, `PlanView`, `QueueView`, `ToolActivity`, `TaskView`, `ContextUsage`, and `MessageContent`. Unknown components and malformed messages fail closed.
 
 Conversation scrolling, reconnection, upload controls, and confirmation authority remain host-owned React behavior. Agent output can describe a confirmation request but cannot manufacture an executable operation. Approval buttons require an existing tenant-scoped server operation or existing Harmonia action ID.
 
@@ -32,7 +32,7 @@ Uploads alone cause no workflow side effect. A submitted message references read
 
 ## Streaming and Persistence
 
-The stream event union is `run_started`, `text_delta`, `activity`, `tool_activity`, `a2ui_operation`, `confirmation_requested`, `job_updated`, `run_completed`, and `run_failed`. Each submitted prompt creates a durable chat run. Events receive monotonic sequence numbers and are stored before delivery so the client can reconnect after its last sequence. A disconnected browser does not cancel a run; explicit cancellation does.
+The stream event union is `run_started`, `text_delta`, `activity`, `tool_activity`, `a2ui_operation`, `confirmation_requested`, `job_updated`, `run_completed`, and `run_failed`. Each submitted prompt creates a durable chat run. Events receive monotonic sequence numbers and are stored before delivery so the client can reconnect after its last sequence. A disconnected browser does not cancel server work; the Console can stop local consumption without rolling back an already accepted job or decision.
 
 Only validated final messages and A2UI surfaces are added to normal conversation history. Firestore gains tenant-scoped `chatAttachments`, `chatRuns`, `chatRunEvents`, and `pendingOperations` records without changing existing job, action, receipt, Pub/Sub, or chat-message document shapes.
 

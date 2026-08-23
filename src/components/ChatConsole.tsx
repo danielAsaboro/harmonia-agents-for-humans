@@ -9,6 +9,17 @@ import type { ChatResponse } from "@/app/api/chat/route";
 import { groupSessions, sessionPreview, dayLabel } from "@/lib/chatSessions";
 import type { ChatSession } from "@/lib/chatSessions";
 import type { JobFull, PostDraft, Receipt } from "@/components/jobTypes";
+import { useHarmoniaChat } from "@/hooks/useHarmoniaChat";
+import type { ChatRunState } from "@/lib/a2ui/chatReducer";
+import { HarmoniaA2uiHost } from "@/components/a2ui/HarmoniaCatalog";
+import { AttachmentComposer, type ComposerAttachment } from "@/components/a2ui/AttachmentComposer";
+import {
+  ActivityTrace,
+  AttachmentCard,
+  ConfirmationCard,
+  MessageContent,
+  ToolActivity,
+} from "@/components/a2ui/HarmoniaElements";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -16,6 +27,8 @@ interface ChatMessage {
   data?: ChatResponse;
   surface?: string;
   at?: string | null;
+  attachments?: ComposerAttachment[];
+  run?: ChatRunState;
 }
 
 interface JobDetailBundle {
@@ -43,10 +56,12 @@ function Bubble({
   m,
   onOpenJob,
   onDecide,
+  onOperationDecision,
 }: {
   m: ChatMessage;
   onOpenJob: (id: string) => void;
   onDecide: (jobId: string, actionId: string, decision: "approved" | "rejected") => void;
+  onOperationDecision: (operationId: string, decision: "approved" | "rejected") => void;
 }) {
   return (
     <div className={m.role === "user" ? "self-end" : "self-start"}>
@@ -65,8 +80,55 @@ function Bubble({
             : "bg-zinc-100 text-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
         }`}
       >
-        {m.text}
+        <MessageContent text={m.text} />
       </div>
+      {m.attachments && m.attachments.length > 0 && (
+        <div className="mt-2 grid max-w-xl grid-cols-1 gap-2 sm:grid-cols-2">
+          {m.attachments.map((attachment) => <AttachmentCard key={attachment.attachmentId} attachment={attachment} />)}
+        </div>
+      )}
+      {m.run && (
+        <div className="mt-2 flex max-w-xl flex-col gap-2">
+          {m.run.activities.length > 0 && <ActivityTrace title="Agent activity" steps={m.run.activities} />}
+          {m.run.tools.map((tool, index) => <ToolActivity key={`${tool.traceId ?? tool.name}-${index}`} {...tool} />)}
+          {m.run.confirmations.map((confirmation) => (
+            <ConfirmationCard
+              key={confirmation.id}
+              title={confirmation.title}
+              description={confirmation.description}
+              risk={confirmation.risk}
+              state={confirmation.state}
+              onDecision={(decision) => {
+                if (confirmation.operationId) onOperationDecision(confirmation.operationId, decision);
+                else if (confirmation.jobId && confirmation.actionId) onDecide(confirmation.jobId, confirmation.actionId, decision);
+              }}
+            />
+          ))}
+          {m.run.operations.length > 0 && (
+            <HarmoniaA2uiHost
+              operations={m.run.operations}
+              onAction={(action) => {
+                if (action.name === "decide_job_action") {
+                  const jobId = String(action.context.jobId ?? "");
+                  const actionId = String(action.context.actionId ?? "");
+                  const decision = action.context.decision;
+                  if (jobId && actionId && (decision === "approved" || decision === "rejected")) {
+                    onDecide(jobId, actionId, decision);
+                  }
+                  return;
+                }
+                if (action.name !== "decide_operation") return;
+                const operationId = String(action.context.operationId ?? "");
+                const decision = action.context.decision;
+                if (operationId && (decision === "approved" || decision === "rejected")) {
+                  onOperationDecision(operationId, decision);
+                }
+              }}
+            />
+          )}
+          {m.run.error && <p className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{m.run.error}</p>}
+        </div>
+      )}
       {(m.data?.job || m.data?.jobs || m.data?.drafts || m.data?.pendingActions || m.data?.assets) && (
         <div className="mt-2 flex max-w-xl flex-col gap-1.5">
           {m.data?.assets && m.data.assets.length > 0 && (
@@ -102,11 +164,14 @@ function Bubble({
             </div>
           ))}
           {m.data?.pendingActions && m.data.job && m.data.pendingActions.map((a) => (
-            <div key={a.id} className="flex items-center gap-2 rounded-lg border border-amber-300 px-3 py-2 text-xs dark:border-amber-700">
-              <span className="min-w-0 flex-1 truncate" title={a.title}>{a.title}</span>
-              <button onClick={() => onDecide(m.data!.job!.id, a.id, "approved")} className="rounded bg-emerald-600 px-2 py-0.5 font-medium text-white hover:bg-emerald-500">Approve</button>
-              <button onClick={() => onDecide(m.data!.job!.id, a.id, "rejected")} className="rounded bg-zinc-300 px-2 py-0.5 font-medium text-black hover:bg-zinc-400 dark:bg-zinc-700 dark:text-white">Reject</button>
-            </div>
+            <ConfirmationCard
+              key={a.id}
+              title={a.title}
+              description={`${a.type} · action ${a.id}`}
+              risk={a.risk === "high" ? "high" : a.risk === "low" ? "low" : "material"}
+              state="pending"
+              onDecision={(decision) => onDecide(m.data!.job!.id, a.id, decision)}
+            />
           ))}
         </div>
       )}
@@ -149,10 +214,13 @@ export default function ChatConsole() {
   const [loaded, setLoaded] = useState(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [detail, setDetail] = useState<JobDetailBundle | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const completedRuns = useRef(new Set<string>());
+  const chat = useHarmoniaChat();
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -166,6 +234,7 @@ export default function ChatConsole() {
               data: m.data,
               surface: m.surface,
               at: m.at,
+              attachments: m.data?.attachments?.map((attachment) => ({ ...attachment, progress: 100 })),
             })),
           );
         })
@@ -185,7 +254,20 @@ export default function ChatConsole() {
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, activeSessionId]);
+  }, [messages, activeSessionId, chat.run]);
+
+  useEffect(() => {
+    const run = chat.run;
+    if (!run || run.status === "running" || completedRuns.current.has(run.runId)) return;
+    completedRuns.current.add(run.runId);
+    setMessages((current) => [...current, {
+      role: "assistant",
+      text: run.status === "complete" ? run.text : run.error ?? "Chat run failed",
+      run,
+      surface: "dashboard",
+      at: new Date().toISOString(),
+    }]);
+  }, [chat.run]);
 
   const sessions = useMemo(() => groupSessions(messages), [messages]);
   const visible = useMemo(() => {
@@ -239,25 +321,34 @@ export default function ChatConsole() {
     void openJob(jobId);
   }
 
+  async function decideOperation(operationId: string, decision: "approved" | "rejected") {
+    const response = await apiFetch(`/api/chat/operations/${operationId}/decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision }),
+    });
+    const body = await response.json().catch(() => null) as { error?: string } | null;
+    setMessages((current) => [...current, {
+      role: "assistant",
+      text: response.ok ? `${decision === "approved" ? "Approved" : "Rejected"} operation ${operationId}.` : body?.error ?? `operation decision failed (${response.status})`,
+      surface: "dashboard",
+      at: new Date().toISOString(),
+    }]);
+  }
+
   async function send(messageText?: string) {
     const message = (messageText ?? input).trim();
     if (!message || busy) return;
+    if (attachments.some((attachment) => attachment.state !== "ready")) return;
+    const submittedAttachments = attachments;
     setInput("");
+    setAttachments([]);
     setBusy(true);
-    setMessages((m) => [...m, { role: "user", text: message, surface: "dashboard", at: new Date().toISOString() }]);
+    setMessages((m) => [...m, { role: "user", text: message, attachments: submittedAttachments, surface: "dashboard", at: new Date().toISOString() }]);
     try {
-      const res = await apiFetch("/api/chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message, surface: "dashboard" }),
-      });
-      const data = (await res.json().catch(() => null)) as (ChatResponse & { error?: string }) | null;
-      if (!res.ok || !data) {
-        setMessages((m) => [...m, { role: "assistant", text: data?.error ?? `chat failed (${res.status})`, surface: "dashboard", at: new Date().toISOString() }]);
-      } else {
-        setMessages((m) => [...m, { role: "assistant", text: data.reply, data, surface: "dashboard", at: new Date().toISOString() }]);
-        if (data.jobId) void openJob(data.jobId);
-      }
+      const result = await chat.send(message, submittedAttachments.map((attachment) => attachment.attachmentId));
+      const latestJob = result.jobUpdates.at(-1)?.jobId;
+      if (latestJob) void openJob(latestJob);
     } catch (e) {
       setMessages((m) => [...m, { role: "assistant", text: e instanceof Error ? e.message : String(e), surface: "dashboard", at: new Date().toISOString() }]);
     } finally {
@@ -330,17 +421,28 @@ export default function ChatConsole() {
                 {idx > 0 && !showDivider && <div className="h-2" />}
                 <div className="flex flex-col gap-3">
                   {session.messages.map((m, i) => (
-                    <Bubble key={`${session.id}-${i}`} m={m} onOpenJob={openJob} onDecide={decide} />
+                    <Bubble key={`${session.id}-${i}`} m={m} onOpenJob={openJob} onDecide={decide} onOperationDecision={decideOperation} />
                   ))}
                 </div>
               </div>
             ))}
-            {busy && <div className="self-start text-xs text-zinc-400">working…</div>}
+            {chat.run?.status === "running" && (
+              <Bubble
+                m={{ role: "assistant", text: chat.run.text, run: chat.run, surface: "dashboard", at: new Date().toISOString() }}
+                onOpenJob={openJob}
+                onDecide={decide}
+                onOperationDecision={decideOperation}
+              />
+            )}
+            {busy && !chat.run && <div className="self-start text-xs text-zinc-400">working…</div>}
           </div>
         </div>
 
         <footer className="border-t border-zinc-200 px-4 py-3 sm:px-6 dark:border-zinc-800">
           <div className="mx-auto w-full max-w-2xl">
+            <div className="mb-2">
+              <AttachmentComposer attachments={attachments} onChange={setAttachments} disabled={busy} />
+            </div>
             <div className="mb-2 flex flex-wrap gap-1.5">
               {SUGGESTIONS.map((s) => (
                 <button
@@ -363,7 +465,7 @@ export default function ChatConsole() {
               />
               <button
                 onClick={() => void send()}
-                disabled={busy || !input.trim()}
+                disabled={busy || !input.trim() || attachments.some((attachment) => attachment.state !== "ready")}
                 aria-label="Send"
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-white hover:bg-zinc-700 disabled:opacity-50 dark:bg-white dark:text-black"
               >

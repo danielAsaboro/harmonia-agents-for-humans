@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+from pathlib import Path
 import asyncio
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
@@ -55,6 +56,7 @@ from .web_client import (
     get_insights,
     get_job,
     get_media_operation,
+    get_chat_attachment,
     post as web_post,
     report_usage,
     reserve_budget,
@@ -149,11 +151,40 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _materialize_source_video(job: dict[str, Any], directory: str) -> Path:
+    config = job["config"]
+    if config.get("youtubeUrl"):
+        return clipper.download_video(config["youtubeUrl"], directory)
+    attachment_id = config.get("mediaAttachmentId")
+    if not attachment_id:
+        raise ClipRenderError("job has no renderable media source")
+    data, _mime, filename = get_chat_attachment(attachment_id)
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".mp4", ".mov", ".webm", ".m4v"}:
+        suffix = ".mp4"
+    source = Path(directory) / f"source{suffix}"
+    source.write_bytes(data)
+    return source
+
+
 async def run_ingest(job_id: str) -> None:
     job = get_job(job_id)
-    video_id = youtube.extract_video_id(job["config"]["youtubeUrl"])
-    meta = youtube.fetch_metadata(video_id)
-    audio, digest = youtube.download_audio(job["config"]["youtubeUrl"])
+    config = job["config"]
+    attachment_id = config.get("mediaAttachmentId")
+    if attachment_id:
+        audio, mime, filename = get_chat_attachment(attachment_id)
+        digest = hashlib.sha256(audio).hexdigest()
+        meta = {
+            "videoId": attachment_id,
+            "title": filename,
+            "channel": "operator upload",
+            "durationSec": youtube.probe_audio_duration(audio),
+        }
+        config.setdefault("mediaMime", mime)
+    else:
+        video_id = youtube.extract_video_id(config["youtubeUrl"])
+        meta = youtube.fetch_metadata(video_id)
+        audio, digest = youtube.download_audio(config["youtubeUrl"])
     if int(meta.get("durationSec") or 0) <= 0:
         # No Data API key: measure real duration from the downloaded media.
         meta["durationSec"] = youtube.probe_audio_duration(audio)
@@ -166,10 +197,17 @@ async def run_ingest(job_id: str) -> None:
 
 async def run_transcribe(job_id: str) -> None:
     job = get_job(job_id)
-    audio = _AUDIO_CACHE.get(job_id) or youtube.download_audio(job["config"]["youtubeUrl"])[0]
+    config = job["config"]
+    attachment_id = config.get("mediaAttachmentId")
+    if attachment_id:
+        audio = _AUDIO_CACHE.get(job_id) or get_chat_attachment(attachment_id)[0]
+        mime = config.get("mediaMime") or "video/mp4"
+    else:
+        audio = _AUDIO_CACHE.get(job_id) or youtube.download_audio(config["youtubeUrl"])[0]
+        mime = "audio/mp4"
     result = content.transcribe_audio(
         audio,
-        "audio/mp4",
+        mime,
         invocation=InvocationContext(
             job_id=job_id,
             workspace_id=job["workspaceId"],
@@ -230,7 +268,7 @@ async def run_understand(job_id: str) -> None:
             f"[{int(s['startSec'])}s] {s['text']}" for s in job["transcriptSegments"]
         )
         media_evidence = None
-        source_url = (job.get("config") or {}).get("youtubeUrl")
+        source_url = (job.get("config") or {}).get("youtubeUrl") or (job.get("config") or {}).get("mediaStorageUri")
         source_digest = job.get("mediaDigest")
         duration = job.get("ingestedDurationSec")
         if source_url and source_digest and duration:
@@ -552,7 +590,7 @@ async def run_publish(job_id: str) -> None:
                     want_caps = action["payload"].get("captions", True)
                     render_notes: list[str] = []
                     with tempfile.TemporaryDirectory() as td:
-                        src = clipper.download_video(job["config"]["youtubeUrl"], td)
+                        src = _materialize_source_video(job, td)
                         if action["type"] == "render_clip":
                             moment = next(
                                 (m for m in job.get("moments", []) if m["id"] == action["payload"]["momentId"]),

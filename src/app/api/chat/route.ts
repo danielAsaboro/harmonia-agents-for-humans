@@ -17,6 +17,7 @@ import { parseIntent } from "@/lib/chatIntent";
 import { publishStage } from "@/lib/pubsub";
 import { parseYouTubeUrl } from "@/lib/youtubeUrl";
 import type { PlannedAction, PostDraft, Stage } from "@/lib/types";
+import { requireReadyAttachments, type ChatAttachment } from "@/lib/chatAttachments";
 
 const chatSchema = z.object({
   message: z.string().min(1).max(2000),
@@ -28,6 +29,7 @@ const chatSchema = z.object({
       id: z.string().min(1),
     })
     .optional(),
+  attachmentIds: z.array(z.string().min(1)).max(20).default([]),
 });
 
 export interface JobCard {
@@ -50,6 +52,15 @@ export interface ChatAsset {
   mime: string;
 }
 
+export interface ChatAttachmentSummary {
+  attachmentId: string;
+  filename: string;
+  mime: string;
+  sizeBytes: number;
+  state: "ready";
+  previewUrl: string;
+}
+
 export interface ChatResponse {
   intent: string;
   reply: string;
@@ -59,6 +70,7 @@ export interface ChatResponse {
   pendingActions?: PendingActionSummary[];
   /** Media produced by the referenced job, so conversations render richly. */
   assets?: ChatAsset[];
+  attachments?: ChatAttachmentSummary[];
   outcome?: Awaited<ReturnType<typeof resolveDecision>>;
   jobId?: string;
 }
@@ -102,18 +114,25 @@ async function post(req: Request) {
 
 export const POST = tenantHandler(post);
 
-async function handleChat(req: Request): Promise<Response> {
+export async function handleChat(req: Request): Promise<Response> {
   const body = await req.json().catch(() => null);
   const parsed = chatSchema.safeParse(body);
   if (!parsed.success) {
     return Response.json({ error: "invalid chat payload" }, { status: 400 });
   }
-  const { message, surface, context } = parsed.data;
+  const { message, surface, context, attachmentIds } = parsed.data;
+
+  let attachments: ChatAttachment[] = [];
+  try {
+    attachments = await requireReadyAttachments(attachmentIds);
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 409 });
+  }
 
   let payload: ChatResponse;
   let status = 200;
   try {
-    const result = await buildResponse(req, message, surface, context);
+    const result = await buildResponse(req, message, surface, context, attachments);
     if ("__http" in result) return result.__http; // e.g. operator forbidden
     payload = result.payload;
     status = result.status ?? 200;
@@ -128,7 +147,21 @@ async function handleChat(req: Request): Promise<Response> {
   // JSON round-trip drops undefined fields (e.g. titles not yet ingested),
   // which Firestore rejects.
   try {
-    await saveChatMessage({ surface, role: "user", text: message });
+    await saveChatMessage({
+      surface,
+      role: "user",
+      text: message,
+      data: attachments.length ? {
+        attachments: attachments.map((attachment) => ({
+          attachmentId: attachment.id,
+          filename: attachment.filename,
+          mime: attachment.mime,
+          sizeBytes: attachment.sizeBytes,
+          state: "ready",
+          previewUrl: `/api/chat/attachments/${attachment.id}`,
+        })),
+      } : undefined,
+    });
     await saveChatMessage({
       surface,
       role: "assistant",
@@ -146,7 +179,7 @@ type HandlerResult =
   | { payload: ChatResponse; status?: number }
   | { __http: Response };
 
-async function buildResponse(req: Request, message: string, surface: "dashboard" | "telegram", context?: { kind: "job" | "content_item" | "proposal"; id: string }): Promise<HandlerResult> {
+async function buildResponse(req: Request, message: string, surface: "dashboard" | "telegram", context?: { kind: "job" | "content_item" | "proposal"; id: string }, attachments: ChatAttachment[] = []): Promise<HandlerResult> {
 
   // Grounded Q&A about a specific record ("chat with any item").
   if (context && isValidContext(context)) {
@@ -177,7 +210,10 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
 
   let intent;
   try {
-    intent = await parseIntent(message);
+    const attachmentContext = attachments.length
+      ? `\n\nAttached files: ${attachments.map((attachment) => `${attachment.filename} (${attachment.mime})`).join(", ")}`
+      : "";
+    intent = await parseIntent(`${message}${attachmentContext}`);
   } catch (e) {
     return { __http: Response.json(
       { error: `intent parsing failed: ${e instanceof Error ? e.message : String(e)}` },
@@ -188,6 +224,24 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
   switch (intent.intent) {
     case "create_job": {
       const videoId = intent.youtubeUrl ? parseYouTubeUrl(intent.youtubeUrl) : null;
+      const media = attachments.find((attachment) => attachment.category === "video" || attachment.category === "audio");
+      if (media) {
+        const job = await createJob({
+          mediaAttachmentId: media.id,
+          mediaFilename: media.filename,
+          mediaMime: media.mime,
+          mediaStorageUri: media.storageUri,
+          platforms: ["x"],
+        }, "ingest");
+        await appendEvent(job.id, "queued", `job created via ${surface} chat for uploaded ${media.category}`, "operator");
+        await publishStage(currentTenant(), job.id, "ingest");
+        return { payload: {
+          intent: intent.intent,
+          reply: `Created job ${job.id} from ${media.filename}. The pipeline is running and will stop at the approval gate before any external action.`,
+          jobId: job.id,
+          job: toCard(job),
+        } satisfies ChatResponse };
+      }
       if (videoId) {
         const job = await createJob(
           { youtubeUrl: intent.youtubeUrl as string, platforms: ["x"] },

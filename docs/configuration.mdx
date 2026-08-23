@@ -36,6 +36,7 @@ description: "Every environment variable Harmonia reads, with defaults and requi
 | `IMAGE_MAX_COST_USD` | no | `0.500000` | Explicit per-image reservation while media pricing is not token-based |
 | `HARMONIA_TELEMETRY_ENABLED` | cloud | `false` | Export metadata-only OpenTelemetry spans |
 | `HARMONIA_TELEMETRY_SAMPLE_RATE` | no | `1.0` | Parent-based trace sampling ratio from 0 to 1 |
+| `HARMONIA_EVAL_EVIDENCE_ROOT` | live evaluation only | — | Absolute private directory that contains all live evaluation outputs; public-repository paths are refused |
 | `OTEL_SERVICE_NAME` | no | `harmonia-agent` | Service label used by the trace backend |
 | `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | yes in cloud | `NO_CONTENT` | Prevent prompt and response content capture |
 | `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` | yes in cloud | `false` | Disable ADK legacy content-bearing span attributes |
@@ -79,7 +80,9 @@ workspace. A live run is explicit and refuses mock mode:
 
 ```bash
 cd agent
-HARMONIA_REAL_EVAL=1 ./.venv/bin/python -m harmonia_agent.evaluation_runner \
+HARMONIA_REAL_EVAL=1 \
+HARMONIA_EVAL_EVIDENCE_ROOT="$(cd ../../submission/evidence && pwd)" \
+./.venv/bin/python -m harmonia_agent.evaluation_runner \
   --evalset ../../resources/private-evals/harmonia.evalset.json \
   --output ../../submission/evidence/harmonia-eval-results.json
 ```
@@ -89,12 +92,15 @@ Convert recorded pass rate, p95 latency, and immutable cost records into a selec
 ```bash
 ./.venv/bin/python -m harmonia_agent.evaluation_report \
   --input ../../submission/evidence/role-evaluation-records.json \
-  --minimum-pass-rate 0.95 --format markdown
+  --format markdown
 ```
 
-A cheaper model is ineligible when it misses the quality floor. A model with unknown pricing is
-also ineligible. Change a role's catalog default only after a recorded comparison uses the same
-policy and pricing versions. Mock or scripted runs never count as model-promotion evidence.
+A cheaper model is ineligible when it misses the quality floor recorded in its role policy. The
+report refuses a caller-supplied floor that differs from that record. A model with unknown pricing
+is also ineligible. Each comparison record derives pass rate and p95 latency from case evidence,
+derives cost from linked immutable usage records, and carries the private eval output digest. Change
+a role's catalog default only after a recorded comparison uses the same policy and pricing versions.
+Mock or scripted runs never count as model-promotion evidence.
 
 ## Secrets policy
 

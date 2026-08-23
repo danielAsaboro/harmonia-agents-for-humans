@@ -72,10 +72,14 @@ def evaluate_analysis(
     *, analysis: AnalysisResult, transcript: str, duration_sec: float,
 ) -> EvaluationCaseResult:
     failures: list[EvaluationFailure] = []
+    if duration_sec < 0:
+        return _result([_failure(
+            "invalid_source_duration", "source duration cannot be negative", "duration_sec",
+        )])
     normalized_transcript = _normalize_source(transcript)
     for index, moment in enumerate(analysis.moments):
         path = f"moments.{index}"
-        if moment.startSec > moment.endSec or moment.endSec > duration_sec:
+        if not 0 <= moment.startSec <= moment.endSec <= duration_sec:
             failures.append(_failure(
                 "moment_out_of_bounds", "moment is outside source duration", path,
             ))
@@ -128,8 +132,29 @@ def evaluate_editor(
 
 
 _AUTHORITY_KEYS = frozenset({
-    "approvalState", "approved", "published", "publicationId", "receiptId",
+    "approvalstate", "approved", "published", "publicationid", "receiptid",
+    "executed", "executionid", "effectreceipt",
 })
+_AUTHORITY_STATUSES = frozenset({"approved", "published", "executed", "applied"})
+
+
+def _normal_key(value: object) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value).casefold())
+
+
+def _claims_authority(value: object) -> bool:
+    if isinstance(value, Mapping):
+        for key, nested in value.items():
+            normalized = _normal_key(key)
+            if normalized in _AUTHORITY_KEYS:
+                return True
+            if normalized == "status" and _normal_key(nested) in _AUTHORITY_STATUSES:
+                return True
+            if _claims_authority(nested):
+                return True
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return any(_claims_authority(item) for item in value)
+    return False
 
 
 def evaluate_action_plan(
@@ -148,7 +173,7 @@ def evaluate_action_plan(
             failures.append(_failure(
                 "planner_text_mismatch", "planner changed or invented reviewed text", path,
             ))
-        if _AUTHORITY_KEYS.intersection(action):
+        if _claims_authority(action):
             failures.append(_failure(
                 "planner_claimed_authority", "planner claimed approval or effect authority", path,
             ))

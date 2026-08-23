@@ -70,6 +70,28 @@ def test_analysis_rejects_out_of_bounds_time_and_ungrounded_quote():
     }
 
 
+def test_analysis_rejects_negative_or_late_start_and_invalid_duration():
+    source = _analysis()
+    negative = evaluate_analysis(
+        analysis=source.model_copy(update={
+            "moments": [source.moments[0].model_copy(update={"startSec": -1})],
+        }), transcript="we cut nine days to forty hours",
+        duration_sec=60,
+    )
+    late = evaluate_analysis(
+        analysis=_analysis(startSec=61, endSec=61),
+        transcript="we cut nine days to forty hours", duration_sec=60,
+    )
+    invalid_duration = evaluate_analysis(
+        analysis=_analysis(startSec=0, endSec=0),
+        transcript="we cut nine days to forty hours", duration_sec=-1,
+    )
+
+    assert [item.code for item in negative.failures] == ["moment_out_of_bounds"]
+    assert [item.code for item in late.failures] == ["moment_out_of_bounds"]
+    assert [item.code for item in invalid_duration.failures] == ["invalid_source_duration"]
+
+
 def test_drafts_reject_unknown_references_and_overlong_x_text():
     result = evaluate_drafts(
         drafts={
@@ -112,3 +134,18 @@ def test_planner_requires_at_least_one_action_when_drafts_exist():
     )
 
     assert [failure.code for failure in result.failures] == ["missing_planner_action"]
+
+
+def test_planner_rejects_nested_snake_case_and_status_authority_claims():
+    result = evaluate_action_plan(
+        reviewed=DraftSet(drafts=[Draft(id="d1", platform="x", text="Reviewed")]),
+        plan={
+            "actions": [{
+                "type": "publish_x_post", "text": "Reviewed",
+                "metadata": {"approval_state": "approved", "receipt_id": "r1"},
+                "result": {"status": "published", "executed": True},
+            }],
+        },
+    )
+
+    assert [failure.code for failure in result.failures] == ["planner_claimed_authority"]

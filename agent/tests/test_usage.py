@@ -20,6 +20,7 @@ def test_accumulator_sums_adk_usage_metadata():
         stage="draft",
         role="nimi",
         model="gemini-3.5-flash",
+        model_policy={"policyVersion": "gear-test", "temperature": 0.2},
     )
     accumulator.observe_event(SimpleNamespace(usage_metadata=SimpleNamespace(
         prompt_token_count=120,
@@ -34,6 +35,7 @@ def test_accumulator_sums_adk_usage_metadata():
     assert record.output_units == 35
     assert record.estimated_cost_usd == "0.000510"
     assert record.operation_id == "j1:draft:nimi:0"
+    assert record.model_policy["policyVersion"] == "gear-test"
 
 
 def test_usage_record_id_is_stable_across_retries():

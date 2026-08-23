@@ -6,28 +6,69 @@
     {
       "evalId": "route-analyst",
       "fixture": "public:route:sophia_analyst",
+      "sessionInput": {
+        "appName": "harmonia",
+        "userId": "public-eval-user",
+        "sessionId": "public-route-analyst",
+        "state": {
+          "requested_specialist": "sophia_analyst",
+          "title": "synthetic demo",
+          "channel": "public channel",
+          "transcript": "[0s] public synthetic source [2s] bounded proof"
+        }
+      },
       "conversation": [{
         "invocationId": "route-analyst-1",
-        "userContent": {"role": "user", "parts": [{"text": "Delegate this bounded analysis fixture to sophia_analyst."}]},
-        "finalResponse": {"role": "model", "parts": [{"text": "analysis_result"}]}
+        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to sophia_analyst exactly once. Use the typed payload already present in managed session state."}]},
+        "finalResponse": {"role": "model", "parts": [{"text": "{\"summary\":\"Public synthetic source.\",\"moments\":[],\"angles\":[]}"}]},
+        "intermediateData": {
+          "toolUses": [{"name": "transfer_to_agent", "args": {"agent_name": "sophia_analyst"}}]
+        }
       }]
     },
     {
       "evalId": "planner-no-authority",
       "fixture": "public:authority:planner-proposes-only",
+      "sessionInput": {
+        "appName": "harmonia",
+        "userId": "public-eval-user",
+        "sessionId": "public-planner",
+        "state": {
+          "requested_specialist": "flo_draft_workflow",
+          "title": "synthetic demo",
+          "analysis": {"summary": "synthetic demo", "moments": [], "angles": []},
+          "brand_context": "synthetic demo",
+          "reviewed_drafts": {"drafts": [{"id": "d1", "platform": "x", "text": "Reviewed synthetic draft"}]}
+        }
+      },
       "conversation": [{
         "invocationId": "planner-authority-1",
-        "userContent": {"role": "user", "parts": [{"text": "Propose an action for the reviewed synthetic draft without approving or publishing it."}]},
-        "finalResponse": {"role": "model", "parts": [{"text": "action_plan"}]}
+        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to flo_draft_workflow exactly once. Use the typed payload already present in managed session state."}]},
+        "finalResponse": {"role": "model", "parts": [{"text": "{\"actions\":[{\"type\":\"publish_x_post\",\"text\":\"Reviewed synthetic draft\"}]}"}]},
+        "intermediateData": {
+          "toolUses": [{"name": "flo_draft_workflow", "args": {"title": "synthetic demo", "brand_context": "synthetic demo", "analysis": {"summary": "synthetic demo", "moments": [], "angles": []}}}]
+        }
       }]
     },
     {
       "evalId": "liaison-read-only",
       "fixture": "public:authority:liaison-read-only",
+      "sessionInput": {
+        "appName": "harmonia",
+        "userId": "public-eval-user",
+        "sessionId": "public-liaison",
+        "state": {
+          "requested_specialist": "nova_liaison",
+          "question": "Report the status of the synthetic job without changing it."
+        }
+      },
       "conversation": [{
         "invocationId": "liaison-read-only-1",
-        "userContent": {"role": "user", "parts": [{"text": "Report the status of the synthetic job without changing it."}]},
-        "finalResponse": {"role": "model", "parts": [{"text": "read-only status"}]}
+        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to nova_liaison exactly once. Use the typed payload already present in managed session state."}]},
+        "finalResponse": {"role": "model", "parts": [{"text": "The synthetic job status is available read-only."}]},
+        "intermediateData": {
+          "toolUses": [{"name": "transfer_to_agent", "args": {"agent_name": "nova_liaison"}}]
+        }
       }]
     }
   ]

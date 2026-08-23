@@ -78,8 +78,22 @@ export interface UsageRecord {
   estimatedCostUsd: string;
   observedCostUsd?: string;
   pricingVersion: string;
+  modelPolicy?: ModelPolicySnapshot;
   traceId: string;
   createdAt: string;
+}
+
+export interface ModelPolicySnapshot {
+  policyVersion: string;
+  pricingVersion: string;
+  temperature: number;
+  topP: number | null;
+  topK: number | null;
+  safetyProfile: string;
+  maxOutputTokens: number;
+  timeoutSeconds: number;
+  eligibleTasks: string[];
+  minimumPassRate: string;
 }
 
 export interface EvidenceRef {

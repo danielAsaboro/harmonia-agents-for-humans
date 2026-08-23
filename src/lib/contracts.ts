@@ -2,6 +2,19 @@ import { z } from "zod";
 
 const usdDecimalSchema = z.string().regex(/^\d+\.\d{1,6}$/);
 
+const modelPolicySchema = z.object({
+  policyVersion: z.string().min(1),
+  pricingVersion: z.string().min(1),
+  temperature: z.number().min(0).max(2),
+  topP: z.number().positive().max(1).nullable(),
+  topK: z.number().int().positive().nullable(),
+  safetyProfile: z.string().min(1),
+  maxOutputTokens: z.number().int().positive(),
+  timeoutSeconds: z.number().int().positive(),
+  eligibleTasks: z.array(z.string().min(1)).min(1),
+  minimumPassRate: z.string().regex(/^(0(\.\d+)?|1(\.0+)?)$/),
+}).strict();
+
 export const budgetReservationSchema = z.object({
   jobId: z.string().min(1),
   operationId: z.string().min(1),
@@ -10,6 +23,7 @@ export const budgetReservationSchema = z.object({
   model: z.string().min(1),
   estimatedCostUsd: usdDecimalSchema,
   pricingVersion: z.string().min(1),
+  modelPolicy: modelPolicySchema.optional(),
 }).strict();
 
 export const usageRecordSchema = z.object({
@@ -25,6 +39,7 @@ export const usageRecordSchema = z.object({
   estimatedCostUsd: usdDecimalSchema,
   observedCostUsd: usdDecimalSchema.optional(),
   pricingVersion: z.string().min(1),
+  modelPolicy: modelPolicySchema.optional(),
   traceId: z.string().regex(/^[0-9a-f]{32}$/),
   createdAt: z.string().datetime({ offset: true }),
 }).strict();

@@ -30,6 +30,8 @@ from harmonia_agent.agent_models import (
 )
 from harmonia_agent.agents import (
     AgentProtocolError,
+    _reservation_payloads,
+    _resolve_role_models,
     _run_coordinator,
     _validate_run_output,
     _validate_strategy_result,
@@ -43,6 +45,7 @@ from harmonia_agent.agents import (
 from harmonia_agent.stages import classify_failure
 from harmonia_agent.tenant_context import tenant_scope
 from harmonia_agent.generation_policy import safety_settings
+from harmonia_agent.usage import InvocationContext
 
 
 class ScriptedDelegationModel(BaseLlm):
@@ -247,6 +250,38 @@ def test_team_applies_each_roles_generation_and_safety_policy(monkeypatch):
 def test_unknown_safety_profile_is_rejected():
     with pytest.raises(ValueError, match="unknown safety profile"):
         safety_settings("not-a-policy")
+
+
+def test_agent_reservations_record_exact_model_policy(monkeypatch):
+    monkeypatch.setenv(
+        "GEMMA_VERTEX_ENDPOINT",
+        "projects/p/locations/us-central1/endpoints/123",
+    )
+    invocation = InvocationContext(
+        workspace_id="w1", brand_id="b1", user_id="u1", job_id="j1",
+        stage="understand", operation_id="j1:understand:0",
+    )
+
+    reservations = _reservation_payloads(
+        "sophia_analyst",
+        AnalystInput(title="Synthetic", transcript="[0s] public evidence"),
+        invocation,
+        _resolve_role_models(),
+    )
+
+    analyst = next(item for item in reservations if item["role"] == "sophia_analyst")
+    assert analyst["modelPolicy"] == {
+        "policyVersion": "gear-2026-08-24",
+        "pricingVersion": "2026-08-23",
+        "temperature": 0.2,
+        "topP": 0.9,
+        "topK": None,
+        "safetyProfile": "harmonia-standard",
+        "maxOutputTokens": 2048,
+        "timeoutSeconds": 120,
+        "eligibleTasks": ["analyze_media", "analyze_transcript"],
+        "minimumPassRate": "0.95",
+    }
 
 
 def test_coordinator_really_delegates_and_forwards_specialist_state():

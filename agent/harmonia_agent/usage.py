@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from math import ceil
 from collections.abc import Awaitable, Callable
-from typing import Literal, TypeVar
+from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -57,6 +57,7 @@ class UsageRecord(BaseModel):
     estimated_cost_usd: str
     observed_cost_usd: str | None = None
     pricing_version: str = PRICING_VERSION
+    model_policy: dict[str, Any] | None = None
     trace_id: str
     created_at: str
 
@@ -96,6 +97,7 @@ def endpoint_usage_record(
     elapsed_seconds: float,
     estimated_cost_usd: str,
     trace_id: str,
+    model_policy: dict[str, Any] | None = None,
 ) -> UsageRecord:
     if elapsed_seconds < 0:
         raise ValueError("elapsed_seconds must be non-negative")
@@ -112,6 +114,7 @@ def endpoint_usage_record(
         unit_type="endpoint_seconds",
         estimated_cost_usd=estimated_cost_usd,
         trace_id=trace_id,
+        model_policy=model_policy,
         created_at=datetime.now(timezone.utc).isoformat(),
     )
 
@@ -149,12 +152,14 @@ class UsageAccumulator:
         stage: str,
         role: str,
         model: str,
+        model_policy: dict[str, Any] | None = None,
     ) -> None:
         self.job_id = job_id
         self.operation_id = operation_id
         self.stage = stage
         self.role = role
         self.model = model
+        self.model_policy = model_policy
         self.input_tokens = 0
         self.output_tokens = 0
 
@@ -179,5 +184,6 @@ class UsageAccumulator:
                 estimate_text_cost(self.model, self.input_tokens, self.output_tokens)
             ),
             trace_id=trace_id,
+            model_policy=self.model_policy,
             created_at=datetime.now(timezone.utc).isoformat(),
         )

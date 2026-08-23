@@ -498,6 +498,7 @@ export interface BudgetReservation {
   model: string;
   estimatedCostUsd: string;
   pricingVersion: string;
+  modelPolicy?: import("./types").ModelPolicySnapshot;
   accepted: boolean;
   finalized: boolean;
   createdAt: string;

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import os
 from decimal import Decimal, InvalidOperation
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .model_catalog import PRICING_VERSION
 
 POLICY_VERSION = "gear-2026-08-24"
 
@@ -43,6 +45,10 @@ class RoleModelConfig(BaseModel):
         default_factory=lambda: RoleGenerationPolicy(temperature=0.2, top_p=0.9),
     )
     policy_version: str = POLICY_VERSION
+    pricing_version: str = PRICING_VERSION
+    timeout_seconds: int = Field(default=120, gt=0, le=600)
+    eligible_tasks: tuple[str, ...] = ("test",)
+    minimum_pass_rate: Decimal = Field(default=Decimal("0.95"), ge=0, le=1)
     reservation_usd: str | None = None
     endpoint: str | None = None
 
@@ -61,6 +67,21 @@ class RoleModelConfig(BaseModel):
                 raise ValueError(f"{self.role} reservation must be positive")
             object.__setattr__(self, "reservation_usd", f"{value:.6f}")
         return self
+
+    def policy_snapshot(self) -> dict[str, Any]:
+        """Return the exact immutable policy fields recorded with an invocation."""
+        return {
+            "policyVersion": self.policy_version,
+            "pricingVersion": self.pricing_version,
+            "temperature": self.generation.temperature,
+            "topP": self.generation.top_p,
+            "topK": self.generation.top_k,
+            "safetyProfile": self.generation.safety_profile,
+            "maxOutputTokens": self.max_output_tokens,
+            "timeoutSeconds": self.timeout_seconds,
+            "eligibleTasks": list(self.eligible_tasks),
+            "minimumPassRate": str(self.minimum_pass_rate),
+        }
 
 
 class RoleModelCatalog(BaseModel):
@@ -104,6 +125,7 @@ def _gemini(
     default: str,
     max_output_tokens: int,
     temperature: float,
+    eligible_tasks: tuple[str, ...],
 ) -> RoleModelConfig:
     return RoleModelConfig(
         role=role,
@@ -111,6 +133,7 @@ def _gemini(
         model_id=os.environ.get(env_name, default),
         max_output_tokens=max_output_tokens,
         generation=_policy(temperature),
+        eligible_tasks=eligible_tasks,
     )
 
 
@@ -118,12 +141,15 @@ def load_role_model_catalog() -> RoleModelCatalog:
     return RoleModelCatalog(
         coordinator=_gemini(
             "harmonia_coordinator", "COORDINATOR_MODEL_ID", "gemini-3.5-flash-lite", 1024, 0.1,
+            ("route",),
         ),
         strategist=_gemini(
             "ryan_strategist", "STRATEGIST_MODEL_ID", "gemini-3.5-flash", 2048, 0.4,
+            ("brief", "trend_scan", "calendar_gap", "recycle"),
         ),
         analyst=_gemini(
             "sophia_analyst", "ANALYST_MODEL_ID", "gemini-3.5-flash", 2048, 0.2,
+            ("analyze_media", "analyze_transcript"),
         ),
         copywriter=RoleModelConfig(
             role="nimi_copywriter",
@@ -131,19 +157,24 @@ def load_role_model_catalog() -> RoleModelCatalog:
             model_id=os.environ.get("COPYWRITER_MODEL_ID", "gemma-3-12b-it"),
             max_output_tokens=2048,
             generation=_policy(0.8),
+            eligible_tasks=("draft_x",),
             reservation_usd=os.environ.get("GEMMA_MAX_COST_USD", "0.100000"),
             endpoint=os.environ.get("GEMMA_VERTEX_ENDPOINT") or None,
         ),
         editor=_gemini(
             "dara_editor", "EDITOR_MODEL_ID", "gemini-3.5-flash", 2048, 0.2,
+            ("review_drafts",),
         ),
         planner=_gemini(
             "temi_planner", "PLANNER_MODEL_ID", "gemini-3.5-flash-lite", 1024, 0.1,
+            ("plan_publish_proposals",),
         ),
         presenter=_gemini(
             "maya_presenter", "PRESENTER_MODEL_ID", "gemini-3.5-flash", 2048, 0.2,
+            ("compose_surface",),
         ),
         liaison=_gemini(
             "nova_liaison", "LIAISON_MODEL_ID", "gemini-3.5-flash", 2048, 0.2,
+            ("answer_status", "answer_insights"),
         ),
     )

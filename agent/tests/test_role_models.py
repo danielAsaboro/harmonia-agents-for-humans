@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 from pydantic import ValidationError
 
@@ -53,6 +55,10 @@ def test_every_role_has_versioned_generation_and_safety_policy(monkeypatch):
         role.generation.safety_profile == "harmonia-standard"
         for role in catalog.roles()
     )
+    assert all(role.timeout_seconds > 0 for role in catalog.roles())
+    assert all(role.eligible_tasks for role in catalog.roles())
+    assert all(role.minimum_pass_rate == Decimal("0.95") for role in catalog.roles())
+    assert all(role.pricing_version == "2026-08-23" for role in catalog.roles())
 
 
 @pytest.mark.parametrize(

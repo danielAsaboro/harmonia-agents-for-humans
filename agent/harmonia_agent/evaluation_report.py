@@ -1,14 +1,32 @@
-"""Deterministic, evidence-backed role model comparison reporting."""
+"""Deterministic, evidence-linked role model comparison reporting."""
 
 from __future__ import annotations
 
 import argparse
 import json
 from decimal import Decimal
+from math import ceil
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+
+
+class EvalCaseEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    case_id: str
+    passed: bool
+    latency_ms: int = Field(ge=0)
+
+
+class EvaluationUsageEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    record_id: str
+    model_id: str
+    estimated_cost_usd: Decimal = Field(ge=0)
+    pricing_version: str
 
 
 class RoleEvaluationRecord(BaseModel):
@@ -16,18 +34,61 @@ class RoleEvaluationRecord(BaseModel):
 
     role: str
     model_id: str
-    pass_rate: Decimal = Field(ge=0, le=1)
-    estimated_cost_usd: Decimal | None = Field(default=None, ge=0)
-    p95_latency_ms: int = Field(ge=0)
-    case_count: int = Field(gt=0)
+    eval_run_id: str
+    evidence_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    cases: tuple[EvalCaseEvidence, ...] = Field(min_length=1)
+    usage_records: tuple[EvaluationUsageEvidence, ...] = ()
     pricing_version: str
     policy_version: str
+    minimum_pass_rate: Decimal = Field(ge=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_evidence_linkage(self) -> "RoleEvaluationRecord":
+        case_ids = [case.case_id for case in self.cases]
+        if len(case_ids) != len(set(case_ids)):
+            raise ValueError("eval case IDs must be unique")
+        usage_ids = [usage.record_id for usage in self.usage_records]
+        if len(usage_ids) != len(set(usage_ids)):
+            raise ValueError("usage record IDs must be unique")
+        for usage in self.usage_records:
+            if usage.model_id != self.model_id:
+                raise ValueError("usage model must match candidate model")
+            if usage.pricing_version != self.pricing_version:
+                raise ValueError("usage pricing version must match candidate pricing version")
+        return self
+
+    @computed_field
+    @property
+    def pass_rate(self) -> Decimal:
+        passed = sum(case.passed for case in self.cases)
+        return Decimal(passed) / Decimal(len(self.cases))
+
+    @computed_field
+    @property
+    def case_count(self) -> int:
+        return len(self.cases)
+
+    @computed_field
+    @property
+    def estimated_cost_usd(self) -> Decimal | None:
+        if not self.usage_records:
+            return None
+        return sum(
+            (usage.estimated_cost_usd for usage in self.usage_records),
+            start=Decimal("0"),
+        )
+
+    @computed_field
+    @property
+    def p95_latency_ms(self) -> int:
+        ordered = sorted(case.latency_ms for case in self.cases)
+        return ordered[max(0, ceil(len(ordered) * 0.95) - 1)]
 
 
 class RejectedCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    model_id: str
+    record: RoleEvaluationRecord
     reason: Literal["below_quality_floor", "unknown_cost"]
 
 
@@ -44,21 +105,27 @@ class RoleComparison(BaseModel):
 
 
 def compare_role_candidates(
-    records: list[RoleEvaluationRecord], *, minimum_pass_rate: Decimal | str,
+    records: list[RoleEvaluationRecord], *, minimum_pass_rate: Decimal | str | None = None,
 ) -> RoleComparison:
     if not records:
         raise ValueError("at least one role evaluation record is required")
     roles = {record.role for record in records}
     policies = {record.policy_version for record in records}
     prices = {record.pricing_version for record in records}
+    configured_floors = {record.minimum_pass_rate for record in records}
     if len(roles) != 1:
         raise ValueError("candidate records must use one role")
     if len(policies) != 1:
         raise ValueError("candidate records must use one policy version")
     if len(prices) != 1:
         raise ValueError("candidate records must use one pricing version")
+    if len(configured_floors) != 1:
+        raise ValueError("candidate records must use one configured quality floor")
 
-    floor = Decimal(minimum_pass_rate)
+    configured_floor = next(iter(configured_floors))
+    floor = configured_floor if minimum_pass_rate is None else Decimal(minimum_pass_rate)
+    if floor != configured_floor:
+        raise ValueError("requested quality floor does not match the recorded role policy")
     if not 0 <= floor <= 1:
         raise ValueError("minimum pass rate must be between 0 and 1")
     eligible: list[RoleEvaluationRecord] = []
@@ -66,11 +133,11 @@ def compare_role_candidates(
     for record in records:
         if record.pass_rate < floor:
             rejected.append(RejectedCandidate(
-                model_id=record.model_id, reason="below_quality_floor",
+                record=record, reason="below_quality_floor",
             ))
         elif record.estimated_cost_usd is None:
             rejected.append(RejectedCandidate(
-                model_id=record.model_id, reason="unknown_cost",
+                record=record, reason="unknown_cost",
             ))
         else:
             eligible.append(record)
@@ -100,24 +167,30 @@ def comparison_markdown(comparison: RoleComparison) -> str:
         f"Policy version: {comparison.policy_version}",
         f"Pricing version: {comparison.pricing_version}",
         "",
-        "| Model | Pass rate | Cost USD | p95 ms | Decision |",
-        "|---|---:|---:|---:|---|",
+        "| Model | Pass rate | Cost USD | p95 ms | Evidence | Decision |",
+        "|---|---:|---:|---:|---|---|",
     ]
-    rejected = {item.model_id: item.reason for item in comparison.rejected}
     for record in comparison.eligible:
         lines.append(
             f"| {record.model_id} | {record.pass_rate} | "
-            f"{record.estimated_cost_usd} | {record.p95_latency_ms} | eligible |",
+            f"{record.estimated_cost_usd} | {record.p95_latency_ms} | "
+            f"{record.eval_run_id}:{record.evidence_digest[:12]} | eligible |",
         )
     for item in comparison.rejected:
-        lines.append(f"| {item.model_id} | — | — | — | {rejected[item.model_id]} |")
+        record = item.record
+        lines.append(
+            f"| {record.model_id} | {record.pass_rate} | "
+            f"{record.estimated_cost_usd if record.estimated_cost_usd is not None else 'unknown'} | "
+            f"{record.p95_latency_ms} | {record.eval_run_id}:{record.evidence_digest[:12]} | "
+            f"{item.reason} |",
+        )
     return "\n".join(lines) + "\n"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, type=Path)
-    parser.add_argument("--minimum-pass-rate", default="0.95")
+    parser.add_argument("--minimum-pass-rate")
     parser.add_argument("--format", choices=("json", "markdown"), default="json")
     args = parser.parse_args()
     records = [RoleEvaluationRecord.model_validate(item) for item in json.loads(

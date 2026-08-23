@@ -76,16 +76,25 @@ describe("internal contracts", () => {
   });
 
   it("accepts strict budget reservations and usage records", () => {
+    const modelPolicy = {
+      policyVersion: "gear-2026-08-24", pricingVersion: "2026-08-23",
+      temperature: 0.2, topP: 0.9, topK: null,
+      safetyProfile: "harmonia-standard", maxOutputTokens: 2048,
+      timeoutSeconds: 120, eligibleTasks: ["analyze_media"],
+      minimumPassRate: "0.95",
+    };
     expect(budgetReservationSchema.safeParse({
       jobId: "j1", operationId: "j1:draft:nimi:0", stage: "draft",
       role: "nimi", model: "gemini-3.5-flash",
       estimatedCostUsd: "0.001000", pricingVersion: "2026-08-23",
+      modelPolicy,
     }).success).toBe(true);
     expect(usageRecordSchema.safeParse({
       id: "u1", jobId: "j1", operationId: "j1:draft:nimi:0", stage: "draft",
       role: "nimi", model: "gemini-3.5-flash", inputUnits: 100, outputUnits: 10,
       unitType: "tokens", estimatedCostUsd: "0.000240",
       pricingVersion: "2026-08-23", traceId: "a".repeat(32),
+      modelPolicy,
       createdAt: "2026-08-23T12:00:00+00:00",
     }).success).toBe(true);
   });

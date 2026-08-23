@@ -197,6 +197,7 @@ def _reservation_payloads(
             "model": model_id,
             "estimatedCostUsd": estimated_cost,
             "pricingVersion": PRICING_VERSION,
+            "modelPolicy": config.policy_snapshot(),
         })
     return reservations
 
@@ -477,6 +478,7 @@ async def _run_coordinator(
                     elapsed_seconds=0,
                     estimated_cost_usd=config.reservation_usd or "0.000001",
                     trace_id=trace_id,
+                    model_policy=config.policy_snapshot(),
                 )
             else:
                 estimated_input, estimated_output = estimate_request_tokens(
@@ -489,6 +491,7 @@ async def _run_coordinator(
                     stage=invocation.stage,
                     role=role,
                     model=model_id,
+                    model_policy=config.policy_snapshot(),
                 )
                 accumulator.input_tokens = estimated_input
                 accumulator.output_tokens = estimated_output

@@ -1,23 +1,38 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { MessageProcessor } from "@a2ui/web_core/v0_9";
 import { harmoniaCatalog, parseHarmoniaA2uiOperation } from "../src/components/a2ui/HarmoniaCatalog";
-import { buildResponseSurface } from "../src/lib/a2ui/responseSurface";
+import { generateResponseSurfaces } from "../src/lib/a2ui/responseSurface";
+import type { JobFull } from "../src/components/jobTypes";
+
+const job: JobFull = {
+  id: "job-1", status: "waiting_for_approval", stage: "awaiting_approval", createdAt: "2026-08-23T00:00:00.000Z", updatedAt: "2026-08-23T00:01:00.000Z",
+  config: { brief: "Launch from outcomes", platforms: ["x"] }, transcriptSegments: [], moments: [], angles: [],
+  drafts: [{ id: "draft-1", platform: "x", text: "This full draft must not reach the planner.", valid: true }],
+  actions: [], assets: [],
+};
 
 describe("Harmonia A2UI surfaces", () => {
-  test("the official processor accepts and materializes a generated job surface", () => {
-    const operations = buildResponseSurface("run-1", {
-      intent: "status",
-      reply: "Job is drafting.",
-      job: { id: "job-1", stage: "draft", status: "running", title: "Launch" },
+  test("passes bounded context to the planner and materializes its hydrated surface", async () => {
+    const planner = vi.fn().mockResolvedValue({
+      version: "harmonia.ui/v1",
+      surfaces: [{ slot: "canvas", revision: 1, rootId: "drafts", nodes: [{ id: "drafts", component: "DraftComparison", refs: { jobId: "job-1", draftIds: ["draft-1"] }, children: [] }] }],
+    });
+    const surfaces = await generateResponseSurfaces({
+      runId: "run-1",
+      message: "Compare the drafts",
+      response: { intent: "list_drafts", reply: "One draft is ready.", jobId: "job-1" },
+      job,
+      receipts: [],
+      planner,
     });
     const processor = new MessageProcessor([harmoniaCatalog]);
+    processor.processMessages(surfaces.canvas as never[]);
 
-    processor.processMessages(operations as never[]);
-
-    const surface = processor.model.getSurface("chat-run-1");
+    const surface = processor.model.getSurface("studio-run-1-canvas-r1");
     expect(surface?.componentsModel.get("root")).toBeTruthy();
-    expect(surface?.componentsModel.get("message")?.properties.text).toBe("Job is drafting.");
-    expect(surface?.componentsModel.get("job-plan")).toBeTruthy();
+    expect(surface?.componentsModel.get("drafts")?.properties.drafts[0].text).toContain("full draft");
+    expect(planner).toHaveBeenCalledWith(expect.objectContaining({ intent: "list_drafts" }));
+    expect(JSON.stringify(planner.mock.calls[0][0])).not.toContain("full draft");
   });
 
   test("the trusted host rejects unknown components before processing", () => {
@@ -59,21 +74,14 @@ describe("Harmonia A2UI surfaces", () => {
     expect(processor.model.getSurface("studio-run-1-approval-r1")?.componentsModel.get("approval")).toBeTruthy();
   });
 
-  test("preserves drafts, generated assets, and existing action confirmations", () => {
-    const operations = buildResponseSurface("run-2", {
-      intent: "list_drafts",
-      reply: "One reviewed draft is ready.",
-      jobId: "job-2",
-      drafts: [{ id: "draft-1", platform: "x", text: "Ship the work.", momentId: "moment-1", valid: true }],
-      assets: [{ actionId: "asset-1", mime: "image/png" }],
-      pendingActions: [{ id: "action-1", title: "Publish post", type: "publish_x_post", risk: "high" }],
-    });
-    const update = operations[1] as { updateComponents: { components: Array<Record<string, unknown>> } };
-
-    expect(update.updateComponents.components).toEqual(expect.arrayContaining([
-      expect.objectContaining({ component: "MessageContent", text: "Ship the work." }),
-      expect.objectContaining({ component: "AttachmentCard", previewUrl: "/api/jobs/job-2/assets/asset-1" }),
-      expect.objectContaining({ component: "Confirmation", jobId: "job-2", actionId: "action-1" }),
-    ]));
+  test("surfaces planner failures without a deterministic fallback", async () => {
+    await expect(generateResponseSurfaces({
+      runId: "run-2",
+      message: "Show the job",
+      response: { intent: "status", reply: "Ready.", jobId: "job-1" },
+      job,
+      receipts: [],
+      planner: vi.fn().mockRejectedValue(new Error("Agent Engine unavailable")),
+    })).rejects.toThrow("Agent Engine unavailable");
   });
 });

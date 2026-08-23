@@ -1,0 +1,63 @@
+import { describe, expect, it, vi } from "vitest";
+import type { ChatResponse } from "../src/app/api/chat/route";
+import type { JobFull } from "../src/components/jobTypes";
+import { loadGeneratedPresentation } from "../src/app/api/chat/stream/route";
+
+const job: JobFull = {
+  id: "job-1", status: "running", stage: "draft", createdAt: "2026-08-23T00:00:00.000Z", updatedAt: "2026-08-23T00:01:00.000Z",
+  config: { brief: "Launch", platforms: ["x"] }, transcriptSegments: [], moments: [], angles: [], drafts: [], actions: [],
+};
+
+describe("streamed A2UI presentation integration", () => {
+  it("reloads authenticated job state and returns exact slot operations", async () => {
+    const canvas = [{ version: "v0.9", createSurface: { surfaceId: "studio-run-1-canvas-r1", catalogId: "catalog" } }];
+    const conversation = [{ version: "v0.9", createSurface: { surfaceId: "studio-run-1-conversation-r1", catalogId: "catalog" } }];
+    const approval = [{ version: "v0.9", createSurface: { surfaceId: "studio-run-1-approval-r1", catalogId: "catalog" } }];
+    const generate = vi.fn().mockResolvedValue({ canvas, conversation, approval });
+    const response: ChatResponse = { intent: "status", reply: "Drafting.", jobId: "job-1" };
+
+    const result = await loadGeneratedPresentation({
+      runId: "run-1",
+      message: "Show status",
+      response,
+      loadJob: vi.fn().mockResolvedValue(job),
+      loadReceipts: vi.fn().mockResolvedValue([]),
+      loadAssets: vi.fn().mockResolvedValue([{ actionId: "image-1", mime: "image/png", sizeBytes: 4, digest: "d" }]),
+      generate,
+    });
+
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({
+      runId: "run-1",
+      message: "Show status",
+      job: expect.objectContaining({ id: "job-1", assets: [expect.objectContaining({ actionId: "image-1" })] }),
+    }));
+    expect(result?.operations).toEqual([...canvas, ...conversation, ...approval]);
+  });
+
+  it("does not invent a surface when the chat response has no active job", async () => {
+    const generate = vi.fn();
+    const result = await loadGeneratedPresentation({
+      runId: "run-2",
+      message: "Hello",
+      response: { intent: "unknown", reply: "Create a job first." },
+      loadJob: vi.fn(),
+      loadReceipts: vi.fn(),
+      loadAssets: vi.fn(),
+      generate,
+    });
+    expect(result).toBeNull();
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it("propagates managed presentation failure without generic operations", async () => {
+    await expect(loadGeneratedPresentation({
+      runId: "run-3",
+      message: "Show status",
+      response: { intent: "status", reply: "Drafting.", jobId: "job-1" },
+      loadJob: vi.fn().mockResolvedValue(job),
+      loadReceipts: vi.fn().mockResolvedValue([]),
+      loadAssets: vi.fn().mockResolvedValue([]),
+      generate: vi.fn().mockRejectedValue(new Error("Agent Engine unavailable")),
+    })).rejects.toThrow("Agent Engine unavailable");
+  });
+});

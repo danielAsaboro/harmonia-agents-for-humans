@@ -3,7 +3,10 @@ import { tenantHandler } from "@/lib/auth";
 import { handleChat, type ChatResponse } from "@/app/api/chat/route";
 import { requireReadyAttachments } from "@/lib/chatAttachments";
 import { appendChatRunEvent, createChatRun, type UnsequencedChatStreamEvent } from "@/lib/chatRuns";
-import { buildResponseSurface } from "@/lib/a2ui/responseSurface";
+import { getJob, listAssets, listReceipts } from "@/lib/firestore";
+import { generateResponseSurfaces } from "@/lib/a2ui/responseSurface";
+import type { JobFull } from "@/components/jobTypes";
+import type { HydratedSurfaceSet } from "@/lib/a2ui/hydrateSurfacePlan";
 
 const streamRequestSchema = z.object({
   message: z.string().min(1).max(2_000),
@@ -12,6 +15,59 @@ const streamRequestSchema = z.object({
 }).strict();
 
 const encoder = new TextEncoder();
+
+interface LoadGeneratedPresentationInput {
+  runId: string;
+  message: string;
+  response: ChatResponse;
+  loadJob?: typeof getJob;
+  loadReceipts?: typeof listReceipts;
+  loadAssets?: typeof listAssets;
+  generate?: typeof generateResponseSurfaces;
+}
+
+export async function loadGeneratedPresentation(input: LoadGeneratedPresentationInput): Promise<{
+  job: JobFull;
+  surfaces: HydratedSurfaceSet;
+  operations: Record<string, unknown>[];
+} | null> {
+  const jobId = input.response.jobId ?? input.response.job?.id ?? input.response.jobs?.[0]?.id;
+  if (!jobId) return null;
+  const [persistedJob, receipts, assets] = await Promise.all([
+    (input.loadJob ?? getJob)(jobId),
+    (input.loadReceipts ?? listReceipts)(jobId),
+    (input.loadAssets ?? listAssets)(jobId),
+  ]);
+  const { packet: persistedPacket, verifications: persistedVerifications, ...persistedJobFields } = persistedJob;
+  const job: JobFull = {
+    ...persistedJobFields,
+    verifications: (persistedVerifications ?? []).map((verification) => ({
+      rubricItemId: verification.target,
+      verified: verification.verified,
+      method: verification.method,
+      evidence: verification.evidence,
+      ...(verification.note ? { note: verification.note } : {}),
+    })),
+    ...(persistedPacket ? { packet: {
+      generatedAt: persistedPacket.generatedAt,
+      unresolved: persistedPacket.unresolved,
+      receipts,
+    } } : {}),
+    assets,
+  };
+  const surfaces = await (input.generate ?? generateResponseSurfaces)({
+    runId: input.runId,
+    message: input.message,
+    response: input.response,
+    job,
+    receipts,
+  });
+  return {
+    job,
+    surfaces,
+    operations: [...surfaces.canvas, ...surfaces.conversation, ...surfaces.approval],
+  };
+}
 
 async function post(req: Request): Promise<Response> {
   const parsed = streamRequestSchema.safeParse(await req.json().catch(() => null));
@@ -50,7 +106,28 @@ async function post(req: Request): Promise<Response> {
           await emit({ type: "tool_activity", tool: { name: "harmonia_chat_router", status: "complete", outputSummary: `intent=${payload.intent}`, durationMs: Date.now() - toolStartedAt } });
           await emit({ type: "activity", activity: { id: "request-router", label: "Harmonia interpreted the request", status: "complete" } });
           if (payload.job) await emit({ type: "job_updated", jobId: payload.job.id, stage: payload.job.stage, status: payload.job.status });
-          for (const operation of buildResponseSurface(run.id, payload)) await emit({ type: "a2ui_operation", operation });
+          const presentationJobId = payload.jobId ?? payload.job?.id ?? payload.jobs?.[0]?.id;
+          if (presentationJobId) {
+            const presentationStartedAt = Date.now();
+            await emit({ type: "activity", activity: { id: "interface-presenter", label: "Maya is composing the campaign workspace", status: "active" } });
+            await emit({ type: "tool_activity", tool: { name: "maya_presenter", status: "active", inputSummary: `job=${presentationJobId}, intent=${payload.intent}` } });
+            try {
+              const presentation = await loadGeneratedPresentation({
+                runId: run.id,
+                message: parsed.data.message,
+                response: payload,
+              });
+              if (!presentation) throw new Error("presentation job disappeared before hydration");
+              await emit({ type: "tool_activity", tool: { name: "maya_presenter", status: "complete", outputSummary: `${presentation.operations.length} validated A2UI operations`, durationMs: Date.now() - presentationStartedAt } });
+              await emit({ type: "activity", activity: { id: "interface-presenter", label: "Maya composed the campaign workspace", status: "complete" } });
+              for (const operation of presentation.operations) await emit({ type: "a2ui_operation", operation });
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              await emit({ type: "tool_activity", tool: { name: "maya_presenter", status: "failed", outputSummary: message.slice(0, 2_000), durationMs: Date.now() - presentationStartedAt } });
+              await emit({ type: "activity", activity: { id: "interface-presenter", label: "Maya could not compose the campaign workspace", description: message.slice(0, 2_000), status: "failed" } });
+              throw error;
+            }
+          }
           for (let offset = 0; offset < payload.reply.length; offset += 512) {
             await emit({ type: "text_delta", delta: payload.reply.slice(offset, offset + 512) });
           }

@@ -81,6 +81,9 @@ export function replayChatRunEvents(runId: string, events: unknown[]): ChatRunSt
     if (event.runId !== runId) {
       throw new Error(`chat run ${runId} received event for ${event.runId}`);
     }
+    if (event.sequence !== state.lastSequence + 1) {
+      throw new Error(`chat run ${runId} received non-contiguous sequence ${event.sequence} after ${state.lastSequence}`);
+    }
     state = reduceChatStreamEvent(state, event);
   }
   return state;

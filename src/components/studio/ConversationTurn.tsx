@@ -1,6 +1,9 @@
 import { AttachmentCard, MessageContent } from "@/components/a2ui/HarmoniaElements";
+import { HarmoniaA2uiHost } from "@/components/a2ui/HarmoniaCatalog";
+import { latestSurfaceOperations } from "@/lib/a2ui/surfaceSlots";
 import type { StudioConversationMessage } from "@/lib/studio/conversationModel";
 import { AgentRunSummary } from "./AgentRunSummary";
+import { StudioFailure } from "./StudioStates";
 
 interface ConversationTurnProps {
   message: StudioConversationMessage;
@@ -16,6 +19,15 @@ function formatTime(value?: string | null) {
 export function ConversationTurn({ message, onActivateArtifact, onActivateJob }: ConversationTurnProps) {
   const user = message.role === "user";
   const jobs = [message.data?.job, ...(message.data?.jobs ?? [])].filter(Boolean) as NonNullable<typeof message.data>["job"][];
+  let conversationOperations: unknown[] = [];
+  let protocolError: string | null = null;
+  try {
+    conversationOperations = message.run?.operations.length
+      ? latestSurfaceOperations(message.run.operations, "conversation")
+      : [];
+  } catch (error) {
+    protocolError = error instanceof Error ? error.message : String(error);
+  }
   return (
     <article
       className={`studio-turn flex flex-col ${user ? "items-end" : "items-start"}`}
@@ -33,6 +45,8 @@ export function ConversationTurn({ message, onActivateArtifact, onActivateJob }:
       >
         <MessageContent text={message.text} />
       </div>
+      {conversationOperations.length ? <HarmoniaA2uiHost operations={conversationOperations} className="mt-2 flex w-full flex-col gap-2" /> : null}
+      {protocolError ? <div className="mt-2 w-full"><StudioFailure message={`A2UI protocol error: ${protocolError}`} permanent /></div> : null}
 
       {message.attachments?.length ? (
         <div className="mt-2 grid w-full grid-cols-1 gap-2 sm:grid-cols-2">

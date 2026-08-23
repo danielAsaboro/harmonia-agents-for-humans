@@ -63,7 +63,7 @@ export function StudioConsoleView(props: StudioConsoleViewProps) {
       mobilePane={props.mobilePane}
       onMobilePaneChange={props.onMobilePaneChange}
       conversation={<ConversationPane chapters={chapters} liveRun={props.liveRun} loaded={props.loaded} input={props.input} onInputChange={props.onInputChange} attachments={props.attachments} onAttachmentsChange={props.onAttachmentsChange} busy={props.busy} onSend={props.onSend} onActivateArtifact={(artifactId) => { props.onSelectedArtifactChange(artifactId); props.onMobilePaneChange("canvas"); }} onActivateJob={(jobId) => { props.onOpenJob(jobId); props.onMobilePaneChange("canvas"); }} headerAccessory={props.historyAccessory} campaignTitle={campaignTitle} artifactCount={artifactCount} />}
-      canvas={<WorkingCanvas job={props.detail?.job ?? null} events={props.detail?.events ?? []} receipts={props.detail?.receipts ?? []} loading={props.detailLoading} error={props.detailError} selectedArtifactId={props.selectedArtifactId} onSelectedArtifactChange={props.onSelectedArtifactChange} onRetry={props.onRetryJob} runId={canvasRun?.runId} operations={canvasRun?.operations ?? []} approvalBusy={props.busy} onDecide={props.onDecide} onOperationDecision={props.onOperationDecision} />}
+      canvas={<WorkingCanvas job={props.detail?.job ?? null} events={props.detail?.events ?? []} receipts={props.detail?.receipts ?? []} loading={props.detailLoading} error={props.detailError} selectedArtifactId={props.selectedArtifactId} onSelectedArtifactChange={props.onSelectedArtifactChange} onRetry={props.onRetryJob} operations={canvasRun?.operations ?? []} approvalBusy={props.busy} onDecide={props.onDecide} onOperationDecision={props.onOperationDecision} />}
     />
   );
 }

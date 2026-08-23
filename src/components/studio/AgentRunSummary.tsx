@@ -1,19 +1,10 @@
 import type { ChatRunState } from "@/lib/a2ui/chatReducer";
 import { ActivityTrace, ToolActivity } from "@/components/a2ui/HarmoniaElements";
-import { HarmoniaA2uiHost } from "@/components/a2ui/HarmoniaCatalog";
-import { partitionStudioOperations } from "@/lib/a2ui/studioRegions";
 import { StudioFailure } from "./StudioStates";
 
 export function AgentRunSummary({ run }: { run: ChatRunState }) {
   const label = run.status === "running" ? "Harmonia is working" : run.status === "failed" ? "Agent run failed" : "Agent run complete";
   const totalDuration = run.tools.reduce((sum, tool) => sum + (tool.durationMs ?? 0), 0);
-  let conversationOperations: unknown[] = [];
-  let protocolError: string | null = null;
-  try {
-    conversationOperations = run.operations.length ? partitionStudioOperations(run.runId, run.operations).conversation : [];
-  } catch (error) {
-    protocolError = error instanceof Error ? error.message : String(error);
-  }
   return (
     <details open={run.status !== "complete"} className="group w-full rounded-[14px] bg-[#171714] px-3 py-2.5 text-white">
       <summary className="flex cursor-pointer list-none items-center gap-2 text-[9px] font-bold">
@@ -24,8 +15,6 @@ export function AgentRunSummary({ run }: { run: ChatRunState }) {
       <div className="mt-3 space-y-2">
         {run.activities.length > 0 ? <ActivityTrace title="Activity summary" steps={run.activities} /> : null}
         {run.tools.map((tool, index) => <ToolActivity key={`${tool.traceId ?? tool.name}-${index}`} {...tool} />)}
-        {conversationOperations.length ? <HarmoniaA2uiHost operations={conversationOperations} /> : null}
-        {protocolError ? <StudioFailure message={`A2UI protocol error: ${protocolError}`} permanent /> : null}
         {run.error ? <StudioFailure message={run.error} permanent={run.permanent} /> : null}
       </div>
     </details>

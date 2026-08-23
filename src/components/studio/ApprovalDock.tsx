@@ -2,7 +2,7 @@
 
 import type { JobFull, PlannedAction, Receipt } from "@/components/jobTypes";
 import { HarmoniaA2uiHost } from "@/components/a2ui/HarmoniaCatalog";
-import { countStudioComponents, partitionStudioOperations } from "@/lib/a2ui/studioRegions";
+import { latestSurfaceOperations } from "@/lib/a2ui/surfaceSlots";
 import { StudioFailure } from "./StudioStates";
 
 type Verification = NonNullable<JobFull["verifications"]>[number];
@@ -15,14 +15,13 @@ function recordedCost(action: PlannedAction): number | null {
   return null;
 }
 
-export function ApprovalDock({ jobId, actions, verifications, receipts, busy, onDecide, runId, operations = [], onOperationDecision }: {
+export function ApprovalDock({ jobId, actions, verifications, receipts, busy, onDecide, operations = [], onOperationDecision }: {
   jobId: string;
   actions: PlannedAction[];
   verifications: Verification[];
   receipts: Receipt[];
   busy: boolean;
   onDecide: (jobId: string, actionId: string, decision: "approved" | "rejected") => Promise<void> | void;
-  runId?: string;
   operations?: unknown[];
   onOperationDecision?: (operationId: string, decision: "approved" | "rejected") => Promise<void> | void;
 }) {
@@ -30,14 +29,13 @@ export function ApprovalDock({ jobId, actions, verifications, receipts, busy, on
   let approvalOperations: unknown[] = [];
   let protocolError: string | null = null;
   try {
-    approvalOperations = runId && operations.length ? partitionStudioOperations(runId, operations).approval : [];
+    approvalOperations = operations.length ? latestSurfaceOperations(operations, "approval") : [];
   } catch (error) {
     protocolError = error instanceof Error ? error.message : String(error);
   }
   if (!pending.length && !approvalOperations.length && !protocolError) return null;
   const totalRecordedCost = pending.reduce((sum, action) => sum + (recordedCost(action) ?? 0), 0);
-  const confirmationCount = countStudioComponents(approvalOperations, "Confirmation");
-  const decisionCount = pending.length + confirmationCount;
+  const decisionCount = pending.length;
 
   return (
     <aside className="shrink-0 border-t border-black/10 bg-[#ebe7de] pb-20 lg:pb-0" aria-label="Approval boundary">

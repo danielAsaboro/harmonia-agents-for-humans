@@ -28,6 +28,7 @@ from .agent_models import (
 from .a2ui_models import SurfacePlan, UiContext
 from .config import settings
 from .gemma_model import VertexGemmaModel
+from .generation_policy import generation_config
 from .model_catalog import PRICING_VERSION, estimate_text_cost
 from .mock_ai import (
     mock_ai_enabled,
@@ -209,6 +210,7 @@ def build_agent_team(
     resolved = _resolve_role_models(model, models)
     strategist = Agent(
         model=resolved.strategist,
+        generate_content_config=generation_config(resolved.config_for("ryan_strategist")),
         name="ryan_strategist",
         description=(
             "Develops startup content strategy from briefs, trend signals, calendar gaps, "
@@ -227,6 +229,7 @@ def build_agent_team(
     )
     analyst = Agent(
         model=resolved.analyst,
+        generate_content_config=generation_config(resolved.config_for("sophia_analyst")),
         name="sophia_analyst",
         description="Finds clip-worthy moments and defensible trend or meme angles in a transcript.",
         instruction=(
@@ -244,6 +247,7 @@ def build_agent_team(
     )
     presenter = Agent(
         model=resolved.presenter,
+        generate_content_config=generation_config(resolved.config_for("maya_presenter")),
         name="maya_presenter",
         description=(
             "Composes trustworthy Harmonia A2UI workspaces from bounded entity references."
@@ -262,6 +266,7 @@ def build_agent_team(
     )
     copywriter = Agent(
         model=resolved.copywriter,
+        generate_content_config=generation_config(resolved.config_for("nimi_copywriter")),
         name="nimi_copywriter",
         description="Writes platform-native X drafts grounded in supplied moments and angles.",
         instruction=(
@@ -275,6 +280,7 @@ def build_agent_team(
     )
     editor = Agent(
         model=resolved.editor,
+        generate_content_config=generation_config(resolved.config_for("dara_editor")),
         name="dara_editor",
         description="Performs one editorial revision pass against brand voice and source grounding.",
         instruction=(
@@ -288,6 +294,7 @@ def build_agent_team(
     )
     planner = Agent(
         model=resolved.planner,
+        generate_content_config=generation_config(resolved.config_for("temi_planner")),
         name="temi_planner",
         description="Selects reviewed X drafts for operator-approved publishing actions.",
         instruction=(
@@ -307,6 +314,7 @@ def build_agent_team(
 
     liaison = Agent(
         model=resolved.liaison,
+        generate_content_config=generation_config(resolved.config_for("nova_liaison")),
         name="nova_liaison",
         description=(
             "Answers operator questions about jobs, engagement, trends, and posting "
@@ -326,6 +334,7 @@ def build_agent_team(
     )
     return Agent(
         model=resolved.coordinator,
+        generate_content_config=generation_config(resolved.config_for("harmonia_coordinator")),
         name="harmonia_coordinator",
         description="Routes Harmonia judgment tasks to typed specialists; never performs external effects.",
         instruction=(

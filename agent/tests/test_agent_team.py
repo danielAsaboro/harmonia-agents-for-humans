@@ -220,6 +220,29 @@ def test_team_assigns_the_configured_model_to_each_role():
     ]
 
 
+def test_team_applies_each_roles_generation_and_safety_policy(monkeypatch):
+    monkeypatch.setenv(
+        "GEMMA_VERTEX_ENDPOINT",
+        "projects/p/locations/us-central1/endpoints/123",
+    )
+    root = build_agent_team()
+
+    assert root.generate_content_config.temperature == 0.1
+    assert root.generate_content_config.max_output_tokens == 1024
+    assert len(root.generate_content_config.safety_settings) == 4
+
+    analyst = next(agent for agent in root.sub_agents if agent.name == "sophia_analyst")
+    assert analyst.generate_content_config.temperature == 0.2
+    assert analyst.generate_content_config.max_output_tokens == 2048
+
+    workflow = next(tool.agent for tool in root.tools if tool.name == "flo_draft_workflow")
+    copywriter, _, planner = workflow.sub_agents
+    assert copywriter.generate_content_config.temperature == 0.8
+    assert copywriter.generate_content_config.max_output_tokens == 2048
+    assert planner.generate_content_config.temperature == 0.1
+    assert planner.generate_content_config.max_output_tokens == 1024
+
+
 def test_coordinator_really_delegates_and_forwards_specialist_state():
     runtime = ManagedRuntime()
     with tenant_scope("workspace-test", "brand-test"):

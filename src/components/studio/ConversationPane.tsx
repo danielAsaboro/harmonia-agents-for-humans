@@ -21,6 +21,7 @@ interface ConversationPaneProps {
   onSend: (message?: string) => void | Promise<void>;
   onActivateArtifact: (artifactId: string) => void;
   onActivateJob: (jobId: string) => void;
+  headerAccessory?: React.ReactNode;
 }
 
 export function ConversationPane(props: ConversationPaneProps) {
@@ -51,7 +52,7 @@ export function ConversationPane(props: ConversationPaneProps) {
       <header className="border-b border-black/10 px-4 pb-3 pt-4">
         <div className="flex items-start justify-between gap-3">
           <div><p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#3157ff]">Live editorial room</p><h1 className="mt-0.5 font-serif text-2xl leading-none">Make the idea travel.</h1></div>
-          <label className="relative w-28 shrink-0"><span className="sr-only">Search conversation</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" className="w-full rounded-full border border-black/15 bg-white/55 px-3 py-1.5 text-xs outline-none focus:border-[#3157ff]" /></label>
+          <div className="flex shrink-0 items-center gap-2">{props.headerAccessory}<label className="relative w-28 shrink-0"><span className="sr-only">Search conversation</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" className="w-full rounded-full border border-black/15 bg-white/55 px-3 py-1.5 text-xs outline-none focus:border-[#3157ff]" /></label></div>
         </div>
         <nav className="mt-4 flex gap-1 overflow-x-auto" aria-label="Conversation chapters">
           {props.chapters.map((chapter, index) => (

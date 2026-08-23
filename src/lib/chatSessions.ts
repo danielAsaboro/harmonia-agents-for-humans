@@ -1,11 +1,16 @@
 import type { ChatResponse } from "@/app/api/chat/route";
+import type { ChatRunState } from "@/lib/a2ui/chatReducer";
+import type { ComposerAttachment } from "@/components/a2ui/AttachmentComposer";
 
 export interface ConsoleMessage {
+  id?: string;
   role: "user" | "assistant";
   text: string;
   data?: ChatResponse;
   surface?: string;
   at?: string | null;
+  attachments?: ComposerAttachment[];
+  run?: ChatRunState;
 }
 
 export interface ChatSession {

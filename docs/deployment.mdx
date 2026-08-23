@@ -42,9 +42,9 @@ Both services containerize from the repo root:
 
 Set the [configuration](/configuration) secrets as Cloud Run environment variables (Secret Manager for tokens). With `PUBSUB_EMULATOR_HOST` unset, both clients connect to real Google Cloud services automatically.
 
-Deploy Gemma 3 12B IT to a Vertex endpoint first, then set `GEMMA_VERTEX_ENDPOINT` to its full `projects/.../locations/.../endpoints/...` resource. The deployment script requires it and sends the six role model IDs separately. The worker identity needs prediction access to that endpoint; scope the binding to the endpoint/project used by Harmonia. There is no drafting fallback if the endpoint is unavailable.
+Deploy Gemma 3 12B IT to a Vertex endpoint first, then set `GEMMA_VERTEX_ENDPOINT` to its full `projects/.../locations/.../endpoints/...` resource. The deployment script requires it and sends each role model ID separately, including `PRESENTER_MODEL_ID` for Maya. The worker identity needs prediction access to that endpoint; scope the binding to the endpoint/project used by Harmonia. There is no drafting fallback if the endpoint is unavailable.
 
-Deploy the cognitive hierarchy once, then point the Cloud Run worker at the returned resource:
+Deploy a fresh cognitive-hierarchy revision for every rollout that changes ADK agents or schemas, then point the Cloud Run worker at the returned resource:
 
 ```bash
 cd agent
@@ -55,7 +55,7 @@ cd agent
   --service-account "harmonia-agent@$PROJECT_ID.iam.gserviceaccount.com"
 ```
 
-Set the returned full `AGENT_ENGINE_RESOURCE` and `MEMORY_BANK_RESOURCE` (they may identify the same reasoning engine). Cloud deployment always enables Memory Bank and fails before rollout when either managed resource is absent. Workspace and brand scopes come from each authenticated job rather than deployment configuration. To expose paid media proposals, set `GENERATIVE_MEDIA_ENABLED=true`. The worker identity already receives Vertex prediction access in `infra/setup.sh`; Memory Bank retrieval/generation and Veo/Lyria calls fail visibly if unavailable.
+Set the returned full `AGENT_ENGINE_RESOURCE` and `MEMORY_BANK_RESOURCE` (they may identify the same reasoning engine) before running `infra/deploy.sh`. The Cloud Run script does not update Agent Engine and must never be given a pre-change resource after the hierarchy gains a specialist such as `maya_presenter`. Cloud deployment always enables Memory Bank and fails before rollout when either managed resource is absent. Workspace and brand scopes come from each authenticated job rather than deployment configuration. To expose paid media proposals, set `GENERATIVE_MEDIA_ENABLED=true`. The worker identity already receives Vertex prediction access in `infra/setup.sh`; Memory Bank retrieval/generation and Veo/Lyria calls fail visibly if unavailable.
 
 `REGION` is the deployment's residency boundary. Setup verifies the Firestore database and Agent Engine staging bucket location and applies a Pub/Sub message-storage policy with in-transit enforcement. Deployment rejects Agent Engine, Memory Bank, Gemma, or Veo resources outside that region. Lyria uses a global endpoint, so generative media fails closed unless `ALLOW_GLOBAL_LYRIA=true` records an approved policy exception. This is a technical location control, not a claim of regulatory certification.
 

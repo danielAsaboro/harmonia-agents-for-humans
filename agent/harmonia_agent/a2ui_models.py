@@ -129,6 +129,24 @@ class PlannedSurface(StrictModel):
             raise ValueError("surface graph must include rootId")
         if any(child not in ids for node in self.nodes for child in node.children):
             raise ValueError("surface graph contains a dangling child")
+        nodes = {node.id: node for node in self.nodes}
+        visiting: set[str] = set()
+        visited: set[str] = set()
+
+        def visit(node_id: str) -> None:
+            if node_id in visiting:
+                raise ValueError("surface graph contains a cycle")
+            if node_id in visited:
+                return
+            visiting.add(node_id)
+            for child in nodes[node_id].children:
+                visit(child)
+            visiting.remove(node_id)
+            visited.add(node_id)
+
+        visit(self.rootId)
+        if len(visited) != len(ids):
+            raise ValueError("surface graph contains nodes unreachable from rootId")
         return self
 
 

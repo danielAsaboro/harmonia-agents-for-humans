@@ -120,3 +120,32 @@ def test_surface_plan_rejects_dangling_children() -> None:
                 ],
             }
         )
+
+
+@pytest.mark.parametrize(
+    "nodes, message",
+    [
+        (
+            [
+                {"id": "root", "component": "CampaignBrief", "children": ["child"]},
+                {"id": "child", "component": "JobProgress", "children": ["root"]},
+            ],
+            "cycle",
+        ),
+        (
+            [
+                {"id": "root", "component": "CampaignBrief", "children": []},
+                {"id": "orphan", "component": "JobProgress", "children": []},
+            ],
+            "unreachable",
+        ),
+    ],
+)
+def test_surface_plan_rejects_unsafe_graph_shapes(nodes: list[dict], message: str) -> None:
+    with pytest.raises(ValidationError, match=message):
+        SurfacePlan.model_validate(
+            {
+                "version": "harmonia.ui/v1",
+                "surfaces": [{"slot": "canvas", "revision": 1, "rootId": "root", "nodes": nodes}],
+            }
+        )

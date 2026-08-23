@@ -87,4 +87,38 @@ describe("A2UI presentation contracts", () => {
 
     expect(result.success).toBe(false);
   });
+
+  it("rejects cyclic surface graphs", () => {
+    const result = surfacePlanSchema.safeParse({
+      version: "harmonia.ui/v1",
+      surfaces: [{
+        slot: "canvas",
+        revision: 1,
+        rootId: "root",
+        nodes: [
+          { id: "root", component: "CampaignBrief", refs: { jobId: "job-1" }, children: ["child"] },
+          { id: "child", component: "JobProgress", refs: { jobId: "job-1" }, children: ["root"] },
+        ],
+      }],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects nodes that are unreachable from the declared root", () => {
+    const result = surfacePlanSchema.safeParse({
+      version: "harmonia.ui/v1",
+      surfaces: [{
+        slot: "canvas",
+        revision: 1,
+        rootId: "root",
+        nodes: [
+          { id: "root", component: "CampaignBrief", refs: { jobId: "job-1" }, children: [] },
+          { id: "orphan", component: "JobProgress", refs: { jobId: "job-1" }, children: [] },
+        ],
+      }],
+    });
+
+    expect(result.success).toBe(false);
+  });
 });

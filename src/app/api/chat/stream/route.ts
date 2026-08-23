@@ -43,6 +43,7 @@ export async function loadGeneratedPresentation(input: LoadGeneratedPresentation
     ...persistedJobFields,
     verifications: (persistedVerifications ?? []).map((verification) => ({
       rubricItemId: verification.target,
+      ...(verification.actionId ? { actionId: verification.actionId } : {}),
       verified: verification.verified,
       method: verification.method,
       evidence: verification.evidence,
@@ -81,9 +82,23 @@ async function post(req: Request): Promise<Response> {
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      let deliveryOpen = true;
+      const deliver = (event: unknown) => {
+        if (!deliveryOpen) return;
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        } catch {
+          deliveryOpen = false;
+        }
+      };
+      const closeDelivery = () => {
+        if (!deliveryOpen) return;
+        deliveryOpen = false;
+        try { controller.close(); } catch { /* the client already disconnected */ }
+      };
       const emit = async (input: UnsequencedChatStreamEvent) => {
         const event = await appendChatRunEvent(run.id, input);
-        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+        deliver(event);
       };
       void (async () => {
         try {
@@ -137,11 +152,11 @@ async function post(req: Request): Promise<Response> {
           try {
             await emit({ type: "run_failed", failedAt: new Date().toISOString(), error: failure.message || String(error), permanent: Boolean(failure.permanent) });
           } finally {
-            controller.close();
+            closeDelivery();
           }
           return;
         }
-        controller.close();
+        closeDelivery();
       })();
     },
   });

@@ -1,11 +1,12 @@
 const CATALOG_ID = "https://harmonia.app/a2ui/catalogs/chat/v1";
 
 /**
- * Deterministic local persisted-data fixture for exercising the production
- * A2UI event protocol. It makes no model, provider, or external-effect claim.
+ * Deterministic local renderer/protocol fixture for exercising the production
+ * A2UI event stream and catalog. It does not exercise trusted hydration and
+ * makes no model, provider, approval, or external-effect claim.
  */
 export function buildDemoChatRunEvents(input) {
-  const reply = "The persisted source, moments, draft, local assets, and separate pending launch action are assembled for operator review.";
+  const reply = "The local renderer fixture assembles source, moment, draft, and asset-shaped values; production hydration is verified separately.";
   const node = { children: [], emphasis: "primary", agentFraming: false };
   const draft = {
     id: "d1",
@@ -112,22 +113,14 @@ export function buildDemoChatRunEvents(input) {
     },
   ];
   const approval = [
-    { id: "root", component: "Column", children: ["approval-review"] },
+    { id: "root", component: "Column", children: ["approval-gap"] },
     {
       ...node,
-      id: "approval-review",
-      component: "ApprovalReview",
-      jobId: input.confirmationJobId,
-      actionId: input.confirmationActionId,
-      actionType: "publish_x_post",
-      title: "Approve usage-based billing launch post",
-      description: "Publish the persisted launch draft to X only after the operator uses the protected decision controls.",
-      risk: "high",
-      requiresApproval: true,
-      approvalState: "pending",
-      actionState: "planned",
-      destination: "X",
-      previewText: "Shipping today: usage-based billing for agent workloads. Pay for outcomes, not idle tokens. Launch post incoming 🚀",
+      id: "approval-gap",
+      component: "SurfaceUnresolved",
+      title: "No approval belongs to this active fixture job",
+      message: "The separate pending launch action is not merged into this job's generated surface.",
+      missingRefs: ["active-job-pending-action"],
     },
   ];
 
@@ -141,8 +134,8 @@ export function buildDemoChatRunEvents(input) {
   ];
   const payloads = [
     { type: "run_started", startedAt: input.startedAt },
-    { type: "activity", activity: { id: "interface-presenter", label: "Loaded local persisted A2UI fixture", description: "No model or provider invocation is represented.", status: "complete" } },
-    { type: "tool_activity", tool: { name: "local_persisted_fixture", status: "complete", inputSummary: "seeded job, action, receipts, and asset records", outputSummary: "three domain-catalog surfaces", durationMs: 0, traceId: "demo-local-trace" } },
+    { type: "activity", activity: { id: "interface-presenter", label: "Loaded local renderer A2UI fixture", description: "No trusted hydration, model, or provider invocation is represented.", status: "complete" } },
+    { type: "tool_activity", tool: { name: "local_renderer_fixture", status: "complete", inputSummary: "explicit renderer/protocol values", outputSummary: "three domain-catalog surfaces", durationMs: 0, traceId: "demo-local-trace" } },
     ...surfaceMessages.map((operation) => ({ type: "a2ui_operation", operation })),
     { type: "job_updated", jobId: input.jobId, stage: "complete", status: "complete" },
     { type: "run_completed", completedAt: input.completedAt, reply },

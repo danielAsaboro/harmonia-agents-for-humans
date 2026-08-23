@@ -21,6 +21,43 @@ async function consumeNdjson(response: Response, onEvent: (event: ChatStreamEven
   if (buffer.trim()) onEvent(parseChatStreamEvent(JSON.parse(buffer)));
 }
 
+interface ReplayChatRunInput {
+  runId: string;
+  afterSequence: number;
+  onEvent: (event: ChatStreamEvent) => void;
+  signal?: AbortSignal;
+  request?: (input: string, init?: RequestInit) => Promise<Response>;
+  wait?: () => Promise<void>;
+  maxAttempts?: number;
+}
+
+export async function replayChatRunUntilTerminal(input: ReplayChatRunInput): Promise<void> {
+  const request = input.request ?? apiFetch;
+  const wait = input.wait ?? (() => new Promise((resolve) => window.setTimeout(resolve, 750)));
+  const maxAttempts = input.maxAttempts ?? 400;
+  let lastSequence = input.afterSequence;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (input.signal?.aborted) throw new DOMException("Chat replay cancelled", "AbortError");
+    const replay = await request(`/api/chat/runs/${input.runId}/events?after=${lastSequence}`, {
+      cache: "no-store",
+      ...(input.signal ? { signal: input.signal } : {}),
+    });
+    if (!replay.ok) throw new Error(`Chat replay failed (${replay.status})`);
+    const body = await replay.json() as { events?: unknown[] };
+    for (const value of body.events ?? []) {
+      const event = parseChatStreamEvent(value);
+      if (event.sequence !== lastSequence + 1) {
+        throw new Error(`noncontiguous chat replay: expected ${lastSequence + 1}, received ${event.sequence}`);
+      }
+      input.onEvent(event);
+      lastSequence = event.sequence;
+      if (event.type === "run_completed" || event.type === "run_failed") return;
+    }
+    await wait();
+  }
+  throw new Error("Chat replay did not reach a terminal event before timeout");
+}
+
 export function useHarmoniaChat() {
   const [run, setRun] = useState<ChatRunState | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -47,15 +84,24 @@ export function useHarmoniaChat() {
       current = reduceChatStreamEvent(current, event);
       setRun(current);
     };
+    let streamError: unknown = null;
     try {
       await consumeNdjson(response, apply);
     } catch (error) {
       if (controller.signal.aborted) throw error;
-      const replay = await apiFetch(`/api/chat/runs/${runId}/events?after=${current.lastSequence}`, { cache: "no-store" });
-      if (!replay.ok) throw error;
-      const body = await replay.json() as { events: unknown[] };
-      for (const event of body.events) apply(parseChatStreamEvent(event));
-      if (current.status === "running") throw error;
+      streamError = error;
+    }
+    if (current.status === "running") {
+      try {
+        await replayChatRunUntilTerminal({
+          runId,
+          afterSequence: current.lastSequence,
+          onEvent: apply,
+          signal: controller.signal,
+        });
+      } catch (replayError) {
+        throw streamError ?? replayError;
+      }
     }
     return current;
   }, []);

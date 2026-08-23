@@ -60,4 +60,31 @@ describe("streamed A2UI presentation integration", () => {
       generate: vi.fn().mockRejectedValue(new Error("Agent Engine unavailable")),
     })).rejects.toThrow("Agent Engine unavailable");
   });
+
+  it("preserves verification action ids for receipt matching", async () => {
+    const generate = vi.fn().mockResolvedValue({ canvas: [], conversation: [], approval: [] });
+    await loadGeneratedPresentation({
+      runId: "run-4",
+      message: "Show verification",
+      response: { intent: "status", reply: "Verified.", jobId: "job-1" },
+      loadJob: vi.fn().mockResolvedValue({
+        ...job,
+        verifications: [{
+          target: "external-post",
+          actionId: "publish-1",
+          verified: true,
+          method: "official API lookup",
+          evidence: { kind: "http", fetchedAt: "2026-08-23T00:02:00.000Z" },
+          checkedAt: "2026-08-23T00:02:00.000Z",
+        }],
+      }),
+      loadReceipts: vi.fn().mockResolvedValue([]),
+      loadAssets: vi.fn().mockResolvedValue([]),
+      generate,
+    });
+
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({
+      job: expect.objectContaining({ verifications: [expect.objectContaining({ actionId: "publish-1" })] }),
+    }));
+  });
 });

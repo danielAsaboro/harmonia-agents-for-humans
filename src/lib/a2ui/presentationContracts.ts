@@ -128,6 +128,30 @@ const plannedSurfaceSchema = z.object({
       }
     }
   }
+  const nodes = new Map(surface.nodes.map((node) => [node.id, node]));
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  let cyclic = false;
+  const visit = (nodeId: string) => {
+    if (visiting.has(nodeId)) {
+      cyclic = true;
+      return;
+    }
+    if (visited.has(nodeId)) return;
+    const node = nodes.get(nodeId);
+    if (!node) return;
+    visiting.add(nodeId);
+    for (const child of node.children) visit(child);
+    visiting.delete(nodeId);
+    visited.add(nodeId);
+  };
+  visit(surface.rootId);
+  if (cyclic) {
+    context.addIssue({ code: "custom", message: "surface graph must be acyclic" });
+  }
+  if (visited.size !== ids.length) {
+    context.addIssue({ code: "custom", message: "surface graph contains nodes unreachable from rootId" });
+  }
 });
 
 export const surfacePlanSchema = z.object({

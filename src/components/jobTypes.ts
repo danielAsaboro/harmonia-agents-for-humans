@@ -40,6 +40,7 @@ export interface JobFull extends JobSummary {
   learnings?: { summary: string; notes: string[] };
   verifications?: Array<{
     rubricItemId: string;
+    actionId?: string;
     verified: boolean;
     method: string;
     evidence: Pick<EvidenceRef, "url" | "digest"> & { fetchedAt: string };

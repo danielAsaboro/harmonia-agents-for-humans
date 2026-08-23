@@ -12,15 +12,17 @@ interface SurfaceRevision extends SurfaceIdentity {
   hasRoot: boolean;
 }
 
-const SURFACE_ID = /^studio-(.+)-(canvas|conversation|approval)-r([1-9]\d*)$/;
+const SURFACE_ID = /^studio-([A-Za-z0-9][A-Za-z0-9_-]{0,199})-(canvas|conversation|approval)-r([1-9]\d{0,8})$/;
 
 function parseSurfaceId(surfaceId: string): SurfaceIdentity {
   const match = SURFACE_ID.exec(surfaceId);
   if (!match) throw new Error(`invalid Harmonia studio surface id: ${surfaceId}`);
+  const revision = Number(match[3]);
+  if (!Number.isSafeInteger(revision)) throw new Error(`invalid Harmonia studio surface revision: ${surfaceId}`);
   return {
     runId: match[1],
     slot: match[2] as SurfaceSlot,
-    revision: Number(match[3]),
+    revision,
   };
 }
 

@@ -16,6 +16,23 @@ function recordedCost(action: PlannedAction): number | null {
   return null;
 }
 
+function generatedApprovalActionIds(operations: unknown[]): string[] {
+  const ids: string[] = [];
+  for (const operation of operations) {
+    if (!operation || typeof operation !== "object") continue;
+    const update = (operation as { updateComponents?: unknown }).updateComponents;
+    if (!update || typeof update !== "object") continue;
+    const components = (update as { components?: unknown }).components;
+    if (!Array.isArray(components)) continue;
+    for (const component of components) {
+      if (!component || typeof component !== "object") continue;
+      const candidate = component as { component?: unknown; actionId?: unknown };
+      if (candidate.component === "ApprovalReview" && typeof candidate.actionId === "string") ids.push(candidate.actionId);
+    }
+  }
+  return ids;
+}
+
 export function ApprovalDock({ jobId, actions, verifications, receipts, busy, onDecide, operations = [], onOperationDecision }: {
   jobId: string;
   actions: PlannedAction[];
@@ -32,6 +49,9 @@ export function ApprovalDock({ jobId, actions, verifications, receipts, busy, on
   let protocolError: string | null = null;
   try {
     approvalOperations = operations.length ? latestSurfaceOperations(operations, "approval") : [];
+    const pendingIds = new Set(pending.map((action) => action.id));
+    const generatedIds = generatedApprovalActionIds(approvalOperations);
+    if (generatedIds.some((actionId) => !pendingIds.has(actionId))) approvalOperations = [];
   } catch (error) {
     protocolError = error instanceof Error ? error.message : String(error);
   }

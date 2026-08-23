@@ -33,11 +33,12 @@ describe("buildDemoChatRunEvents", () => {
       "PlatformPreview",
       "SourceEvidence",
       "JobProgress",
-      "ApprovalReview",
       "SurfaceUnresolved",
     ]));
     const serialized = JSON.stringify(events);
-    expect(serialized).toContain("local persisted A2UI fixture");
+    expect(serialized).toContain("local renderer A2UI fixture");
+    expect(serialized).toContain("No trusted hydration");
+    expect(serialized).not.toContain("ApprovalReview");
     expect(serialized).not.toContain("Audio generated");
     expect(serialized).not.toContain("model invocation complete");
   });

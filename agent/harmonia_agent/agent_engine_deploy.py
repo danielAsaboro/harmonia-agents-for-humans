@@ -15,6 +15,7 @@ _FORWARDED_ENV = {
     "COPYWRITER_MODEL_ID",
     "EDITOR_MODEL_ID",
     "PLANNER_MODEL_ID",
+    "PRESENTER_MODEL_ID",
     "GEMMA_VERTEX_ENDPOINT",
     "GEMMA_MAX_COST_USD",
     "GOOGLE_CLOUD_PROJECT",
@@ -87,4 +88,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

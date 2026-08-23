@@ -154,15 +154,22 @@ One-time bootstrap, then repeatable deploys:
 gcloud auth login
 export PROJECT_ID=your-project-id
 export REGION=us-central1
-export AGENT_ENGINE_RESOURCE=projects/.../locations/.../reasoningEngines/...
 export GEMMA_VERTEX_ENDPOINT=projects/.../locations/.../endpoints/...
 export FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
 export FIREBASE_APP_ID=your-web-app-id
 
 ./infra/setup.sh             # enables APIs, Firestore, topics, SAs, IAM, secrets
+cd agent
+export AGENT_ENGINE_RESOURCE="$(./.venv/bin/python -m harmonia_agent.agent_engine_deploy \
+  --project "$PROJECT_ID" --location "$REGION" \
+  --staging-bucket "gs://$PROJECT_ID-harmonia-agent-staging" \
+  --service-account "harmonia-agent@$PROJECT_ID.iam.gserviceaccount.com")"
+cd ..
 ./infra/deploy.sh            # builds both services via Cloud Build, deploys to Cloud Run,
                              # wires the Pub/Sub push subscription
 ```
+
+Deploy a fresh Agent Engine revision before each Cloud Run rollout that changes the ADK hierarchy; `infra/deploy.sh` deliberately refuses to invent or silently reuse a resource. This is how a rollout guarantees that specialists such as `maya_presenter` exist in the configured managed runtime.
 
 Google sign-in creates an isolated owner workspace. Customer jobs, memory, connections, Telegram configuration, budgets, logs, and artifacts remain workspace-scoped. The agent accepts only Pub/Sub push invocations authenticated through Cloud Run IAM and invokes the deployed Agent Engine resource for every judgment step; there is no local cognitive runtime. Deployment rejects Agent Engine, Memory Bank, Gemma, Veo, Firestore, storage, or Pub/Sub persistence outside the selected region. Lyria's global endpoint remains disabled unless an approved policy exception is explicitly acknowledged.
 

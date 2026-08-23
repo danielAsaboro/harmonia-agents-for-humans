@@ -45,6 +45,32 @@ def test_adk_custom_metric_executes_grounding_contract():
     assert result.overall_score == 0.0
 
 
+@pytest.mark.parametrize(("eval_id", "invalid_output"), [
+    (
+        "copywriter-references",
+        '{"drafts":[{"id":"d1","platform":"x","momentId":"missing","text":"Draft"}]}',
+    ),
+    (
+        "editor-preservation",
+        '{"drafts":[{"id":"new","platform":"x","text":"Created"}]}',
+    ),
+])
+def test_adk_custom_metric_executes_reference_preservation_contracts(
+    eval_id, invalid_output,
+):
+    eval_set = load_eval_set(Path("evals/contracts.evalset.json"))
+    expected = next(case for case in eval_set.eval_cases if case.eval_id == eval_id).conversation
+    actual = [expected[0].model_copy(update={
+        "final_response": types.Content(
+            role="model", parts=[types.Part(text=invalid_output)],
+        ),
+    })]
+
+    result = adk_contract_metric(None, actual, expected)
+
+    assert result.overall_score == 0.0
+
+
 def test_public_evalset_rejects_private_source_material(tmp_path):
     path = tmp_path / "bad.evalset.json"
     path.write_text(json.dumps({

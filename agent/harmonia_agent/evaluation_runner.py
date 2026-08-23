@@ -74,6 +74,32 @@ _PUBLIC_FIXTURES: dict[str, tuple[str, frozenset[str]]] = {
             "harmonia_contract", '{"kind":"read_only"}',
         }),
     ),
+    "copywriter-references": (
+        "public:contract:copywriter-references",
+        frozenset({
+            "copywriter-references", "copywriter-references-1",
+            "public:contract:copywriter-references", "public-copywriter",
+            "harmonia", "public-eval-user", "flo_draft_workflow", "synthetic demo",
+            "Delegate this request to flo_draft_workflow exactly once for the public copywriter contract.",
+            "harmonia_contract", "drafts", "d1", "x", "m1", "proof", "bounded proof",
+            "Reviewed synthetic draft", "model", "user",
+            '{"drafts":[{"id":"d1","platform":"x","momentId":"m1","text":"Reviewed synthetic draft"}]}',
+            '{"kind":"drafts","analysis":{"summary":"synthetic demo","moments":[{"id":"m1","title":"proof","startSec":0,"endSec":2,"hook":"proof","quote":"bounded proof"}],"angles":[]}}',
+        }),
+    ),
+    "editor-preservation": (
+        "public:contract:editor-preservation",
+        frozenset({
+            "editor-preservation", "editor-preservation-1",
+            "public:contract:editor-preservation", "public-editor",
+            "harmonia", "public-eval-user", "flo_draft_workflow", "synthetic demo",
+            "Delegate this request to flo_draft_workflow exactly once for the public editor contract.",
+            "harmonia_contract", "editor", "d1", "x", "m1",
+            "Edited synthetic draft", "Original synthetic draft", "model", "user",
+            '{"drafts":[{"id":"d1","platform":"x","momentId":"m1","text":"Edited synthetic draft"}]}',
+            '{"kind":"editor","originals":[{"id":"d1","platform":"x","momentId":"m1","text":"Original synthetic draft"}]}',
+        }),
+    ),
 }
 
 
@@ -119,6 +145,8 @@ def validate_eval_set_privacy(value: EvalSet | dict[str, Any]) -> None:
             "question", "brand_context", "analysis", "summary", "moments", "angles",
             "agent_name",
             "rubrics", "rubricId", "rubricContent", "textProperty",
+            "kind", "durationSec", "reviewed", "originals", "momentId",
+            "startSec", "endSec", "hook", "quote",
         }
         allowed = configured[1] | structural_keys
         unexpected = sorted({item for item in _strings(case) if item not in allowed})

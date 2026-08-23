@@ -105,6 +105,11 @@ derives cost from linked immutable usage records, and carries the private eval o
 a role's catalog default only after a recorded comparison uses the same policy and pricing versions.
 Mock or scripted runs never count as model-promotion evidence.
 
+The manifest is a private operator evidence ledger, not a cryptographic signature service. Its
+digests detect mutation relative to the recorded ledger; they do not make a newly fabricated
+artifact truthful. Keep the manifest write path access-controlled, retain the originating ADK run
+and Firestore export, and require human review before changing a catalog default.
+
 ## Secrets policy
 
 Deployment-wide application credentials and workspace OAuth records stay server-side and never enter Git or browser responses. Scope every integration to minimum permissions. Telegram configuration is stored per workspace and is returned only to the trusted worker.

@@ -82,6 +82,46 @@
           "rubricContent": {"textProperty": "{\"kind\":\"read_only\"}"}
         }]
       }]
+    },
+    {
+      "evalId": "copywriter-references",
+      "fixture": "public:contract:copywriter-references",
+      "sessionInput": {
+        "appName": "harmonia", "userId": "public-eval-user", "sessionId": "public-copywriter",
+        "state": {"requested_specialist": "flo_draft_workflow", "title": "synthetic demo"}
+      },
+      "conversation": [{
+        "invocationId": "copywriter-references-1",
+        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to flo_draft_workflow exactly once for the public copywriter contract."}]},
+        "finalResponse": {"role": "model", "parts": [{"text": "{\"drafts\":[{\"id\":\"d1\",\"platform\":\"x\",\"momentId\":\"m1\",\"text\":\"Reviewed synthetic draft\"}]}"}]},
+        "intermediateData": {
+          "toolUses": [{"name": "flo_draft_workflow", "args": {"title": "synthetic demo", "brand_context": "synthetic demo", "analysis": {"summary": "synthetic demo", "moments": [{"id": "m1", "title": "proof", "startSec": 0, "endSec": 2, "hook": "proof", "quote": "bounded proof"}], "angles": []}}}]
+        },
+        "rubrics": [{
+          "rubricId": "harmonia_contract",
+          "rubricContent": {"textProperty": "{\"kind\":\"drafts\",\"analysis\":{\"summary\":\"synthetic demo\",\"moments\":[{\"id\":\"m1\",\"title\":\"proof\",\"startSec\":0,\"endSec\":2,\"hook\":\"proof\",\"quote\":\"bounded proof\"}],\"angles\":[]}}"}
+        }]
+      }]
+    },
+    {
+      "evalId": "editor-preservation",
+      "fixture": "public:contract:editor-preservation",
+      "sessionInput": {
+        "appName": "harmonia", "userId": "public-eval-user", "sessionId": "public-editor",
+        "state": {"requested_specialist": "flo_draft_workflow", "title": "synthetic demo"}
+      },
+      "conversation": [{
+        "invocationId": "editor-preservation-1",
+        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to flo_draft_workflow exactly once for the public editor contract."}]},
+        "finalResponse": {"role": "model", "parts": [{"text": "{\"drafts\":[{\"id\":\"d1\",\"platform\":\"x\",\"momentId\":\"m1\",\"text\":\"Edited synthetic draft\"}]}"}]},
+        "intermediateData": {
+          "toolUses": [{"name": "flo_draft_workflow", "args": {"title": "synthetic demo", "brand_context": "synthetic demo", "analysis": {"summary": "synthetic demo", "moments": [], "angles": []}}}]
+        },
+        "rubrics": [{
+          "rubricId": "harmonia_contract",
+          "rubricContent": {"textProperty": "{\"kind\":\"editor\",\"originals\":[{\"id\":\"d1\",\"platform\":\"x\",\"momentId\":\"m1\",\"text\":\"Original synthetic draft\"}]}"}
+        }]
+      }]
     }
   ]
 }

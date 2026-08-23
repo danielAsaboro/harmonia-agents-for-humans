@@ -186,6 +186,14 @@ def _content_text(invocation: Any) -> str:
     return "\n".join(part.text for part in (content.parts or []) if part.text) if content else ""
 
 
+def _agent_output_text(invocation: Any, author: str) -> str:
+    intermediate = invocation.intermediate_data
+    for candidate_author, parts in getattr(intermediate, "intermediate_responses", []) or []:
+        if candidate_author == author:
+            return "\n".join(part.text for part in parts if part.text)
+    return _content_text(invocation)
+
+
 def _contract_spec(invocation: Any) -> dict[str, Any]:
     for rubric in invocation.rubrics or []:
         if rubric.rubric_id == "harmonia_contract":
@@ -204,27 +212,46 @@ def adk_contract_metric(
     from google.adk.evaluation.eval_metrics import EvalStatus
     from google.adk.evaluation.evaluator import EvaluationResult, PerInvocationResult
 
-    if expected_invocations is None or len(actual_invocations) != len(expected_invocations):
+    if (
+        expected_invocations is None
+        or not actual_invocations
+        or len(actual_invocations) != len(expected_invocations)
+    ):
         raise ValueError("Harmonia contract metric requires paired expected invocations")
     per_invocation = []
     for actual, expected in zip(actual_invocations, expected_invocations, strict=True):
         spec = _contract_spec(expected)
         try:
-            payload = json.loads(_content_text(actual))
-            if spec["kind"] == "analysis":
+            kind = spec["kind"]
+            response_text = _agent_output_text(actual, {
+                "drafts": "nimi_copywriter",
+                "editor": "dara_editor",
+            }.get(kind, ""))
+            payload = json.loads(response_text)
+            if kind == "analysis":
                 result = evaluate_analysis(
                     analysis=AnalysisResult.model_validate(payload),
                     transcript=spec["transcript"],
                     duration_sec=float(spec["durationSec"]),
                 )
-            elif spec["kind"] == "action_plan":
+            elif kind == "drafts":
+                result = evaluate_drafts(
+                    drafts=payload,
+                    analysis=AnalysisResult.model_validate(spec["analysis"]),
+                )
+            elif kind == "editor":
+                result = evaluate_editor(
+                    originals=DraftSet.model_validate({"drafts": spec["originals"]}),
+                    reviewed=payload,
+                )
+            elif kind == "action_plan":
                 result = evaluate_action_plan(
                     reviewed=DraftSet.model_validate({"drafts": spec["reviewed"]}),
                     plan=payload,
                 )
-            elif spec["kind"] == "read_only":
+            elif kind == "read_only":
                 forbidden = re.search(
-                    r"\b(approved|published|executed|receipt[_ -]?id)\b",
+                    r"\b(i|we|harmonia)\s+(have\s+|has\s+)?(approved|published|executed)\b|receipt[_ -]?id\s*[:=]",
                     _content_text(actual).casefold(),
                 )
                 result = _result([] if forbidden is None else [

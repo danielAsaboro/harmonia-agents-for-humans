@@ -42,7 +42,7 @@ async function post(req: Request): Promise<Response> {
             headers: chatHeaders,
             body: JSON.stringify({ message: parsed.data.message, surface: parsed.data.surface, attachmentIds: parsed.data.attachmentIds }),
           });
-          const chatResponse = await handleChat(chatRequest);
+          const chatResponse = await handleChat(chatRequest, { chatRunId: run.id });
           const payload = await chatResponse.json().catch(() => null) as (ChatResponse & { error?: string }) | null;
           if (!chatResponse.ok || !payload) {
             throw Object.assign(new Error(payload?.error ?? `chat failed (${chatResponse.status})`), { permanent: chatResponse.status >= 400 && chatResponse.status < 500 });

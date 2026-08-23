@@ -13,6 +13,7 @@ import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { buildDemoChatRunEvents } from "./demo-a2ui-events.mjs";
 
 process.env.FIRESTORE_EMULATOR_HOST ||= "127.0.0.1:8081";
 const PROJECT = process.env.GOOGLE_CLOUD_PROJECT || "harmonia-local";
@@ -26,6 +27,8 @@ const WORKSPACE_ID = stableId("ws", DEMO_USER_UID);
 const BRAND_ID = stableId("brand", `${DEMO_USER_UID}:default`);
 const workspaceRef = db.collection("workspaces").doc(WORKSPACE_ID);
 const tenantCollection = (name) => workspaceRef.collection(name);
+const DEMO_A2UI_RUN_ID = "demo-a2ui-multimodal";
+let demoAssetMeta = null;
 
 const ARTIFACT_DIR = path.join(process.cwd(), ".data", "artifacts", WORKSPACE_ID, BRAND_ID);
 mkdirSync(ARTIFACT_DIR, { recursive: true });
@@ -231,6 +234,7 @@ async function main() {
     const clip = genClip(id, clipAct, 4);
     const reel = genClip(id, reelAct, 7);
     const assets = [img, clip, reel];
+    demoAssetMeta = { imageSizeBytes: img.size, clipSizeBytes: clip.size, reelSizeBytes: reel.size };
     const d1 = draft("d1", "Your signup flow is an obstacle course. Ours was too — until we treated every step as a suspect.");
     const docData = {
       createdAt: iso(created), updatedAt: iso(daysAgo(7, 18)),
@@ -450,7 +454,7 @@ async function main() {
     { at: daysAgo(1, 16, 45), surface: "dashboard", role: "user", text: "approve job demo-onboarding" },
     { at: daysAgo(1, 16, 45, 18), surface: "dashboard", role: "assistant", text: "Approved 'We deleted 11 onboarding steps…' for job demo-onboarding. Approved. Publishing dispatched (publish).", data: { intent: "approve", reply: "", jobId: "demo-onboarding", outcome: { ok: true, triggered: "publish" } } },
     { at: daysAgo(0, 8, 55), surface: "dashboard", role: "user", text: "turn https://www.youtube.com/watch?v=jNQXAC9IVRw into clips" },
-    { at: daysAgo(0, 8, 55, 20), surface: "dashboard", role: "assistant", text: "Created job demo-clips for video jNQXAC9IVRw. Pipeline ran end to end: 2 captioned vertical clips + a stitched reel are ready — here they are:", data: { intent: "create_job", reply: "", jobId: "demo-clips", job: { id: "demo-clips", stage: "complete", status: "complete", title: "How we rebuilt onboarding around time-to-value (demo)" }, assets: [
+    { at: daysAgo(0, 8, 55, 20), surface: "dashboard", role: "assistant", text: "Created job demo-clips for video jNQXAC9IVRw. Pipeline ran end to end: 2 captioned vertical clips + a stitched reel are ready — here they are:", data: { intent: "create_job", reply: "", chatRunId: DEMO_A2UI_RUN_ID, jobId: "demo-clips", job: { id: "demo-clips", stage: "complete", status: "complete", title: "How we rebuilt onboarding around time-to-value (demo)" }, assets: [
       { actionId: "act-clip-demo1", mime: "video/mp4" },
       { actionId: "act-reel-top2", mime: "video/mp4" },
       { actionId: "act-img-demo01", mime: "image/png" },
@@ -467,6 +471,41 @@ async function main() {
     await tenantCollection("chat_messages").add({ ...chats[i], at: ts(at) });
   }
   console.log(`seeded ${chats.length} chat messages (dashboard + telegram history)`);
+
+  if (!demoAssetMeta) throw new Error("demo asset metadata was not generated");
+  const runRef = tenantCollection("chat_runs").doc(DEMO_A2UI_RUN_ID);
+  const oldEvents = await runRef.collection("events").get();
+  await Promise.all(oldEvents.docs.map((event) => event.ref.delete()));
+  const runStarted = daysAgo(0, 8, 55, 20);
+  const runCompleted = new Date(runStarted.getTime() + 5_000);
+  const runEvents = buildDemoChatRunEvents({
+    runId: DEMO_A2UI_RUN_ID,
+    startedAt: iso(runStarted),
+    completedAt: iso(runCompleted),
+    jobId: "demo-clips",
+    confirmationJobId: "demo-launch",
+    confirmationActionId: "act-pub-launch",
+    ...demoAssetMeta,
+  });
+  await runRef.set({
+    id: DEMO_A2UI_RUN_ID,
+    workspaceId: WORKSPACE_ID,
+    brandId: BRAND_ID,
+    createdByUserId: DEMO_USER_UID,
+    message: "turn https://www.youtube.com/watch?v=jNQXAC9IVRw into clips",
+    attachmentIds: [],
+    status: "complete",
+    lastSequence: runEvents.length - 1,
+    createdAt: iso(runStarted),
+    updatedAt: iso(runCompleted),
+    fixture: "local-demo",
+  });
+  const runBatch = db.batch();
+  for (const event of runEvents) {
+    runBatch.set(runRef.collection("events").doc(String(event.sequence).padStart(12, "0")), event);
+  }
+  await runBatch.commit();
+  console.log(`seeded ${runEvents.length} validated A2UI replay event(s) for ${DEMO_A2UI_RUN_ID}`);
 
   console.log("seeded 5 demo jobs (2 complete w/ engagement, 1 complete w/ assets, 1 awaiting approval, 1 running, 1 failed)");
   console.log("assets written to .data/artifacts (image, clip, reel)");

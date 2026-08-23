@@ -73,6 +73,8 @@ export interface ChatResponse {
   attachments?: ChatAttachmentSummary[];
   outcome?: Awaited<ReturnType<typeof resolveDecision>>;
   jobId?: string;
+  /** Durable stream run linked to a persisted assistant message. */
+  chatRunId?: string;
 }
 
 type FullJob = Awaited<ReturnType<typeof getJob>>;
@@ -114,7 +116,7 @@ async function post(req: Request) {
 
 export const POST = tenantHandler(post);
 
-export async function handleChat(req: Request): Promise<Response> {
+export async function handleChat(req: Request, options: { chatRunId?: string } = {}): Promise<Response> {
   const body = await req.json().catch(() => null);
   const parsed = chatSchema.safeParse(body);
   if (!parsed.success) {
@@ -166,7 +168,10 @@ export async function handleChat(req: Request): Promise<Response> {
       surface,
       role: "assistant",
       text: payload.reply,
-      data: JSON.parse(JSON.stringify(payload)) as Record<string, unknown>,
+      data: JSON.parse(JSON.stringify({
+        ...payload,
+        ...(options.chatRunId ? { chatRunId: options.chatRunId } : {}),
+      })) as Record<string, unknown>,
     });
   } catch (e) {
     console.error("chat history persistence failed:", e);

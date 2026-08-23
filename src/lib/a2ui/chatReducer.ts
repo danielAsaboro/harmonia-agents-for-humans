@@ -1,4 +1,4 @@
-import type { ChatStreamEvent } from "./contracts";
+import { parseChatStreamEvent, type ChatStreamEvent } from "./contracts";
 
 export interface ChatRunState {
   runId: string;
@@ -71,4 +71,17 @@ export function reduceChatStreamEvent(state: ChatRunState, event: ChatStreamEven
     case "run_failed":
       return { ...base, status: "failed", error: event.error, permanent: event.permanent };
   }
+}
+
+/** Rebuild a completed or interrupted run from its durable, untrusted event log. */
+export function replayChatRunEvents(runId: string, events: unknown[]): ChatRunState {
+  let state = initialChatRunState(runId);
+  for (const input of events) {
+    const event = parseChatStreamEvent(input);
+    if (event.runId !== runId) {
+      throw new Error(`chat run ${runId} received event for ${event.runId}`);
+    }
+    state = reduceChatStreamEvent(state, event);
+  }
+  return state;
 }

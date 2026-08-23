@@ -11,6 +11,7 @@ import type { ChatSession } from "@/lib/chatSessions";
 import type { JobFull, PostDraft, Receipt } from "@/components/jobTypes";
 import { useHarmoniaChat } from "@/hooks/useHarmoniaChat";
 import type { ChatRunState } from "@/lib/a2ui/chatReducer";
+import { historyRunState } from "@/lib/a2ui/historyReplay";
 import { HarmoniaA2uiHost } from "@/components/a2ui/HarmoniaCatalog";
 import { AttachmentComposer, type ComposerAttachment } from "@/components/a2ui/AttachmentComposer";
 import {
@@ -226,17 +227,37 @@ export default function ChatConsole() {
     const t = setTimeout(() => {
       fetch("/api/chat/history?limit=120", { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-        .then((d: { messages: Array<{ role: string; text: string; data?: ChatResponse; surface?: string; at?: string }> }) => {
-          setMessages(
-            d.messages.map((m) => ({
+        .then(async (d: { messages: Array<{ role: string; text: string; data?: ChatResponse; surface?: string; at?: string }> }) => {
+          const hydrated = await Promise.all(d.messages.map(async (m): Promise<ChatMessage> => {
+            let run: ChatRunState | undefined;
+            if (m.role === "assistant" && m.data?.chatRunId) {
+              try {
+                const response = await fetch(`/api/chat/runs/${m.data.chatRunId}/events?after=-1`, { cache: "no-store" });
+                const body = await response.json().catch(() => null) as { events?: unknown[]; error?: string } | null;
+                if (!response.ok) throw new Error(body?.error ?? `HTTP ${response.status}`);
+                run = historyRunState(m.data.chatRunId, Array.isArray(body?.events) ? body.events : [body]);
+              } catch (error) {
+                run = historyRunState(m.data.chatRunId, [{
+                  type: "run_failed",
+                  runId: m.data.chatRunId,
+                  sequence: 0,
+                  failedAt: new Date().toISOString(),
+                  error: `Chat history replay unavailable: ${error instanceof Error ? error.message : String(error)}`,
+                  permanent: false,
+                }]);
+              }
+            }
+            return {
               role: m.role === "user" ? "user" : "assistant",
               text: m.text,
               data: m.data,
               surface: m.surface,
               at: m.at,
               attachments: m.data?.attachments?.map((attachment) => ({ ...attachment, progress: 100 })),
-            })),
-          );
+              run,
+            };
+          }));
+          setMessages(hydrated);
         })
         .catch(() => {
           setMessages([

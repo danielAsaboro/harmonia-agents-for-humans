@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from harmonia_agent.role_models import load_role_model_catalog
+from harmonia_agent.role_models import RoleGenerationPolicy, load_role_model_catalog
 
 
 def test_roles_do_not_collapse_to_one_global_model(monkeypatch):
@@ -34,3 +34,46 @@ def test_gemma_role_requires_a_concrete_vertex_endpoint(monkeypatch):
 
     with pytest.raises(ValidationError, match="endpoint"):
         load_role_model_catalog()
+
+
+def test_every_role_has_versioned_generation_and_safety_policy(monkeypatch):
+    """Catches a role falling back to implicit provider generation defaults."""
+    monkeypatch.setenv(
+        "GEMMA_VERTEX_ENDPOINT",
+        "projects/p/locations/us-central1/endpoints/123",
+    )
+
+    catalog = load_role_model_catalog()
+
+    assert all(role.policy_version == "gear-2026-08-24" for role in catalog.roles())
+    assert catalog.planner.generation.temperature == 0.1
+    assert catalog.analyst.generation.temperature == 0.2
+    assert catalog.copywriter.generation.temperature == 0.8
+    assert all(
+        role.generation.safety_profile == "harmonia-standard"
+        for role in catalog.roles()
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("temperature", 2.1),
+        ("temperature", -0.1),
+        ("top_p", 0),
+        ("top_p", 1.1),
+        ("top_k", 0),
+    ],
+)
+def test_generation_policy_rejects_unbounded_values(field, value):
+    """Catches an invalid sampling value reaching a provider request."""
+    values = {
+        "temperature": 0.2,
+        "top_p": 0.9,
+        "top_k": 40,
+        "safety_profile": "harmonia-standard",
+    }
+    values[field] = value
+
+    with pytest.raises(ValidationError):
+        RoleGenerationPolicy(**values)

@@ -1,13 +1,12 @@
 import { z } from "zod";
 import { createNotification, getContentItem, updateContentItem } from "@/lib/firestore";
-import { isOperatorAuthorized, operatorForbidden } from "@/lib/operatorAuth";
+import { tenantHandler } from "@/lib/auth";
 
 /** Final human approval for approval-mode scheduled items. */
-export async function POST(
+async function post(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!isOperatorAuthorized(req)) return operatorForbidden();
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   const parsed = z.object({ decision: z.enum(["approved", "rejected"]) }).safeParse(body);
@@ -39,3 +38,5 @@ export async function POST(
   await updateContentItem(id, { status: "publishing", publishMode: "auto" });
   return Response.json({ ok: true, status: "publishing" });
 }
+
+export const POST = tenantHandler(post);

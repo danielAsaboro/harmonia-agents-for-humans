@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ChatIcon, CalendarIcon, ChartIcon, SettingsIcon, SparklesIcon } from "@/components/icons";
 
@@ -25,7 +25,14 @@ function BellIcon({ className }: { className?: string }) {
 /** Floating vertical nav rail — a single dynamic-island capsule, vertically centered. */
 export default function NavRail() {
   const pathname = usePathname();
+  const router = useRouter();
   const [unread, setUnread] = useState(0);
+
+  async function signOut() {
+    await fetch("/api/auth/session", { method: "DELETE" });
+    router.replace("/login");
+    router.refresh();
+  }
 
   useEffect(() => {
     let alive = true;
@@ -94,6 +101,15 @@ export default function NavRail() {
             </span>
           )}
         </Link>
+        <button
+          type="button"
+          onClick={signOut}
+          title="Sign out"
+          aria-label="Sign out"
+          className="mt-1 flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
+        >
+          ↗
+        </button>
       </div>
     </nav>
   );

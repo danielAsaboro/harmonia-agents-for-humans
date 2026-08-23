@@ -5,15 +5,14 @@ import {
   listProposals,
   listReceipts,
 } from "@/lib/firestore";
-import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
+import { internalTenantHandler } from "@/lib/internalAuth";
 
 /**
  * One-stop data feed for the worker's proactive agent: everything its checks
  * need in a single authenticated read (items, job health, insights, goals,
  * pending proposals). Keeps checks simple and the web surface small.
  */
-export async function GET(req: Request) {
-  if (!isInternalAuthorized(req)) return unauthorized();
+async function get(_req: Request) {
 
   const [items, jobs, proposals, goals] = await Promise.all([
     listContentItems(),
@@ -69,3 +68,5 @@ export async function GET(req: Request) {
     goals,
   });
 }
+
+export const GET = internalTenantHandler(get);

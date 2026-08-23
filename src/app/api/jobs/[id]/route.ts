@@ -1,6 +1,7 @@
 import { getJob, listAssets, listEvents, listReceipts } from "@/lib/firestore";
+import { tenantHandler } from "@/lib/auth";
 
-export async function GET(
+async function get(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -23,3 +24,5 @@ export async function GET(
     })),
   });
 }
+
+export const GET = tenantHandler(get);

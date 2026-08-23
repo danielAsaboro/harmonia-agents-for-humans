@@ -9,13 +9,16 @@ description: "Every environment variable Harmonia reads, with defaults and requi
 |---|---|---|---|
 | `GEMINI_API_KEY` | for real AI | — | Gemini API key used by chat intent parsing |
 | `INTERNAL_API_TOKEN` | yes | — | Bearer token the worker must present to internal routes |
-| `OPERATOR_TOKEN` | cloud: yes | unset = open locally | Gate on mutating operator endpoints |
 | `MODEL_ID` | no | `gemini-3.5-flash` | Gemini model id |
 | `FIRESTORE_EMULATOR_HOST` | local dev | — | e.g. `127.0.0.1:8081`; unset = real Firestore |
 | `GOOGLE_CLOUD_PROJECT` | cloud | `harmonia-local` | Project id |
 | `GCS_BUCKET` | no | local `.data/artifacts` | Use Cloud Storage for assets when set |
-| `X_BEARER_TOKEN` | for publishing | — | X API v2 bearer; without it publish fails honestly |
 | `YOUTUBE_API_KEY` | recommended | — | Data API durations at ingest (ffprobe fallback otherwise) |
+| `NEXT_PUBLIC_FIREBASE_API_KEY` | yes | — | Public Identity Platform web configuration value |
+| `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | yes | — | Identity Platform authentication domain |
+| `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | yes | — | Identity Platform project |
+| `NEXT_PUBLIC_FIREBASE_APP_ID` | yes | — | Registered web application identifier |
+| `DEFAULT_WORKSPACE_BUDGET_USD` | no | `100.00` | Workspace-wide reservation and usage ceiling |
 
 ## Worker (FastAPI)
 
@@ -26,8 +29,6 @@ description: "Every environment variable Harmonia reads, with defaults and requi
 | `PUBSUB_STAGE_TOPIC` | no | `harmonia-stages` | Stage trigger topic |
 | `PROACTIVE_SCAN_SECONDS` | no | `60` | How often the proactive agent looks for due checks |
 | `PROACTIVE_<NAME>_INTERVAL_SECONDS` | no | per check | Override a single proactive check's cadence (see [Proactive Agent](/proactive-agent)) |
-| `TELEGRAM_BOT_TOKEN` | no | — | Enables the Telegram surface + briefing push |
-| `TELEGRAM_ALLOWED_CHAT_ID` | with bot | — | Only this chat id is served |
 | `MODEL_PRICING_VERSION` | no | `2026-08-23` | Immutable rate-catalog version; unknown versions fail startup |
 | `DEFAULT_JOB_BUDGET_USD` | no | `5.00` | Maximum reserved plus observed model cost per job |
 | `DEFAULT_JOB_APPROVAL_THRESHOLD_USD` | no | `0.25` | Cost threshold surfaced for operator policy |
@@ -45,14 +46,12 @@ description: "Every environment variable Harmonia reads, with defaults and requi
 | `PLANNER_MODEL_ID` | no | `gemini-3.5-flash-lite` | Temi's narrow structured-planning model |
 | `GEMMA_VERTEX_ENDPOINT` | real drafting | — | Full Vertex endpoint resource backing Nimi; no fallback when absent |
 | `GEMMA_MAX_COST_USD` | no | `0.100000` | Maximum allocation reserved for one Gemma endpoint request |
-| `TEAM_RUNTIME` | no | `local` | `local` disposable ADK session or explicit `agent_engine`; any other value fails |
-| `AGENT_ENGINE_RESOURCE` | managed runtime | — | Full `projects/.../locations/.../reasoningEngines/...` resource; no runtime fallback |
-| `MEMORY_BANK_ENABLED` | no | `false` | Enable exact-scope Memory Bank retrieval and eligible-fact generation |
-| `MEMORY_BANK_RESOURCE` | with memory | Agent Engine resource | Reasoning-engine resource that owns the Memory Bank |
-| `HARMONIA_WORKSPACE_ID` | with memory | — | Stable first memory-scope key |
-| `HARMONIA_BRAND_ID` | with memory | — | Stable second memory-scope key; retrieval requires an exact two-key match |
+| `AGENT_ENGINE_RESOURCE` | yes | — | Full `projects/.../locations/.../reasoningEngines/...` resource; Agent Engine is the only runtime |
+| `MEMORY_BANK_ENABLED` | managed deploy | `true` | Exact-scope Memory Bank retrieval and eligible-fact generation; cloud deploy fixes this to `true` |
+| `MEMORY_BANK_RESOURCE` | managed deploy | Agent Engine resource | Reasoning-engine resource that owns the Memory Bank |
 | `GENERATIVE_MEDIA_ENABLED` | no | `false` | Add approval-gated Veo and Lyria proposals |
-| `VERTEX_MEDIA_LOCATION` | no | `us-central1` | Veo Vertex region; Lyria 3 remains global |
+| `ALLOW_GLOBAL_LYRIA` | with generative media | `false` | Explicitly acknowledge the approved policy exception required by Lyria's global endpoint |
+| `VERTEX_MEDIA_LOCATION` | no | `us-central1` | Veo Vertex region; must match the deployment residency region |
 
 The pricing catalog uses decimal arithmetic and labels estimates with its version. A configured model without a catalog entry is not budget-authorized. Image calls reserve the configured maximum instead of being represented as free.
 
@@ -65,10 +64,10 @@ Telemetry contains identifiers, stage and role names, model names, usage units, 
 | Variable | Effect |
 |---|---|
 | `HARMONIA_MOCK_AI=1` | Deterministic offline fixtures for all Gemini calls + signal fetching. Unset = real model calls. |
-| `HARMONIA_MOCK_X=1` | Deterministic X publish/verify/metrics payloads. Unset = real X calls (fails honestly without a token). |
+| `HARMONIA_MOCK_X=1` | Deterministic X publish/verify/metrics payloads. Unset = real X calls using the current workspace connection. |
 
 Both flags are dev-only conveniences; production deployments run with them unset, and every mock path logs `[MOCK-AI]` / `[MOCK-X]` so it can never pass as a real call.
 
 ## Secrets policy
 
-Credentials stay server-side in environment configuration and never enter Git. The Telegram client sends its operator token to the web service but never echoes it into chats. Scope integration credentials to minimum permissions.
+Deployment-wide application credentials and workspace OAuth records stay server-side and never enter Git or browser responses. Scope every integration to minimum permissions. Telegram configuration is stored per workspace and is returned only to the trusted worker.

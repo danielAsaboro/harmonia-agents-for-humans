@@ -37,7 +37,17 @@ from . import telegram_bot, x_client
 from .agent_models import StrategistInput
 from .agents import strategize_with_team_sync
 from .mock_ai import mock_ai_enabled
-from .web_client import WebApiError, get_feed, get_insights, get_state, post as web_post, put_state
+from .web_client import (
+    WebApiError,
+    get_feed,
+    get_connection,
+    get_insights,
+    get_state,
+    get_workspaces,
+    post as web_post,
+    put_state,
+)
+from .tenant_context import tenant_scope
 
 logger = logging.getLogger("harmonia.proactive")
 
@@ -202,7 +212,8 @@ def check_publish_pulse(ctx: dict[str, Any]) -> str:
         prev = get_state(state_key) or {}
         baseline = prev.get("data", {}).get("likes")
         try:
-            metrics = x_client.get_post_metrics(post_id)
+            connection = get_connection("x")
+            metrics = x_client.get_post_metrics(post_id, connection.get("accessToken"))
         except Exception as exc:  # noqa: BLE001 - one post failing must not kill the pulse
             logger.warning("pulse metrics fetch failed for %s: %s", post_id, exc)
             continue
@@ -428,9 +439,14 @@ def _run_loop() -> None:
         logger.info("  check %-20s every %ss", c["name"], c["seconds"])
     while True:
         try:
-            results = run_due_checks()
-            for r in results:
-                logger.info("proactive [%s]: %s", r["check"], r["summary"])
+            for workspace in get_workspaces():
+                with tenant_scope(workspace["workspaceId"], workspace["brandId"]):
+                    results = run_due_checks()
+                    for r in results:
+                        logger.info(
+                            "proactive workspace=%s [%s]: %s",
+                            workspace["workspaceId"], r["check"], r["summary"],
+                        )
         except Exception:  # noqa: BLE001 - keep the loop alive
             logger.exception("proactive scan failed")
         time.sleep(SCAN_SECONDS)

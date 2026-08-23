@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:agent": "cd agent && ./.venv/bin/python -m pytest tests -q",
-    "seed": "node scripts/seed-demo.mjs"
+    "seed": "node scripts/seed-demo.mjs",
+    "migrate:legacy": "node scripts/migrate-legacy-workspace.mjs"
   },
   "dependencies": {
     "@google-cloud/firestore": "^9.0.0",
@@ -19,6 +20,8 @@
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-trace-otlp-grpc": "^0.221.0",
     "@opentelemetry/sdk-trace-node": "^2.10.0",
+    "firebase": "^12.18.0",
+    "firebase-admin": "^14.3.0",
     "google-auth-library": "^11.0.2",
     "next": "16.3.1",
     "react": "19.2.8",

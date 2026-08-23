@@ -12,6 +12,7 @@ import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { applyPolicy, validateDraftText } from "@/lib/policy";
 import { publishStage } from "@/lib/pubsub";
+import { currentTenant } from "@/lib/tenancy";
 
 export async function POST(req: Request) {
   if (!isInternalAuthorized(req)) return unauthorized();
@@ -77,12 +78,12 @@ export async function POST(req: Request) {
     if (autoRun.length > 0) {
       await setStage(job.id, "publish");
       await appendEvent(job.id, "draft", `${autoRun.length} safe action(s) dispatched`, "agent");
-      await publishStage(job.id, "publish");
+      await publishStage(currentTenant(), job.id, "publish");
       return Response.json({ ok: true, triggered: "publish" });
     }
     await setStage(job.id, "verify");
     await appendEvent(job.id, "draft", "no actions to execute; verifying existing artifacts", "agent");
-    await publishStage(job.id, "verify");
+    await publishStage(currentTenant(), job.id, "verify");
     return Response.json({ ok: true, triggered: "verify" });
   });
 }

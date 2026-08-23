@@ -1,16 +1,16 @@
 import { appendEvent, getJob, setStage } from "@/lib/firestore";
-import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
+import { internalTenantHandler } from "@/lib/internalAuth";
 import { publishStage } from "@/lib/pubsub";
+import { currentTenant } from "@/lib/tenancy";
 
 /**
  * Completes the act stage when the worker finished executing all approved
  * actions (including the degenerate zero-action case).
  */
-export async function POST(
+async function post(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!isInternalAuthorized(req)) return unauthorized();
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   if (body?.stage !== "publish") {
@@ -29,6 +29,8 @@ export async function POST(
   }
   await setStage(id, "verify");
   await appendEvent(id, "publish", "action phase complete", "system");
-  await publishStage(id, "verify");
+  await publishStage(currentTenant(), id, "verify");
   return Response.json({ ok: true });
 }
+
+export const POST = internalTenantHandler(post);

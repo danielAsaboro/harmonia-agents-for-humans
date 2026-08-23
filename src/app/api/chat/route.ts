@@ -11,7 +11,8 @@ import {
   saveChatMessage,
   saveIngestMeta,
 } from "@/lib/firestore";
-import { isOperatorAuthorized, operatorForbidden } from "@/lib/operatorAuth";
+import { tenantHandler } from "@/lib/auth";
+import { currentTenant } from "@/lib/tenancy";
 import { parseIntent } from "@/lib/chatIntent";
 import { publishStage } from "@/lib/pubsub";
 import { parseYouTubeUrl } from "@/lib/youtubeUrl";
@@ -95,9 +96,11 @@ async function assetsOf(jobId: string) {
   }
 }
 
-export async function POST(req: Request) {
+async function post(req: Request) {
   return handleChat(req);
 }
+
+export const POST = tenantHandler(post);
 
 async function handleChat(req: Request): Promise<Response> {
   const body = await req.json().catch(() => null);
@@ -182,9 +185,6 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
     ) };
   }
 
-  const mutating = intent.intent === "create_job" || intent.intent === "approve";
-  if (mutating && !isOperatorAuthorized(req)) return { __http: operatorForbidden() };
-
   switch (intent.intent) {
     case "create_job": {
       const videoId = intent.youtubeUrl ? parseYouTubeUrl(intent.youtubeUrl) : null;
@@ -194,7 +194,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
           "ingest",
         );
         await appendEvent(job.id, "queued", `job created via ${surface} chat for video ${videoId}`, "operator");
-        await publishStage(job.id, "ingest");
+        await publishStage(currentTenant(), job.id, "ingest");
         return { payload: {
           intent: intent.intent,
           reply: `Created job ${job.id} for video ${videoId}. Pipeline is running: ingest → transcribe → understand → draft. I'll pause at the approval gate before anything is published.`,
@@ -207,7 +207,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
         const job = await createJob({ brief: intent.topic, platforms: ["x"] }, "understand");
         await saveIngestMeta(job.id, { videoId: "brief", title, channel: "operator", durationSec: 0 });
         await appendEvent(job.id, "understand", `concept job created via ${surface} chat`, "operator");
-        await publishStage(job.id, "understand");
+        await publishStage(currentTenant(), job.id, "understand");
         return { payload: {
           intent: intent.intent,
           reply: `Created concept job ${job.id} from your brief. Running research + ideation + drafting — I'll pause at the approval gate before anything is published.`,

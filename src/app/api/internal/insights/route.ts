@@ -1,9 +1,8 @@
 import { getGoals, listRecentEngagement } from "@/lib/firestore";
-import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
+import { internalTenantHandler } from "@/lib/internalAuth";
 
 /** Cross-job reaction insights + operator goals the agent injects into ideation. */
-export async function GET(req: Request) {
-  if (!isInternalAuthorized(req)) return unauthorized();
+async function get(_req: Request) {
   const [insights, goals] = await Promise.all([listRecentEngagement(), getGoals()]);
   const totals = insights.reduce(
     (acc, i) => ({
@@ -20,3 +19,5 @@ export async function GET(req: Request) {
     goals,
   });
 }
+
+export const GET = internalTenantHandler(get);

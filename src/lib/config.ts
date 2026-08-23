@@ -6,11 +6,11 @@ const envSchema = z.object({
   FIRESTORE_JOB_COLLECTION: z.string().default("jobs"),
   PUBSUB_STAGE_TOPIC: z.string().default("harmonia-stages"),
   INTERNAL_API_TOKEN: z.string().min(1),
-  OPERATOR_TOKEN: z.string().min(8).optional(),
   GEMINI_API_KEY: z.string().min(1).optional(),
   MODEL_ID: z.string().default("gemini-3.5-flash"),
   DEFAULT_JOB_BUDGET_USD: z.string().regex(/^\d+\.\d{1,6}$/).default("5.00"),
   DEFAULT_JOB_APPROVAL_THRESHOLD_USD: z.string().regex(/^\d+\.\d{1,6}$/).default("0.25"),
+  DEFAULT_WORKSPACE_BUDGET_USD: z.string().regex(/^\d+\.\d{1,6}$/).default("100.00"),
   PUBLIC_BASE_URL: z.string().url().optional(),
 });
 

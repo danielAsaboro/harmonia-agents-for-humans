@@ -1,18 +1,17 @@
 import { z } from "zod";
 import { resolveDecision } from "@/lib/decisions";
-import { isOperatorAuthorized, operatorForbidden } from "@/lib/operatorAuth";
+import { tenantHandler } from "@/lib/auth";
 
 const decisionSchema = z.object({
   decision: z.enum(["approved", "rejected"]),
   actor: z.enum(["system", "agent", "operator"]).default("operator"),
 });
 
-export async function POST(
+async function post(
   req: Request,
   { params }: { params: Promise<{ id: string; actionId: string }> },
 ) {
   const { id, actionId } = await params;
-  if (!isOperatorAuthorized(req)) return operatorForbidden();
   const body = await req.json().catch(() => ({}));
   const parsed = decisionSchema.safeParse(body);
   if (!parsed.success) {
@@ -26,3 +25,5 @@ export async function POST(
   );
   return Response.json(outcome);
 }
+
+export const POST = tenantHandler(post);

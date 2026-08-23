@@ -13,7 +13,8 @@ from harmonia_agent.gemma_model import VertexGemmaModel
 from harmonia_agent.role_models import RoleModelConfig
 from harmonia_agent.usage import InvocationContext, run_metered
 from harmonia_agent.telemetry import configure_telemetry
-from test_agent_team import ScriptedDelegationModel, ScriptedDraftModel, _analysis
+from test_agent_team import ManagedRuntime, ScriptedDraftModel, _analysis
+from harmonia_agent.tenant_context import tenant_scope
 
 
 def test_model_call_reserves_budget_before_provider():
@@ -52,7 +53,9 @@ def test_draft_run_reserves_and_reports_each_participating_role():
         "flo_draft_workflow",
         payload,
         model=model,
+        team_runtime=ManagedRuntime(),
         invocation=InvocationContext(
+            workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
             job_id="job-1", stage="draft", operation_id="job-1:draft:0",
         ),
         budget_reserver=reservations.append,
@@ -92,6 +95,7 @@ def test_transcription_reserves_before_provider_and_reports_tokens(monkeypatch):
     result = content.transcribe_audio(
         b"audio", "audio/mp4",
         invocation=InvocationContext(
+            workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
             job_id="job-1", stage="transcribe", operation_id="job-1:transcribe:0",
         ),
         budget_reserver=lambda item: (reservations.append(item), order.append("reserve")),
@@ -117,6 +121,7 @@ def test_image_generation_uses_explicit_maximum_cost_reservation(monkeypatch):
     generated, mime = content.generate_image(
         "safe visual description",
         invocation=InvocationContext(
+            workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
             job_id="job-1", stage="publish", operation_id="job-1:publish:act-img",
         ),
         budget_reserver=reservations.append,
@@ -140,7 +145,9 @@ def test_agent_trace_has_safe_delegation_model_and_validation_spans():
         "flo_draft_workflow",
         payload,
         model=ScriptedDraftModel(model="gemini-3.5-flash"),
+        team_runtime=ManagedRuntime(),
         invocation=InvocationContext(
+            workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
             job_id="job-1", stage="draft", operation_id="job-1:draft:0",
         ),
         budget_reserver=lambda _item: None,
@@ -150,7 +157,6 @@ def test_agent_trace_has_safe_delegation_model_and_validation_spans():
     spans = exporter.get_finished_spans()
     names = [span.name for span in spans]
     assert "harmonia.agent.invoke" in names
-    assert "harmonia.model.generate" in names
     assert "harmonia.output.validate" in names
     invoke = next(span for span in spans if span.name == "harmonia.agent.invoke")
     assert any(event.name == "harmonia.agent.delegate" for event in invoke.events)
@@ -200,7 +206,9 @@ def test_heterogeneous_draft_usage_keeps_each_actual_role_model():
         "flo_draft_workflow",
         DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="voice: direct"),
         models=models,
+        team_runtime=ManagedRuntime(),
         invocation=InvocationContext(
+            workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
             job_id="job-1", stage="draft", operation_id="job-1:draft:0",
         ),
         budget_reserver=reservations.append,
@@ -225,19 +233,21 @@ def test_multimodal_source_uri_is_not_exported_in_trace_content():
     configure_telemetry(exporter=exporter, force=True)
     source = "https://www.youtube.com/watch?v=abc12345678"
 
-    asyncio.run(_run_coordinator(
-        "sophia_analyst",
-        AnalystInput(
-            title="Demo",
-            transcript="[0s] hello",
-            media_evidence=MediaEvidence(
-                video_uri=source,
-                duration_sec=60,
-                source_digest="a" * 64,
+    with tenant_scope("workspace-test", "brand-test"):
+        asyncio.run(_run_coordinator(
+            "sophia_analyst",
+            AnalystInput(
+                title="Demo",
+                transcript="[0s] hello",
+                media_evidence=MediaEvidence(
+                    video_uri=source,
+                    duration_sec=60,
+                    source_digest="a" * 64,
+                ),
             ),
-        ),
-        model=ScriptedDelegationModel(model="gemini-3.5-flash"),
-    ))
+            model="gemini-test",
+            team_runtime=ManagedRuntime(),
+        ))
 
     serialized = " ".join(
         [str(span.attributes) for span in exporter.get_finished_spans()]
@@ -266,6 +276,7 @@ def test_managed_runtime_finalizes_explicit_estimated_usage_for_every_reserved_r
         AnalystInput(title="Demo", transcript="[0s] proof"),
         model="gemini-3.5-flash",
         invocation=InvocationContext(
+            workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
             job_id="job-1", stage="understand", operation_id="job-1:understand:0",
         ),
         team_runtime=ManagedRuntime(),

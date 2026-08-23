@@ -6,6 +6,7 @@ import {
   setStage,
 } from "@/lib/firestore";
 import { publishStage } from "@/lib/pubsub";
+import { currentTenant } from "@/lib/tenancy";
 
 export interface DecisionOutcome {
   ok: boolean;
@@ -59,12 +60,12 @@ export async function resolveDecision(
   if (executable.length > 0) {
     await setStage(jobId, "publish");
     await appendEvent(jobId, "draft", `${executable.length} approved action(s) dispatched to publishing`, "system");
-    await publishStage(jobId, "publish");
+    await publishStage(currentTenant(), jobId, "publish");
     return { ok: true, triggered: "publish" };
   }
 
   await setStage(jobId, "verify");
   await appendEvent(jobId, "awaiting_approval", "no executable actions; proceeding to verification of existing evidence", "system");
-  await publishStage(jobId, "verify");
+  await publishStage(currentTenant(), jobId, "verify");
   return { ok: true, triggered: "verify" };
 }

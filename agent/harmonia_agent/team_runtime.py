@@ -1,14 +1,11 @@
-"""Execution boundary for local ADK and managed Vertex AI Agent Engine teams."""
+"""Execution boundary for managed Vertex AI Agent Engine teams."""
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any, Literal, Protocol
+from typing import Any, Protocol
 
 from .telemetry import safe_attributes, tracer
-
-RuntimeMode = Literal["local", "agent_engine"]
-
 
 class AgentEngineProtocolError(RuntimeError):
     """Managed runtime completed without a valid state handoff."""
@@ -26,13 +23,6 @@ class TeamRuntime(Protocol):
         payload: dict[str, Any],
         user_id: str,
     ) -> dict[str, Any]: ...
-
-
-def runtime_mode(value: str) -> RuntimeMode:
-    normalized = value.strip().lower()
-    if normalized not in {"local", "agent_engine"}:
-        raise ValueError("TEAM_RUNTIME must be 'local' or 'agent_engine'")
-    return normalized  # type: ignore[return-value]
 
 
 def _session_id(session: Any) -> str:
@@ -126,4 +116,3 @@ class AgentEngineTeamRuntime:
                 raise AgentEngineProtocolError("Agent Engine returned no state delta")
             span.set_attribute("state.key_count", len(state))
             return state
-

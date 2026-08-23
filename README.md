@@ -41,7 +41,7 @@ flowchart LR
         PUSH["Pub/Sub push receiver"]
         TG["Telegram long-poll worker"]
         STAGES[ingest · transcribe · understand ·<br/>draft · publish · verify handlers]
-        RUNTIME[Local / Agent Engine<br/>explicit runtime adapter]
+        RUNTIME[Vertex AI Agent Engine<br/>managed runtime only]
     end
 
     PS[[Pub/Sub topic]]
@@ -77,14 +77,14 @@ flowchart LR
 | Approval gate | web `src/lib/policy.ts`, `src/lib/decisions.ts` | deterministic risk rules; single decision writer shared by REST, chat, and Telegram |
 | Publishing | `agent/harmonia_agent/x_client.py` | official X API v2, idempotent |
 | Verification | `agent/harmonia_agent/stages.py` | fresh GET of the published artifact |
-| Operator surfaces | dashboard UI, `/api/chat`, `telegram_bot.py` | identical grammar; mutating actions require operator token |
+| Operator surfaces | dashboard UI, `/api/chat`, `telegram_bot.py` | identical grammar; Google session or workspace-scoped Telegram identity; shared approval gate |
 
 ## Technology
 
 - **Heterogeneous Google models**: Gemini 3.5 Flash-Lite for routing/planning, Gemini 3.5 Flash for strategy/multimodal analysis/editing/transcription, and Gemma 3 12B IT on a Vertex endpoint for copywriting.
 - **Google generative media**: Veo 3.1 Fast for 4-second vertical b-roll and Lyria 3 Clip for 30-second music, both individually priced and always approval-gated.
 - **Google ADK** (Python) for the worker service and agent scaffolding.
-- **Vertex AI Agent Engine + Memory Bank** as explicit managed cognition and exact-scope cross-session context options; Firestore/Pub/Sub remain the durable workflow engine.
+- **Vertex AI Agent Engine + Memory Bank** as mandatory managed cognition and exact-scope cross-session context; Firestore/Pub/Sub remain the durable workflow engine.
 - **Cloud Run** hosts both services (web: Next.js standalone build; agent: Python container).
 - **Firestore** persists job state, stage events, approvals, receipts, verifications, and packets.
 - **Pub/Sub** drives every stage transition; transient failures nack for redelivery, permanent failures stay visible.
@@ -92,17 +92,17 @@ flowchart LR
 
 ## Local spin-up
 
-Prerequisites: Node 20+, Python 3.12+, [`gcloud` CLI](https://cloud.google.com/sdk/docs/install). Emulators make local development free and hermetic.
+Prerequisites: Node 20+, Python 3.12+, [`gcloud` CLI](https://cloud.google.com/sdk/docs/install), a registered Identity Platform web application with Google sign-in enabled, and a deployed Agent Engine resource for real judgment calls. Firestore and Pub/Sub use local emulators; identity remains real.
 
 ```bash
 git clone https://github.com/danielAsaboro/harmonia.git
 cd harmonia
 npm install
-cp .env.example .env.local   # at minimum: GEMINI_API_KEY (+ INTERNAL_API_TOKEN)
+cp .env.example .env.local   # set Identity Platform, internal service, and Agent Engine values
 ./scripts/dev.sh             # Firestore + Pub/Sub emulators, web :3000, ADK worker
 ```
 
-Open http://localhost:3000, paste a YouTube URL, and watch the job move through the stages. Approve or reject the proposed actions in the dashboard when the job reaches the approval gate.
+Open http://localhost:3000, continue with Google, then paste a YouTube URL and watch the workspace-scoped job move through the stages. Approve or reject proposed actions when the job reaches the approval gate.
 
 > Full documentation lives in [`docs/`](./docs) — a Mintlify site covering the [architecture](./docs/architecture.mdx), [pipeline](./docs/pipeline.mdx), the [proactive agent](./docs/proactive-agent.mdx), offline mock modes, configuration, and deployment.
 
@@ -114,14 +114,14 @@ Click the chat bubble on the dashboard (or `POST /api/chat` with `{message}`):
 "create a job from https://youtu.be/<id>"
 "status of job <id>"          # or just "status"
 "show drafts for <id>"
-"approve job <id>"            # mutating: requires x-operator-token when configured
+"approve job <id>"            # requires the signed-in workspace member
 ```
 
-Mutating chat intents are gated exactly like the REST routes. Set `GEMINI_API_KEY` in the web environment to enable intent parsing.
+All chat reads and mutations use the verified Google session and active workspace. Intent parsing never selects tenant identity.
 
 ### Telegram bot
 
-Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_CHAT_ID` (both required together) and restart the worker — the bot starts automatically inside the FastAPI process (or run `python -m harmonia_agent.telegram_bot`). The bot only responds inside the allow-listed chat. Messages go through the same `/api/chat` grammar; **approvals require tapping an inline button**, which triggers the same decision endpoint the dashboard uses. Bot tokens are never echoed into chats.
+Connect a bot and one allowed chat from workspace Settings. The worker discovers workspace connections independently and the bot can access only that workspace. Messages go through the same `/api/chat` grammar; **approvals require tapping an inline button**, which triggers the same decision endpoint the dashboard uses.
 
 Run tests:
 
@@ -138,21 +138,17 @@ One-time bootstrap, then repeatable deploys:
 gcloud auth login
 export PROJECT_ID=your-project-id
 export REGION=us-central1
-export GEMINI_API_KEY=...            # required
-export OPERATOR_TOKEN=...            # recommended: gates all mutations
-export X_BEARER_TOKEN=...            # optional: enables real X publishing + verification
-export YOUTUBE_API_KEY=...           # optional: richer ingest metadata
-export TELEGRAM_BOT_TOKEN=...        # optional: Telegram operator surface
-export TELEGRAM_ALLOWED_CHAT_ID=...
+export AGENT_ENGINE_RESOURCE=projects/.../locations/.../reasoningEngines/...
+export GEMMA_VERTEX_ENDPOINT=projects/.../locations/.../endpoints/...
+export FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+export FIREBASE_APP_ID=your-web-app-id
 
 ./infra/setup.sh             # enables APIs, Firestore, topics, SAs, IAM, secrets
 ./infra/deploy.sh            # builds both services via Cloud Build, deploys to Cloud Run,
                              # wires the Pub/Sub push subscription
 ```
 
-Optional integrations are mounted only if their secrets exist, so missing tokens never block deployment — the corresponding capability stays visibly disabled rather than fake-succeeding.
-
-Both services scale to zero. The web service is public-read; all mutations require the operator token. The agent accepts only Pub/Sub push invocations authenticated via OIDC + Cloud Run IAM. Secrets live in Secret Manager; nothing sensitive lives in the repo or client bundle.
+Google sign-in creates an isolated owner workspace. Customer jobs, memory, connections, Telegram configuration, budgets, logs, and artifacts remain workspace-scoped. The agent accepts only Pub/Sub push invocations authenticated through Cloud Run IAM and invokes the deployed Agent Engine resource for every judgment step; there is no local cognitive runtime. Deployment rejects Agent Engine, Memory Bank, Gemma, Veo, Firestore, storage, or Pub/Sub persistence outside the selected region. Lyria's global endpoint remains disabled unless an approved policy exception is explicitly acknowledged.
 
 ## Security and reliability model
 
@@ -162,6 +158,8 @@ Both services scale to zero. The web service is public-read; all mutations requi
 - **Audit receipts**: each execution records outcome (`applied` / `already_applied` / `failed`), artifact URL, and platform response in Firestore.
 - **Resumable state**: jobs survive worker crashes; Pub/Sub redelivery plus server-side stage guards (`assertTransition`) prevent duplicated side effects. Failed jobs retry from their failure point.
 - **Managed cognition without split-brain state**: Agent Engine sessions are invocation-scoped and discarded; Memory Bank stores only eligible durable facts under exact workspace/brand scope.
+- **Long-horizon context**: Firestore preserves the resumable workflow and audit ledger across worker restarts; Memory Bank carries only approved decisions, verified outcomes, learn-stage counts, and explicit preferences into later jobs.
+- **Production-data boundary**: tenant identity is derived server-side, traces contain metadata rather than prompts or customer content, and deployment enforces one selected Google Cloud region across stateful and model services.
 - **Failure honesty**: permanent failures are preserved as visible unresolved gaps; errors never become simulated success.
 
 ## Project structure

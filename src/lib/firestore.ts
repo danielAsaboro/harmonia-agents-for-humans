@@ -19,6 +19,11 @@ import type {
 import { applyFinalizedUsage, applyReservation, canReserve } from "./costs";
 import { getConfig } from "./config";
 import { newId } from "./idempotency";
+import {
+  assertResourceWorkspace,
+  currentTenant,
+  tenantCollectionPath,
+} from "./tenancy";
 
 let client: Firestore | null = null;
 
@@ -27,6 +32,22 @@ export function db(): Firestore {
     client = new Firestore();
   }
   return client;
+}
+
+export interface WorkspaceScopeDoc {
+  workspaceId: string;
+  brandId: string;
+}
+
+export async function listWorkspaceScopes(): Promise<WorkspaceScopeDoc[]> {
+  const snaps = await db().collection("workspaces").get();
+  return snaps.docs
+    .filter((doc) => !doc.get("disabledAt"))
+    .map((doc) => ({
+      workspaceId: doc.id,
+      brandId: String(doc.get("defaultBrandId") ?? ""),
+    }))
+    .filter((scope) => Boolean(scope.brandId));
 }
 
 interface JobDoc extends Omit<Job, "id"> {
@@ -57,6 +78,10 @@ const COST_RESERVATIONS = "cost_reservations";
 const USAGE_RECORDS = "usage_records";
 const MEDIA_OPERATIONS = "media_operations";
 
+function tenantCollection(name: string) {
+  return db().collection(tenantCollectionPath(currentTenant(), name));
+}
+
 function initialJobBudget(): JobBudget {
   const config = getConfig();
   return {
@@ -71,7 +96,7 @@ function initialJobBudget(): JobBudget {
 // ---------- content items ----------
 
 export function contentItemRef(id: string) {
-  return db().collection(CONTENT_ITEMS).doc(id);
+  return tenantCollection(CONTENT_ITEMS).doc(id);
 }
 
 export async function createContentItem(item: import("./types").ContentItem): Promise<void> {
@@ -96,8 +121,7 @@ export async function updateContentItem(
 }
 
 export async function listContentItems(): Promise<import("./types").ContentItem[]> {
-  const snaps = await db()
-    .collection(CONTENT_ITEMS)
+  const snaps = await tenantCollection(CONTENT_ITEMS)
     .orderBy("createdAt", "desc")
     .limit(200)
     .get();
@@ -108,15 +132,13 @@ export async function listContentItems(): Promise<import("./types").ContentItem[
 
 export async function createNotification(n: import("./types").AppNotification): Promise<void> {
   const id = n.id ?? newId();
-  await db()
-    .collection(NOTIFICATIONS)
+  await tenantCollection(NOTIFICATIONS)
     .doc(id)
     .set({ ...n, id, createdAt: n.createdAt || new Date().toISOString() });
 }
 
 export async function listNotifications(limit = 100): Promise<import("./types").AppNotification[]> {
-  const snaps = await db()
-    .collection(NOTIFICATIONS)
+  const snaps = await tenantCollection(NOTIFICATIONS)
     .orderBy("createdAt", "desc")
     .limit(limit)
     .get();
@@ -124,11 +146,11 @@ export async function listNotifications(limit = 100): Promise<import("./types").
 }
 
 export async function markNotificationRead(id: string): Promise<void> {
-  await db().collection(NOTIFICATIONS).doc(id).update({ readAt: new Date().toISOString() });
+  await tenantCollection(NOTIFICATIONS).doc(id).update({ readAt: new Date().toISOString() });
 }
 
 export async function markAllNotificationsRead(): Promise<void> {
-  const snaps = await db().collection(NOTIFICATIONS).where("readAt", "==", null).get();
+  const snaps = await tenantCollection(NOTIFICATIONS).where("readAt", "==", null).get();
   await Promise.all(snaps.docs.map((d) => d.ref.update({ readAt: new Date().toISOString() })));
 }
 
@@ -149,7 +171,7 @@ export interface ContentProposal {
 }
 
 function proposalRef(id: string) {
-  return db().collection(PROPOSALS).doc(id);
+  return tenantCollection(PROPOSALS).doc(id);
 }
 
 export async function getProposal(id: string): Promise<ContentProposal | null> {
@@ -162,8 +184,7 @@ export async function saveProposal(p: ContentProposal): Promise<void> {
 }
 
 export async function listProposals(limit = 100): Promise<ContentProposal[]> {
-  const snaps = await db()
-    .collection(PROPOSALS)
+  const snaps = await tenantCollection(PROPOSALS)
     .orderBy("createdAt", "desc")
     .limit(limit)
     .get();
@@ -193,13 +214,12 @@ export interface AgentStateDoc {
 }
 
 export async function getAgentState(key: string): Promise<AgentStateDoc | null> {
-  const snap = await db().collection(AGENT_STATE).doc(key).get();
+  const snap = await tenantCollection(AGENT_STATE).doc(key).get();
   return snap.exists ? (snap.data() as AgentStateDoc) : null;
 }
 
 export async function setAgentState(key: string, patch: Partial<AgentStateDoc>): Promise<void> {
-  await db()
-    .collection(AGENT_STATE)
+  await tenantCollection(AGENT_STATE)
     .doc(key)
     .set({ ...patch, updatedAt: new Date().toISOString() }, { merge: true });
 }
@@ -217,7 +237,7 @@ export interface ConnectionDoc {
 }
 
 export function connectionRef(platform: string) {
-  return db().collection(CONNECTIONS).doc(platform);
+  return tenantCollection(CONNECTIONS).doc(platform);
 }
 
 export async function getConnection(platform: string): Promise<ConnectionDoc | null> {
@@ -235,7 +255,7 @@ export async function deleteConnection(platform: string): Promise<void> {
 }
 
 export async function listConnections(): Promise<ConnectionDoc[]> {
-  const snaps = await db().collection(CONNECTIONS).get();
+  const snaps = await tenantCollection(CONNECTIONS).get();
   return snaps.docs.map((d) => d.data() as ConnectionDoc);
 }
 
@@ -252,15 +272,14 @@ export interface ChatMessageDoc {
 }
 
 export async function saveChatMessage(m: Omit<ChatMessageDoc, "at"> & { at?: ChatMessageDoc["at"] }): Promise<void> {
-  await db().collection(CHATS).add({ ...m, at: FieldValue.serverTimestamp() });
+  await tenantCollection(CHATS).add({ ...m, at: FieldValue.serverTimestamp() });
 }
 
 export async function listChatMessages(
   limit = 100,
 ): Promise<Array<{ id: string; surface: string; role: string; text: string; data?: Record<string, unknown>; at: string | null }>> {
   // orderBy desc + client-side reverse: more portable than limitToLast.
-  const snaps = await db()
-    .collection(CHATS)
+  const snaps = await tenantCollection(CHATS)
     .orderBy("at", "desc")
     .limit(limit)
     .get();
@@ -287,13 +306,32 @@ export interface OperatorGoals {
 }
 
 export async function getGoals(): Promise<OperatorGoals> {
-  const snap = await db().collection(CONFIG).doc("operator").get();
+  const snap = await tenantCollection(CONFIG).doc("operator").get();
   const data = snap.data() as { goals?: OperatorGoals } | undefined;
   return { topics: [], ...data?.goals };
 }
 
 export async function saveGoals(goals: OperatorGoals): Promise<void> {
-  await db().collection(CONFIG).doc("operator").set({ goals }, { merge: true });
+  await tenantCollection(CONFIG).doc("operator").set({ goals }, { merge: true });
+}
+
+export interface TelegramConnectionDoc {
+  botToken: string;
+  chatId: string;
+  connectedAt: string;
+}
+
+export async function getTelegramConnection(): Promise<TelegramConnectionDoc | null> {
+  const snap = await tenantCollection(CONFIG).doc("telegram").get();
+  return snap.exists ? (snap.data() as TelegramConnectionDoc) : null;
+}
+
+export async function saveTelegramConnection(connection: TelegramConnectionDoc): Promise<void> {
+  await tenantCollection(CONFIG).doc("telegram").set(connection);
+}
+
+export async function deleteTelegramConnection(): Promise<void> {
+  await tenantCollection(CONFIG).doc("telegram").delete();
 }
 
 export interface AssetDoc {
@@ -307,7 +345,7 @@ export interface AssetDoc {
 }
 
 export function assetRef(jobId: string, actionId: string) {
-  return db().collection(ASSETS).doc(`${jobId}_${actionId}`);
+  return tenantCollection(ASSETS).doc(`${jobId}_${actionId}`);
 }
 
 export async function saveAsset(asset: AssetDoc): Promise<void> {
@@ -321,15 +359,14 @@ export async function getAsset(jobId: string, actionId: string): Promise<AssetDo
 }
 
 export async function listAssets(jobId: string): Promise<AssetDoc[]> {
-  const snaps = await db()
-    .collection(ASSETS)
+  const snaps = await tenantCollection(ASSETS)
     .where("jobId", "==", jobId)
     .get();
   return snaps.docs.map((d) => d.data() as AssetDoc);
 }
 
 export async function listAllAssets(): Promise<AssetDoc[]> {
-  const snaps = await db().collection(ASSETS).orderBy("createdAt", "desc").limit(100).get();
+  const snaps = await tenantCollection(ASSETS).orderBy("createdAt", "desc").limit(100).get();
   return snaps.docs.map((d) => d.data() as AssetDoc);
 }
 
@@ -338,8 +375,7 @@ export interface ReceiptWithJob extends Receipt {
 }
 
 export async function listRecentReceipts(limit = 200): Promise<ReceiptWithJob[]> {
-  const snaps = await db()
-    .collection(JOBS)
+  const snaps = await tenantCollection(JOBS)
     .orderBy("createdAt", "desc")
     .limit(50)
     .get();
@@ -359,7 +395,7 @@ export async function listRecentReceipts(limit = 200): Promise<ReceiptWithJob[]>
 }
 
 function jobRef(jobId: string) {
-  return db().collection(JOBS).doc(jobId);
+  return tenantCollection(JOBS).doc(jobId);
 }
 
 function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
@@ -376,8 +412,12 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
 } {
   if (!snap.exists) throw new Error(`job not found: ${snap.id}`);
   const data = snap.data() as JobDoc;
+  assertResourceWorkspace(currentTenant(), data);
   return {
     id: snap.id,
+    workspaceId: data.workspaceId,
+    brandId: data.brandId,
+    createdByUserId: data.createdByUserId,
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,
     status: data.status,
@@ -409,7 +449,11 @@ export async function createJob(
   const id = newId();
   const now = new Date().toISOString();
   const storedConfig: JobConfig = { ...config };
+  const tenant = currentTenant();
   const doc: JobDoc = {
+    workspaceId: tenant.workspaceId,
+    brandId: tenant.brandId,
+    createdByUserId: tenant.userId,
     createdAt: now,
     updatedAt: now,
     status: "running",
@@ -427,8 +471,7 @@ export async function getJob(jobId: string) {
 }
 
 export async function listJobs(limit = 25): Promise<Job[]> {
-  const snaps = await db()
-    .collection(JOBS)
+  const snaps = await tenantCollection(JOBS)
     .orderBy("createdAt", "desc")
     .limit(limit)
     .get();
@@ -465,8 +508,11 @@ export async function reserveJobBudget(
 ): Promise<{ reserved: boolean; duplicate: boolean; budget: JobBudget }> {
   const ref = jobRef(input.jobId);
   const reservationRef = ref.collection(COST_RESERVATIONS).doc(input.operationId);
+  const workspaceRef = db().collection("workspaces").doc(currentTenant().workspaceId);
   return db().runTransaction(async (tx) => {
-    const [jobSnap, reservationSnap] = await Promise.all([tx.get(ref), tx.get(reservationRef)]);
+    const [jobSnap, reservationSnap, workspaceSnap] = await Promise.all([
+      tx.get(ref), tx.get(reservationRef), tx.get(workspaceRef),
+    ]);
     const job = requireJobDoc(jobSnap);
     const budget = job.budget ?? initialJobBudget();
     if (reservationSnap.exists) {
@@ -474,7 +520,16 @@ export async function reserveJobBudget(
       return { reserved: existing.accepted, duplicate: true, budget };
     }
 
-    const accepted = canReserve(budget, input.estimatedCostUsd);
+    if (!workspaceSnap.exists) throw new Error("workspace not found");
+    const workspaceBudget = (workspaceSnap.get("budget") as JobBudget | undefined) ?? {
+      estimatedUsd: "0.00",
+      observedUsd: "0.00",
+      reservedUsd: "0.00",
+      limitUsd: getConfig().DEFAULT_WORKSPACE_BUDGET_USD,
+      approvalThresholdUsd: budget.approvalThresholdUsd,
+    };
+    const accepted = canReserve(budget, input.estimatedCostUsd)
+      && canReserve(workspaceBudget, input.estimatedCostUsd);
     const reservation: BudgetReservation = {
       ...input,
       accepted,
@@ -486,6 +541,10 @@ export async function reserveJobBudget(
 
     const updated = applyReservation(budget, input.estimatedCostUsd);
     tx.update(ref, { budget: updated, updatedAt: new Date().toISOString() });
+    tx.update(workspaceRef, {
+      budget: applyReservation(workspaceBudget, input.estimatedCostUsd),
+      updatedAt: new Date().toISOString(),
+    });
     return { reserved: true, duplicate: false, budget: updated };
   });
 }
@@ -494,11 +553,13 @@ export async function finalizeUsageRecord(record: UsageRecord): Promise<{ duplic
   const ref = jobRef(record.jobId);
   const reservationRef = ref.collection(COST_RESERVATIONS).doc(record.operationId);
   const usageRef = ref.collection(USAGE_RECORDS).doc(record.id);
+  const workspaceRef = db().collection("workspaces").doc(currentTenant().workspaceId);
   return db().runTransaction(async (tx) => {
-    const [jobSnap, reservationSnap, usageSnap] = await Promise.all([
+    const [jobSnap, reservationSnap, usageSnap, workspaceSnap] = await Promise.all([
       tx.get(ref),
       tx.get(reservationRef),
       tx.get(usageRef),
+      tx.get(workspaceRef),
     ]);
     if (usageSnap.exists) return { duplicate: true };
     const job = requireJobDoc(jobSnap);
@@ -514,9 +575,20 @@ export async function finalizeUsageRecord(record: UsageRecord): Promise<{ duplic
       reservation.estimatedCostUsd,
       record.observedCostUsd ?? record.estimatedCostUsd,
     );
+    if (!workspaceSnap.exists) throw new Error("workspace not found");
+    const workspaceBudget = workspaceSnap.get("budget") as JobBudget;
+    const finalizedWorkspaceBudget = applyFinalizedUsage(
+      workspaceBudget,
+      reservation.estimatedCostUsd,
+      record.observedCostUsd ?? record.estimatedCostUsd,
+    );
     tx.set(usageRef, record);
     tx.update(reservationRef, { finalized: true, finalizedAt: new Date().toISOString() });
     tx.update(ref, { budget, updatedAt: new Date().toISOString() });
+    tx.update(workspaceRef, {
+      budget: finalizedWorkspaceBudget,
+      updatedAt: new Date().toISOString(),
+    });
     return { duplicate: false };
   });
 }
@@ -690,8 +762,7 @@ export async function markActionExecuted(
 }
 
 export async function writeReceipt(receipt: Receipt): Promise<void> {
-  await db()
-    .collection(JOBS)
+  await tenantCollection(JOBS)
     .doc(receipt.jobId)
     .collection(RECEIPTS)
     .doc(receipt.id)
@@ -758,8 +829,7 @@ export interface PriorInsight {
 }
 
 export async function listRecentEngagement(limit = 20): Promise<PriorInsight[]> {
-  const snaps = await db()
-    .collection(JOBS)
+  const snaps = await tenantCollection(JOBS)
     .orderBy("createdAt", "desc")
     .limit(limit)
     .get();
@@ -834,9 +904,8 @@ export async function appendEvent(
       message,
       actor,
     } satisfies Omit<StageEvent, "id" | "at"> & { at: unknown });
-  // Denormalized copy so logs are globally queryable/searchable.
-  await db()
-    .collection(EVENT_LOG)
+  // Denormalized within the workspace so monitoring remains tenant-isolated.
+  await tenantCollection(EVENT_LOG)
     .doc(id)
     .set({ jobId, at: FieldValue.serverTimestamp(), stage, message, actor });
 }
@@ -851,8 +920,7 @@ export interface EventLogEntry {
 }
 
 export async function listEventLog(limit = 300): Promise<EventLogEntry[]> {
-  const snaps = await db()
-    .collection(EVENT_LOG)
+  const snaps = await tenantCollection(EVENT_LOG)
     .orderBy("at", "desc")
     .limit(limit)
     .get();

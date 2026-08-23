@@ -55,7 +55,15 @@ cd agent
   --service-account "harmonia-agent@$PROJECT_ID.iam.gserviceaccount.com"
 ```
 
-Set `TEAM_RUNTIME=agent_engine` and the returned full `AGENT_ENGINE_RESOURCE`. To enable cross-session context, set `MEMORY_BANK_ENABLED=true`, `MEMORY_BANK_RESOURCE` (it may be the same reasoning engine), and stable `HARMONIA_WORKSPACE_ID` / `HARMONIA_BRAND_ID` values. To expose paid media proposals, set `GENERATIVE_MEDIA_ENABLED=true`. The worker identity already receives Vertex prediction access in `infra/setup.sh`; Memory Bank retrieval/generation and Veo/Lyria calls fail visibly if unavailable.
+Set the returned full `AGENT_ENGINE_RESOURCE` and `MEMORY_BANK_RESOURCE` (they may identify the same reasoning engine). Cloud deployment always enables Memory Bank and fails before rollout when either managed resource is absent. Workspace and brand scopes come from each authenticated job rather than deployment configuration. To expose paid media proposals, set `GENERATIVE_MEDIA_ENABLED=true`. The worker identity already receives Vertex prediction access in `infra/setup.sh`; Memory Bank retrieval/generation and Veo/Lyria calls fail visibly if unavailable.
+
+`REGION` is the deployment's residency boundary. Setup verifies the Firestore database and Agent Engine staging bucket location and applies a Pub/Sub message-storage policy with in-transit enforcement. Deployment rejects Agent Engine, Memory Bank, Gemma, or Veo resources outside that region. Lyria uses a global endpoint, so generative media fails closed unless `ALLOW_GLOBAL_LYRIA=true` records an approved policy exception. This is a technical location control, not a claim of regulatory certification.
+
+The current worker deployment keeps exactly one CPU-allocated instance because scheduler, proactive, and Telegram supervisors are process-resident. Do not raise the worker maximum while those supervisors remain co-located; duplicate long-pollers would contend. Split those supervisors into Cloud Scheduler/webhook-driven services before horizontally scaling the worker.
+
+Enable Google as the Identity Platform provider and register the deployed web origin and redirect domain. Pass the registered web application's public Identity Platform configuration to `infra/deploy.sh`. A user's first Google sign-in creates the owner workspace automatically.
+
+For pre-SaaS records, run `LEGACY_OWNER_UID=<google-user-uid> npm run migrate:legacy`. The migration copies root collections, nested job records, and artifact bytes into the owner's workspace without deleting the recoverable source records.
 
 ## Health and observability
 
@@ -80,4 +88,6 @@ Content capture must remain disabled in every deployed revision. Raw prompts, re
 
 <Warning>
 Authenticated multimodal Gemini, Vertex Gemma, Agent Engine, Memory Bank, Veo, Lyria, and Cloud telemetry execution are not verified merely by deploying this code. Capture a correlated trace plus its persisted sessions, memory operation, media operation, and usage records before presenting those integrations as live evidence.
+
+Follow [How to capture Google Cloud deployment evidence](/cloud-proof) before recording the submission video.
 </Warning>

@@ -102,6 +102,7 @@ def _patch_web(monkeypatch, feed=None, insights=None, states=None):
 
     monkeypatch.setattr(proactive, "get_feed", lambda: feed if feed is not None else {})
     monkeypatch.setattr(proactive, "get_insights", lambda: insights or {})
+    monkeypatch.setattr(proactive, "get_connection", lambda _platform: {"accessToken": "test"})
     monkeypatch.setattr(proactive, "get_state", lambda key: store.get(key))
     monkeypatch.setattr(proactive, "put_state", lambda key, patch: puts.append((key, patch)))
     monkeypatch.setattr(
@@ -261,7 +262,7 @@ def test_recycle_winners_needs_old_high_performer(monkeypatch):
 
 def test_publish_pulse_baseline_then_spike(monkeypatch):
     metrics_seq = {"p1": {"likes": 100, "replies": 1, "reposts": 1, "quotes": 1, "impressions": 10}}
-    monkeypatch.setattr(proactive.x_client, "get_post_metrics", lambda pid: metrics_seq.get(pid))
+    monkeypatch.setattr(proactive.x_client, "get_post_metrics", lambda pid, _token=None: metrics_seq.get(pid))
     feed = {"recentPublished": [{"postId": "p1", "jobId": "j1", "publishedAt": _iso(0), "likesSoFar": None}]}
 
     # first pass records baseline only

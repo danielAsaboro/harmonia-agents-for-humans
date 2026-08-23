@@ -22,6 +22,7 @@ from opentelemetry import context as otel_context
 from .config import settings
 from .stages import HANDLERS, dispatch
 from .telemetry import configure_telemetry, extract_context
+from .tenant_context import tenant_scope
 
 configure_telemetry()
 
@@ -86,16 +87,21 @@ async def pubsub_push(request: Request) -> JSONResponse:
         message = envelope["message"]
         data = json.loads(base64.b64decode(message["data"]))
         job_id = str(data["jobId"])
+        workspace_id = str(data["workspaceId"])
+        brand_id = str(data["brandId"])
         stage = str(data["stage"])
         attempt = int(data.get("attempt", 0))
         carrier = {str(k): str(v) for k, v in (message.get("attributes") or {}).items()}
+        if carrier.get("workspaceId") != workspace_id or carrier.get("brandId") != brand_id:
+            raise ValueError("tenant attributes do not match stage payload")
     except Exception as exc:  # noqa: BLE001 - malformed delivery: ack to stop poison redelivery
         logger.error("malformed push envelope: %s", exc)
         return JSONResponse({"ack": True, "error": "malformed envelope"})
 
     token = otel_context.attach(extract_context(carrier))
     try:
-        permanent = await dispatch(job_id, stage, attempt=attempt)
+        with tenant_scope(workspace_id, brand_id):
+            permanent = await dispatch(job_id, stage, attempt=attempt)
     finally:
         otel_context.detach(token)
     # 200 acknowledges regardless once reported; transient failures raise below
@@ -138,12 +144,17 @@ def _run_pull_loop() -> None:
             try:
                 data = json.loads(msg.message.data.decode("utf-8"))
                 job_id = str(data["jobId"])
+                workspace_id = str(data["workspaceId"])
+                brand_id = str(data["brandId"])
                 stage = str(data["stage"])
                 attempt = int(data.get("attempt", 0))
                 carrier = {str(k): str(v) for k, v in msg.message.attributes.items()}
+                if carrier.get("workspaceId") != workspace_id or carrier.get("brandId") != brand_id:
+                    raise ValueError("tenant attributes do not match stage payload")
                 token = otel_context.attach(extract_context(carrier))
                 try:
-                    permanent = asyncio.run(dispatch(job_id, stage, attempt=attempt))
+                    with tenant_scope(workspace_id, brand_id):
+                        permanent = asyncio.run(dispatch(job_id, stage, attempt=attempt))
                 finally:
                     otel_context.detach(token)
                 if permanent:

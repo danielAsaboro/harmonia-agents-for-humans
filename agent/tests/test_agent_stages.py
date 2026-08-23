@@ -32,6 +32,7 @@ def test_understand_brief_routes_through_strategist_without_schema_changes(monke
 
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
         "config": {"brief": "Explain our activation win"},
+        "workspaceId": "workspace-test", "brandId": "brand-test", "createdByUserId": "user-test",
         "transcriptSegments": [],
     })
     monkeypatch.setattr(stages, "get_insights", lambda: {})
@@ -53,6 +54,7 @@ def test_understand_brief_routes_through_strategist_without_schema_changes(monke
 def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypatch):
     posts = []
     job = {
+        "workspaceId": "workspace-test", "brandId": "brand-test", "createdByUserId": "user-test",
         "config": {"brief": "Activation launch"},
         "ingestedTitle": "Activation launch",
         "summary": _analysis()["summary"],
@@ -89,6 +91,7 @@ def test_understand_video_passes_direct_source_media_evidence(monkeypatch):
 
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
         "config": {"youtubeUrl": "https://www.youtube.com/watch?v=abc12345678"},
+        "workspaceId": "workspace-test", "brandId": "brand-test", "createdByUserId": "user-test",
         "transcriptSegments": [{"id": "s1", "startSec": 0, "endSec": 5, "text": "hello"}],
         "ingestedTitle": "Demo video",
         "ingestedChannel": "Harmonia",

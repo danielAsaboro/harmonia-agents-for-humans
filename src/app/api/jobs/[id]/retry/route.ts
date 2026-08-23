@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { appendEvent, getJob, setStage } from "@/lib/firestore";
-import { isOperatorAuthorized, operatorForbidden } from "@/lib/operatorAuth";
+import { tenantHandler } from "@/lib/auth";
 import { publishStage } from "@/lib/pubsub";
 import { isKnownStage } from "@/lib/stages";
+import { currentTenant } from "@/lib/tenancy";
 
 const retrySchema = z.object({});
 
@@ -11,11 +12,10 @@ const retrySchema = z.object({});
  * Handlers overwrite their stage's data safely, and executed actions are
  * skipped by state, so retries cannot duplicate external effects.
  */
-export async function POST(
+async function post(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!isOperatorAuthorized(req)) return operatorForbidden();
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   void retrySchema.safeParse(body);
@@ -42,6 +42,8 @@ export async function POST(
     `operator requested retry from stage '${failedStage}'`,
     "operator",
   );
-  await publishStage(id, failedStage);
+  await publishStage(currentTenant(), id, failedStage);
   return Response.json({ ok: true, retriedFrom: failedStage });
 }
+
+export const POST = tenantHandler(post);

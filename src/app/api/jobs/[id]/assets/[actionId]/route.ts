@@ -1,8 +1,9 @@
 import { getAsset } from "@/lib/firestore";
 import { getArtifact } from "@/lib/storage";
+import { tenantHandler } from "@/lib/auth";
 
 /** Serves stored assets (generated images, rendered clips) to the dashboard. */
-export async function GET(
+async function get(
   _req: Request,
   { params }: { params: Promise<{ id: string; actionId: string }> },
 ) {
@@ -24,3 +25,5 @@ export async function GET(
     },
   });
 }
+
+export const GET = tenantHandler(get);

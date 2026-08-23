@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getJob, saveAsset } from "@/lib/firestore";
-import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
+import { internalTenantHandler } from "@/lib/internalAuth";
 import { putArtifact } from "@/lib/storage";
 
 const MAX_BYTES = 64 * 1024 * 1024; // clips stay well under this at 720p CRF23
@@ -17,8 +17,7 @@ const assetMetaSchema = z.object({
  * storage backend (GCS in cloud, disk locally); Firestore keeps metadata.
  * Accepts JSON {dataBase64} (images) or raw octet-stream bodies (clips).
  */
-export async function POST(req: Request) {
-  if (!isInternalAuthorized(req)) return unauthorized();
+async function post(req: Request) {
 
   let metaRaw: Record<string, unknown>;
   let bytes: Uint8Array;
@@ -83,3 +82,5 @@ export async function POST(req: Request) {
   });
   return Response.json({ ok: true, uri, sizeBytes: bytes.byteLength });
 }
+
+export const POST = internalTenantHandler(post);

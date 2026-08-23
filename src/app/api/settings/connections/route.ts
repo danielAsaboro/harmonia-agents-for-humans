@@ -1,12 +1,13 @@
 import { getConnection } from "@/lib/firestore";
 import { PLATFORMS, platformStatus } from "@/lib/platforms";
+import { tenantHandler } from "@/lib/auth";
 
 /**
  * Live connection status per platform. A connection is "connected" only when
  * a stored OAuth/manual connection exists (with valid expiry) or the env
  * credentials are genuinely present. Tokens never leave the server.
  */
-export async function GET() {
+async function get(_req: Request) {
   return Response.json({
     connections: await Promise.all(
       PLATFORMS.map(async (def) => {
@@ -43,3 +44,5 @@ export async function GET() {
     ),
   });
 }
+
+export const GET = tenantHandler(get);

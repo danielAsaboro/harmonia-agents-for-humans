@@ -15,23 +15,42 @@ for svc in run.googleapis.com firestore.googleapis.com pubsub.googleapis.com \
            cloudbuild.googleapis.com secretmanager.googleapis.com iam.googleapis.com \
            aiplatform.googleapis.com cloudtrace.googleapis.com \
            telemetry.googleapis.com monitoring.googleapis.com logging.googleapis.com \
-           storage.googleapis.com; do
+           storage.googleapis.com identitytoolkit.googleapis.com; do
   gcloud services enable "$svc" --project "${PROJECT_ID}"
 done
 
 echo "-- Agent Engine staging bucket"
-gcloud storage buckets create "gs://${PROJECT_ID}-harmonia-agent-staging" \
-  --location="${REGION}" --uniform-bucket-level-access --project="${PROJECT_ID}" \
-  2>/dev/null || echo "staging bucket exists"
+STAGING_BUCKET="gs://${PROJECT_ID}-harmonia-agent-staging"
+if ! gcloud storage buckets describe "${STAGING_BUCKET}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud storage buckets create "${STAGING_BUCKET}" \
+    --location="${REGION}" --uniform-bucket-level-access --project="${PROJECT_ID}"
+fi
+BUCKET_LOCATION="$(gcloud storage buckets describe "${STAGING_BUCKET}" \
+  --project="${PROJECT_ID}" --format='value(location)' | tr '[:upper:]' '[:lower:]')"
+if [[ "${BUCKET_LOCATION}" != "${REGION}" ]]; then
+  echo "staging bucket is in ${BUCKET_LOCATION}; required residency region is ${REGION}" >&2
+  exit 2
+fi
 
 echo "-- Firestore (native mode)"
 if ! gcloud firestore databases describe --database='(default)' --project "${PROJECT_ID}" >/dev/null 2>&1; then
   gcloud firestore databases create --location="${REGION}" --type=firestore-native --project "${PROJECT_ID}"
 fi
+FIRESTORE_LOCATION="$(gcloud firestore databases describe --database='(default)' \
+  --project "${PROJECT_ID}" --format='value(locationId)' | tr '[:upper:]' '[:lower:]')"
+if [[ "${FIRESTORE_LOCATION}" != "${REGION}" ]]; then
+  echo "Firestore is in ${FIRESTORE_LOCATION}; required residency region is ${REGION}" >&2
+  exit 2
+fi
 
 echo "-- Pub/Sub topics"
 gcloud pubsub topics create harmonia-stages --project "${PROJECT_ID}" 2>/dev/null || echo "topic exists"
 gcloud pubsub topics create harmonia-stages-dlq --project "${PROJECT_ID}" 2>/dev/null || echo "dlq topic exists"
+for topic in harmonia-stages harmonia-stages-dlq; do
+  gcloud pubsub topics update "${topic}" --project "${PROJECT_ID}" \
+    --message-storage-policy-allowed-regions="${REGION}" \
+    --message-storage-policy-enforce-in-transit
+done
 
 echo "-- Service accounts"
 for sa in harmonia-web harmonia-agent; do
@@ -57,14 +76,9 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --role roles/datastore.user >/dev/null
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member "serviceAccount:harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
-  --role roles/secretmanager.secretAccessor >/dev/null
-gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-  --member "serviceAccount:harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role roles/aiplatform.user >/dev/null
-# Agent may invoke nothing else; web needs no invoker. Push subscription uses its own OIDC identity:
-gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-  --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
-  --role roles/run.invoker >/dev/null
+# Secret access is granted per named secret below. Cloud Run invocation is
+# granted only on the private agent service after deployment.
 
 echo "-- Secrets (skipped when value envs are unset)"
 if [[ -n "${GEMINI_API_KEY:-}" ]]; then
@@ -73,47 +87,15 @@ if [[ -n "${GEMINI_API_KEY:-}" ]]; then
 else
   echo "  GEMINI_API_KEY not provided; create secret 'gemini-api-key' manually."
 fi
-if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-  printf '%s' "${GITHUB_TOKEN}" | gcloud secrets create github-token --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
-    || printf '%s' "${GITHUB_TOKEN}" | gcloud secrets versions add github-token --data-file=- --project "${PROJECT_ID}"
-else
-  echo "  GITHUB_TOKEN not provided; create secret 'github-token' manually."
-fi
-
-if [[ -n "${X_BEARER_TOKEN:-}" ]]; then
-  printf '%s' "${X_BEARER_TOKEN}" | gcloud secrets create x-bearer-token --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
-    || printf '%s' "${X_BEARER_TOKEN}" | gcloud secrets versions add x-bearer-token --data-file=- --project "${PROJECT_ID}"
-else
-  echo "  X_BEARER_TOKEN not provided; create secret 'x-bearer-token' manually."
-fi
 if [[ -n "${YOUTUBE_API_KEY:-}" ]]; then
   printf '%s' "${YOUTUBE_API_KEY}" | gcloud secrets create youtube-api-key --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
     || printf '%s' "${YOUTUBE_API_KEY}" | gcloud secrets versions add youtube-api-key --data-file=- --project "${PROJECT_ID}"
 else
   echo "  YOUTUBE_API_KEY not provided; ingest falls back to oEmbed."
 fi
-if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then
-  printf '%s' "${TELEGRAM_BOT_TOKEN}" | gcloud secrets create telegram-bot-token --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
-    || printf '%s' "${TELEGRAM_BOT_TOKEN}" | gcloud secrets versions add telegram-bot-token --data-file=- --project "${PROJECT_ID}"
-else
-  echo "  TELEGRAM_BOT_TOKEN not provided; Telegram surface disabled."
-fi
-if [[ -z "${TELEGRAM_BOT_TOKEN:-}" ]] && [[ -n "${TELEGRAM_ALLOWED_CHAT_ID:-}" ]] || [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -z "${TELEGRAM_ALLOWED_CHAT_ID:-}" ]]; then
-  echo "  WARNING: set TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_CHAT_ID together."
-fi
-
 INTERNAL_TOKEN="$(openssl rand -hex 32)"
 printf '%s' "${INTERNAL_TOKEN}" | gcloud secrets create internal-api-token --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
   || echo "internal-api-token secret already exists (not rotated)"
-
-if [[ -n "${OPERATOR_TOKEN:-}" ]]; then
-  printf '%s' "${OPERATOR_TOKEN}" | gcloud secrets create operator-token --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
-    || echo "operator-token secret already exists (not rotated)"
-else
-  OPERATOR_TOKEN="$(openssl rand -hex 16)"
-  printf '%s' "${OPERATOR_TOKEN}" | gcloud secrets create operator-token --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
-    || echo "operator-token secret already exists"
-fi
 
 echo "Granting secret access to both services"
 for sa in harmonia-web harmonia-agent; do
@@ -123,32 +105,10 @@ for sa in harmonia-web harmonia-agent; do
   gcloud secrets add-iam-policy-binding gemini-api-key \
     --member "serviceAccount:${sa}@${PROJECT_ID}.iam.gserviceaccount.com" \
     --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
-  gcloud secrets add-iam-policy-binding github-token \
-    --member "serviceAccount:${sa}@${PROJECT_ID}.iam.gserviceaccount.com" \
-    --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
-  gcloud secrets add-iam-policy-binding x-bearer-token \
-    --member "serviceAccount:${sa}@${PROJECT_ID}.iam.gserviceaccount.com" \
-    --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
-  gcloud secrets add-iam-policy-binding youtube-api-key \
-    --member "serviceAccount:${sa}@${PROJECT_ID}.iam.gserviceaccount.com" \
-    --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
-  gcloud secrets add-iam-policy-binding telegram-bot-token \
-    --member "serviceAccount:${sa}@${PROJECT_ID}.iam.gserviceaccount.com" \
-    --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
 done
-
-# The agent carries operator authority for the Telegram approval surface.
-gcloud secrets add-iam-policy-binding operator-token \
+gcloud secrets add-iam-policy-binding youtube-api-key \
   --member "serviceAccount:harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
-
-gcloud secrets add-iam-policy-binding operator-token \
-  --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
-  --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null
-
-echo
-echo "Operator token (enter this in the dashboard 'Operator token' field):"
-echo "  $(gcloud secrets versions access latest --secret=operator-token --project "${PROJECT_ID}")"
 
 cat <<DONE
 

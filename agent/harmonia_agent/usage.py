@@ -24,11 +24,17 @@ class InvocationContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     job_id: str
+    workspace_id: str
+    brand_id: str
+    user_id: str
     stage: str
     operation_id: str
 
     def role_operation_id(self, role: str) -> str:
         return f"{self.operation_id}:{role}"
+
+    def agent_engine_user_id(self) -> str:
+        return f"{self.workspace_id}:{self.user_id}:{self.job_id}"
 
 
 class UsageRecord(BaseModel):

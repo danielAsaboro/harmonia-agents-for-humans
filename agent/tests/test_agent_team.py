@@ -39,6 +39,7 @@ from harmonia_agent.agents import (
     RoleModelInstances,
 )
 from harmonia_agent.stages import classify_failure
+from harmonia_agent.tenant_context import tenant_scope
 
 
 class ScriptedDelegationModel(BaseLlm):
@@ -143,6 +144,30 @@ def _analysis() -> AnalysisResult:
     })
 
 
+class ManagedRuntime:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    async def invoke(self, **kwargs):
+        self.calls.append(kwargs)
+        if kwargs["specialist"] == "sophia_analyst":
+            return {"analysis_result": {
+                **_analysis().model_dump(mode="json"),
+                "summary": "Delegated analysis",
+            }}
+        return {
+            "copywriter_drafts": {"drafts": [
+                {"id": "d1", "platform": "x", "momentId": "m1", "text": "Original"},
+            ]},
+            "reviewed_drafts": {"drafts": [
+                {"id": "d1", "platform": "x", "momentId": "m1", "text": "Reviewed"},
+            ]},
+            "action_plan": {"actions": [
+                {"type": "publish_x_post", "text": "Reviewed"},
+            ]},
+        }
+
+
 def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
     root = build_agent_team()
 
@@ -190,44 +215,52 @@ def test_team_assigns_the_configured_model_to_each_role():
 
 
 def test_coordinator_really_delegates_and_forwards_specialist_state():
-    model = ScriptedDelegationModel(model="scripted")
-    state = asyncio.run(_run_coordinator(
-        "sophia_analyst",
-        AnalystInput(title="Demo", channel="Harmonia", transcript="[0s] hello [30s] proof"),
-        model=model,
-    ))
+    runtime = ManagedRuntime()
+    with tenant_scope("workspace-test", "brand-test"):
+        state = asyncio.run(_run_coordinator(
+            "sophia_analyst",
+            AnalystInput(title="Demo", channel="Harmonia", transcript="[0s] hello [30s] proof"),
+            model="gemini-test",
+            team_runtime=runtime,
+        ))
 
     result = _validated_state(state, "analysis_result", AnalysisResult)
     assert result.summary == "Delegated analysis"
-    assert model.calls == ["coordinator", "sophia_analyst", "coordinator_return"]
+    assert runtime.calls[0]["specialist"] == "sophia_analyst"
+    assert runtime.calls[0]["user_id"] == "workspace-test:system:proactive"
 
 
 def test_analyst_receives_source_video_as_a_real_multimodal_part():
-    model = ScriptedDelegationModel(model="scripted")
+    runtime = ManagedRuntime()
     source = "https://www.youtube.com/watch?v=abc12345678"
 
-    asyncio.run(_run_coordinator(
-        "sophia_analyst",
-        AnalystInput(
-            title="Demo",
-            channel="Harmonia",
-            transcript="[0s] hello [30s] proof",
-            media_evidence=MediaEvidence(
-                video_uri=source,
-                duration_sec=60,
-                source_digest="a" * 64,
+    with tenant_scope("workspace-test", "brand-test"):
+        asyncio.run(_run_coordinator(
+            "sophia_analyst",
+            AnalystInput(
+                title="Demo",
+                channel="Harmonia",
+                transcript="[0s] hello [30s] proof",
+                media_evidence=MediaEvidence(
+                    video_uri=source,
+                    duration_sec=60,
+                    source_digest="a" * 64,
+                ),
             ),
-        ),
-        model=model,
-    ))
+            model="gemini-test",
+            team_runtime=runtime,
+        ))
 
-    assert model.media_uris == [source]
+    assert runtime.calls[0]["payload"]["media_evidence"]["video_uri"] == source
 
 
 def test_draft_agent_tool_forwards_all_sequential_state_to_coordinator():
-    model = ScriptedDraftModel(model="scripted")
+    runtime = ManagedRuntime()
     input = DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="voice: direct")
-    state = asyncio.run(_run_coordinator("flo_draft_workflow", input, model=model))
+    with tenant_scope("workspace-test", "brand-test"):
+        state = asyncio.run(_run_coordinator(
+            "flo_draft_workflow", input, model="gemini-test", team_runtime=runtime,
+        ))
 
     package = DraftWorkflowResult(
         copywriter_drafts=_validated_state(state, "copywriter_drafts", DraftSet),
@@ -235,10 +268,7 @@ def test_draft_agent_tool_forwards_all_sequential_state_to_coordinator():
         action_plan=_validated_state(state, "action_plan", ActionPlan),
     )
     assert package.reviewed_drafts.drafts[0].text == "Reviewed"
-    assert model.calls == [
-        "coordinator", "nimi_copywriter", "dara_editor", "temi_planner",
-        "coordinator_return",
-    ]
+    assert runtime.calls[0]["specialist"] == "flo_draft_workflow"
 
 
 def test_missing_agent_state_is_a_permanent_protocol_failure():

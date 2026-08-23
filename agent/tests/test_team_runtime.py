@@ -9,7 +9,6 @@ import pytest
 from harmonia_agent.team_runtime import (
     AgentEngineProtocolError,
     AgentEngineTeamRuntime,
-    runtime_mode,
 )
 from harmonia_agent.agent_engine_app import build_agent_engine_app
 from harmonia_agent.agent_engine_deploy import build_deployment_config
@@ -57,11 +56,11 @@ class _Client:
         self.agent_engines = _AgentEngines(remote)
 
 
-def test_runtime_mode_is_explicit_and_rejects_unknown_values():
-    assert runtime_mode("local") == "local"
-    assert runtime_mode("agent_engine") == "agent_engine"
-    with pytest.raises(ValueError, match="TEAM_RUNTIME"):
-        runtime_mode("automatic")
+def test_runtime_module_exposes_managed_runtime_only():
+    import harmonia_agent.team_runtime as runtime
+
+    assert not hasattr(runtime, "runtime_mode")
+    assert not hasattr(runtime, "RuntimeMode")
 
 
 def test_agent_engine_runtime_seeds_state_collects_deltas_and_discards_session():

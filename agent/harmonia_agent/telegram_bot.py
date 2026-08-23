@@ -10,14 +10,15 @@ Bot tokens are never echoed into chat output.
 from __future__ import annotations
 
 import logging
+import hashlib
 import threading
 import time
 from typing import Any
 
 import httpx
 
-from .config import settings
-from .web_client import WebApiError, chat, decide
+from .web_client import WebApiError, chat, decide, get_telegram_connection, get_workspaces
+from .tenant_context import current_tenant, tenant_scope
 
 logger = logging.getLogger("harmonia.telegram")
 
@@ -48,9 +49,19 @@ def is_chat_allowed(chat_id: int | str | None, allowed: str) -> bool:
 
 
 class TelegramBot:
-    def __init__(self, bot_token: str, allowed_chat_id: str) -> None:
+    def __init__(
+        self,
+        bot_token: str,
+        allowed_chat_id: str,
+        workspace_id: str,
+        brand_id: str,
+        stop_event: threading.Event | None = None,
+    ) -> None:
         self.bot_token = bot_token
         self.allowed_chat_id = allowed_chat_id
+        self.workspace_id = workspace_id
+        self.brand_id = brand_id
+        self.stop_event = stop_event or threading.Event()
         self._offset = 0
 
     def _api(self, method: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -149,7 +160,7 @@ class TelegramBot:
 
     def run_forever(self) -> None:
         logger.info("telegram bot started (allow-listed chat %s)", self.allowed_chat_id)
-        while True:
+        while not self.stop_event.is_set():
             try:
                 updates = self._api(
                     "getUpdates",
@@ -171,28 +182,51 @@ class TelegramBot:
             for update in updates:
                 self._offset = max(self._offset, int(update.get("update_id", 0)) + 1)
                 try:
-                    if "callback_query" in update:
-                        self._handle_callback(update)
-                    elif "message" in update:
-                        self._handle_message(update)
+                    with tenant_scope(self.workspace_id, self.brand_id):
+                        if "callback_query" in update:
+                            self._handle_callback(update)
+                        elif "message" in update:
+                            self._handle_message(update)
                 except Exception:  # noqa: BLE001 - keep the loop alive
                     logger.exception("update processing error")
 
 
-def _start_if_configured() -> None:
-    cfg = settings()
-    if cfg.telegram_bot_token and cfg.telegram_allowed_chat_id:
-        bot = TelegramBot(cfg.telegram_bot_token, cfg.telegram_allowed_chat_id)
-        threading.Thread(target=bot.run_forever, daemon=True).start()
-    elif cfg.telegram_bot_token or cfg.telegram_allowed_chat_id:
-        raise RuntimeError(
-            "TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_CHAT_ID must be set together"
-        )
+def _supervise() -> None:
+    started: dict[str, tuple[str, threading.Event]] = {}
+    while True:
+        try:
+            for workspace in get_workspaces():
+                workspace_id = workspace["workspaceId"]
+                with tenant_scope(workspace_id, workspace["brandId"]):
+                    connection = get_telegram_connection()
+                current = started.get(workspace_id)
+                if not connection:
+                    if current:
+                        current[1].set()
+                        started.pop(workspace_id, None)
+                    continue
+                fingerprint = hashlib.sha256(
+                    f"{connection['botToken']}:{connection['chatId']}".encode()
+                ).hexdigest()
+                if current and current[0] == fingerprint:
+                    continue
+                if current:
+                    current[1].set()
+                stop_event = threading.Event()
+                bot = TelegramBot(
+                    connection["botToken"], connection["chatId"],
+                    workspace_id, workspace["brandId"], stop_event,
+                )
+                threading.Thread(target=bot.run_forever, daemon=True).start()
+                started[workspace_id] = (fingerprint, stop_event)
+        except Exception:  # noqa: BLE001 - supervisor must survive one workspace failure
+            logger.exception("Telegram workspace discovery failed")
+        time.sleep(60)
 
 
 def start_background() -> None:
     """Entry point used by main.py at import time."""
-    _start_if_configured()
+    threading.Thread(target=_supervise, daemon=True).start()
 
 
 def notify(text: str) -> bool:
@@ -201,12 +235,16 @@ def notify(text: str) -> bool:
     Returns True when delivered. Missing configuration is not an error —
     the Telegram surface is optional; callers log the skip instead.
     """
-    cfg = settings()
-    if not cfg.telegram_bot_token or not cfg.telegram_allowed_chat_id:
+    connection = get_telegram_connection()
+    if not connection:
         return False
     try:
-        TelegramBot(cfg.telegram_bot_token, cfg.telegram_allowed_chat_id)._api(
-            "sendMessage", {"chat_id": cfg.telegram_allowed_chat_id, "text": text}
+        tenant = current_tenant()
+        TelegramBot(
+            connection["botToken"], connection["chatId"],
+            tenant.workspace_id, tenant.brand_id,
+        )._api(
+            "sendMessage", {"chat_id": connection["chatId"], "text": text}
         )
         return True
     except Exception as exc:  # noqa: BLE001 - delivery must never crash proactive checks
@@ -217,10 +255,7 @@ def notify(text: str) -> bool:
 def main() -> None:
     """Standalone entry point: `python -m harmonia_agent.telegram_bot`."""
     logging.basicConfig(level=logging.INFO)
-    cfg = settings()
-    if not cfg.telegram_bot_token or not cfg.telegram_allowed_chat_id:
-        raise SystemExit("TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_CHAT_ID are required")
-    TelegramBot(cfg.telegram_bot_token, cfg.telegram_allowed_chat_id).run_forever()
+    raise SystemExit("Telegram bots are managed per workspace by the worker supervisor")
 
 
 if __name__ == "__main__":

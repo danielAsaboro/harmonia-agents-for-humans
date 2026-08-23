@@ -6,6 +6,7 @@ import {
   setStage,
 } from "./firestore";
 import { publishStage } from "./pubsub";
+import { currentTenant } from "./tenancy";
 import { assertTransition, nextStage } from "./stages";
 import type { Stage } from "./types";
 
@@ -25,7 +26,7 @@ export async function advance(
   if (!next) throw new Error(`no successor for stage '${completedStage}'`);
   await setStage(jobId, next);
   await appendEvent(jobId, completedStage, note, "system");
-  await publishStage(jobId, next);
+  await publishStage(currentTenant(), jobId, next);
 }
 
 export async function recordFailure(

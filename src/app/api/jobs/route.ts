@@ -1,6 +1,7 @@
 import { appendEvent, createJob, listJobs, saveIngestMeta } from "@/lib/firestore";
-import { isOperatorAuthorized, operatorForbidden } from "@/lib/operatorAuth";
+import { tenantHandler } from "@/lib/auth";
 import { publishStage } from "@/lib/pubsub";
+import { currentTenant } from "@/lib/tenancy";
 import { parseYouTubeUrl } from "@/lib/youtubeUrl";
 import { z } from "zod";
 
@@ -10,7 +11,7 @@ const createJobSchema = z.object({
   platforms: z.array(z.enum(["x"])).default(["x"]),
 });
 
-export async function GET() {
+async function get(_req: Request) {
   const jobs = await listJobs();
   return Response.json({
     jobs: jobs.map((j) => ({
@@ -25,8 +26,7 @@ export async function GET() {
   });
 }
 
-export async function POST(req: Request) {
-  if (!isOperatorAuthorized(req)) return operatorForbidden();
+async function post(req: Request) {
   const body = await req.json().catch(() => null);
   const parsed = createJobSchema.safeParse(body);
   if (!parsed.success) {
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
       "ingest",
     );
     await appendEvent(job.id, "queued", `job created for video ${videoId}`, "operator");
-    await publishStage(job.id, "ingest");
+    await publishStage(currentTenant(), job.id, "ingest");
     return Response.json({ jobId: job.id }, { status: 201 });
   }
 
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
       durationSec: 0,
     });
     await appendEvent(job.id, "understand", "concept job created from operator brief", "operator");
-    await publishStage(job.id, "understand");
+    await publishStage(currentTenant(), job.id, "understand");
     return Response.json({ jobId: job.id }, { status: 201 });
   }
 
@@ -71,3 +71,6 @@ export async function POST(req: Request) {
     { status: 400 },
   );
 }
+
+export const GET = tenantHandler(get);
+export const POST = tenantHandler(post);

@@ -1,10 +1,11 @@
 import { listEventLog, type EventLogEntry } from "@/lib/firestore";
+import { tenantHandler } from "@/lib/auth";
 
 /**
  * Searchable, filterable log stream.
  * Query params: q (text), stage (repeatable), actor, jobId, since, until, limit.
  */
-export async function GET(req: Request) {
+async function get(req: Request) {
   const params = new URL(req.url).searchParams;
   const q = (params.get("q") ?? "").trim().toLowerCase();
   const stages = params.getAll("stage").filter(Boolean);
@@ -26,3 +27,5 @@ export async function GET(req: Request) {
   const total = entries.length;
   return Response.json({ events: entries.slice(0, limit), total });
 }
+
+export const GET = tenantHandler(get);

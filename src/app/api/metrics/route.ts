@@ -1,6 +1,7 @@
 import { aggregateModelUsage, microsToUsd, usdToMicros } from "@/lib/costs";
 import { listEvents, listJobs, listReceipts, listUsageRecords } from "@/lib/firestore";
 import { STAGES } from "@/lib/types";
+import { tenantHandler } from "@/lib/auth";
 
 export interface StageDwell {
   stage: string;
@@ -55,7 +56,7 @@ function diffSeconds(fromIso: string, toIso: string): number | null {
   return Math.max(0, Math.round((to - from) / 1000));
 }
 
-export async function GET() {
+async function get(_req: Request) {
   const jobs = await listJobs(100);
 
   const totals = {
@@ -161,3 +162,5 @@ export async function GET() {
     recentEvents,
   } satisfies MetricsResponse);
 }
+
+export const GET = tenantHandler(get);

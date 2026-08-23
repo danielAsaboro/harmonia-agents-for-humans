@@ -51,6 +51,7 @@ from .usage import InvocationContext, media_usage_record
 from .web_client import (
     WebApiError,
     get_asset,
+    get_connection,
     get_insights,
     get_job,
     get_media_operation,
@@ -170,7 +171,11 @@ async def run_transcribe(job_id: str) -> None:
         audio,
         "audio/mp4",
         invocation=InvocationContext(
-            job_id=job_id, stage="transcribe", operation_id=f"{job_id}:transcribe:0",
+            job_id=job_id,
+            workspace_id=job["workspaceId"],
+            brand_id=job["brandId"],
+            user_id=job["createdByUserId"],
+            stage="transcribe", operation_id=f"{job_id}:transcribe:0",
         ),
     )
     web_post("/api/internal/transcript", {
@@ -183,7 +188,11 @@ async def run_transcribe(job_id: str) -> None:
 async def run_understand(job_id: str) -> None:
     job = get_job(job_id)
     invocation = InvocationContext(
-        job_id=job_id, stage="understand", operation_id=f"{job_id}:understand:0",
+        job_id=job_id,
+        workspace_id=job["workspaceId"],
+        brand_id=job["brandId"],
+        user_id=job["createdByUserId"],
+        stage="understand", operation_id=f"{job_id}:understand:0",
     )
     prior = ""
     try:
@@ -266,7 +275,11 @@ async def run_draft(job_id: str) -> None:
     package = await draft_with_team(DraftWorkflowInput(
         title=job["ingestedTitle"], analysis=analysis, brand_context=brand_context,
     ), invocation=InvocationContext(
-        job_id=job_id, stage="draft", operation_id=f"{job_id}:draft:0",
+        job_id=job_id,
+        workspace_id=job["workspaceId"],
+        brand_id=job["brandId"],
+        user_id=job["createdByUserId"],
+        stage="draft", operation_id=f"{job_id}:draft:0",
     ))
     drafts = package.reviewed_drafts.model_dump(mode="json")["drafts"]
     plan = package.action_plan.model_dump(mode="json")
@@ -377,7 +390,10 @@ async def run_publish(job_id: str) -> None:
                 if key in done_keys:
                     outcome, detail["note"] = "already_applied", "receipt exists; skipped"
                 else:
-                    posted = x_client.publish_post(action["payload"]["text"])
+                    connection = get_connection("x")
+                    posted = x_client.publish_post(
+                        action["payload"]["text"], connection.get("accessToken"),
+                    )
                     outcome = "applied"
                     artifact = {"kind": "x_api", "url": posted["url"], "fetchedAt": _now()}
                     detail.update(posted)
@@ -400,6 +416,9 @@ async def run_publish(job_id: str) -> None:
                         action["payload"]["prompt"],
                         invocation=InvocationContext(
                             job_id=job_id,
+                            workspace_id=job["workspaceId"],
+                            brand_id=job["brandId"],
+                            user_id=job["createdByUserId"],
                             stage="publish",
                             operation_id=f"{job_id}:publish:{action['id']}",
                         ),
@@ -430,6 +449,9 @@ async def run_publish(job_id: str) -> None:
                     role = "veo_generator" if action["type"] == "generate_veo_broll" else "lyria_generator"
                     invocation = InvocationContext(
                         job_id=job_id,
+                        workspace_id=job["workspaceId"],
+                        brand_id=job["brandId"],
+                        user_id=job["createdByUserId"],
                         stage="publish",
                         operation_id=f"{job_id}:publish:{action['id']}",
                     )
@@ -602,7 +624,8 @@ async def run_verify(job_id: str) -> None:
             continue
         detail = receipt_by_action.get(action["id"], {}).get("detail", {})
         if action["type"] == "publish_x_post" and detail.get("id"):
-            post = x_client.get_post(str(detail["id"]))
+            connection = get_connection("x")
+            post = x_client.get_post(str(detail["id"]), connection.get("accessToken"))
             results.append({
                 "target": f"x:{detail['id']}", "actionId": action["id"],
                 "verified": bool(post),
@@ -653,7 +676,8 @@ async def run_learn(job_id: str) -> None:
         post_id = receipt_by_action.get(action["id"], {}).get("detail", {}).get("id")
         if not post_id:
             continue
-        metrics = x_client.get_post_metrics(str(post_id))
+        connection = get_connection("x")
+        metrics = x_client.get_post_metrics(str(post_id), connection.get("accessToken"))
         if not metrics:
             continue
         engagement.append({
@@ -683,7 +707,14 @@ async def run_learn(job_id: str) -> None:
         f"{len(engagement)} published post(s) measured; "
         + (notes[0] if engagement else "insights will accrue as posts publish.")
     )
-    memory = configured_memory()
+    memory = configured_memory(InvocationContext(
+        job_id=job_id,
+        workspace_id=job["workspaceId"],
+        brand_id=job["brandId"],
+        user_id=job["createdByUserId"],
+        stage="learn",
+        operation_id=f"{job_id}:learn:0",
+    ))
     if memory is not None:
         bank, scope = memory
         candidates = eligible_job_memories(job, measured_posts=len(engagement))

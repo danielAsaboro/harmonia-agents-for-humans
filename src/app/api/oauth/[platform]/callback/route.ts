@@ -1,6 +1,7 @@
 import { Timestamp } from "@google-cloud/firestore";
 import { db, saveConnection } from "@/lib/firestore";
 import { exchangeCode, fetchIdentity, getPlatform } from "@/lib/oauth";
+import { runWithTenant } from "@/lib/tenancy";
 
 function backToSettings(platform: string, result: "ok" | "error", reason?: string): Response {
   const q = new URLSearchParams({ connection: platform, result });
@@ -38,7 +39,14 @@ export async function GET(
   if (!stateSnap.exists) {
     return backToSettings(platform, "error", "invalid or expired state");
   }
-  const stored = stateSnap.data() as { platform: string; codeVerifier: string; redirectUri: string; createdAt: string };
+  const stored = stateSnap.data() as {
+    platform: string;
+    codeVerifier: string;
+    redirectUri: string;
+    createdAt: string;
+    workspaceId: string;
+    brandId: string;
+  };
   await stateRef.delete(); // single use
 
   if (stored.platform !== platform) {
@@ -61,19 +69,27 @@ export async function GET(
   }
 
   const identity = await fetchIdentity(def, tokens.accessToken);
-  await saveConnection({
-    platform,
-    mode: "oauth",
-    handle: identity?.handle,
-    accountId: identity?.accountId,
-    scopes: tokens.scopes ?? def.oauth.scopes.join(def.oauth.scopeSeparator),
-    accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken,
-    expiresAt: tokens.expiresInSeconds
-      ? new Date(Date.now() + tokens.expiresInSeconds * 1000).toISOString()
-      : undefined,
-    connectedAt: new Date().toISOString(),
-  });
+  await runWithTenant(
+    {
+      userId: "oauth-callback",
+      workspaceId: stored.workspaceId,
+      brandId: stored.brandId,
+      role: "service",
+    },
+    () => saveConnection({
+      platform,
+      mode: "oauth",
+      handle: identity?.handle,
+      accountId: identity?.accountId,
+      scopes: tokens.scopes ?? def.oauth.scopes.join(def.oauth.scopeSeparator),
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      expiresAt: tokens.expiresInSeconds
+        ? new Date(Date.now() + tokens.expiresInSeconds * 1000).toISOString()
+        : undefined,
+      connectedAt: new Date().toISOString(),
+    }),
+  );
 
   return backToSettings(platform, "ok");
 }

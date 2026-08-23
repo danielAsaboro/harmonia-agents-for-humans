@@ -10,6 +10,7 @@ import {
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { publishStage } from "@/lib/pubsub";
+import { currentTenant } from "@/lib/tenancy";
 import { assemblePacket } from "@/lib/packet";
 import type { VerificationResult } from "@/lib/types";
 
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
 
     // Reaction learning happens after verification; its handler completes the job.
     await setStage(body.jobId, "learn");
-    await publishStage(body.jobId, "learn");
+    await publishStage(currentTenant(), body.jobId, "learn");
     return Response.json({ ok: true, unresolved: packet.unresolved.length });
   });
 }

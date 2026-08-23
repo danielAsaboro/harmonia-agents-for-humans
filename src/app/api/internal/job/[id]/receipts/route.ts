@@ -1,12 +1,13 @@
 import { listReceipts } from "@/lib/firestore";
-import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
+import { internalTenantHandler } from "@/lib/internalAuth";
 
-export async function GET(
+async function get(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!isInternalAuthorized(req)) return unauthorized();
   const { id } = await params;
   const receipts = await listReceipts(id);
   return Response.json({ receipts });
 }
+
+export const GET = internalTenantHandler(get);

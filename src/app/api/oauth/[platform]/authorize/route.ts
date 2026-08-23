@@ -1,7 +1,8 @@
 import { db } from "@/lib/firestore";
 import { getPlatform, pkcePair, randomState } from "@/lib/oauth";
-import { isOperatorAuthorized, operatorForbidden } from "@/lib/operatorAuth";
+import { tenantHandler } from "@/lib/auth";
 import { platformStatus } from "@/lib/platforms";
+import { currentTenant } from "@/lib/tenancy";
 
 function backToSettings(status: string, reason: string): Response {
   return new Response(null, {
@@ -15,11 +16,10 @@ function backToSettings(status: string, reason: string): Response {
  * (with PKCE verifier where supported) and redirects to the platform's
  * consent screen. Client IDs/secrets never leave the server.
  */
-export async function GET(
+async function get(
   req: Request,
   { params }: { params: Promise<{ platform: string }> },
 ) {
-  if (!isOperatorAuthorized(req)) return operatorForbidden();
   const { platform } = await params;
   const def = getPlatform(platform);
   if (!def) return backToSettings("error", `unknown platform ${platform}`);
@@ -44,6 +44,8 @@ export async function GET(
       platform,
       codeVerifier: pkce?.verifier ?? "",
       redirectUri,
+      workspaceId: currentTenant().workspaceId,
+      brandId: currentTenant().brandId,
       createdAt: new Date().toISOString(),
     });
 
@@ -63,3 +65,5 @@ export async function GET(
 
   return new Response(null, { status: 302, headers: { location: url.toString() } });
 }
+
+export const GET = tenantHandler(get);

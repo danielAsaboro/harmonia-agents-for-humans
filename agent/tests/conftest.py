@@ -5,6 +5,10 @@ os.environ.setdefault("INTERNAL_API_TOKEN", "test-token-not-a-secret")
 os.environ.setdefault("GEMINI_API_KEY", "fake-key-for-unit-tests")
 os.environ.setdefault("GITHUB_TOKEN", "ghp_fake-token-for-unit-tests")
 os.environ.setdefault(
+    "AGENT_ENGINE_RESOURCE",
+    "projects/test/locations/us-central1/reasoningEngines/test",
+)
+os.environ.setdefault(
     "GEMMA_VERTEX_ENDPOINT",
     "projects/test/locations/us-central1/endpoints/123",
 )

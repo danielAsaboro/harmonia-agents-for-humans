@@ -19,8 +19,15 @@ const PROJECT = process.env.GOOGLE_CLOUD_PROJECT || "harmonia-local";
 
 const { Firestore, Timestamp } = await import("@google-cloud/firestore");
 const db = new Firestore({ projectId: PROJECT });
+const DEMO_USER_UID = process.env.DEMO_USER_UID;
+if (!DEMO_USER_UID) throw new Error("DEMO_USER_UID is required; use the signed-in Google user's uid");
+const stableId = (prefix, value) => `${prefix}_${createHash("sha256").update(value).digest("hex").slice(0, 24)}`;
+const WORKSPACE_ID = stableId("ws", DEMO_USER_UID);
+const BRAND_ID = stableId("brand", `${DEMO_USER_UID}:default`);
+const workspaceRef = db.collection("workspaces").doc(WORKSPACE_ID);
+const tenantCollection = (name) => workspaceRef.collection(name);
 
-const ARTIFACT_DIR = path.join(process.cwd(), ".data", "artifacts");
+const ARTIFACT_DIR = path.join(process.cwd(), ".data", "artifacts", WORKSPACE_ID, BRAND_ID);
 mkdirSync(ARTIFACT_DIR, { recursive: true });
 
 function daysAgo(n, h = 10) {
@@ -63,7 +70,7 @@ function genClip(jobId, actionId, seconds) {
   const bytes = readBytes(p);
   return { key, mime: "video/mp4", digest: digest(bytes), size: bytes.length };
 }
-import { readFileSync as readBytes, writeFileSync } from "node:fs";
+import { readFileSync as readBytes } from "node:fs";
 
 // ---------- document builders ----------
 const SEGMENTS = [
@@ -91,11 +98,16 @@ function action(a) {
 
 async function seedJob(doc, { events = [], receipts = [], verifications = [], engagement = null, learnings = null, packet = null }) {
   const batch = db.batch();
-  const ref = db.collection("jobs").doc(doc.id);
-  batch.set(ref, doc.docData);
+  const ref = tenantCollection("jobs").doc(doc.id);
+  batch.set(ref, {
+    ...doc.docData,
+    workspaceId: WORKSPACE_ID,
+    brandId: BRAND_ID,
+    createdByUserId: DEMO_USER_UID,
+  });
   for (const e of events) {
     batch.set(ref.collection("events").doc(e.id), { jobId: doc.id, at: ts(e.at), stage: e.stage, message: e.message, actor: e.actor });
-    batch.set(db.collection("event_log").doc(`demo-${doc.id}-${e.id}`), { jobId: doc.id, at: ts(e.at), stage: e.stage, message: e.message, actor: e.actor });
+    batch.set(tenantCollection("event_log").doc(`demo-${doc.id}-${e.id}`), { jobId: doc.id, at: ts(e.at), stage: e.stage, message: e.message, actor: e.actor });
   }
   for (const r of receipts) {
     batch.set(ref.collection("receipts").doc(r.id), r.data);
@@ -108,7 +120,7 @@ async function seedJob(doc, { events = [], receipts = [], verifications = [], en
 }
 
 async function wipeDemo() {
-  const snap = await db.collection("jobs").where("id", ">=", "demo-").where("id", "<=", "demo-\uffff").get();
+  const snap = await tenantCollection("jobs").where("id", ">=", "demo-").where("id", "<=", "demo-\uffff").get();
   const del = [];
   snap.forEach((d) => {
     del.push(
@@ -118,25 +130,47 @@ async function wipeDemo() {
         d.ref.delete(),
       ]),
     );
-    del.push(db.collection("assets").where("jobId", "==", d.id).get().then((s) => Promise.all(s.docs.map((x) => x.ref.delete()))));
+    del.push(tenantCollection("assets").where("jobId", "==", d.id).get().then((s) => Promise.all(s.docs.map((x) => x.ref.delete()))));
   });
   await Promise.all(del);
   return snap.size;
 }
 
 async function wipeCollection(name) {
-  const snap = await db.collection(name).get();
+  const snap = await tenantCollection(name).get();
   await Promise.all(snap.docs.map((d) => d.ref.delete()));
 }
 
 async function wipeChats() {
-  const snap = await db.collection("chat_messages").get();
+  const snap = await tenantCollection("chat_messages").get();
   await Promise.all(snap.docs.map((d) => d.ref.delete()));
   return snap.size;
 }
 
 // ---------- dataset ----------
 async function main() {
+  const now = new Date().toISOString();
+  await workspaceRef.set({
+    id: WORKSPACE_ID,
+    name: "Demo workspace",
+    ownerUserId: DEMO_USER_UID,
+    defaultBrandId: BRAND_ID,
+    createdAt: now,
+    updatedAt: now,
+    budget: {
+      estimatedUsd: "0.00", observedUsd: "0.00", reservedUsd: "0.00",
+      limitUsd: "100.00", approvalThresholdUsd: "0.25",
+    },
+  }, { merge: true });
+  await workspaceRef.collection("members").doc(DEMO_USER_UID).set({
+    userId: DEMO_USER_UID, role: "owner", createdAt: now,
+  });
+  await workspaceRef.collection("brands").doc(BRAND_ID).set({
+    id: BRAND_ID, name: "Default brand", createdAt: now, updatedAt: now,
+  }, { merge: true });
+  await db.collection("users").doc(DEMO_USER_UID).set({
+    defaultWorkspaceId: WORKSPACE_ID, defaultBrandId: BRAND_ID,
+  }, { merge: true });
   const removed = await wipeDemo();
   console.log(`cleared ${removed} previous demo job(s)`);
 
@@ -174,7 +208,7 @@ async function main() {
         ],
         receipts: [
           { id: "r1", data: { id: "r1", jobId: id, actionId: actPost, actionType: "publish_x_post", idempotencyKey: "demo0000000000000000000001", performedAt: iso(daysAgo(11, 14, 30)), outcome: "applied", artifact: { kind: "x_api", url: "https://x.com/i/web/status/1800000000000001", fetchedAt: iso(daysAgo(11, 14, 31)) }, detail: { id: "1800000000000001", url: "https://x.com/i/web/status/1800000000000001" } } },
-          { id: "r3", data: { id: "r3", jobId: id, actionId: actPost, actionType: "publish_x_post", idempotencyKey: "demo0000000000000000000001", performedAt: iso(daysAgo(10, 9)), outcome: "failed", detail: { error: "X_BEARER_TOKEN was rotated mid-run; retried successfully afterwards" } } },
+          { id: "r3", data: { id: "r3", jobId: id, actionId: actPost, actionType: "publish_x_post", idempotencyKey: "demo0000000000000000000001", performedAt: iso(daysAgo(10, 9)), outcome: "failed", detail: { error: "workspace connection expired mid-run; retried successfully afterwards" } } },
           { id: "r2", data: { id: "r2", jobId: id, actionId: actPack, actionType: "export_content_pack", idempotencyKey: "demo0000000000000000000002", performedAt: iso(daysAgo(11, 14, 31)), outcome: "already_applied", artifact: { kind: "firestore_doc", url: "/api/internal/job/" + id, fetchedAt: iso(daysAgo(11, 14, 31)), digest: "packdigest00000000000000000000000000001" }, detail: { digest: "packdigest00000000000000000000000000001" } } },
         ],
         verifications: [
@@ -242,14 +276,14 @@ async function main() {
       },
     );
     for (const a of assets) {
-      await db.collection("assets").doc(`${id}_${a.key.split("_")[1]}`).set({
+      await tenantCollection("assets").doc(`${id}_${a.key.split("_")[1]}`).set({
         jobId: id, actionId: a.key.split("_")[1], mime: a.mime, digest: a.digest, sizeBytes: a.size, storageUri: `file://artifacts/${a.key}`, createdAt: iso(daysAgo(7, 16)),
       });
     }
     // extra meme image for item-meme-slot (its own visual)
     {
       const img2 = genImage(id, "act-img-meme2", "color");
-      await db.collection("assets").doc(`${id}_act-img-meme2`).set({
+      await tenantCollection("assets").doc(`${id}_act-img-meme2`).set({
         jobId: id, actionId: "act-img-meme2", mime: img2.mime, digest: img2.digest, sizeBytes: img2.size,
         storageUri: `file://artifacts/${img2.key}`, createdAt: iso(daysAgo(6)),
       });
@@ -370,7 +404,7 @@ async function main() {
     },
   ];
   for (const it of items) {
-    await db.collection("content_items").doc(it.id).set(it);
+    await tenantCollection("content_items").doc(it.id).set(it);
   }
 
   const notifications = [
@@ -395,7 +429,7 @@ async function main() {
   ];
   let nid = 0;
   for (const n of notifications) {
-    await db.collection("notifications").doc(`demo-notif-${++nid}`).set(n);
+    await tenantCollection("notifications").doc(`demo-notif-${++nid}`).set(n);
   }
   console.log(`seeded ${items.length} content items + ${notifications.length} notifications`);
 
@@ -430,7 +464,7 @@ async function main() {
   for (let i = 0; i < chats.length; i++) {
     // guarantee strictly ascending timestamps for stable history order
     const at = new Date(chats[i].at.getTime() + i * 41_000);
-    await db.collection("chat_messages").add({ ...chats[i], at: ts(at) });
+    await tenantCollection("chat_messages").add({ ...chats[i], at: ts(at) });
   }
   console.log(`seeded ${chats.length} chat messages (dashboard + telegram history)`);
 

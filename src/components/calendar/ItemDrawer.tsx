@@ -94,7 +94,6 @@ export default function ItemDrawer({
         method: "PATCH",
         headers: {
           "content-type": "application/json",
-          "x-operator-token": localStorage.getItem("harmonia-operator-token") ?? "",
         },
         body: JSON.stringify({ id: item.id, ...body }),
       });
@@ -302,7 +301,7 @@ export default function ItemDrawer({
                 onClick={async () => {
                   await fetch(`/api/content-items/${item.id}/approve`, {
                     method: "POST",
-                    headers: { "content-type": "application/json", "x-operator-token": localStorage.getItem("harmonia-operator-token") ?? "" },
+                    headers: { "content-type": "application/json" },
                     body: JSON.stringify({ decision: "approved" }),
                   });
                   onSaved();
@@ -315,7 +314,7 @@ export default function ItemDrawer({
                 onClick={async () => {
                   await fetch(`/api/content-items/${item.id}/approve`, {
                     method: "POST",
-                    headers: { "content-type": "application/json", "x-operator-token": localStorage.getItem("harmonia-operator-token") ?? "" },
+                    headers: { "content-type": "application/json" },
                     body: JSON.stringify({ decision: "rejected" }),
                   });
                   onSaved();

@@ -14,25 +14,55 @@ EDITOR_MODEL_ID="${EDITOR_MODEL_ID:-gemini-3.5-flash}"
 PLANNER_MODEL_ID="${PLANNER_MODEL_ID:-gemini-3.5-flash-lite}"
 GEMMA_VERTEX_ENDPOINT="${GEMMA_VERTEX_ENDPOINT:?set GEMMA_VERTEX_ENDPOINT to the deployed Gemma endpoint resource}"
 GEMMA_MAX_COST_USD="${GEMMA_MAX_COST_USD:-0.100000}"
-TELEGRAM_ALLOWED_CHAT_ID="${TELEGRAM_ALLOWED_CHAT_ID:-}"
 MODEL_PRICING_VERSION="${MODEL_PRICING_VERSION:-2026-08-23}"
 DEFAULT_JOB_BUDGET_USD="${DEFAULT_JOB_BUDGET_USD:-5.00}"
 DEFAULT_JOB_APPROVAL_THRESHOLD_USD="${DEFAULT_JOB_APPROVAL_THRESHOLD_USD:-0.25}"
 IMAGE_MAX_COST_USD="${IMAGE_MAX_COST_USD:-0.500000}"
-TEAM_RUNTIME="${TEAM_RUNTIME:-local}"
-AGENT_ENGINE_RESOURCE="${AGENT_ENGINE_RESOURCE:-}"
-MEMORY_BANK_ENABLED="${MEMORY_BANK_ENABLED:-false}"
+DEFAULT_WORKSPACE_BUDGET_USD="${DEFAULT_WORKSPACE_BUDGET_USD:-100.00}"
+AGENT_ENGINE_RESOURCE="${AGENT_ENGINE_RESOURCE:?set AGENT_ENGINE_RESOURCE to the deployed reasoning engine resource}"
+MEMORY_BANK_ENABLED="true"
 MEMORY_BANK_RESOURCE="${MEMORY_BANK_RESOURCE:-${AGENT_ENGINE_RESOURCE}}"
-HARMONIA_WORKSPACE_ID="${HARMONIA_WORKSPACE_ID:-default-workspace}"
-HARMONIA_BRAND_ID="${HARMONIA_BRAND_ID:-default-brand}"
 GENERATIVE_MEDIA_ENABLED="${GENERATIVE_MEDIA_ENABLED:-false}"
+ALLOW_GLOBAL_LYRIA="${ALLOW_GLOBAL_LYRIA:-false}"
 VERTEX_MEDIA_LOCATION="${VERTEX_MEDIA_LOCATION:-${REGION}}"
+FIREBASE_API_KEY="${FIREBASE_API_KEY:?set FIREBASE_API_KEY for Identity Platform web sign-in}"
+FIREBASE_AUTH_DOMAIN="${FIREBASE_AUTH_DOMAIN:-${PROJECT_ID}.firebaseapp.com}"
+FIREBASE_APP_ID="${FIREBASE_APP_ID:?set FIREBASE_APP_ID for the registered web application}"
 
-if [[ "${TEAM_RUNTIME}" == "agent_engine" && -z "${AGENT_ENGINE_RESOURCE}" ]]; then
-  echo "AGENT_ENGINE_RESOURCE is required when TEAM_RUNTIME=agent_engine" >&2
+resource_location() {
+  local resource="$1"
+  if [[ "${resource}" =~ /locations/([^/]+)/ ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+    return
+  fi
+  echo "resource has no /locations/<region>/ segment: ${resource}" >&2
+  exit 2
+}
+
+require_region() {
+  local label="$1"
+  local resource="$2"
+  local actual
+  actual="$(resource_location "${resource}")"
+  if [[ "${actual}" != "${REGION}" ]]; then
+    echo "${label} is in ${actual}; required residency region is ${REGION}" >&2
+    exit 2
+  fi
+}
+
+require_region "Agent Engine" "${AGENT_ENGINE_RESOURCE}"
+require_region "Gemma endpoint" "${GEMMA_VERTEX_ENDPOINT}"
+require_region "Memory Bank" "${MEMORY_BANK_RESOURCE}"
+if [[ "${VERTEX_MEDIA_LOCATION}" != "${REGION}" ]]; then
+  echo "Vertex media is in ${VERTEX_MEDIA_LOCATION}; required residency region is ${REGION}" >&2
   exit 2
 fi
-if [[ "${MEMORY_BANK_ENABLED}" == "true" && -z "${MEMORY_BANK_RESOURCE}" ]]; then
+if [[ "${GENERATIVE_MEDIA_ENABLED}" == "true" && "${ALLOW_GLOBAL_LYRIA}" != "true" ]]; then
+  echo "generative media includes global Lyria; set ALLOW_GLOBAL_LYRIA=true only after an approved residency-policy exception" >&2
+  exit 2
+fi
+
+if [[ -z "${MEMORY_BANK_RESOURCE}" ]]; then
   echo "MEMORY_BANK_RESOURCE is required when MEMORY_BANK_ENABLED=true" >&2
   exit 2
 fi
@@ -44,7 +74,7 @@ secret_exists() {
   gcloud secrets describe "$1" --project "${PROJECT_ID}" >/dev/null 2>&1
 }
 
-WEB_SECRETS="INTERNAL_API_TOKEN=internal-api-token:latest,OPERATOR_TOKEN=operator-token:latest"
+WEB_SECRETS="INTERNAL_API_TOKEN=internal-api-token:latest"
 if secret_exists gemini-api-key; then
   WEB_SECRETS="${WEB_SECRETS},GEMINI_API_KEY=gemini-api-key:latest"
 fi
@@ -56,15 +86,16 @@ gcloud run deploy harmonia-web \
   --service-account "harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
   --allow-unauthenticated \
   --min-instances 0 --max-instances 2 \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},MODEL_ID=${MODEL_ID},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-web,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false" \
+  --set-build-env-vars "NEXT_PUBLIC_FIREBASE_API_KEY=${FIREBASE_API_KEY},NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN},NEXT_PUBLIC_FIREBASE_PROJECT_ID=${PROJECT_ID},NEXT_PUBLIC_FIREBASE_APP_ID=${FIREBASE_APP_ID}" \
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},MODEL_ID=${MODEL_ID},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},DEFAULT_WORKSPACE_BUDGET_USD=${DEFAULT_WORKSPACE_BUDGET_USD},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-web,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false" \
   --set-secrets "${WEB_SECRETS}" \
   --project "${PROJECT_ID}"
 
 WEB_URL="$(gcloud run services describe harmonia-web --region "${REGION}" --project "${PROJECT_ID}" --format 'value(status.url)')"
 echo "web: ${WEB_URL}"
 
-AGENT_SECRETS="INTERNAL_API_TOKEN=internal-api-token:latest,OPERATOR_TOKEN=operator-token:latest"
-for pair in GEMINI_API_KEY:gemini-api-key X_BEARER_TOKEN:x-bearer-token YOUTUBE_API_KEY:youtube-api-key TELEGRAM_BOT_TOKEN:telegram-bot-token; do
+AGENT_SECRETS="INTERNAL_API_TOKEN=internal-api-token:latest"
+for pair in GEMINI_API_KEY:gemini-api-key YOUTUBE_API_KEY:youtube-api-key; do
   env_name="${pair%%:*}"; secret_name="${pair##*:}"
   if secret_exists "${secret_name}"; then
     AGENT_SECRETS="${AGENT_SECRETS},${env_name}=${secret_name}:latest"
@@ -72,10 +103,7 @@ for pair in GEMINI_API_KEY:gemini-api-key X_BEARER_TOKEN:x-bearer-token YOUTUBE_
     echo "  secret '${secret_name}' not found; ${env_name} left unset"
   fi
 done
-AGENT_ENV="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},WEB_INTERNAL_URL=${WEB_URL},PUBSUB_STAGE_TOPIC=harmonia-stages,MODEL_ID=${MODEL_ID},COORDINATOR_MODEL_ID=${COORDINATOR_MODEL_ID},STRATEGIST_MODEL_ID=${STRATEGIST_MODEL_ID},ANALYST_MODEL_ID=${ANALYST_MODEL_ID},COPYWRITER_MODEL_ID=${COPYWRITER_MODEL_ID},EDITOR_MODEL_ID=${EDITOR_MODEL_ID},PLANNER_MODEL_ID=${PLANNER_MODEL_ID},GEMMA_VERTEX_ENDPOINT=${GEMMA_VERTEX_ENDPOINT},GEMMA_MAX_COST_USD=${GEMMA_MAX_COST_USD},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},IMAGE_MAX_COST_USD=${IMAGE_MAX_COST_USD},TEAM_RUNTIME=${TEAM_RUNTIME},AGENT_ENGINE_RESOURCE=${AGENT_ENGINE_RESOURCE},MEMORY_BANK_ENABLED=${MEMORY_BANK_ENABLED},MEMORY_BANK_RESOURCE=${MEMORY_BANK_RESOURCE},HARMONIA_WORKSPACE_ID=${HARMONIA_WORKSPACE_ID},HARMONIA_BRAND_ID=${HARMONIA_BRAND_ID},GENERATIVE_MEDIA_ENABLED=${GENERATIVE_MEDIA_ENABLED},VERTEX_MEDIA_LOCATION=${VERTEX_MEDIA_LOCATION},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-agent,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false"
-if [[ -n "${TELEGRAM_ALLOWED_CHAT_ID}" ]]; then
-  AGENT_ENV="${AGENT_ENV},TELEGRAM_ALLOWED_CHAT_ID=${TELEGRAM_ALLOWED_CHAT_ID}"
-fi
+AGENT_ENV="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},WEB_INTERNAL_URL=${WEB_URL},PUBSUB_STAGE_TOPIC=harmonia-stages,MODEL_ID=${MODEL_ID},COORDINATOR_MODEL_ID=${COORDINATOR_MODEL_ID},STRATEGIST_MODEL_ID=${STRATEGIST_MODEL_ID},ANALYST_MODEL_ID=${ANALYST_MODEL_ID},COPYWRITER_MODEL_ID=${COPYWRITER_MODEL_ID},EDITOR_MODEL_ID=${EDITOR_MODEL_ID},PLANNER_MODEL_ID=${PLANNER_MODEL_ID},GEMMA_VERTEX_ENDPOINT=${GEMMA_VERTEX_ENDPOINT},GEMMA_MAX_COST_USD=${GEMMA_MAX_COST_USD},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},IMAGE_MAX_COST_USD=${IMAGE_MAX_COST_USD},AGENT_ENGINE_RESOURCE=${AGENT_ENGINE_RESOURCE},MEMORY_BANK_ENABLED=${MEMORY_BANK_ENABLED},MEMORY_BANK_RESOURCE=${MEMORY_BANK_RESOURCE},GENERATIVE_MEDIA_ENABLED=${GENERATIVE_MEDIA_ENABLED},ALLOW_GLOBAL_LYRIA=${ALLOW_GLOBAL_LYRIA},VERTEX_MEDIA_LOCATION=${VERTEX_MEDIA_LOCATION},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-agent,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false"
 
 echo "== Deploying harmonia-agent (Python ADK worker) =="
 pushd agent >/dev/null
@@ -84,7 +112,7 @@ gcloud run deploy harmonia-agent \
   --region "${REGION}" \
   --service-account "harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
   --no-allow-unauthenticated \
-  --min-instances 0 --max-instances 3 \
+  --min-instances 1 --max-instances 1 --no-cpu-throttling \
   --timeout 300 \
   --set-env-vars "${AGENT_ENV}" \
   --set-secrets "${AGENT_SECRETS}" \
@@ -93,6 +121,11 @@ popd >/dev/null
 
 AGENT_URL="$(gcloud run services describe harmonia-agent --region "${REGION}" --project "${PROJECT_ID}" --format 'value(status.url)')"
 echo "agent: ${AGENT_URL}"
+
+gcloud run services add-iam-policy-binding harmonia-agent \
+  --region "${REGION}" --project "${PROJECT_ID}" \
+  --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role roles/run.invoker >/dev/null
 
 echo "== Wiring Pub/Sub push subscription =="
 gcloud pubsub subscriptions create harmonia-stages-agent-push \

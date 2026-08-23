@@ -51,6 +51,7 @@ def test_usage_record_id_is_stable_across_retries():
 def test_endpoint_usage_records_elapsed_seconds_without_fake_token_pricing():
     record = endpoint_usage_record(
         invocation=InvocationContext(
+            workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
             job_id="j1", stage="draft", operation_id="j1:draft:0",
         ),
         role="nimi_copywriter",
@@ -69,6 +70,7 @@ def test_endpoint_usage_records_elapsed_seconds_without_fake_token_pricing():
 def test_media_usage_records_one_priced_generation_without_fake_tokens():
     record = media_usage_record(
         invocation=InvocationContext(
+            workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
             job_id="j1", stage="publish", operation_id="j1:publish:veo1",
         ),
         role="veo_generator",

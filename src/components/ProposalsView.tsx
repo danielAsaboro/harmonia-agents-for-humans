@@ -52,9 +52,6 @@ export default function ProposalsView() {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          ...(process.env.NEXT_PUBLIC_OPERATOR_TOKEN
-            ? { "x-operator-token": process.env.NEXT_PUBLIC_OPERATOR_TOKEN }
-            : {}),
         },
         body: JSON.stringify({ id, decision }),
       });

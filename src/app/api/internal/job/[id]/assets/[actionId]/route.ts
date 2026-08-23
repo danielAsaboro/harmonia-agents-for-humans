@@ -1,12 +1,11 @@
 import { getAsset } from "@/lib/firestore";
-import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
+import { internalTenantHandler } from "@/lib/internalAuth";
 
 /** Metadata read used by the worker's independent verification re-fetch. */
-export async function GET(
+async function get(
   req: Request,
   { params }: { params: Promise<{ id: string; actionId: string }> },
 ) {
-  if (!isInternalAuthorized(req)) return unauthorized();
   const { id, actionId } = await params;
   const asset = await getAsset(id, actionId);
   if (!asset) {
@@ -22,3 +21,5 @@ export async function GET(
     createdAt: asset.createdAt,
   });
 }
+
+export const GET = internalTenantHandler(get);

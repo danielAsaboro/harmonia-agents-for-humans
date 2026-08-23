@@ -1,7 +1,8 @@
 import { listAllAssets } from "@/lib/firestore";
+import { tenantHandler } from "@/lib/auth";
 
 /** Asset gallery: every generated image / rendered clip across all jobs. */
-export async function GET() {
+async function get(_req: Request) {
   const assets = await listAllAssets();
   return Response.json({
     assets: assets.map((a) => ({
@@ -14,3 +15,5 @@ export async function GET() {
     })),
   });
 }
+
+export const GET = tenantHandler(get);

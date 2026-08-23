@@ -31,20 +31,14 @@ class Settings:
     gemini_api_key: str | None
     github_token: str | None
     gcp_project: str
-    operator_token: str | None
-    telegram_bot_token: str | None
-    telegram_allowed_chat_id: str | None
     pricing_version: str
     telemetry_enabled: bool
     telemetry_sample_rate: float
     otel_service_name: str
     image_max_cost_usd: str
-    team_runtime: str
-    agent_engine_resource: str | None
+    agent_engine_resource: str
     memory_bank_enabled: bool
     memory_bank_resource: str | None
-    memory_workspace_id: str | None
-    memory_brand_id: str | None
     generative_media_enabled: bool
     vertex_media_location: str
 
@@ -73,20 +67,14 @@ class Settings:
             gemini_api_key=gemini_key,
             github_token=os.environ.get("GITHUB_TOKEN"),
             gcp_project=os.environ.get("GOOGLE_CLOUD_PROJECT", "harmonia-local"),
-            operator_token=os.environ.get("OPERATOR_TOKEN") or None,
-            telegram_bot_token=os.environ.get("TELEGRAM_BOT_TOKEN") or None,
-            telegram_allowed_chat_id=os.environ.get("TELEGRAM_ALLOWED_CHAT_ID") or None,
             pricing_version=pricing_version,
             telemetry_enabled=_bool_env("HARMONIA_TELEMETRY_ENABLED"),
             telemetry_sample_rate=telemetry_sample_rate,
             otel_service_name=os.environ.get("OTEL_SERVICE_NAME", "harmonia-agent"),
             image_max_cost_usd=image_max_cost_usd,
-            team_runtime=os.environ.get("TEAM_RUNTIME", "local").strip().lower(),
-            agent_engine_resource=os.environ.get("AGENT_ENGINE_RESOURCE") or None,
+            agent_engine_resource=_require("AGENT_ENGINE_RESOURCE"),
             memory_bank_enabled=_bool_env("MEMORY_BANK_ENABLED"),
             memory_bank_resource=os.environ.get("MEMORY_BANK_RESOURCE") or None,
-            memory_workspace_id=os.environ.get("HARMONIA_WORKSPACE_ID") or None,
-            memory_brand_id=os.environ.get("HARMONIA_BRAND_ID") or None,
             generative_media_enabled=_bool_env("GENERATIVE_MEDIA_ENABLED"),
             vertex_media_location=os.environ.get("VERTEX_MEDIA_LOCATION", "us-central1"),
         )

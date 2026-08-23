@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import asyncio
 from collections.abc import Callable
@@ -11,10 +10,7 @@ from typing import Any, TypeVar
 
 from google.adk.agents import Agent, SequentialAgent
 from google.adk.models.base_llm import BaseLlm
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
 from google.adk.tools.agent_tool import AgentTool
-from google.genai import types
 from pydantic import BaseModel, ValidationError
 
 from .agent_models import (
@@ -44,7 +40,8 @@ from .mock_ai import (
 from .multimodal import attach_media_evidence
 from .memory_bank import MemoryBank, MemoryScope, VertexMemoryBank, format_memory_context
 from .telemetry import current_trace_id, safe_attributes, tracer
-from .team_runtime import AgentEngineTeamRuntime, TeamRuntime, runtime_mode
+from .team_runtime import AgentEngineTeamRuntime, TeamRuntime
+from .tenant_context import current_tenant
 from .role_models import RoleModelConfig, load_role_model_catalog
 from .usage import (
     InvocationContext,
@@ -361,151 +358,71 @@ async def _run_coordinator(
     team_runtime: TeamRuntime | None = None,
 ) -> dict[str, Any]:
     resolved = _resolve_role_models(model, models)
-    coordinator_model_id = _instance_model_id(resolved.coordinator)
     roles = _SPECIALIST_ROLES[specialist]
-    accumulators: dict[str, UsageAccumulator] = {}
-    endpoint_seconds: dict[str, float] = {}
     if invocation is not None:
         for reservation in _reservation_payloads(
             specialist, payload, invocation, resolved,
         ):
             budget_reserver(reservation)
-        accumulators = {
-            role: UsageAccumulator(
-                job_id=invocation.job_id,
-                operation_id=invocation.role_operation_id(role),
-                stage=invocation.stage,
-                role=role,
-                model=_instance_model_id(resolved.model_for(role)),
-            )
-            for role in roles
-        }
-    configured_mode = runtime_mode(settings().team_runtime)
-    managed_runtime = team_runtime
-    if managed_runtime is None and configured_mode == "agent_engine":
-        resource_name = settings().agent_engine_resource
-        if not resource_name:
-            raise ValueError("AGENT_ENGINE_RESOURCE is required when TEAM_RUNTIME=agent_engine")
-        managed_runtime = AgentEngineTeamRuntime(resource_name=resource_name)
-    if managed_runtime is not None:
+    managed_runtime = team_runtime or AgentEngineTeamRuntime(
+        resource_name=settings().agent_engine_resource,
+    )
+    if invocation is not None:
+        managed_user_id = invocation.agent_engine_user_id()
+    else:
+        tenant = current_tenant()
+        managed_user_id = f"{tenant.workspace_id}:system:proactive"
+    with tracer().start_as_current_span("harmonia.agent.invoke") as invoke_span:
+        invoke_span.set_attributes(safe_attributes({
+            "job.id": invocation.job_id if invocation else None,
+            "workspace.id": invocation.workspace_id if invocation else current_tenant().workspace_id,
+            "stage": invocation.stage if invocation else "proactive",
+            "agent": specialist,
+            "runtime": "agent_engine",
+        }))
+        invoke_span.add_event("harmonia.agent.delegate", safe_attributes({
+            "agent": specialist,
+            "runtime": "agent_engine",
+        }))
         final_state = await managed_runtime.invoke(
             specialist=specialist,
             payload=payload.model_dump(mode="json"),
-            user_id=invocation.job_id if invocation else "system",
+            user_id=managed_user_id,
         )
-        _validate_run_output(specialist, payload, final_state)
-        if invocation is not None:
-            serialized = payload.model_dump_json(exclude_none=True)
-            trace_id = current_trace_id()
-            for role in roles:
-                config = resolved.config_for(role)
-                model_id = _instance_model_id(resolved.model_for(role))
-                if config.provider == "vertex_endpoint":
-                    record = endpoint_usage_record(
-                        invocation=invocation,
-                        role=role,
-                        model=model_id,
-                        elapsed_seconds=0,
-                        estimated_cost_usd=config.reservation_usd or "0.000001",
-                        trace_id=trace_id,
-                    )
-                else:
-                    estimated_input, estimated_output = estimate_request_tokens(
-                        serialized * (2 if role == "harmonia_coordinator" else 1),
-                        config.max_output_tokens,
-                    )
-                    accumulator = UsageAccumulator(
-                        job_id=invocation.job_id,
-                        operation_id=invocation.role_operation_id(role),
-                        stage=invocation.stage,
-                        role=role,
-                        model=model_id,
-                    )
-                    accumulator.input_tokens = estimated_input
-                    accumulator.output_tokens = estimated_output
-                    record = accumulator.finalize(trace_id=trace_id)
-                usage_reporter(record.to_wire())
-        return final_state
-    service = InMemorySessionService()
-    root = build_agent_team(models=resolved)
-    runner = Runner(agent=root, app_name="harmonia", session_service=service)
-    state = payload.model_dump(mode="json")
-    state["requested_specialist"] = specialist
-    session = await service.create_session(app_name="harmonia", user_id="system", state=state)
-    prompt = (
-        f"Delegate this request to {specialist} exactly once. Pass this JSON unchanged:\n"
-        f"{payload.model_dump_json(exclude_none=True)}"
-    )
-    try:
-        with tracer().start_as_current_span("harmonia.agent.invoke") as invoke_span:
-            invoke_span.set_attributes(safe_attributes({
-                "job.id": invocation.job_id if invocation else None,
-                "stage": invocation.stage if invocation else None,
-                "agent": specialist,
-                "model": coordinator_model_id,
-            }))
-            invoke_span.add_event("harmonia.agent.delegate", safe_attributes({
-                "agent": specialist,
-                "model": _instance_model_id(
-                    resolved.model_for(specialist)
-                    if specialist in {"sophia_analyst", "ryan_strategist"}
-                    else resolved.copywriter
-                ),
-            }))
-            try:
-                with tracer().start_as_current_span("harmonia.model.generate") as model_span:
-                    model_span.set_attributes(safe_attributes({
-                        "job.id": invocation.job_id if invocation else None,
-                        "stage": invocation.stage if invocation else None,
-                        "agent": specialist,
-                        "model": coordinator_model_id,
-                    }))
-                    async for event in runner.run_async(
-                        user_id="system",
-                        session_id=session.id,
-                        new_message=types.Content(role="user", parts=[types.Part(text=prompt)]),
-                    ):
-                        accumulator = accumulators.get(getattr(event, "author", ""))
-                        if accumulator is not None:
-                            accumulator.observe_event(event)
-                        metadata = getattr(event, "custom_metadata", None) or {}
-                        elapsed = metadata.get("harmonia_endpoint_seconds")
-                        if accumulator is not None and isinstance(elapsed, (int, float)):
-                            endpoint_seconds[event.author] = (
-                                endpoint_seconds.get(event.author, 0.0) + float(elapsed)
-                            )
-                    model_span.set_attributes(safe_attributes({
-                        "input.units": sum(a.input_tokens for a in accumulators.values()),
-                        "output.units": sum(a.output_tokens for a in accumulators.values()),
-                    }))
-            except (ValidationError, ValueError, json.JSONDecodeError) as exc:
-                raise AgentProtocolError(f"agent delegation or structured output failed: {exc}") from exc
-            completed = await service.get_session(
-                app_name="harmonia", user_id="system", session_id=session.id,
-            )
-            if completed is None:
-                raise AgentProtocolError("coordinator session disappeared before output validation")
-            final_state = dict(completed.state)
-            _validate_run_output(specialist, payload, final_state)
-            if invocation is not None:
-                trace_id = current_trace_id()
-                for role in roles:
-                    config = resolved.config_for(role)
-                    if config.provider == "vertex_endpoint":
-                        record = endpoint_usage_record(
-                            invocation=invocation,
-                            role=role,
-                            model=_instance_model_id(resolved.model_for(role)),
-                            elapsed_seconds=endpoint_seconds.get(role, 0.0),
-                            estimated_cost_usd=config.reservation_usd or "0.000001",
-                            trace_id=trace_id,
-                        )
-                    else:
-                        record = accumulators[role].finalize(trace_id=trace_id)
-                    usage_reporter(record.to_wire())
-            return final_state
-    finally:
-        await runner.close()
+        managed_trace_id = current_trace_id()
+    _validate_run_output(specialist, payload, final_state)
+    if invocation is not None:
+        serialized = payload.model_dump_json(exclude_none=True)
+        trace_id = managed_trace_id
+        for role in roles:
+            config = resolved.config_for(role)
+            model_id = _instance_model_id(resolved.model_for(role))
+            if config.provider == "vertex_endpoint":
+                record = endpoint_usage_record(
+                    invocation=invocation,
+                    role=role,
+                    model=model_id,
+                    elapsed_seconds=0,
+                    estimated_cost_usd=config.reservation_usd or "0.000001",
+                    trace_id=trace_id,
+                )
+            else:
+                estimated_input, estimated_output = estimate_request_tokens(
+                    serialized * (2 if role == "harmonia_coordinator" else 1),
+                    config.max_output_tokens,
+                )
+                accumulator = UsageAccumulator(
+                    job_id=invocation.job_id,
+                    operation_id=invocation.role_operation_id(role),
+                    stage=invocation.stage,
+                    role=role,
+                    model=model_id,
+                )
+                accumulator.input_tokens = estimated_input
+                accumulator.output_tokens = estimated_output
+                record = accumulator.finalize(trace_id=trace_id)
+            usage_reporter(record.to_wire())
+    return final_state
 
 
 async def analyze_with_team(
@@ -513,7 +430,7 @@ async def analyze_with_team(
     memory: tuple[MemoryBank, MemoryScope] | None = None,
 ) -> AnalysisResult:
     input = AnalystInput.model_validate(input)
-    resolved_memory = configured_memory() if memory is None else memory
+    resolved_memory = configured_memory(invocation) if memory is None else memory
     facts = await _retrieve_memory(query=input.title, memory=resolved_memory)
     if facts:
         input = input.model_copy(update={
@@ -538,21 +455,21 @@ def _validate_strategy_result(
     return result
 
 
-def configured_memory() -> tuple[MemoryBank, MemoryScope] | None:
+def configured_memory(
+    invocation: InvocationContext | None,
+) -> tuple[MemoryBank, MemoryScope] | None:
     cfg = settings()
     if not cfg.memory_bank_enabled:
         return None
     resource = cfg.memory_bank_resource or cfg.agent_engine_resource
-    if not resource or not cfg.memory_workspace_id or not cfg.memory_brand_id:
-        raise ValueError(
-            "MEMORY_BANK_RESOURCE, HARMONIA_WORKSPACE_ID, and HARMONIA_BRAND_ID "
-            "are required when MEMORY_BANK_ENABLED=true"
-        )
+    if not resource:
+        raise ValueError("MEMORY_BANK_RESOURCE or AGENT_ENGINE_RESOURCE is required")
+    tenant = current_tenant() if invocation is None else None
     return (
         VertexMemoryBank(resource_name=resource),
         MemoryScope(
-            workspace_id=cfg.memory_workspace_id,
-            brand_id=cfg.memory_brand_id,
+            workspace_id=invocation.workspace_id if invocation else tenant.workspace_id,
+            brand_id=invocation.brand_id if invocation else tenant.brand_id,
         ),
     )
 
@@ -581,7 +498,7 @@ async def strategize_with_team(
     memory: tuple[MemoryBank, MemoryScope] | None = None,
 ) -> StrategistResult:
     input = StrategistInput.model_validate(input)
-    resolved_memory = configured_memory() if memory is None else memory
+    resolved_memory = configured_memory(invocation) if memory is None else memory
     query = input.brief or input.post_text or input.goals_text or input.task
     facts = await _retrieve_memory(query=query, memory=resolved_memory)
     if facts:
@@ -610,7 +527,7 @@ async def draft_with_team(
     memory: tuple[MemoryBank, MemoryScope] | None = None,
 ) -> DraftWorkflowResult:
     input = DraftWorkflowInput.model_validate(input)
-    resolved_memory = configured_memory() if memory is None else memory
+    resolved_memory = configured_memory(invocation) if memory is None else memory
     facts = await _retrieve_memory(query=input.title, memory=resolved_memory)
     if facts:
         input = input.model_copy(update={

@@ -44,4 +44,4 @@ POST /api/chat
 
 ## Telegram bot
 
-The same intents over the official Bot API, scoped to an allow-listed chat id (`TELEGRAM_ALLOWED_CHAT_ID`) using a bot token (`TELEGRAM_BOT_TOKEN`). Approvals require an explicit inline-button callback — a plain "approve" message only lists pending actions. The bot never echoes its own credentials into chats.
+The same intents over the official Bot API, using one workspace-owned bot connection and one allowed chat. The worker restores that workspace's tenant context before handling any update. Approvals require an explicit inline-button callback — a plain "approve" message only lists pending actions.

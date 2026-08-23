@@ -5,11 +5,11 @@ import {
   listContentItems,
   updateContentItem,
 } from "@/lib/firestore";
-import { isOperatorAuthorized, operatorForbidden } from "@/lib/operatorAuth";
+import { tenantHandler } from "@/lib/auth";
 import { validateDraftText } from "@/lib/policy";
 
 /** All items for the calendar / trays. */
-export async function GET() {
+async function get(_req: Request) {
   return Response.json({ items: await listContentItems() });
 }
 
@@ -29,8 +29,7 @@ function badRequest(error: string, detail?: unknown) {
  * Edits, schedules, reschedules, or cancels a content item. Published items
  * are immutable. Auto mode requires every target channel to be connected.
  */
-export async function PATCH(req: Request) {
-  if (!isOperatorAuthorized(req)) return operatorForbidden();
+async function patch(req: Request) {
   const body = await req.json().catch(() => null);
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) return badRequest("invalid patch", parsed.error.flatten());
@@ -99,3 +98,6 @@ export async function PATCH(req: Request) {
   await updateContentItem(id, clean);
   return Response.json({ ok: true, item: await getContentItem(id) });
 }
+
+export const GET = tenantHandler(get);
+export const PATCH = tenantHandler(patch);

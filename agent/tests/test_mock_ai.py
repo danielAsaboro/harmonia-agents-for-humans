@@ -113,9 +113,8 @@ def test_mock_x_payloads_deterministic(monkeypatch):
     assert set(m1) == {"likes", "replies", "reposts", "quotes", "impressions"}
 
 
-def test_real_x_still_fails_honestly_without_token(monkeypatch):
+def test_real_x_still_fails_honestly_without_workspace_connection(monkeypatch):
     monkeypatch.delenv("HARMONIA_MOCK_X", raising=False)
-    monkeypatch.delenv("X_BEARER_TOKEN", raising=False)
     with pytest.raises(x_client.XError):
         x_client.publish_post("should fail without credentials")
 

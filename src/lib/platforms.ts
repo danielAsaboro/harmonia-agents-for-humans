@@ -1,7 +1,7 @@
 /**
  * Social platform registry — one definition per supported network.
- * Connection status is derived from server-side environment configuration,
- * so the UI never claims a connection that isn't actually wired up.
+ * Application credentials are deployment-wide; user connections are always
+ * workspace-scoped OAuth records and are never inferred from environment state.
  */
 export type PlatformCapability = "publish" | "verify" | "metrics";
 
@@ -23,8 +23,6 @@ export interface PlatformDef {
   label: string;
   /** Env vars that must be set for this platform to be connectable. */
   requiredEnv: string[];
-  /** Env vars that must be set for an active connection (subset of required). */
-  activeEnv: string[];
   capabilities: PlatformCapability[];
   docsUrl: string;
   note: string;
@@ -35,8 +33,7 @@ export const PLATFORMS: PlatformDef[] = [
   {
     id: "x",
     label: "X (Twitter)",
-    requiredEnv: ["X_BEARER_TOKEN"],
-    activeEnv: ["X_BEARER_TOKEN"],
+    requiredEnv: ["X_CLIENT_ID", "X_CLIENT_SECRET"],
     capabilities: ["publish", "verify", "metrics"],
     oauth: {
     authorizeUrl: "https://x.com/i/oauth2/authorize",
@@ -53,7 +50,6 @@ export const PLATFORMS: PlatformDef[] = [
     id: "tiktok",
     label: "TikTok",
     requiredEnv: ["TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"],
-    activeEnv: ["TIKTOK_ACCESS_TOKEN"],
     capabilities: ["publish", "verify"],
     oauth: {
     authorizeUrl: "https://www.tiktok.com/v2/auth/authorize/",
@@ -70,7 +66,6 @@ export const PLATFORMS: PlatformDef[] = [
     id: "instagram",
     label: "Instagram",
     requiredEnv: ["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"],
-    activeEnv: ["INSTAGRAM_ACCESS_TOKEN"],
     capabilities: ["publish", "verify"],
     oauth: {
     authorizeUrl: "https://www.facebook.com/v21.0/dialog/oauth",
@@ -87,7 +82,6 @@ export const PLATFORMS: PlatformDef[] = [
     id: "linkedin",
     label: "LinkedIn",
     requiredEnv: ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"],
-    activeEnv: ["LINKEDIN_ACCESS_TOKEN"],
     capabilities: ["publish", "verify", "metrics"],
     oauth: {
     authorizeUrl: "https://www.linkedin.com/oauth/v2/authorization",
@@ -104,7 +98,6 @@ export const PLATFORMS: PlatformDef[] = [
     id: "facebook",
     label: "Facebook Pages",
     requiredEnv: ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"],
-    activeEnv: ["FACEBOOK_PAGE_TOKEN"],
     capabilities: ["publish", "verify", "metrics"],
     oauth: {
     authorizeUrl: "https://www.facebook.com/v21.0/dialog/oauth",
@@ -121,7 +114,6 @@ export const PLATFORMS: PlatformDef[] = [
     id: "youtube",
     label: "YouTube",
     requiredEnv: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
-    activeEnv: ["YOUTUBE_REFRESH_TOKEN"],
     capabilities: ["publish", "verify", "metrics"],
     oauth: {
     authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -144,10 +136,7 @@ export function platformStatus(def: PlatformDef): {
 } {
   const has = (name: string) => Boolean(process.env[name]);
   const missingRequired = def.requiredEnv.filter((e) => !has(e));
-  const missingActive = def.activeEnv.filter((e) => !has(e));
-  if (missingActive.length === 0 && missingRequired.length === 0) {
-    return { status: "connected", missingActive, missingRequired };
-  }
+  const missingActive: string[] = [];
   if (missingRequired.length === 0) {
     // App credentials exist; an OAuth handshake would mint the access token.
     return { status: "connectable", missingActive, missingRequired };

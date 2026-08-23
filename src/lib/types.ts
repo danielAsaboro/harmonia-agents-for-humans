@@ -30,6 +30,9 @@ export interface JobConfig {
 
 export interface Job {
   id: string;
+  workspaceId: string;
+  brandId: string;
+  createdByUserId: string;
   createdAt: string;
   updatedAt: string;
   status: JobStatus;

@@ -5,7 +5,7 @@ description: "Work offline with mock-AI mode, understand the emulator setup, and
 
 ## Offline mock modes
 
-Harmonia's AI legs can run fully offline behind two explicit, dev-only flags. With either flag unset, behavior is exactly the real path — mock code is unreachable.
+Harmonia's model and social-effect legs can use explicit dev-only fixtures. Identity still uses Google sign-in and durable workflow state still uses the emulators. With either flag unset, behavior is exactly the real path — fixture code is unreachable.
 
 ### `HARMONIA_MOCK_AI=1`
 
@@ -62,4 +62,4 @@ Worker tests set safe dummy credentials via `agent/tests/conftest.py`; mock-mode
 | `POST /api/chat` | Chat surface (`{message, surface}`) |
 | `GET /api/internal/insights` | Engagement insights fed into ideation |
 
-Internal routes require the `INTERNAL_API_TOKEN` bearer header; mutating operator routes accept `x-operator-token`.
+Internal routes require service authentication plus workspace and brand headers. Dashboard routes require a verified Google session and derive the workspace from server-side membership.

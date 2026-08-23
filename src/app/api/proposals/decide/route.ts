@@ -6,16 +6,16 @@ import {
   getProposal,
   saveIngestMeta,
 } from "@/lib/firestore";
-import { isOperatorAuthorized, operatorForbidden } from "@/lib/operatorAuth";
+import { tenantHandler } from "@/lib/auth";
 import { publishStage } from "@/lib/pubsub";
+import { currentTenant } from "@/lib/tenancy";
 
 /**
  * Operator decision on a proactive proposal. Approval composes the proposal's
  * topic + angle into an operator brief and starts a standard concept job —
  * the same pipeline and approval gates as any operator-created job.
  */
-export async function POST(req: Request) {
-  if (!isOperatorAuthorized(req)) return operatorForbidden();
+async function post(req: Request) {
   const body = await req.json().catch(() => null);
   const parsed = proposalDecisionSchema.safeParse(body);
   if (!parsed.success) {
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
   await saveIngestMeta(job.id, { videoId: "brief", title, channel: `harmonia (${proposal.source})`, durationSec: 0 });
   await appendEvent(job.id, "understand", `concept job created from approved ${proposal.source} proposal ${proposal.id}`, "operator");
   await decideProposal(id, "approved", { jobId: job.id });
-  await publishStage(job.id, "understand");
+  await publishStage(currentTenant(), job.id, "understand");
 
   return Response.json({
     ok: true,
@@ -54,3 +54,5 @@ export async function POST(req: Request) {
     job: { id: job.id, stage: job.stage, status: job.status },
   });
 }
+
+export const POST = tenantHandler(post);

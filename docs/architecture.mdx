@@ -10,13 +10,14 @@ flowchart TB
     subgraph Clients
         UI[Web dashboard<br/>Next.js]
         TG[Telegram bot]
+        IDP[Google sign-in<br/>Identity Platform]
     end
 
     subgraph WebApp["Web application (Next.js / Cloud Run)"]
         API[REST + chat API routes]
         CHAT[Chat intent parser<br/>Gemini structured output]
         DEC[Decision engine<br/>policy + approval gates]
-        FS[(Firestore)]
+        FS[(Firestore<br/>workspaces/{workspaceId}/...)]
         LEDGER[(Budget reservations<br/>+ immutable usage records)]
         PS[Pub/Sub topics]
         STOR[Asset store<br/>.data/artifacts or GCS]
@@ -24,7 +25,7 @@ flowchart TB
 
     subgraph Worker["ADK worker (FastAPI / Cloud Run)"]
         PULL[Stage dispatcher<br/>pull loop / push receiver]
-        RUNTIME[Explicit cognitive runtime adapter<br/>local or Agent Engine]
+        RUNTIME[Agent Engine client<br/>mandatory, no fallback]
         CONTENT[Direct media operations<br/>transcription + image generation]
         PROACT[Proactive agent<br/>trend scan + engagement watch]
         SCHED[Scheduler dispatcher<br/>due content items]
@@ -47,7 +48,7 @@ flowchart TB
         LYRIA[Lyria 3 Clip<br/>30-second music]
     end
 
-    UI --> API
+    UI --> IDP --> API
     TG --> API
     API --> CHAT --> FS
     API --> DEC --> FS
@@ -107,9 +108,33 @@ No agent has publishing, approval, credential, or destructive tools. Temi can pr
 
 ### Managed runtime and persistent memory
 
-`TEAM_RUNTIME` is explicit. `local` uses one disposable ADK `InMemorySessionService`; `agent_engine` creates one managed Agent Engine session, seeds the typed job snapshot, streams state deltas, validates the required output keys, and deletes the session. Managed failure never switches to local execution or mocks.
+Agent Engine is the only cognitive execution runtime. The worker creates one managed session, seeds the typed job snapshot, streams state deltas, validates the required output keys, and deletes the session. `AGENT_ENGINE_RESOURCE` is mandatory at worker startup. There is no in-process ADK execution branch and no runtime fallback.
 
-Memory Bank is separately enabled. Every retrieval and generation uses the exact two-key scope `{workspace_id, brand_id}`. Up to five facts are retrieved before analysis, strategy, or drafting. Writes are restricted to operator decisions, independently verified outcomes, deterministic learn-stage counts, and explicit preferences. Raw source material, transcripts, prompts, drafts, errors, and unverified claims are ineligible.
+Memory Bank is mandatory in the managed deployment. Every retrieval and generation uses the exact `{workspace_id, brand_id}` values persisted on the job. Up to five facts are retrieved before analysis, strategy, or drafting. Writes are restricted to operator decisions, independently verified outcomes, deterministic learn-stage counts, and explicit preferences. Raw source material, transcripts, prompts, drafts, errors, and unverified claims are ineligible.
+
+This separation is what lets a workflow remain safe across weeks. Firestore—not an agent's prompt window—retains the current stage, delivery history, approvals, operation identifiers, receipts, and verification results. Pub/Sub can redeliver work after a process restart without duplicating an external effect. A later Agent Engine invocation gets a fresh ephemeral session, reconstructs the typed job snapshot from Firestore, and retrieves only eligible facts from the same workspace-and-brand Memory Bank scope. The system therefore resumes durable work without turning raw customer history into unconstrained model context.
+
+### Production-data and sovereignty boundary
+
+Harmonia does not claim a general-purpose enterprise compliance certification. It implements concrete controls that a deployment can demonstrate:
+
+- Google sign-in and server-side membership determine the tenant; callers cannot choose a workspace in a request body.
+- Customer collections and object names are workspace- and brand-scoped. Pub/Sub carries the same scope twice, and the worker rejects mismatched payload and attribute scopes.
+- Firestore is a shared SaaS database: IAM separates services, while workspace isolation inside that database is enforced by verified application context, nested paths, ownership checks, and cross-tenant tests. It is not represented as per-tenant IAM isolation.
+- Service accounts separate the public control plane from the private worker. Publishing still requires an action-specific human approval receipt.
+- OpenTelemetry spans contain identifiers, stages, role/model labels, counts, outcomes, and trace correlation only. Prompts, responses, transcripts, drafts, media, and private reasoning are excluded.
+- The deployment selects one `REGION` and rejects mismatched Agent Engine, Memory Bank, Gemma, Veo, Firestore, or storage locations. Pub/Sub persistence and in-transit processing are restricted to that region. Because Lyria uses a global endpoint, generative media fails closed unless an operator explicitly acknowledges an approved global-processing policy exception.
+- Memory Bank accepts only typed eligible facts. Raw sources, creative text, failures, and unverified claims cannot be written by the normal learn path.
+
+Data retention periods, legal holds, customer-managed encryption, workspace export/deletion, organization-policy integration, and formal regulatory certification remain deployment-specific work. They must not be implied by the controls above.
+
+### SaaS identity and tenant isolation
+
+Google Identity Platform authenticates users through Google sign-in. A first sign-in creates one owner workspace and default brand. The server derives `userId`, `workspaceId`, and `brandId` from the verified session and membership record; request bodies cannot select ownership.
+
+All durable customer data lives below `workspaces/{workspaceId}`: jobs, event logs, content items, assets, connections, goals, chat history, proposals, notifications, proactive cadence, and Telegram configuration. Artifact object names include the workspace and brand. Pub/Sub messages carry the workspace and brand in both data and attributes; the worker rejects mismatches, restores invocation-local tenant context, and re-reads the job from that workspace. Agent Engine user IDs are namespaced as `{workspace}:{user}:{job}`.
+
+Each workspace has a cumulative budget guard in addition to per-job reservations. Social publishing and Telegram use that workspace's stored connection only. Background scans enumerate active workspaces and execute each scan inside a separate tenant context.
 
 ### One decision engine
 

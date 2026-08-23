@@ -5,15 +5,14 @@ import {
   listContentItems,
   updateContentItem,
 } from "@/lib/firestore";
-import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
+import { internalTenantHandler } from "@/lib/internalAuth";
 
 /**
  * Worker scheduler feed: items whose scheduled time has arrived.
  * Auto-mode items are handed over for immediate publishing; approval-mode
  * items flip to awaiting_final_review and fire a notification instead.
  */
-export async function GET(req: Request) {
-  if (!isInternalAuthorized(req)) return unauthorized();
+async function get(_req: Request) {
   const now = Date.now();
   const items = await listContentItems();
   const due: Array<{ id: string; text: string; platforms: string[]; publishMode: string; jobId: string }> = [];
@@ -51,8 +50,7 @@ const updateSchema = z.object({
 });
 
 /** Worker reports publish outcomes for a content item. */
-export async function POST(req: Request) {
-  if (!isInternalAuthorized(req)) return unauthorized();
+async function post(req: Request) {
   const body = await req.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) {
@@ -100,3 +98,6 @@ export async function POST(req: Request) {
   }
   return Response.json({ ok: true });
 }
+
+export const GET = internalTenantHandler(get);
+export const POST = internalTenantHandler(post);

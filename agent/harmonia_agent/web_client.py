@@ -9,6 +9,7 @@ import httpx
 
 from .config import settings
 from .telemetry import inject_context
+from .tenant_context import current_tenant
 
 
 class WebApiError(RuntimeError):
@@ -22,14 +23,48 @@ class WebApiError(RuntimeError):
         return self.status is not None and 400 <= self.status < 500 and self.status != 429
 
 
-def _client() -> httpx.Client:
-    headers = {"Authorization": f"Bearer {settings().internal_api_token}"}
+def _client(*, tenant_required: bool = True) -> httpx.Client:
+    tenant = current_tenant() if tenant_required else None
+    headers = {
+        "Authorization": f"Bearer {settings().internal_api_token}",
+    }
+    if tenant is not None:
+        headers.update({
+            "x-workspace-id": tenant.workspace_id,
+            "x-brand-id": tenant.brand_id,
+        })
     inject_context(headers)
     return httpx.Client(
         base_url=settings().web_internal_url,
         headers=headers,
         timeout=30,
     )
+
+
+def get_workspaces() -> list[dict[str, str]]:
+    with _client(tenant_required=False) as c:
+        res = c.get("/api/internal/workspaces")
+    if res.status_code != 200:
+        raise WebApiError(f"workspace feed failed: {res.status_code} {res.text}", res.status_code)
+    return list(res.json().get("workspaces") or [])
+
+
+def get_connection(platform: str) -> dict[str, Any]:
+    with _client() as c:
+        res = c.get(f"/api/internal/connection/{platform}")
+    if res.status_code != 200:
+        raise WebApiError(f"{platform} connection unavailable: {res.status_code}", res.status_code)
+    return dict(res.json()["connection"])
+
+
+def get_telegram_connection() -> dict[str, Any] | None:
+    with _client() as c:
+        res = c.get("/api/internal/telegram")
+    if res.status_code == 404:
+        return None
+    if res.status_code != 200:
+        raise WebApiError(f"Telegram connection unavailable: {res.status_code}", res.status_code)
+    return dict(res.json()["connection"])
 
 
 def get_job(job_id: str) -> dict[str, Any]:
@@ -135,23 +170,8 @@ def report_usage(payload: dict[str, object]) -> None:
         raise WebApiError(f"usage reporting failed: {res.status_code} {res.text}", res.status_code)
 
 
-def _operator_client() -> httpx.Client:
-    """Client carrying operator authority for the Telegram surface only.
-    The token is sent to the web service, never echoed back to chats."""
-    headers: dict[str, str] = {}
-    operator_token = settings().operator_token
-    if operator_token:
-        headers["x-operator-token"] = operator_token
-    inject_context(headers)
-    return httpx.Client(
-        base_url=settings().web_internal_url,
-        headers={"Authorization": f"Bearer {settings().internal_api_token}", **headers},
-        timeout=60,
-    )
-
-
 def chat(message: str, surface: str = "telegram") -> dict[str, Any]:
-    with _operator_client() as c:
+    with _client() as c:
         res = c.post("/api/chat", json={"message": message, "surface": surface})
     if res.status_code >= 300:
         raise WebApiError(f"chat failed: {res.status_code} {res.text}", res.status_code)
@@ -159,7 +179,7 @@ def chat(message: str, surface: str = "telegram") -> dict[str, Any]:
 
 
 def decide(job_id: str, action_id: str, decision: str) -> dict[str, Any]:
-    with _operator_client() as c:
+    with _client() as c:
         res = c.post(
             f"/api/jobs/{job_id}/actions/{action_id}/decision",
             json={"decision": decision, "actor": "operator"},

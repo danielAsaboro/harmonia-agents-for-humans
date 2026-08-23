@@ -10,6 +10,7 @@ import {
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { publishStage } from "@/lib/pubsub";
+import { currentTenant } from "@/lib/tenancy";
 import { newId } from "@/lib/idempotency";
 
 export async function POST(req: Request) {
@@ -76,7 +77,7 @@ export async function POST(req: Request) {
     const outstanding = refreshed.actions.filter((a) => a.state === "planned");
     if (outstanding.length === 0) {
       await setStage(body.jobId, "verify");
-      await publishStage(body.jobId, "verify");
+      await publishStage(currentTenant(), body.jobId, "verify");
     }
     return Response.json({ ok: true });
   });

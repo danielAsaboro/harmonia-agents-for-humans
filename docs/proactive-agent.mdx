@@ -60,4 +60,4 @@ sequenceDiagram
 | `PROACTIVE_SCAN_SECONDS` | `60` | How often the agent looks for due checks |
 | `PROACTIVE_<NAME>_INTERVAL_SECONDS` | per check (see table) | Override any single check's cadence |
 
-The Telegram briefing push requires `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_CHAT_ID`; without them it is skipped and logged, never an error.
+Telegram briefing push uses the current workspace's Telegram connection. A workspace without a connection is skipped and logged without affecting other tenants.

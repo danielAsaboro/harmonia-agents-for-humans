@@ -21,7 +21,8 @@ import httpx
 
 from . import x_client
 from .config import settings
-from .web_client import WebApiError
+from .web_client import WebApiError, get_connection, get_workspaces
+from .tenant_context import tenant_scope
 
 logger = logging.getLogger("harmonia.scheduler")
 
@@ -30,11 +31,12 @@ POLL_SECONDS = 60
 
 def _publish_to_platform(platform: str, text: str) -> dict:
     if platform == "x":
-        return x_client.publish_post(text)
+        connection = get_connection("x")
+        return x_client.publish_post(text, connection.get("accessToken"))
     raise RuntimeError(f"platform '{platform}' has no publish adapter yet")
 
 
-async def _tick() -> None:
+async def _tenant_tick() -> None:
     cfg = settings()
     async with httpx.AsyncClient(
         base_url=cfg.web_internal_url,
@@ -80,6 +82,12 @@ async def _tick() -> None:
                 )
         except WebApiError as exc:
             logger.error("item %s result reporting failed: %s", job["id"], exc)
+
+
+async def _tick() -> None:
+    for workspace in get_workspaces():
+        with tenant_scope(workspace["workspaceId"], workspace["brandId"]):
+            await _tenant_tick()
 
 
 def _run_loop() -> None:

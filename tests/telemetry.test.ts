@@ -10,7 +10,12 @@ describe("trace propagation", () => {
     const tracer = trace.getTracer("harmonia.test");
 
     await tracer.startActiveSpan("root", async (span) => {
-      const message = buildStageMessage("j1", "understand", 0);
+      const message = buildStageMessage(
+        { workspaceId: "workspace-a", brandId: "brand-a" },
+        "j1",
+        "understand",
+        0,
+      );
       expect(message.attributes.traceparent).toMatch(/^00-/);
       expect(message.attributes).toMatchObject({ jobId: "j1", stage: "understand" });
       expect(JSON.stringify(message.attributes)).not.toContain("prompt");

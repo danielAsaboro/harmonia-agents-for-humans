@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { apiFetch, getOperatorToken, setOperatorToken } from "@/lib/clientApi";
+import { apiFetch } from "@/lib/clientApi";
 import { PlatformIcon } from "@/components/socialIcons";
 
 interface HealthInfo {
@@ -20,6 +20,79 @@ interface Goals {
 }
 
 const EMPTY_GOALS: Goals = { topics: [] };
+
+function TelegramSection() {
+  const [connected, setConnected] = useState(false);
+  const [chatId, setChatId] = useState("");
+  const [botToken, setBotToken] = useState("");
+  const [status, setStatus] = useState("");
+
+  const load = useCallback(() => {
+    apiFetch("/api/settings/telegram")
+      .then((response) => response.json())
+      .then((data) => {
+        setConnected(Boolean(data.connected));
+        setChatId(data.chatId ?? "");
+      })
+      .catch(() => setStatus("Could not load Telegram connection."));
+  }, []);
+
+  useEffect(load, [load]);
+
+  async function connect() {
+    setStatus("Saving…");
+    const response = await apiFetch("/api/settings/telegram", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ botToken, chatId }),
+    });
+    if (!response.ok) {
+      setStatus("Connection could not be saved.");
+      return;
+    }
+    setBotToken("");
+    setStatus("Connected.");
+    load();
+  }
+
+  async function disconnect() {
+    await apiFetch("/api/settings/telegram", { method: "DELETE" });
+    setConnected(false);
+    setChatId("");
+    setStatus("Disconnected.");
+  }
+
+  return (
+    <section className="rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
+      <h2 className="text-sm font-semibold">Telegram</h2>
+      <p className="mt-1 text-xs leading-5 text-zinc-500">
+        Connect a bot and one allowed chat to this workspace. Messages and approvals cannot access another workspace.
+      </p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <input
+          type="password"
+          value={botToken}
+          onChange={(event) => setBotToken(event.target.value)}
+          placeholder={connected ? "enter a new bot token to replace" : "bot token"}
+          className="rounded-md border border-zinc-300 bg-transparent px-3 py-2 text-xs dark:border-zinc-700"
+        />
+        <input
+          value={chatId}
+          onChange={(event) => setChatId(event.target.value)}
+          placeholder="allowed chat ID"
+          className="rounded-md border border-zinc-300 bg-transparent px-3 py-2 text-xs dark:border-zinc-700"
+        />
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <button onClick={connect} disabled={!botToken || !chatId} className="rounded-full bg-zinc-900 px-4 py-2 text-xs text-white disabled:opacity-40 dark:bg-white dark:text-black">
+          {connected ? "Replace connection" : "Connect"}
+        </button>
+        {connected && <button onClick={disconnect} className="rounded-full border px-4 py-2 text-xs">Disconnect</button>}
+        {status && <span className="text-xs text-zinc-500">{status}</span>}
+      </div>
+    </section>
+  );
+}
 
 function GoalsSection() {
   const [goals, setGoals] = useState<Goals>(EMPTY_GOALS);
@@ -228,8 +301,7 @@ function ConnectionsSection() {
   }
 
   function startOauth(id: string) {
-    const token = getOperatorToken();
-    const url = `/api/oauth/${id}/authorize${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+    const url = `/api/oauth/${id}/authorize`;
     // Full navigation is intentional: the route 302s to an external consent
     // screen, so client-side routing would be wrong here.
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination
@@ -355,13 +427,10 @@ function ConnectionsSection() {
 }
 
 export default function SettingsView() {
-  const [tokenInput, setTokenInput] = useState("");
-  const [saved, setSaved] = useState(false);
   const [health, setHealth] = useState<HealthInfo | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
-      setTokenInput(getOperatorToken());
       fetch("/api/health", { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : null))
         .then(setHealth)
@@ -370,40 +439,11 @@ export default function SettingsView() {
     return () => clearTimeout(t);
   }, []);
 
-  function save() {
-    setOperatorToken(tokenInput.trim());
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }
-
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
       <GoalsSection />
       <ConnectionsSection />
-
-      <section className="rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
-        <h2 className="text-sm font-semibold">Operator token</h2>
-        <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-          Required for job creation, approvals, retries, and mutating chat commands when
-          OPERATOR_TOKEN is configured on the server (always in cloud). Stored only in this
-          browser&apos;s localStorage and sent as the x-operator-token header.
-        </p>
-        <div className="mt-3 flex gap-2">
-          <input
-            type="password"
-            value={tokenInput}
-            onChange={(e) => setTokenInput(e.target.value)}
-            placeholder="paste operator token"
-            className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-xs outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950"
-          />
-          <button
-            onClick={save}
-            className="shrink-0 rounded-md bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-white dark:text-black dark:hover:bg-zinc-300"
-          >
-            {saved ? "Saved ✓" : "Save"}
-          </button>
-        </div>
-      </section>
+      <TelegramSection />
 
       <section className="rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
         <h2 className="text-sm font-semibold">Service</h2>
@@ -429,17 +469,17 @@ export default function SettingsView() {
         <h2 className="text-sm font-semibold">Integrations</h2>
         <ul className="mt-3 flex flex-col gap-2 text-xs leading-5 text-zinc-600 dark:text-zinc-400">
           <li>
-            <strong className="text-zinc-800 dark:text-zinc-200">X publishing</strong> — enabled
-            when X_BEARER_TOKEN is configured server-side; posts go through the official X API v2.
+            <strong className="text-zinc-800 dark:text-zinc-200">X publishing</strong> — each
+            workspace connects its own account through OAuth; posts use the official X API v2.
           </li>
           <li>
-            <strong className="text-zinc-800 dark:text-zinc-200">Telegram</strong> — enabled when
-            TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_CHAT_ID are set on the worker; scoped to one
-            allow-listed chat, approvals require inline-button taps.
+            <strong className="text-zinc-800 dark:text-zinc-200">Telegram</strong> — configured
+            independently per workspace and scoped to one allow-listed chat; approvals require
+            inline-button taps.
           </li>
           <li>
             <strong className="text-zinc-800 dark:text-zinc-200">Gemini</strong> — required for
-            transcription, analysis, drafting, and chat intent parsing (GEMINI_API_KEY).
+            transcription, analysis, drafting, and chat intent parsing.
           </li>
         </ul>
         <p className="mt-3 text-[11px] text-zinc-400">

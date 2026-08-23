@@ -35,14 +35,13 @@ def _mock_id(text: str) -> str:
     return f"mock-{hashlib.sha256(text.encode()).hexdigest()[:12]}"
 
 
-def _bearer() -> str:
-    token = os.environ.get("X_BEARER_TOKEN")
+def _bearer(token: str | None) -> str:
     if not token:
-        raise XError("X_BEARER_TOKEN is not configured", 401)
+        raise XError("workspace X connection is not configured", 401)
     return token
 
 
-def publish_post(text: str) -> dict:
+def publish_post(text: str, bearer_token: str | None = None) -> dict:
     if _mock_x():
         pid = _mock_id(text)
         _log(f"publish_post: returning deterministic id {pid}")
@@ -50,7 +49,7 @@ def publish_post(text: str) -> dict:
     with httpx.Client(timeout=30) as c:
         res = c.post(
             "https://api.x.com/2/tweets",
-            headers={"Authorization": f"Bearer {_bearer()}"},
+            headers={"Authorization": f"Bearer {_bearer(bearer_token)}"},
             json={"text": text},
         )
     if res.status_code not in (200, 201):
@@ -59,14 +58,14 @@ def publish_post(text: str) -> dict:
     return {"id": data["id"], "url": f"https://x.com/i/web/status/{data['id']}"}
 
 
-def get_post(post_id: str) -> dict | None:
+def get_post(post_id: str, bearer_token: str | None = None) -> dict | None:
     if _mock_x():
         _log(f"get_post({post_id}): returning deterministic payload")
         return {"id": post_id, "text": "(mock offline post)"}
     with httpx.Client(timeout=20) as c:
         res = c.get(
             f"https://api.x.com/2/tweets/{post_id}",
-            headers={"Authorization": f"Bearer {_bearer()}"},
+            headers={"Authorization": f"Bearer {_bearer(bearer_token)}"},
         )
     if res.status_code == 404:
         return None
@@ -75,7 +74,7 @@ def get_post(post_id: str) -> dict | None:
     return res.json()["data"]
 
 
-def get_post_metrics(post_id: str) -> dict | None:
+def get_post_metrics(post_id: str, bearer_token: str | None = None) -> dict | None:
     """Fetches reaction metrics for a published post (learn stage)."""
     if _mock_x():
         h = int(hashlib.sha256(str(post_id).encode()).hexdigest(), 16)
@@ -91,7 +90,7 @@ def get_post_metrics(post_id: str) -> dict | None:
     with httpx.Client(timeout=20) as c:
         res = c.get(
             f"https://api.x.com/2/tweets/{post_id}",
-            headers={"Authorization": f"Bearer {_bearer()}"},
+            headers={"Authorization": f"Bearer {_bearer(bearer_token)}"},
             params={"tweet.fields": "public_metrics"},
         )
     if res.status_code == 404:

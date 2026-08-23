@@ -1,5 +1,5 @@
 import { appendEvent, getJob, saveContentPack } from "@/lib/firestore";
-import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
+import { internalTenantHandler } from "@/lib/internalAuth";
 
 const packSchema = z.object({
   jobId: z.string().min(1),
@@ -9,8 +9,7 @@ const packSchema = z.object({
 
 import { z } from "zod";
 
-export async function POST(req: Request) {
-  if (!isInternalAuthorized(req)) return unauthorized();
+async function post(req: Request) {
   const bodyJson = await req.json().catch(() => null);
   const parsed = packSchema.safeParse(bodyJson);
   if (!parsed.success) {
@@ -24,3 +23,5 @@ export async function POST(req: Request) {
   await appendEvent(parsed.data.jobId, "publish", `content pack stored (sha256 ${parsed.data.digest.slice(0, 12)}…)`, "agent");
   return Response.json({ ok: true });
 }
+
+export const POST = internalTenantHandler(post);

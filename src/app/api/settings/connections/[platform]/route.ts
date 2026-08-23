@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { deleteConnection, saveConnection } from "@/lib/firestore";
-import { isOperatorAuthorized, operatorForbidden } from "@/lib/operatorAuth";
+import { tenantHandler } from "@/lib/auth";
 import { getPlatform } from "@/lib/oauth";
 
 const manualTokenSchema = z.object({
@@ -11,11 +11,10 @@ const manualTokenSchema = z.object({
 });
 
 /** Advanced fallback: register an existing access token for a platform. */
-export async function PUT(
+async function put(
   req: Request,
   { params }: { params: Promise<{ platform: string }> },
 ) {
-  if (!isOperatorAuthorized(req)) return operatorForbidden();
   const { platform } = await params;
   if (!getPlatform(platform)) {
     return Response.json({ error: "unknown platform" }, { status: 404 });
@@ -40,11 +39,10 @@ export async function PUT(
   return Response.json({ ok: true });
 }
 
-export async function DELETE(
+async function del(
   req: Request,
   { params }: { params: Promise<{ platform: string }> },
 ) {
-  if (!isOperatorAuthorized(req)) return operatorForbidden();
   const { platform } = await params;
   if (!getPlatform(platform)) {
     return Response.json({ error: "unknown platform" }, { status: 404 });
@@ -52,3 +50,6 @@ export async function DELETE(
   await deleteConnection(platform);
   return Response.json({ ok: true });
 }
+
+export const PUT = tenantHandler(put);
+export const DELETE = tenantHandler(del);

@@ -42,6 +42,7 @@ from .mock_ai import (
 )
 from .multimodal import attach_media_evidence
 from .telemetry import current_trace_id, safe_attributes, tracer
+from .team_runtime import AgentEngineTeamRuntime, TeamRuntime, runtime_mode
 from .role_models import RoleModelConfig, load_role_model_catalog
 from .usage import (
     InvocationContext,
@@ -355,6 +356,7 @@ async def _run_coordinator(
     invocation: InvocationContext | None = None,
     budget_reserver: Callable[[dict[str, object]], None] = reserve_budget,
     usage_reporter: Callable[[dict[str, object]], None] = report_usage,
+    team_runtime: TeamRuntime | None = None,
 ) -> dict[str, Any]:
     resolved = _resolve_role_models(model, models)
     coordinator_model_id = _instance_model_id(resolved.coordinator)
@@ -376,6 +378,21 @@ async def _run_coordinator(
             )
             for role in roles
         }
+    configured_mode = runtime_mode(settings().team_runtime)
+    managed_runtime = team_runtime
+    if managed_runtime is None and configured_mode == "agent_engine":
+        resource_name = settings().agent_engine_resource
+        if not resource_name:
+            raise ValueError("AGENT_ENGINE_RESOURCE is required when TEAM_RUNTIME=agent_engine")
+        managed_runtime = AgentEngineTeamRuntime(resource_name=resource_name)
+    if managed_runtime is not None:
+        final_state = await managed_runtime.invoke(
+            specialist=specialist,
+            payload=payload.model_dump(mode="json"),
+            user_id=invocation.job_id if invocation else "system",
+        )
+        _validate_run_output(specialist, payload, final_state)
+        return final_state
     service = InMemorySessionService()
     root = build_agent_team(models=resolved)
     runner = Runner(agent=root, app_name="harmonia", session_service=service)

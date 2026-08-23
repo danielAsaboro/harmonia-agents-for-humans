@@ -39,6 +39,8 @@ class Settings:
     telemetry_sample_rate: float
     otel_service_name: str
     image_max_cost_usd: str
+    team_runtime: str
+    agent_engine_resource: str | None
 
     @classmethod
     def load(cls) -> "Settings":
@@ -73,6 +75,8 @@ class Settings:
             telemetry_sample_rate=telemetry_sample_rate,
             otel_service_name=os.environ.get("OTEL_SERVICE_NAME", "harmonia-agent"),
             image_max_cost_usd=image_max_cost_usd,
+            team_runtime=os.environ.get("TEAM_RUNTIME", "local").strip().lower(),
+            agent_engine_resource=os.environ.get("AGENT_ENGINE_RESOURCE") or None,
         )
 
 

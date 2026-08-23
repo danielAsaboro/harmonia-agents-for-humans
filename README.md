@@ -14,8 +14,8 @@ ingest → transcribe → understand → draft → awaiting_approval → publish
 
 - **Ingest**: YouTube metadata via oEmbed / YouTube Data API; audio pulled with yt-dlp.
 - **Transcribe**: Gemini 3.5 Flash transcribes the audio into timed segments.
-- **Understand**: Gemini identifies clip-worthy moments (timestamps, hooks, quotes), trend angles, and meme angles.
-- **Draft**: Gemini writes platform-native posts (X today, more platforms planned) against specific moments/angles; a deterministic policy engine validates each draft.
+- **Understand**: Sophia uses Gemini multimodal video plus the transcript to identify clip-worthy spoken and visual moments, trend angles, and meme angles.
+- **Draft**: Nimi drafts with Gemma 3 on a configured Vertex endpoint, Dara reviews with Gemini, and Temi plans publish proposals with Flash-Lite; deterministic contracts validate every handoff.
 - **Awaiting approval**: publishing is proposed as discrete actions. The model cannot self-authorize.
 - **Publish**: approved actions execute idempotently (stable idempotency keys from `jobId + actionId + contentHash`); X posts go through the official X API v2.
 - **Verify**: published state is confirmed by fresh independent API reads — never because a model said so.
@@ -41,7 +41,7 @@ flowchart LR
         PUSH["Pub/Sub push receiver"]
         TG["Telegram long-poll worker"]
         STAGES[ingest · transcribe · understand ·<br/>draft · publish · verify handlers]
-        GEMC[Gemini 3.5 Flash calls]
+        GEMC[Role-aware ADK team<br/>Flash-Lite · Flash · Gemma 3 endpoint]
     end
 
     PS[[Pub/Sub topic]]
@@ -67,7 +67,7 @@ flowchart LR
 | Concern | Where | Interface |
 |---|---|---|
 | Ingestion | `agent/harmonia_agent/youtube.py` | metadata fetch + bounded audio download |
-| Transcription / understanding / drafting | `agent/harmonia_agent/content.py` | Gemini 3.5 Flash, JSON responses |
+| Transcription / understanding / drafting | `agent/harmonia_agent/content.py`, `agents.py`, `gemma_model.py` | Gemini transcription, multimodal Sophia, Gemma Nimi, Gemini review/planning |
 | Intent parsing (chat + Telegram) | web `src/lib/chatIntent.ts` | Gemini structured output: `{intent, youtubeUrl?, jobId?}` |
 | Approval gate | web `src/lib/policy.ts`, `src/lib/decisions.ts` | deterministic risk rules; single decision writer shared by REST, chat, and Telegram |
 | Publishing | `agent/harmonia_agent/x_client.py` | official X API v2, idempotent |
@@ -76,7 +76,7 @@ flowchart LR
 
 ## Technology
 
-- **Gemini 3.5 Flash** (`gemini-3.5-flash`) through the Gemini API for transcription and chat intent parsing, plus a typed Google ADK team for strategy, analysis, drafting, critique, and action planning.
+- **Heterogeneous Google models**: Gemini 3.5 Flash-Lite for routing/planning, Gemini 3.5 Flash for strategy/multimodal analysis/editing/transcription, and Gemma 3 12B IT on a Vertex endpoint for copywriting.
 - **Google ADK** (Python) for the worker service and agent scaffolding.
 - **Cloud Run** hosts both services (web: Next.js standalone build; agent: Python container).
 - **Firestore** persists job state, stage events, approvals, receipts, verifications, and packets.

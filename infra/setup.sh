@@ -52,6 +52,9 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member "serviceAccount:harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role roles/secretmanager.secretAccessor >/dev/null
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member "serviceAccount:harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role roles/aiplatform.user >/dev/null
 # Agent may invoke nothing else; web needs no invoker. Push subscription uses its own OIDC identity:
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \

@@ -24,9 +24,9 @@ flowchart TB
 
     subgraph Worker["ADK worker (FastAPI / Cloud Run)"]
         PULL[Stage dispatcher<br/>pull loop / push receiver]
-        COORD[ADK coordinator<br/>Gemini 3.5 Flash]
-        SPECIALISTS[Single-turn specialists<br/>Ryan strategist + Sophia analyst]
-        DRAFTFLOW[Flo workflow<br/>Nimi → Dara → Temi]
+        COORD[ADK coordinator<br/>Gemini 3.5 Flash-Lite]
+        SPECIALISTS[Single-turn specialists<br/>Ryan: Flash<br/>Sophia: Flash multimodal]
+        DRAFTFLOW[Flo workflow<br/>Nimi: Gemma 3 endpoint<br/>Dara: Flash → Temi: Flash-Lite]
         CONTENT[Direct media operations<br/>transcription + image generation]
         PROACT[Proactive agent<br/>trend scan + engagement watch]
         SCHED[Scheduler dispatcher<br/>due content items]
@@ -57,6 +57,7 @@ flowchart TB
     PROACT --> COORD
     SCHED --> X
     CONTENT --> FS
+    YT --> SPECIALISTS
     X --> FS
     FFMPEG --> STOR
     PULL --> FS
@@ -71,6 +72,21 @@ flowchart TB
 ### Typed multi-agent judgment
 
 Harmonia, the ADK root coordinator, delegates strategy to Ryan (`ryan_strategist`) and transcript analysis to Sophia (`sophia_analyst`). Drafting uses Flo (`flo_draft_workflow`), an `AgentTool` around a deterministic `SequentialAgent`: Nimi the copywriter, one revision by Dara the editor, then Temi the planner. Invocation-scoped session keys pass `copywriter_drafts`, `reviewed_drafts`, and `action_plan`; Firestore remains the durable source of truth between Pub/Sub stages.
+
+| Role | Default model target | Usage/cost unit |
+|---|---|---|
+| Harmonia coordinator | Gemini 3.5 Flash-Lite | input/output tokens |
+| Ryan strategist | Gemini 3.5 Flash | input/output tokens |
+| Sophia analyst | Gemini 3.5 Flash with direct video + transcript | input/output tokens |
+| Nimi copywriter | Gemma 3 12B IT on a configured Vertex endpoint | endpoint seconds + maximum allocation estimate |
+| Dara editor | Gemini 3.5 Flash | input/output tokens |
+| Temi planner | Gemini 3.5 Flash-Lite | input/output tokens |
+
+The role catalog is strict: an unavailable configured target fails the stage. Nimi does not switch to Gemini when the Gemma endpoint is absent or unavailable.
+
+### Actual multimodal analysis
+
+For a newly ingested YouTube job, Harmonia persists the source media digest and passes the authorized public video URI to Sophia as a Gemini `file_data` video part. The timed transcript is supplied alongside it for exact quotes and boundaries. Sophia can return additive visual hooks, crop suitability, caption-safe regions, and references to bounded frame evidence. Brief-only jobs remain text-only. Media bytes and source URIs are excluded from trace content.
 
 No agent has publishing, approval, credential, or destructive tools. Temi can propose publish actions only from Dara-reviewed text; deterministic stage code adds packs and media actions before the existing human gate.
 
@@ -105,5 +121,5 @@ Verification never trusts the executor. Published posts are re-fetched from the 
 The learn stage measures published posts via public metrics, stores takeaways per job, and the insights feed is injected into future ideation prompts — closing the loop between what performed and what gets proposed next.
 
 <Warning>
-  The multi-agent code, budget enforcement, usage normalization, and metadata-only trace behavior are verified offline. Authenticated Gemini execution and exported Cloud Trace correlation remain unverified until separate live evidence is captured.
+  Distinct role routing, the Gemma adapter, direct video attachment, budget enforcement, usage normalization, and metadata-only trace behavior are verified offline. Authenticated Gemini/Gemma execution and exported Cloud Trace correlation remain unverified until separate live evidence is captured.
 </Warning>

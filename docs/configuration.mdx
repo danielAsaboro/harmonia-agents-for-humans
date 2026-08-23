@@ -37,8 +37,18 @@ description: "Every environment variable Harmonia reads, with defaults and requi
 | `OTEL_SERVICE_NAME` | no | `harmonia-agent` | Service label used by the trace backend |
 | `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` | yes in cloud | `NO_CONTENT` | Prevent prompt and response content capture |
 | `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` | yes in cloud | `false` | Disable ADK legacy content-bearing span attributes |
+| `COORDINATOR_MODEL_ID` | no | `gemini-3.5-flash-lite` | Low-cost coordinator routing model |
+| `STRATEGIST_MODEL_ID` | no | `gemini-3.5-flash` | Ryan's synthesis model |
+| `ANALYST_MODEL_ID` | no | `gemini-3.5-flash` | Sophia's multimodal video/audio/text model |
+| `COPYWRITER_MODEL_ID` | no | `gemma-3-12b-it` | Nimi's open-model endpoint label |
+| `EDITOR_MODEL_ID` | no | `gemini-3.5-flash` | Dara's constraint-preserving editor model |
+| `PLANNER_MODEL_ID` | no | `gemini-3.5-flash-lite` | Temi's narrow structured-planning model |
+| `GEMMA_VERTEX_ENDPOINT` | real drafting | — | Full Vertex endpoint resource backing Nimi; no fallback when absent |
+| `GEMMA_MAX_COST_USD` | no | `0.100000` | Maximum allocation reserved for one Gemma endpoint request |
 
 The pricing catalog uses decimal arithmetic and labels estimates with its version. A configured model without a catalog entry is not budget-authorized. Image calls reserve the configured maximum instead of being represented as free.
+
+Gemini serverless roles use token estimates. Gemma uses an explicit maximum request allocation and records endpoint seconds because endpoint infrastructure cost is not honestly interchangeable with serverless token pricing. The dashboard compares these labeled units without manufacturing a fake per-token Gemma price.
 
 Telemetry contains identifiers, stage and role names, model names, usage units, costs, validation outcomes, and errors. It excludes prompts, responses, transcripts, draft text, and media bytes. These are execution/delegation traces, not private model reasoning.
 

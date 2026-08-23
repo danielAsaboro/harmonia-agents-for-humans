@@ -40,6 +40,8 @@ Both services containerize from the repo root:
 
 Set the [configuration](/configuration) secrets as Cloud Run environment variables (Secret Manager for tokens). With `PUBSUB_EMULATOR_HOST` unset, both clients connect to real Google Cloud services automatically.
 
+Deploy Gemma 3 12B IT to a Vertex endpoint first, then set `GEMMA_VERTEX_ENDPOINT` to its full `projects/.../locations/.../endpoints/...` resource. The deployment script requires it and sends the six role model IDs separately. The worker identity needs prediction access to that endpoint; scope the binding to the endpoint/project used by Harmonia. There is no drafting fallback if the endpoint is unavailable.
+
 ## Health and observability
 
 - `GET /healthz` on the worker reports model id and registered stages
@@ -61,5 +63,5 @@ Content capture must remain disabled in every deployed revision. Raw prompts, re
 6. Approve an action and confirm its receipt and independent verification record.
 
 <Warning>
-Authenticated model execution and Cloud telemetry are not verified merely by deploying this code. Capture a correlated trace plus its persisted usage record before presenting either integration as live evidence.
+Authenticated multimodal Gemini, Vertex Gemma, and Cloud telemetry execution are not verified merely by deploying this code. Capture a correlated trace plus its persisted usage records before presenting those integrations as live evidence.
 </Warning>

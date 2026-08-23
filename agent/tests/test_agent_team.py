@@ -42,6 +42,7 @@ from harmonia_agent.agents import (
 )
 from harmonia_agent.stages import classify_failure
 from harmonia_agent.tenant_context import tenant_scope
+from harmonia_agent.generation_policy import safety_settings
 
 
 class ScriptedDelegationModel(BaseLlm):
@@ -241,6 +242,11 @@ def test_team_applies_each_roles_generation_and_safety_policy(monkeypatch):
     assert copywriter.generate_content_config.max_output_tokens == 2048
     assert planner.generate_content_config.temperature == 0.1
     assert planner.generate_content_config.max_output_tokens == 1024
+
+
+def test_unknown_safety_profile_is_rejected():
+    with pytest.raises(ValueError, match="unknown safety profile"):
+        safety_settings("not-a-policy")
 
 
 def test_coordinator_really_delegates_and_forwards_specialist_state():

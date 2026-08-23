@@ -14,6 +14,19 @@ _STANDARD_SAFETY_CATEGORIES = (
 )
 
 
+def safety_settings(profile: str) -> list[types.SafetySetting]:
+    """Resolve a named Harmonia safety profile or fail closed."""
+    if profile != "harmonia-standard":
+        raise ValueError(f"unknown safety profile: {profile}")
+    return [
+        types.SafetySetting(
+            category=category,
+            threshold=types.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        )
+        for category in _STANDARD_SAFETY_CATEGORIES
+    ]
+
+
 def generation_config(role: RoleModelConfig) -> types.GenerateContentConfig:
     """Build the concrete request configuration for a cognitive role."""
     policy = role.generation
@@ -22,11 +35,5 @@ def generation_config(role: RoleModelConfig) -> types.GenerateContentConfig:
         top_p=policy.top_p,
         top_k=policy.top_k,
         max_output_tokens=role.max_output_tokens,
-        safety_settings=[
-            types.SafetySetting(
-                category=category,
-                threshold=types.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-            )
-            for category in _STANDARD_SAFETY_CATEGORIES
-        ],
+        safety_settings=safety_settings(policy.safety_profile),
     )

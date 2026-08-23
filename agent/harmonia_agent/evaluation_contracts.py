@@ -186,12 +186,14 @@ def _content_text(invocation: Any) -> str:
     return "\n".join(part.text for part in (content.parts or []) if part.text) if content else ""
 
 
-def _agent_output_text(invocation: Any, author: str) -> str:
+def _agent_output_text(invocation: Any, author: str | None) -> str:
+    if author is None:
+        return _content_text(invocation)
     intermediate = invocation.intermediate_data
     for candidate_author, parts in getattr(intermediate, "intermediate_responses", []) or []:
         if candidate_author == author:
             return "\n".join(part.text for part in parts if part.text)
-    return _content_text(invocation)
+    raise ValueError(f"missing required intermediate response from {author}")
 
 
 def _contract_spec(invocation: Any) -> dict[str, Any]:
@@ -226,7 +228,7 @@ def adk_contract_metric(
             response_text = _agent_output_text(actual, {
                 "drafts": "nimi_copywriter",
                 "editor": "dara_editor",
-            }.get(kind, ""))
+            }.get(kind))
             payload = json.loads(response_text)
             if kind == "analysis":
                 result = evaluate_analysis(

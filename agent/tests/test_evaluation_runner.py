@@ -7,6 +7,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from google.adk.evaluation.eval_case import IntermediateData
 from google.genai import types
 
 from harmonia_agent.evaluation_runner import (
@@ -60,10 +61,33 @@ def test_adk_custom_metric_executes_reference_preservation_contracts(
 ):
     eval_set = load_eval_set(Path("evals/contracts.evalset.json"))
     expected = next(case for case in eval_set.eval_cases if case.eval_id == eval_id).conversation
+    author = {
+        "copywriter-references": "nimi_copywriter",
+        "editor-preservation": "dara_editor",
+    }[eval_id]
     actual = [expected[0].model_copy(update={
         "final_response": types.Content(
-            role="model", parts=[types.Part(text=invalid_output)],
+            role="model", parts=[types.Part(text='{"actions":[]}')],
         ),
+        "intermediate_data": IntermediateData(
+            intermediate_responses=[(author, [types.Part(text=invalid_output)])],
+        ),
+    })]
+
+    result = adk_contract_metric(None, actual, expected)
+
+    assert result.overall_score == 0.0
+
+
+@pytest.mark.parametrize("eval_id", ["copywriter-references", "editor-preservation"])
+def test_adk_custom_metric_fails_closed_when_author_output_is_missing(eval_id):
+    eval_set = load_eval_set(Path("evals/contracts.evalset.json"))
+    expected = next(case for case in eval_set.eval_cases if case.eval_id == eval_id).conversation
+    actual = [expected[0].model_copy(update={
+        "final_response": types.Content(
+            role="model", parts=[types.Part(text='{"actions":[]}')],
+        ),
+        "intermediate_data": IntermediateData(),
     })]
 
     result = adk_contract_metric(None, actual, expected)

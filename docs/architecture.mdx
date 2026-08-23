@@ -24,9 +24,7 @@ flowchart TB
 
     subgraph Worker["ADK worker (FastAPI / Cloud Run)"]
         PULL[Stage dispatcher<br/>pull loop / push receiver]
-        COORD[ADK coordinator<br/>Gemini 3.5 Flash-Lite]
-        SPECIALISTS[Single-turn specialists<br/>Ryan: Flash<br/>Sophia: Flash multimodal]
-        DRAFTFLOW[Flo workflow<br/>Nimi: Gemma 3 endpoint<br/>Dara: Flash → Temi: Flash-Lite]
+        RUNTIME[Explicit cognitive runtime adapter<br/>local or Agent Engine]
         CONTENT[Direct media operations<br/>transcription + image generation]
         PROACT[Proactive agent<br/>trend scan + engagement watch]
         SCHED[Scheduler dispatcher<br/>due content items]
@@ -34,10 +32,19 @@ flowchart TB
         FFMPEG[ffmpeg skills<br/>clips, reels, images]
     end
 
+    subgraph AgentPlatform["Vertex AI Agent Engine"]
+        COORD[ADK coordinator<br/>Gemini 3.5 Flash-Lite]
+        SPECIALISTS[Single-turn specialists<br/>Ryan: Flash<br/>Sophia: Flash multimodal]
+        DRAFTFLOW[Flo sequential workflow<br/>Nimi: Gemma 3<br/>Dara: Flash → Temi: Flash-Lite]
+        MEMORY[(Memory Bank<br/>workspace + brand exact scope)]
+    end
+
     subgraph External
         YT[YouTube<br/>oEmbed + yt-dlp]
         HN[Hacker News front page<br/>Algolia API]
         TRACE[Cloud Trace / Telemetry API<br/>metadata-only OpenTelemetry]
+        VEO[Veo 3.1 Fast<br/>4-second b-roll]
+        LYRIA[Lyria 3 Clip<br/>30-second music]
     end
 
     UI --> API
@@ -48,11 +55,17 @@ flowchart TB
     API --> PS
     PS --> PULL
     PULL --> CONTENT --> YT
-    PULL --> COORD
+    PULL --> RUNTIME --> COORD
     COORD --> SPECIALISTS
     COORD --> DRAFTFLOW
+    COORD <--> MEMORY
     PULL --> FFMPEG
     PULL --> X
+    DEC -- approved paid-media action --> PULL
+    PULL --> VEO
+    PULL --> LYRIA
+    VEO --> STOR
+    LYRIA --> STOR
     PROACT --> HN
     PROACT --> COORD
     SCHED --> X
@@ -81,6 +94,8 @@ Harmonia, the ADK root coordinator, delegates strategy to Ryan (`ryan_strategist
 | Nimi copywriter | Gemma 3 12B IT on a configured Vertex endpoint | endpoint seconds + maximum allocation estimate |
 | Dara editor | Gemini 3.5 Flash | input/output tokens |
 | Temi planner | Gemini 3.5 Flash-Lite | input/output tokens |
+| Veo b-roll generator | Veo 3.1 Fast Generate | one 720p video generation ($0.08 catalog estimate) |
+| Lyria soundtrack generator | Lyria 3 Clip Preview | one 30-second music generation ($0.04 catalog estimate) |
 
 The role catalog is strict: an unavailable configured target fails the stage. Nimi does not switch to Gemini when the Gemma endpoint is absent or unavailable.
 
@@ -90,6 +105,12 @@ For a newly ingested YouTube job, Harmonia persists the source media digest and 
 
 No agent has publishing, approval, credential, or destructive tools. Temi can propose publish actions only from Dara-reviewed text; deterministic stage code adds packs and media actions before the existing human gate.
 
+### Managed runtime and persistent memory
+
+`TEAM_RUNTIME` is explicit. `local` uses one disposable ADK `InMemorySessionService`; `agent_engine` creates one managed Agent Engine session, seeds the typed job snapshot, streams state deltas, validates the required output keys, and deletes the session. Managed failure never switches to local execution or mocks.
+
+Memory Bank is separately enabled. Every retrieval and generation uses the exact two-key scope `{workspace_id, brand_id}`. Up to five facts are retrieved before analysis, strategy, or drafting. Writes are restricted to operator decisions, independently verified outcomes, deterministic learn-stage counts, and explicit preferences. Raw source material, transcripts, prompts, drafts, errors, and unverified claims are ineligible.
+
 ### One decision engine
 
 Every mutating action (approve, publish, schedule) flows through the same decision layer regardless of surface — dashboard button, chat message, or Telegram inline button. Telegram approvals additionally require an explicit callback tap; parsed text alone can never execute.
@@ -98,13 +119,15 @@ Every mutating action (approve, publish, schedule) flows through the same decisi
 
 Each stage transition is persisted first, then a stage trigger is published. The worker consumes stages through a push subscription on Cloud Run or an identical pull loop locally against the emulators. Jobs carry their full state (`transcriptSegments`, `moments`, `angles`, `drafts`, `actions`), so any stage can resume after a crash.
 
-The coordinator is the cognitive dispatcher, not the durable workflow engine. Pub/Sub owns asynchronous delivery and retry; Firestore owns resumable stage state, approvals, reservations, usage, receipts, and verification evidence.
+The coordinator is the cognitive dispatcher, not the durable workflow engine. Pub/Sub owns asynchronous delivery and retry; Firestore owns resumable stage state, approvals, reservations, usage, provider-operation IDs, receipts, and verification evidence. Agent Engine hosts cognitive turns; it does not replace the durable stage machine.
 
 ### Correlated observability and cost controls
 
 The web process creates or continues W3C context and places `traceparent`/`tracestate` in Pub/Sub attributes. The worker continues that context through `harmonia.stage.execute`, `harmonia.agent.invoke`, `harmonia.model.generate`, and `harmonia.output.validate`. Delegation is an explicit `harmonia.agent.delegate` event. Internal HTTP callbacks carry the same context.
 
 Before dispatch, every real ADK role, transcription call, and image generation reserves a deterministic operation cost in a Firestore transaction. Successful calls finalize immutable usage records grouped by job, stage, role, and model. Retried operation IDs reuse their reservation and usage document, preventing double charging. `/api/metrics` exposes calls, units, and estimated cost by role/model plus current reserved cost.
+
+Veo and Lyria reserve their current catalog amount before provider execution. Veo's long-running operation name is persisted in a Firestore subcollection before the first poll, so Pub/Sub redelivery resumes the same operation. Completed media is stored and independently digest-verified through the existing asset boundary. Both paid-media action types always wait for explicit operator approval.
 
 Trace attributes are metadata-only. Harmonia disables both current and legacy ADK message-content capture and never attaches prompts, responses, transcripts, drafts, or media bytes. The trace shows the execution graph and explicit structured decisions; it does not expose private chain-of-thought.
 
@@ -121,5 +144,5 @@ Verification never trusts the executor. Published posts are re-fetched from the 
 The learn stage measures published posts via public metrics, stores takeaways per job, and the insights feed is injected into future ideation prompts — closing the loop between what performed and what gets proposed next.
 
 <Warning>
-  Distinct role routing, the Gemma adapter, direct video attachment, budget enforcement, usage normalization, and metadata-only trace behavior are verified offline. Authenticated Gemini/Gemma execution and exported Cloud Trace correlation remain unverified until separate live evidence is captured.
+  Distinct role routing, the Gemma adapter, direct video attachment, managed-runtime adapter, exact-scope memory contracts, paid-media adapters, budget enforcement, usage normalization, and metadata-only trace behavior are verified offline. Authenticated Gemini/Gemma team execution, Agent Engine, Memory Bank, Veo, Lyria, and exported Cloud Trace correlation remain unverified until separate live evidence is captured.
 </Warning>

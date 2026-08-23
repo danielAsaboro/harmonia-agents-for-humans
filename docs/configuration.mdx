@@ -45,10 +45,18 @@ description: "Every environment variable Harmonia reads, with defaults and requi
 | `PLANNER_MODEL_ID` | no | `gemini-3.5-flash-lite` | Temi's narrow structured-planning model |
 | `GEMMA_VERTEX_ENDPOINT` | real drafting | — | Full Vertex endpoint resource backing Nimi; no fallback when absent |
 | `GEMMA_MAX_COST_USD` | no | `0.100000` | Maximum allocation reserved for one Gemma endpoint request |
+| `TEAM_RUNTIME` | no | `local` | `local` disposable ADK session or explicit `agent_engine`; any other value fails |
+| `AGENT_ENGINE_RESOURCE` | managed runtime | — | Full `projects/.../locations/.../reasoningEngines/...` resource; no runtime fallback |
+| `MEMORY_BANK_ENABLED` | no | `false` | Enable exact-scope Memory Bank retrieval and eligible-fact generation |
+| `MEMORY_BANK_RESOURCE` | with memory | Agent Engine resource | Reasoning-engine resource that owns the Memory Bank |
+| `HARMONIA_WORKSPACE_ID` | with memory | — | Stable first memory-scope key |
+| `HARMONIA_BRAND_ID` | with memory | — | Stable second memory-scope key; retrieval requires an exact two-key match |
+| `GENERATIVE_MEDIA_ENABLED` | no | `false` | Add approval-gated Veo and Lyria proposals |
+| `VERTEX_MEDIA_LOCATION` | no | `us-central1` | Veo Vertex region; Lyria 3 remains global |
 
 The pricing catalog uses decimal arithmetic and labels estimates with its version. A configured model without a catalog entry is not budget-authorized. Image calls reserve the configured maximum instead of being represented as free.
 
-Gemini serverless roles use token estimates. Gemma uses an explicit maximum request allocation and records endpoint seconds because endpoint infrastructure cost is not honestly interchangeable with serverless token pricing. The dashboard compares these labeled units without manufacturing a fake per-token Gemma price.
+Gemini serverless roles use token estimates. Gemma uses an explicit maximum request allocation and records endpoint seconds because endpoint infrastructure cost is not honestly interchangeable with serverless token pricing. Veo 3.1 Fast records one generation at `$0.08`; Lyria 3 Clip records one generation at `$0.04`, using the same immutable pricing version. The dashboard compares these labeled units without manufacturing a fake common unit.
 
 Telemetry contains identifiers, stage and role names, model names, usage units, costs, validation outcomes, and errors. It excludes prompts, responses, transcripts, draft text, and media bytes. These are execution/delegation traces, not private model reasoning.
 

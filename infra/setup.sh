@@ -14,9 +14,15 @@ echo "-- Enabling services"
 for svc in run.googleapis.com firestore.googleapis.com pubsub.googleapis.com \
            cloudbuild.googleapis.com secretmanager.googleapis.com iam.googleapis.com \
            aiplatform.googleapis.com cloudtrace.googleapis.com \
-           telemetry.googleapis.com monitoring.googleapis.com logging.googleapis.com; do
+           telemetry.googleapis.com monitoring.googleapis.com logging.googleapis.com \
+           storage.googleapis.com; do
   gcloud services enable "$svc" --project "${PROJECT_ID}"
 done
+
+echo "-- Agent Engine staging bucket"
+gcloud storage buckets create "gs://${PROJECT_ID}-harmonia-agent-staging" \
+  --location="${REGION}" --uniform-bucket-level-access --project="${PROJECT_ID}" \
+  2>/dev/null || echo "staging bucket exists"
 
 echo "-- Firestore (native mode)"
 if ! gcloud firestore databases describe --database='(default)' --project "${PROJECT_ID}" >/dev/null 2>&1; then

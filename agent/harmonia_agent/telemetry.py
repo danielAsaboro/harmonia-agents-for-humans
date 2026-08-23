@@ -110,6 +110,6 @@ def safe_attributes(values: Mapping[str, Any]) -> dict[str, Any]:
         segments = set(normalized.replace("/", ".").split("."))
         if segments & _CONTENT_FIELDS:
             continue
-        if value is None or isinstance(value, (str, bool, int, float)):
+        if isinstance(value, (str, bool, int, float)):
             safe[key] = value
     return safe

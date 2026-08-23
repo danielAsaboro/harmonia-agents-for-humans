@@ -248,3 +248,33 @@ def test_multimodal_source_uri_is_not_exported_in_trace_content():
         ]
     )
     assert source not in serialized
+
+
+def test_managed_runtime_finalizes_explicit_estimated_usage_for_every_reserved_role():
+    class ManagedRuntime:
+        async def invoke(self, **_kwargs):
+            return {
+                "analysis_result": {
+                    "summary": "managed", "moments": [], "angles": [],
+                },
+            }
+
+    reservations: list[dict] = []
+    reports: list[dict] = []
+    asyncio.run(_run_coordinator(
+        "sophia_analyst",
+        AnalystInput(title="Demo", transcript="[0s] proof"),
+        model="gemini-3.5-flash",
+        invocation=InvocationContext(
+            job_id="job-1", stage="understand", operation_id="job-1:understand:0",
+        ),
+        team_runtime=ManagedRuntime(),
+        budget_reserver=reservations.append,
+        usage_reporter=reports.append,
+    ))
+
+    assert [item["role"] for item in reports] == [
+        "harmonia_coordinator", "sophia_analyst",
+    ]
+    assert all(item["unitType"] == "tokens" for item in reports)
+    assert all(item.get("observedCostUsd") is None for item in reports)

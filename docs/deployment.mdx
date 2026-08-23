@@ -13,6 +13,8 @@ Harmonia's local stack runs the real Firestore and Pub/Sub emulators, so the dep
 |---|---|
 | Next.js web app | Cloud Run (with Firestore + Pub/Sub access) |
 | ADK worker | Cloud Run service with a Pub/Sub **push subscription** to `/pubsub/push`, authenticated via OIDC service account |
+| Cognitive runtime | Vertex AI Agent Engine (optional explicit production mode; no fallback) |
+| Long-term context | Agent Engine Memory Bank, exact workspace + brand scope |
 | State | Cloud Firestore (native mode) |
 | Stage triggers | Pub/Sub topic `harmonia-stages` |
 | Media assets | Cloud Storage (`GCS_BUCKET`) |
@@ -21,7 +23,7 @@ Harmonia's local stack runs the real Firestore and Pub/Sub emulators, so the dep
 
 ```bash
 gcloud services enable run.googleapis.com firestore.googleapis.com \
-  pubsub.googleapis.com storage.googleapis.com cloudtrace.googleapis.com \
+  pubsub.googleapis.com storage.googleapis.com aiplatform.googleapis.com cloudtrace.googleapis.com \
   telemetry.googleapis.com monitoring.googleapis.com logging.googleapis.com
 
 gcloud firestore databases create --location=<region>
@@ -42,6 +44,19 @@ Set the [configuration](/configuration) secrets as Cloud Run environment variabl
 
 Deploy Gemma 3 12B IT to a Vertex endpoint first, then set `GEMMA_VERTEX_ENDPOINT` to its full `projects/.../locations/.../endpoints/...` resource. The deployment script requires it and sends the six role model IDs separately. The worker identity needs prediction access to that endpoint; scope the binding to the endpoint/project used by Harmonia. There is no drafting fallback if the endpoint is unavailable.
 
+Deploy the cognitive hierarchy once, then point the Cloud Run worker at the returned resource:
+
+```bash
+cd agent
+./.venv/bin/python -m harmonia_agent.agent_engine_deploy \
+  --project "$PROJECT_ID" \
+  --location "$REGION" \
+  --staging-bucket "gs://$PROJECT_ID-harmonia-agent-staging" \
+  --service-account "harmonia-agent@$PROJECT_ID.iam.gserviceaccount.com"
+```
+
+Set `TEAM_RUNTIME=agent_engine` and the returned full `AGENT_ENGINE_RESOURCE`. To enable cross-session context, set `MEMORY_BANK_ENABLED=true`, `MEMORY_BANK_RESOURCE` (it may be the same reasoning engine), and stable `HARMONIA_WORKSPACE_ID` / `HARMONIA_BRAND_ID` values. To expose paid media proposals, set `GENERATIVE_MEDIA_ENABLED=true`. The worker identity already receives Vertex prediction access in `infra/setup.sh`; Memory Bank retrieval/generation and Veo/Lyria calls fail visibly if unavailable.
+
 ## Health and observability
 
 - `GET /healthz` on the worker reports model id and registered stages
@@ -57,11 +72,12 @@ Content capture must remain disabled in every deployed revision. Raw prompts, re
 
 1. Create a job from the deployed dashboard URL and watch it reach `awaiting_approval`.
 2. Read one job usage record and copy its `traceId`.
-3. Locate the same trace in Cloud Trace; confirm the Pub/Sub stage, agent invocation, model generation, and validation spans are correlated.
+3. Locate the same trace in Cloud Trace; confirm the Pub/Sub stage, Agent Engine invocation, memory lookup, agent/model generation, and validation spans are correlated.
 4. Confirm span attributes contain identifiers and usage metadata but none of the job's source or generated text.
 5. Compare the usage record's estimate with `/api/metrics`; keep platform estimates distinct from observed billing data.
 6. Approve an action and confirm its receipt and independent verification record.
+7. Approve one Veo or Lyria proposal, confirm its cost reservation, provider-operation record, stored asset digest, usage record, and independent verification.
 
 <Warning>
-Authenticated multimodal Gemini, Vertex Gemma, and Cloud telemetry execution are not verified merely by deploying this code. Capture a correlated trace plus its persisted usage records before presenting those integrations as live evidence.
+Authenticated multimodal Gemini, Vertex Gemma, Agent Engine, Memory Bank, Veo, Lyria, and Cloud telemetry execution are not verified merely by deploying this code. Capture a correlated trace plus its persisted sessions, memory operation, media operation, and usage records before presenting those integrations as live evidence.
 </Warning>

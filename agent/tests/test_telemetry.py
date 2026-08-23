@@ -31,6 +31,7 @@ def test_safe_attributes_drop_content_fields():
         "request.body": "private",
         "transcript": "private",
         "response": "private",
+        "optional": None,
     }) == {"job_id": "j1", "model": "m1"}
 
 

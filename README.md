@@ -17,7 +17,7 @@ ingest → transcribe → understand → draft → awaiting_approval → publish
 - **Understand**: Sophia uses Gemini multimodal video plus the transcript to identify clip-worthy spoken and visual moments, trend angles, and meme angles.
 - **Draft**: Nimi drafts with Gemma 3 on a configured Vertex endpoint, Dara reviews with Gemini, and Temi plans publish proposals with Flash-Lite; deterministic contracts validate every handoff.
 - **Awaiting approval**: publishing is proposed as discrete actions. The model cannot self-authorize.
-- **Publish**: approved actions execute idempotently (stable idempotency keys from `jobId + actionId + contentHash`); X posts go through the official X API v2.
+- **Publish**: approved actions execute idempotently (stable idempotency keys from `jobId + actionId + contentHash`); X posts go through the official X API v2, while separately approved Veo/Lyria actions create internal media assets.
 - **Verify**: published state is confirmed by fresh independent API reads — never because a model said so.
 
 ## Architecture
@@ -41,11 +41,14 @@ flowchart LR
         PUSH["Pub/Sub push receiver"]
         TG["Telegram long-poll worker"]
         STAGES[ingest · transcribe · understand ·<br/>draft · publish · verify handlers]
-        GEMC[Role-aware ADK team<br/>Flash-Lite · Flash · Gemma 3 endpoint]
+        RUNTIME[Local / Agent Engine<br/>explicit runtime adapter]
     end
 
     PS[[Pub/Sub topic]]
     FS[(Firestore<br/>jobs · events · receipts)]
+    MB[(Memory Bank<br/>workspace + brand scope)]
+    GEMC[Role-aware ADK team<br/>Flash-Lite · Flash · Gemma 3 endpoint]
+    MEDIA[Veo 3.1 Fast · Lyria 3 Clip]
     YT[YouTube]
     X[X API v2]
 
@@ -56,7 +59,9 @@ flowchart LR
     API -- stage transitions --> PS
     API <--> FS
     PS -- push subscription --> PUSH --> STAGES
-    STAGES <--> GEMC
+    STAGES --> RUNTIME <--> GEMC
+    STAGES <--> MB
+    STAGES -- approved paid-media actions --> MEDIA
     STAGES -- ingest --> YT
     STAGES -- publish + verify --> X
     STAGES -- results --> INT --> FS
@@ -77,10 +82,13 @@ flowchart LR
 ## Technology
 
 - **Heterogeneous Google models**: Gemini 3.5 Flash-Lite for routing/planning, Gemini 3.5 Flash for strategy/multimodal analysis/editing/transcription, and Gemma 3 12B IT on a Vertex endpoint for copywriting.
+- **Google generative media**: Veo 3.1 Fast for 4-second vertical b-roll and Lyria 3 Clip for 30-second music, both individually priced and always approval-gated.
 - **Google ADK** (Python) for the worker service and agent scaffolding.
+- **Vertex AI Agent Engine + Memory Bank** as explicit managed cognition and exact-scope cross-session context options; Firestore/Pub/Sub remain the durable workflow engine.
 - **Cloud Run** hosts both services (web: Next.js standalone build; agent: Python container).
 - **Firestore** persists job state, stage events, approvals, receipts, verifications, and packets.
 - **Pub/Sub** drives every stage transition; transient failures nack for redelivery, permanent failures stay visible.
+- **OpenTelemetry** exports metadata-only, W3C-correlated stage/agent/model/memory/media audit spans; the product does not collect private chain-of-thought.
 
 ## Local spin-up
 
@@ -153,6 +161,7 @@ Both services scale to zero. The web service is public-read; all mutations requi
 - **Idempotency**: every action carries a stable key derived from `(jobId, actionId, contentHash)`; duplicate deliveries produce `already_applied` receipts instead of duplicate posts.
 - **Audit receipts**: each execution records outcome (`applied` / `already_applied` / `failed`), artifact URL, and platform response in Firestore.
 - **Resumable state**: jobs survive worker crashes; Pub/Sub redelivery plus server-side stage guards (`assertTransition`) prevent duplicated side effects. Failed jobs retry from their failure point.
+- **Managed cognition without split-brain state**: Agent Engine sessions are invocation-scoped and discarded; Memory Bank stores only eligible durable facts under exact workspace/brand scope.
 - **Failure honesty**: permanent failures are preserved as visible unresolved gaps; errors never become simulated success.
 
 ## Project structure

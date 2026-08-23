@@ -113,10 +113,10 @@ class RoleModelInstances:
 
 
 def _model(model: str | BaseLlm | None = None) -> str | BaseLlm:
-    cfg = settings()
-    if cfg.gemini_api_key:
-        os.environ.setdefault("GOOGLE_API_KEY", cfg.gemini_api_key)
-    return model or cfg.model_id
+    configured = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if configured:
+        os.environ.setdefault("GOOGLE_API_KEY", configured)
+    return model or os.environ.get("MODEL_ID", "gemini-3.5-flash")
 
 
 def _instance_model_id(model: str | BaseLlm) -> str:
@@ -394,6 +394,37 @@ async def _run_coordinator(
             user_id=invocation.job_id if invocation else "system",
         )
         _validate_run_output(specialist, payload, final_state)
+        if invocation is not None:
+            serialized = payload.model_dump_json(exclude_none=True)
+            trace_id = current_trace_id()
+            for role in roles:
+                config = resolved.config_for(role)
+                model_id = _instance_model_id(resolved.model_for(role))
+                if config.provider == "vertex_endpoint":
+                    record = endpoint_usage_record(
+                        invocation=invocation,
+                        role=role,
+                        model=model_id,
+                        elapsed_seconds=0,
+                        estimated_cost_usd=config.reservation_usd or "0.000001",
+                        trace_id=trace_id,
+                    )
+                else:
+                    estimated_input, estimated_output = estimate_request_tokens(
+                        serialized * (2 if role == "harmonia_coordinator" else 1),
+                        config.max_output_tokens,
+                    )
+                    accumulator = UsageAccumulator(
+                        job_id=invocation.job_id,
+                        operation_id=invocation.role_operation_id(role),
+                        stage=invocation.stage,
+                        role=role,
+                        model=model_id,
+                    )
+                    accumulator.input_tokens = estimated_input
+                    accumulator.output_tokens = estimated_output
+                    record = accumulator.finalize(trace_id=trace_id)
+                usage_reporter(record.to_wire())
         return final_state
     service = InMemorySessionService()
     root = build_agent_team(models=resolved)

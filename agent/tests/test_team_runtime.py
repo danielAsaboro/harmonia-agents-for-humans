@@ -12,6 +12,7 @@ from harmonia_agent.team_runtime import (
     runtime_mode,
 )
 from harmonia_agent.agent_engine_app import build_agent_engine_app
+from harmonia_agent.agent_engine_deploy import build_deployment_config
 
 
 class _RemoteAgent:
@@ -118,3 +119,22 @@ def test_agent_engine_deployment_wraps_the_existing_root_hierarchy():
     assert [agent.name for agent in app.agent.sub_agents] == [
         "ryan_strategist", "sophia_analyst",
     ]
+
+
+def test_agent_engine_deployment_config_is_narrow_and_reproducible():
+    config = build_deployment_config(
+        staging_bucket="gs://harmonia-agent-staging",
+        service_account="harmonia-agent@p.iam.gserviceaccount.com",
+        environment={
+            "COORDINATOR_MODEL_ID": "gemini-3.5-flash-lite",
+            "GEMMA_VERTEX_ENDPOINT": "projects/p/locations/us-central1/endpoints/1",
+            "INTERNAL_API_TOKEN": "must-not-be-forwarded",
+        },
+    )
+    assert config["staging_bucket"] == "gs://harmonia-agent-staging"
+    assert config["service_account"] == "harmonia-agent@p.iam.gserviceaccount.com"
+    assert config["requirements"] == ["google-cloud-aiplatform[agent_engines,adk]>=1.153,<2"]
+    assert config["env_vars"] == {
+        "COORDINATOR_MODEL_ID": "gemini-3.5-flash-lite",
+        "GEMMA_VERTEX_ENDPOINT": "projects/p/locations/us-central1/endpoints/1",
+    }

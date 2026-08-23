@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { buildDemoChatRunEvents } from "./demo-a2ui-events.mjs";
+import { buildDemoStudioConversation } from "./demo-studio-conversation.mjs";
 
 process.env.FIRESTORE_EMULATOR_HOST ||= "127.0.0.1:8081";
 const PROJECT = process.env.GOOGLE_CLOUD_PROJECT || "harmonia-local";
@@ -53,14 +54,11 @@ function ffmpeg(args) {
 }
 
 // ---------- asset generation (real bytes) ----------
-function genImage(jobId, actionId, variant = "smptebars") {
+function genImage(jobId, actionId, variant = "editorial") {
   const key = `${jobId}_${actionId}`;
   const p = path.join(ARTIFACT_DIR, key);
-  if (variant === "color") {
-    ffmpeg(`-f lavfi -i "color=c=0x7c3aed:s=1080x1350:d=1" -frames:v 1 -f image2 "${p}"`);
-  } else {
-    ffmpeg(`-f lavfi -i "testsrc2=s=1080x1080:rate=1:duration=1" -frames:v 1 -f image2 "${p}"`);
-  }
+  const size = variant === "color" ? "1080x1350" : "1080x1080";
+  ffmpeg(`-f lavfi -i "color=c=0xf4f0e8:s=${size}:d=1" -vf "drawgrid=w=90:h=90:t=2:c=0x161512@0.12,drawbox=x=70:y=90:w=330:h=760:color=0x3157ff@0.96:t=fill,drawbox=x=430:y=240:w=510:h=270:color=0xd9ff43@0.98:t=fill,drawbox=x=560:y=610:w=360:h=300:color=0xff5c35@0.96:t=fill,drawbox=x=110:y=900:w=700:h=80:color=0x161512@0.96:t=fill" -frames:v 1 -f image2 "${p}"`);
   const bytes = readBytes(p);
   return { key, mime: "image/png", digest: digest(bytes), size: bytes.length };
 }
@@ -68,7 +66,7 @@ function genClip(jobId, actionId, seconds) {
   const key = `${jobId}_${actionId}`;
   const p = path.join(ARTIFACT_DIR, key);
   ffmpeg(
-    `-f lavfi -i "testsrc2=size=1080x1920:rate=24:duration=${seconds}" -f lavfi -i "sine=frequency=330:duration=${seconds}" -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p -c:a aac -shortest -movflags +faststart -f mp4 "${p}"`,
+    `-f lavfi -i "color=c=0x17151e:size=1080x1920:rate=24:duration=${seconds}" -f lavfi -i "sine=frequency=330:duration=${seconds}" -vf "drawgrid=w=120:h=120:t=3:c=0xd9ff43@0.22,drawbox=x='mod(t*180\,1340)-260':y=220:w=260:h=680:color=0x3157ff@0.96:t=fill,drawbox=x='1080-mod(t*130\,1380)':y=1120:w=300:h=300:color=0xff5c35@0.96:t=fill,drawbox=x=120:y=1510:w=840:h=90:color=0xd9ff43@0.96:t=fill" -c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p -c:a aac -shortest -movflags +faststart -f mp4 "${p}"`,
   );
   const bytes = readBytes(p);
   return { key, mime: "video/mp4", digest: digest(bytes), size: bytes.length };
@@ -439,38 +437,14 @@ async function main() {
 
   // ---------- demo chat history ----------
   await wipeChats();
-  const chats = [
-    { at: daysAgo(2, 9, 12), surface: "dashboard", role: "user", text: "create posts about our usage-based billing launch" },
-    { at: daysAgo(2, 9, 12, 20), surface: "dashboard", role: "assistant", text: "Created concept job demo-launch from your brief. Running research + ideation + drafting — I'll pause at the approval gate before anything is published.", data: { intent: "create_job", reply: "", jobId: "demo-launch", job: { id: "demo-launch", stage: "awaiting_approval", status: "waiting_for_approval", title: "Usage-based billing launch (demo)" } } },
-    { at: daysAgo(2, 10, 2), surface: "dashboard", role: "user", text: "show drafts for demo-clips" },
-    { at: daysAgo(2, 10, 2, 15), surface: "dashboard", role: "assistant", text: '1 drafted post(s) for "How we rebuilt onboarding around time-to-value (demo)":', data: { intent: "list_drafts", reply: "", jobId: "demo-clips", drafts: [{ id: "d1", platform: "x", text: "Your signup flow is an obstacle course. Ours was too — until we treated every step as a suspect.", valid: true }] } },
-    { at: daysAgo(1, 14, 30), surface: "telegram", role: "user", text: "status" },
-    { at: daysAgo(1, 14, 30, 25), surface: "telegram", role: "assistant", text: "4 recent job(s), newest first:", data: { intent: "status", reply: "", jobs: [
-      { id: "demo-podcast", stage: "understand", status: "running" },
-      { id: "demo-launch", stage: "awaiting_approval", status: "waiting_for_approval" },
-      { id: "demo-failed", stage: "failed", status: "failed", failure: { stage: "transcribe", error: "GEMINI_API_KEY is not configured", permanent: true } },
-      { id: "demo-clips", stage: "complete", status: "complete" },
-    ] } },
-    { at: daysAgo(1, 16, 45), surface: "dashboard", role: "user", text: "approve job demo-onboarding" },
-    { at: daysAgo(1, 16, 45, 18), surface: "dashboard", role: "assistant", text: "Approved 'We deleted 11 onboarding steps…' for job demo-onboarding. Approved. Publishing dispatched (publish).", data: { intent: "approve", reply: "", jobId: "demo-onboarding", outcome: { ok: true, triggered: "publish" } } },
-    { at: daysAgo(0, 8, 55), surface: "dashboard", role: "user", text: "turn https://www.youtube.com/watch?v=jNQXAC9IVRw into clips" },
-    { at: daysAgo(0, 8, 55, 20), surface: "dashboard", role: "assistant", text: "Created job demo-clips for video jNQXAC9IVRw. Pipeline ran end to end: 2 captioned vertical clips + a stitched reel are ready — here they are:", data: { intent: "create_job", reply: "", chatRunId: DEMO_A2UI_RUN_ID, jobId: "demo-clips", job: { id: "demo-clips", stage: "complete", status: "complete", title: "How we rebuilt onboarding around time-to-value (demo)" }, assets: [
-      { actionId: "act-clip-demo1", mime: "video/mp4" },
-      { actionId: "act-reel-top2", mime: "video/mp4" },
-      { actionId: "act-img-demo01", mime: "image/png" },
-    ] } },
-    { at: daysAgo(0, 9, 40), surface: "dashboard", role: "user", text: "show drafts for demo-clips" },
-    { at: daysAgo(0, 9, 40, 15), surface: "dashboard", role: "assistant", text: '1 drafted post(s) for "How we rebuilt onboarding around time-to-value (demo)":', data: { intent: "list_drafts", reply: "", jobId: "demo-clips", drafts: [{ id: "d1", platform: "x", text: "Your signup flow is an obstacle course. Ours was too — until we treated every step as a suspect.", valid: true }], assets: [
-      { actionId: "act-img-demo01", mime: "image/png" },
-      { actionId: "act-clip-demo1", mime: "video/mp4" },
-    ] } },
-  ];
+  const chats = buildDemoStudioConversation({ runId: DEMO_A2UI_RUN_ID });
+  const conversationStarted = daysAgo(0, 8, 45);
   for (let i = 0; i < chats.length; i++) {
     // guarantee strictly ascending timestamps for stable history order
-    const at = new Date(chats[i].at.getTime() + i * 41_000);
+    const at = new Date(conversationStarted.getTime() + i * 45_000);
     await tenantCollection("chat_messages").add({ ...chats[i], at: ts(at) });
   }
-  console.log(`seeded ${chats.length} chat messages (dashboard + telegram history)`);
+  console.log(`seeded ${chats.length} studio chat messages (single dashboard conversation)`);
 
   if (!demoAssetMeta) throw new Error("demo asset metadata was not generated");
   const runRef = tenantCollection("chat_runs").doc(DEMO_A2UI_RUN_ID);

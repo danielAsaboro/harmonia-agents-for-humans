@@ -83,6 +83,7 @@ class ReceiptSummary(StrictModel):
 
 
 class UiContext(StrictModel):
+    runId: str = Field(min_length=1, max_length=200)
     operatorRequest: str = Field(min_length=1, max_length=2_000)
     intent: str = Field(min_length=1, max_length=100)
     job: JobSummary | None = None
@@ -141,4 +142,3 @@ class SurfacePlan(StrictModel):
         if len(slots) != len(set(slots)):
             raise ValueError("surface plan slots must be unique")
         return self
-

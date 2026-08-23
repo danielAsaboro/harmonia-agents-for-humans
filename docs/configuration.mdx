@@ -9,6 +9,7 @@ description: "Every environment variable Harmonia reads, with defaults and requi
 |---|---|---|---|
 | `GEMINI_API_KEY` | for real AI | — | Gemini API key used by chat intent parsing |
 | `INTERNAL_API_TOKEN` | yes | — | Bearer token the worker must present to internal routes |
+| `AGENT_SERVICE_URL` | yes | — | Private FastAPI worker URL used for managed ADK A2UI presentation planning |
 | `MODEL_ID` | no | `gemini-3.5-flash` | Gemini model id |
 | `FIRESTORE_EMULATOR_HOST` | local dev | — | e.g. `127.0.0.1:8081`; unset = real Firestore |
 | `GOOGLE_CLOUD_PROJECT` | cloud | `harmonia-local` | Project id |
@@ -44,6 +45,7 @@ description: "Every environment variable Harmonia reads, with defaults and requi
 | `COPYWRITER_MODEL_ID` | no | `gemma-3-12b-it` | Nimi's open-model endpoint label |
 | `EDITOR_MODEL_ID` | no | `gemini-3.5-flash` | Dara's constraint-preserving editor model |
 | `PLANNER_MODEL_ID` | no | `gemini-3.5-flash-lite` | Temi's narrow structured-planning model |
+| `PRESENTER_MODEL_ID` | no | `gemini-3.5-flash` | Maya's reference-only A2UI composition model |
 | `GEMMA_VERTEX_ENDPOINT` | real drafting | — | Full Vertex endpoint resource backing Nimi; no fallback when absent |
 | `GEMMA_MAX_COST_USD` | no | `0.100000` | Maximum allocation reserved for one Gemma endpoint request |
 | `AGENT_ENGINE_RESOURCE` | yes | — | Full `projects/.../locations/.../reasoningEngines/...` resource; Agent Engine is the only runtime |

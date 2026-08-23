@@ -54,6 +54,7 @@ const receiptSummarySchema = z.object({
 }).strict();
 
 export const uiContextSchema = z.object({
+  runId: id,
   operatorRequest: z.string().min(1).max(2_000),
   intent: z.string().min(1).max(100),
   job: jobSummarySchema.nullable().optional(),
@@ -94,7 +95,14 @@ const entityRefsSchema = z.object({
 const surfacePlanNodeSchema = z.object({
   id,
   component: z.enum(surfaceComponentNames),
-  refs: entityRefsSchema.default({}),
+  refs: entityRefsSchema.default(() => ({
+    draftIds: [],
+    momentIds: [],
+    sourceIds: [],
+    assetActionIds: [],
+    actionIds: [],
+    receiptIds: [],
+  })),
   title: z.string().max(160).optional(),
   emphasis: z.enum(["primary", "secondary", "compact"]).default("primary"),
   children: boundedList(id, 30).default([]),

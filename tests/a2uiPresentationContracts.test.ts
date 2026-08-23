@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { surfacePlanSchema, uiContextSchema } from "../src/lib/a2ui/presentationContracts";
 
 const context = {
+  runId: "run-1",
   operatorRequest: "Compare the launch drafts.",
   intent: "list_drafts",
   job: {
@@ -22,6 +23,11 @@ const context = {
 describe("A2UI presentation contracts", () => {
   it("accepts bounded reference summaries", () => {
     expect(uiContextSchema.parse(context).drafts[0].id).toBe("draft-1");
+  });
+
+  it("requires a durable run id", () => {
+    const { runId: _runId, ...withoutRunId } = context;
+    expect(uiContextSchema.safeParse(withoutRunId).success).toBe(false);
   });
 
   it("accepts known components with entity references", () => {

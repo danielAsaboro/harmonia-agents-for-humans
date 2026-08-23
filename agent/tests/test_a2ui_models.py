@@ -6,6 +6,7 @@ from harmonia_agent.a2ui_models import SurfacePlan, UiContext
 
 def context_payload() -> dict:
     return {
+        "runId": "run-1",
         "operatorRequest": "Compare the launch drafts.",
         "intent": "list_drafts",
         "job": {
@@ -37,6 +38,14 @@ def test_ui_context_accepts_bounded_reference_summaries() -> None:
     assert context.job is not None
     assert context.job.id == "job-1"
     assert context.drafts[0].id == "draft-1"
+
+
+def test_ui_context_requires_a_durable_run_id() -> None:
+    payload = context_payload()
+    del payload["runId"]
+
+    with pytest.raises(ValidationError):
+        UiContext.model_validate(payload)
 
 
 def test_surface_plan_accepts_only_known_components_and_references() -> None:
@@ -111,4 +120,3 @@ def test_surface_plan_rejects_dangling_children() -> None:
                 ],
             }
         )
-

@@ -6,6 +6,7 @@ const envSchema = z.object({
   FIRESTORE_JOB_COLLECTION: z.string().default("jobs"),
   PUBSUB_STAGE_TOPIC: z.string().default("harmonia-stages"),
   INTERNAL_API_TOKEN: z.string().min(1),
+  AGENT_SERVICE_URL: z.string().url(),
   GEMINI_API_KEY: z.string().min(1).optional(),
   MODEL_ID: z.string().default("gemini-3.5-flash"),
   DEFAULT_JOB_BUDGET_USD: z.string().regex(/^\d+\.\d{1,6}$/).default("5.00"),

@@ -13,6 +13,7 @@ from harmonia_agent.usage import InvocationContext
 def context_fixture() -> UiContext:
     return UiContext.model_validate(
         {
+            "runId": "run-1",
             "operatorRequest": "Show the strongest moments.",
             "intent": "status",
             "job": {
@@ -119,4 +120,3 @@ def test_plan_surface_rejects_invalid_managed_output() -> None:
                 usage_reporter=lambda _record: None,
             )
         )
-

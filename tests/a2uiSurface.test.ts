@@ -27,6 +27,38 @@ describe("Harmonia A2UI surfaces", () => {
     })).toThrow("not registered");
   });
 
+  test("the trusted host accepts hydrated Harmonia workspace components", () => {
+    const operations = [{
+      version: "v0.9",
+      createSurface: { surfaceId: "studio-run-1-approval-r1", catalogId: "https://harmonia.app/a2ui/catalogs/chat/v1" },
+    }, {
+      version: "v0.9",
+      updateComponents: {
+        surfaceId: "studio-run-1-approval-r1",
+        components: [{ id: "root", component: "Column", children: ["approval"] }, {
+          id: "approval",
+          component: "ApprovalReview",
+          jobId: "job-1",
+          actionId: "publish-1",
+          actionType: "publish_x_post",
+          title: "Publish launch post",
+          description: "Publish the approved post.",
+          risk: "high",
+          requiresApproval: true,
+          approvalState: "pending",
+          actionState: "planned",
+          children: [],
+          emphasis: "primary",
+          agentFraming: false,
+        }],
+      },
+    }];
+    expect(() => operations.map(parseHarmoniaA2uiOperation)).not.toThrow();
+    const processor = new MessageProcessor([harmoniaCatalog]);
+    processor.processMessages(operations as never[]);
+    expect(processor.model.getSurface("studio-run-1-approval-r1")?.componentsModel.get("approval")).toBeTruthy();
+  });
+
   test("preserves drafts, generated assets, and existing action confirmations", () => {
     const operations = buildResponseSurface("run-2", {
       intent: "list_drafts",

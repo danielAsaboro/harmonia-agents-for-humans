@@ -115,6 +115,7 @@ describe("A2UI trusted hydration", () => {
     });
     const update = result.canvas[1] as { updateComponents: { components: Array<Record<string, unknown>> } };
     expect(update.updateComponents.components).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "root", component: "Column", children: ["brief"] }),
       expect.objectContaining({ id: "brief", component: "CampaignBrief", children: ["drafts"] }),
       expect.objectContaining({ id: "drafts", component: "DraftComparison" }),
     ]));

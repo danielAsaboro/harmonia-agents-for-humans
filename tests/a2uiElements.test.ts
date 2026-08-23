@@ -7,6 +7,12 @@ import {
   InlineCitation,
   ReasoningSummary,
 } from "../src/components/a2ui/HarmoniaElements";
+import {
+  ApprovalReview,
+  DraftComparison,
+  MomentExplorer,
+  VerificationReceipt,
+} from "../src/components/a2ui/HarmoniaWorkspaceElements";
 
 describe("Harmonia A2UI elements", () => {
   test("activity trace renders safe progress without private reasoning", () => {
@@ -46,5 +52,67 @@ describe("Harmonia A2UI elements", () => {
     }));
     expect(html).toContain("Reasoning summary");
     expect(html).toContain("uploaded transcript");
+  });
+});
+
+describe("Harmonia generated workspace elements", () => {
+  test("renders a source-grounded draft comparison", () => {
+    const html = renderToStaticMarkup(createElement(DraftComparison, {
+      title: "Choose the launch voice",
+      agentFraming: true,
+      drafts: [{ id: "d1", platform: "x", text: "Ship outcomes.", valid: true, selected: true, sourceCount: 1 }],
+    }));
+    expect(html).toContain("Choose the launch voice");
+    expect(html).toContain("Ship outcomes.");
+    expect(html).toContain("1 source");
+    expect(html).toContain("Agent framing");
+  });
+
+  test("renders moments with semantic timing and transcript evidence", () => {
+    const html = renderToStaticMarkup(createElement(MomentExplorer, {
+      title: "Proof moments",
+      source: { id: "source-video", label: "Founder interview", kind: "video", externalUrl: "https://www.youtube.com/watch?v=abcdefghijk" },
+      moments: [{ id: "m1", title: "Setup proof", startSec: 4, endSec: 12, hook: "Half the setup", quote: "We cut setup time by half.", selected: true }],
+      transcript: [{ id: "s1", startSec: 4, endSec: 12, text: "We cut setup time by half." }],
+    }));
+    expect(html).toContain("Proof moments");
+    expect(html).toContain("00:04");
+    expect(html).toContain("We cut setup time by half.");
+    expect(html).toContain('target="_blank"');
+  });
+
+  test("never renders approval controls from generated review detail", () => {
+    const html = renderToStaticMarkup(createElement(ApprovalReview, {
+      actionId: "publish-1",
+      actionType: "publish_x_post",
+      title: "Publish launch post",
+      description: "Publish the approved post.",
+      risk: "high",
+      requiresApproval: true,
+      approvalState: "approved",
+      actionState: "executed",
+      destination: "X",
+      previewText: "Outcome launch.",
+    }));
+    expect(html).toContain("publish-1");
+    expect(html).toContain("Outcome launch.");
+    expect(html).not.toContain("Approve and continue");
+    expect(html).not.toContain("Reject");
+  });
+
+  test("renders verification evidence without exposing receipt detail payloads", () => {
+    const html = renderToStaticMarkup(createElement(VerificationReceipt, {
+      receiptId: "receipt-1",
+      actionId: "publish-1",
+      actionType: "publish_x_post",
+      title: "Verified external effect",
+      performedAt: "2026-08-23T00:02:00.000Z",
+      outcome: "applied",
+      verified: true,
+      verificationMethod: "official API lookup",
+    }));
+    expect(html).toContain("Verified");
+    expect(html).toContain("official API lookup");
+    expect(html).not.toContain("idempotencyKey");
   });
 });

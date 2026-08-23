@@ -1,0 +1,241 @@
+import type { ReactNode } from "react";
+import styles from "./HarmoniaWorkspaceElements.module.css";
+
+type Emphasis = "primary" | "secondary" | "compact";
+
+interface FrameProps {
+  title: string;
+  agentFraming?: boolean;
+  emphasis?: Emphasis;
+  children?: ReactNode;
+}
+
+function clock(seconds: number): string {
+  const value = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(value / 60).toString().padStart(2, "0")}:${(value % 60).toString().padStart(2, "0")}`;
+}
+
+function FrameHeading({ title, agentFraming }: Pick<FrameProps, "title" | "agentFraming">) {
+  return (
+    <header className={styles.heading}>
+      <div>
+        {agentFraming && <span className={styles.agentLabel}>Agent framing</span>}
+        <h3>{title}</h3>
+      </div>
+    </header>
+  );
+}
+
+function Nested({ children }: { children?: ReactNode }) {
+  return children ? <div className={styles.nested}>{children}</div> : null;
+}
+
+export interface CampaignBriefProps extends FrameProps {
+  brief: string;
+  sourceKind: "written" | "video" | "audio" | "mixed";
+  platforms: string[];
+  angles: Array<{ id: string; kind: "trend" | "meme"; title: string; rationale: string }>;
+}
+
+export function CampaignBrief({ title, brief, sourceKind, platforms, angles, agentFraming, emphasis, children }: CampaignBriefProps) {
+  return (
+    <article className={styles.brief} data-emphasis={emphasis ?? "primary"}>
+      <FrameHeading title={title} agentFraming={agentFraming} />
+      <p className={styles.briefCopy}>{brief}</p>
+      <dl className={styles.factRow}>
+        <div><dt>Source</dt><dd>{sourceKind}</dd></div>
+        <div><dt>Destinations</dt><dd>{platforms.join(", ") || "Not selected"}</dd></div>
+        <div><dt>Angles</dt><dd>{angles.length}</dd></div>
+      </dl>
+      {angles.length > 0 && <ul className={styles.angleList}>{angles.map((angle) => <li key={angle.id}><span>{angle.kind}</span><strong>{angle.title}</strong><p>{angle.rationale}</p></li>)}</ul>}
+      <Nested>{children}</Nested>
+    </article>
+  );
+}
+
+export interface JobProgressProps extends FrameProps {
+  stage: string;
+  status: string;
+  stages: Array<{ id: string; label: string; status: "pending" | "active" | "complete" | "failed" }>;
+}
+
+export function JobProgress({ title, stage, status, stages, agentFraming, emphasis, children }: JobProgressProps) {
+  return (
+    <section className={styles.progress} data-emphasis={emphasis ?? "primary"} aria-label={`${title}: ${status}`}>
+      <FrameHeading title={title} agentFraming={agentFraming} />
+      <div className={styles.progressMeta}><strong>{stage.replaceAll("_", " ")}</strong><span>{status.replaceAll("_", " ")}</span></div>
+      <ol className={styles.progressTrack}>{stages.map((item) => <li key={item.id} data-status={item.status}><span aria-hidden="true" /><small>{item.label}</small></li>)}</ol>
+      <Nested>{children}</Nested>
+    </section>
+  );
+}
+
+export interface MomentExplorerProps extends FrameProps {
+  source?: { id: string; label: string; kind: "video" | "audio" | "media"; previewUrl?: string; externalUrl?: string; durationSec?: number };
+  moments: Array<{ id: string; title: string; startSec: number; endSec: number; hook: string; quote: string; visualHook?: string; cropSuitability?: string; selected: boolean }>;
+  transcript: Array<{ id: string; startSec: number; endSec: number; text: string }>;
+}
+
+export function MomentExplorer({ title, source, moments, transcript, agentFraming, emphasis, children }: MomentExplorerProps) {
+  const duration = source?.durationSec || Math.max(1, ...moments.map((moment) => moment.endSec));
+  return (
+    <figure className={styles.momentExplorer} data-emphasis={emphasis ?? "primary"}>
+      <FrameHeading title={title} agentFraming={agentFraming} />
+      <div className={styles.momentGrid}>
+        <div className={styles.sourcePane}>
+          {source?.previewUrl && source.kind === "video" && <video src={source.previewUrl} controls preload="metadata" aria-label={source.label} />}
+          {source?.previewUrl && source.kind === "audio" && <audio src={source.previewUrl} controls aria-label={source.label} />}
+          {!source?.previewUrl && <div className={styles.sourcePoster}><span>{source?.kind ?? "source"}</span><strong>{source?.label ?? "Source media"}</strong></div>}
+          {source?.externalUrl && <a href={source.externalUrl} target="_blank" rel="noreferrer">Open authenticated source ↗</a>}
+          <div className={styles.timeline} aria-label="Selected clip timeline">
+            {moments.map((moment) => <span key={moment.id} data-selected={moment.selected} style={{ left: `${Math.min(100, (moment.startSec / duration) * 100)}%`, width: `${Math.max(2, ((moment.endSec - moment.startSec) / duration) * 100)}%` }} title={`${moment.title}, ${clock(moment.startSec)} to ${clock(moment.endSec)}`} />)}
+          </div>
+        </div>
+        <ol className={styles.momentList}>{moments.map((moment) => (
+          <li key={moment.id} data-selected={moment.selected}>
+            <div className={styles.timecode}><time>{clock(moment.startSec)}</time><span>→</span><time>{clock(moment.endSec)}</time></div>
+            <h4>{moment.title}</h4>
+            <p>{moment.hook}</p>
+            <blockquote>{moment.quote}</blockquote>
+            {moment.cropSuitability && <small>{moment.cropSuitability} crop</small>}
+          </li>
+        ))}</ol>
+      </div>
+      {transcript.length > 0 && <details className={styles.transcript} open><summary>Grounded transcript</summary><ol>{transcript.map((segment) => <li key={segment.id}><time>{clock(segment.startSec)}</time><p>{segment.text}</p></li>)}</ol></details>}
+      <Nested>{children}</Nested>
+    </figure>
+  );
+}
+
+export interface HydratedDraftView {
+  id: string;
+  platform: string;
+  text: string;
+  valid: boolean;
+  validationNote?: string;
+  momentId?: string;
+  angleId?: string;
+  selected: boolean;
+  sourceCount: number;
+}
+
+export interface DraftComparisonProps extends FrameProps { drafts: HydratedDraftView[] }
+
+export function DraftComparison({ title, drafts, agentFraming, emphasis, children }: DraftComparisonProps) {
+  return (
+    <section className={styles.draftComparison} data-emphasis={emphasis ?? "primary"}>
+      <FrameHeading title={title} agentFraming={agentFraming} />
+      <div className={styles.draftGrid}>{drafts.map((draft) => (
+        <article key={draft.id} data-selected={draft.selected}>
+          <header><span>{draft.platform}</span><strong>{draft.valid ? "Ready" : "Needs revision"}</strong></header>
+          <p className={styles.draftText}>{draft.text}</p>
+          <footer><span>{draft.sourceCount} {draft.sourceCount === 1 ? "source" : "sources"}</span><code>{draft.id}</code></footer>
+          {draft.validationNote && <p className={styles.validation}>{draft.validationNote}</p>}
+        </article>
+      ))}</div>
+      <Nested>{children}</Nested>
+    </section>
+  );
+}
+
+export interface PlatformPreviewProps extends FrameProps {
+  draft: HydratedDraftView;
+  assets: Array<{ actionId: string; mime: string; previewUrl: string }>;
+}
+
+export function PlatformPreview({ title, draft, assets, agentFraming, emphasis, children }: PlatformPreviewProps) {
+  return (
+    <article className={styles.platformPreview} data-emphasis={emphasis ?? "primary"}>
+      <FrameHeading title={title} agentFraming={agentFraming} />
+      <div className={styles.socialCard}>
+        <header><span className={styles.avatar}>H</span><div><strong>Harmonia campaign</strong><small>@startup · draft</small></div><span>•••</span></header>
+        <p>{draft.text}</p>
+        {assets.map((asset) => asset.mime.startsWith("image/")
+          // Dynamic, authenticated job assets cannot use Next's unauthenticated image optimizer.
+          // eslint-disable-next-line @next/next/no-img-element
+          ? <img key={asset.actionId} src={asset.previewUrl} alt={`Generated asset ${asset.actionId}`} />
+          : asset.mime.startsWith("video/")
+            ? <video key={asset.actionId} src={asset.previewUrl} controls preload="metadata" aria-label={`Generated asset ${asset.actionId}`} />
+            : asset.mime.startsWith("audio/")
+              ? <audio key={asset.actionId} src={asset.previewUrl} controls aria-label={`Generated asset ${asset.actionId}`} />
+              : null)}
+        <footer><span>Reply</span><span>Repost</span><span>Like</span><span>Share</span></footer>
+      </div>
+      <Nested>{children}</Nested>
+    </article>
+  );
+}
+
+export interface SourceEvidenceProps extends FrameProps {
+  sources: Array<{ id: string; kind: string; label: string; url?: string; excerpt?: string }>;
+  links: Array<{ fromId: string; toId: string; label: string }>;
+}
+
+export function SourceEvidence({ title, sources, links, agentFraming, emphasis, children }: SourceEvidenceProps) {
+  return (
+    <section className={styles.evidence} data-emphasis={emphasis ?? "primary"}>
+      <FrameHeading title={title} agentFraming={agentFraming} />
+      <ol>{sources.map((source) => <li key={source.id}><span>{source.kind}</span><div><strong>{source.label}</strong>{source.excerpt && <blockquote>{source.excerpt}</blockquote>}{source.url && <a href={source.url} target="_blank" rel="noreferrer">Open source ↗</a>}</div><code>{source.id}</code></li>)}</ol>
+      {links.length > 0 && <details><summary>{links.length} provenance {links.length === 1 ? "link" : "links"}</summary><ul>{links.map((link, index) => <li key={`${link.fromId}-${link.toId}-${index}`}><code>{link.fromId}</code><span>{link.label}</span><code>{link.toId}</code></li>)}</ul></details>}
+      <Nested>{children}</Nested>
+    </section>
+  );
+}
+
+export interface ApprovalReviewProps extends FrameProps {
+  actionId: string;
+  actionType: string;
+  description: string;
+  risk: "low" | "medium" | "high";
+  requiresApproval: boolean;
+  approvalState: "not_required" | "pending" | "approved" | "rejected";
+  actionState: "planned" | "executed" | "skipped" | "failed";
+  destination?: string;
+  previewText?: string;
+}
+
+export function ApprovalReview({ title, actionId, actionType, description, risk, requiresApproval, approvalState, actionState, destination, previewText, agentFraming, emphasis, children }: ApprovalReviewProps) {
+  return (
+    <aside className={styles.approval} data-risk={risk} data-emphasis={emphasis ?? "primary"}>
+      <FrameHeading title={title} agentFraming={agentFraming} />
+      <div className={styles.approvalMeta}><span>{risk} risk</span><span>{approvalState.replaceAll("_", " ")}</span><code>{actionId}</code></div>
+      <p>{description}</p>
+      {previewText && <blockquote>{previewText}</blockquote>}
+      <dl><div><dt>Action</dt><dd>{actionType.replaceAll("_", " ")}</dd></div>{destination && <div><dt>Destination</dt><dd>{destination}</dd></div>}<div><dt>Execution</dt><dd>{actionState}</dd></div></dl>
+      {requiresApproval && approvalState === "pending" && <p className={styles.guardrail}>Publishing remains blocked until the operator uses Harmonia’s protected approval controls.</p>}
+      <Nested>{children}</Nested>
+    </aside>
+  );
+}
+
+export interface VerificationReceiptProps extends FrameProps {
+  receiptId: string;
+  actionId: string;
+  actionType: string;
+  performedAt: string;
+  outcome: "applied" | "already_applied" | "rejected" | "failed";
+  verified: boolean;
+  verificationMethod?: string;
+  verificationNote?: string;
+  artifact?: { kind: string; url?: string; digest?: string | null };
+}
+
+export function VerificationReceipt({ title, receiptId, actionId, actionType, performedAt, outcome, verified, verificationMethod, verificationNote, artifact, agentFraming, emphasis, children }: VerificationReceiptProps) {
+  return (
+    <article className={styles.receipt} data-verified={verified} data-emphasis={emphasis ?? "primary"}>
+      <FrameHeading title={title} agentFraming={agentFraming} />
+      <div className={styles.receiptSeal}><span aria-hidden="true">{verified ? "✓" : "!"}</span><div><strong>{verified ? "Verified" : "Unverified"}</strong><small>{outcome.replaceAll("_", " ")}</small></div></div>
+      <dl><div><dt>Receipt</dt><dd><code>{receiptId}</code></dd></div><div><dt>Action</dt><dd><code>{actionId}</code> · {actionType.replaceAll("_", " ")}</dd></div><div><dt>Performed</dt><dd><time dateTime={performedAt}>{new Date(performedAt).toLocaleString("en", { timeZone: "UTC" })} UTC</time></dd></div>{verificationMethod && <div><dt>Method</dt><dd>{verificationMethod}</dd></div>}</dl>
+      {verificationNote && <p>{verificationNote}</p>}
+      {artifact?.url && <a href={artifact.url} target="_blank" rel="noreferrer">Inspect evidence ↗</a>}
+      {artifact?.digest && <code className={styles.digest}>{artifact.kind} · {artifact.digest}</code>}
+      <Nested>{children}</Nested>
+    </article>
+  );
+}
+
+export interface SurfaceStateProps extends FrameProps { message: string }
+export function SurfaceLoading(props: SurfaceStateProps) { return <section className={styles.state} aria-live="polite"><FrameHeading title={props.title} agentFraming={props.agentFraming} /><p>{props.message}</p><span className={styles.loadingBar} /><Nested>{props.children}</Nested></section>; }
+export function SurfaceEmpty(props: SurfaceStateProps) { return <section className={styles.state}><FrameHeading title={props.title} agentFraming={props.agentFraming} /><p>{props.message}</p><Nested>{props.children}</Nested></section>; }
+export function SurfaceUnresolved(props: SurfaceStateProps & { missingRefs: string[] }) { return <section className={styles.state} data-state="unresolved"><FrameHeading title={props.title} agentFraming={props.agentFraming} /><p>{props.message}</p><code>{props.missingRefs.join(", ")}</code><Nested>{props.children}</Nested></section>; }
+export function SurfaceFailure(props: SurfaceStateProps & { retryable: boolean }) { return <section className={styles.state} data-state="failed" role="alert"><FrameHeading title={props.title} agentFraming={props.agentFraming} /><p>{props.message}</p>{props.retryable && <small>Retry is available from the conversation.</small>}<Nested>{props.children}</Nested></section>; }

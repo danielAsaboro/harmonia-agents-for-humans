@@ -292,21 +292,24 @@ function hydrateNode(node: PlannedNode, job: JobFull | null | undefined, receipt
       }) as CatalogRecord;
     }
     case "SurfaceLoading":
-      return parseCatalogComponent({ ...base, component: node.component, ...framing(node, "Preparing the workspace"), message: "Harmonia is resolving the latest persisted campaign state." }) as CatalogRecord;
+      return parseCatalogComponent({ id: node.id, component: node.component, ...framing(node, "Preparing the workspace"), message: "Harmonia is resolving the latest persisted campaign state." }) as CatalogRecord;
     case "SurfaceEmpty":
-      return parseCatalogComponent({ ...base, component: node.component, ...framing(node, "Nothing to show yet"), message: "This campaign has not produced content for this view yet." }) as CatalogRecord;
+      return parseCatalogComponent({ id: node.id, component: node.component, ...framing(node, "Nothing to show yet"), message: "This campaign has not produced content for this view yet." }) as CatalogRecord;
     case "SurfaceUnresolved":
       return unresolved(node, ["presenter-requested-unresolved-state"]);
     case "SurfaceFailure":
-      return parseCatalogComponent({ ...base, component: node.component, ...framing(node, "Workspace unavailable"), message: "The generated workspace could not be prepared from current state.", retryable: true }) as CatalogRecord;
+      return parseCatalogComponent({ id: node.id, component: node.component, ...framing(node, "Workspace unavailable"), message: "The generated workspace could not be prepared from current state.", retryable: true }) as CatalogRecord;
   }
 }
 
 function hydrateSurface(runId: string, surface: PlannedSurface, job: JobFull | null | undefined, receipts: Receipt[]) {
   const components = surface.nodes.map((node) => hydrateNode(node, job, receipts));
-  let layoutId = "__harmonia_surface_root__";
-  while (surface.nodes.some((node) => node.id === layoutId)) layoutId = `_${layoutId}`;
-  components.unshift({ id: layoutId, component: "Column", children: [surface.rootId] });
+  if (surface.rootId !== "root") {
+    if (surface.nodes.some((node) => node.id === "root")) {
+      throw new Error("A2UI surface reserves root for its reachable layout root");
+    }
+    components.unshift({ id: "root", component: "Column", children: [surface.rootId] });
+  }
   const surfaceId = `studio-${runId}-${surface.slot}-r${surface.revision}`;
   return [
     { version: "v0.9", createSurface: { surfaceId, catalogId: HARMONIA_CATALOG_ID } },

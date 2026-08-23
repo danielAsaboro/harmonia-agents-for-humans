@@ -1,11 +1,13 @@
 import type { ChatRunState } from "@/lib/a2ui/chatReducer";
 import type { ConsoleMessage } from "@/lib/chatSessions";
+import type { ComposerAttachment } from "@/components/a2ui/AttachmentComposer";
 
 export type StudioChapterKey = "discovery" | "narrative" | "production" | "approval";
 
 export interface StudioConversationMessage extends ConsoleMessage {
   id?: string;
   run?: ChatRunState;
+  attachments?: ComposerAttachment[];
 }
 
 export interface StudioChapter {

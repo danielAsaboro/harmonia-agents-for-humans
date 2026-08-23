@@ -49,3 +49,6 @@ __pycache__/
 
 # local artifact store
 .data/
+
+# isolated feature worktrees
+.worktrees/

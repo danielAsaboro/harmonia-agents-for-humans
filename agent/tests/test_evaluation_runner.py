@@ -65,12 +65,21 @@ def test_adk_custom_metric_executes_reference_preservation_contracts(
         "copywriter-references": "nimi_copywriter",
         "editor-preservation": "dara_editor",
     }[eval_id]
+    responses = [(author, [types.Part(text=invalid_output)])]
+    if eval_id == "editor-preservation":
+        responses.insert(0, (
+            "nimi_copywriter",
+            [types.Part(text=(
+                '{"drafts":[{"id":"d1","platform":"x","momentId":"m1",'
+                '"text":"Original synthetic draft"}]}'
+            ))],
+        ))
     actual = [expected[0].model_copy(update={
         "final_response": types.Content(
             role="model", parts=[types.Part(text='{"actions":[]}')],
         ),
         "intermediate_data": IntermediateData(
-            intermediate_responses=[(author, [types.Part(text=invalid_output)])],
+            intermediate_responses=responses,
         ),
     })]
 
@@ -83,11 +92,20 @@ def test_adk_custom_metric_executes_reference_preservation_contracts(
 def test_adk_custom_metric_fails_closed_when_author_output_is_missing(eval_id):
     eval_set = load_eval_set(Path("evals/contracts.evalset.json"))
     expected = next(case for case in eval_set.eval_cases if case.eval_id == eval_id).conversation
+    responses = []
+    if eval_id == "editor-preservation":
+        responses = [(
+            "nimi_copywriter",
+            [types.Part(text=(
+                '{"drafts":[{"id":"d1","platform":"x","momentId":"m1",'
+                '"text":"Original synthetic draft"}]}'
+            ))],
+        )]
     actual = [expected[0].model_copy(update={
         "final_response": types.Content(
             role="model", parts=[types.Part(text='{"actions":[]}')],
         ),
-        "intermediate_data": IntermediateData(),
+        "intermediate_data": IntermediateData(intermediate_responses=responses),
     })]
 
     result = adk_contract_metric(None, actual, expected)

@@ -5,6 +5,10 @@ description: "OAuth scope, API routes, event projection, persisted states, idemp
 
 ## Authorization
 
+<Note>
+  This page is reference material. For the operator workflow, use [How to sync content with Google Calendar](/google-calendar).
+</Note>
+
 | Property | Value |
 |---|---|
 | Connection ID | `google-calendar` |
@@ -17,6 +21,9 @@ description: "OAuth scope, API routes, event projection, persisted states, idemp
 The deployment-wide OAuth client uses `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Reauthorization preserves the stored calendar identity and an existing refresh token when the token response omits one.
 
 ## API routes
+
+<Tabs>
+  <Tab title="Connection status">
 
 ### `GET /api/calendar/google`
 
@@ -33,6 +40,9 @@ Returns the active workspace’s connection state.
 ```
 
 Expired credentials are not reported as connected.
+
+  </Tab>
+  <Tab title="Mutate an event">
 
 ### `POST /api/calendar/google`
 
@@ -54,6 +64,9 @@ Body:
 
 Responses use `400` for malformed requests, `401` or `403` for missing or invalid operator sessions, `404` for an unknown content item, `409` for an invalid content-item state, and `502` when Google synchronization, provisioning, or verification fails.
 
+  </Tab>
+</Tabs>
+
 ## App-created calendar
 
 The first sync provisions a secondary calendar named `Harmonia Content Calendar`. Firestore records a provisioning claim before calling Google.
@@ -66,6 +79,10 @@ The first sync provisions a secondary calendar named `Harmonia Content Calendar`
 | calendar ID present | Harmonia reads that calendar; it does not create another one when the stored calendar is missing |
 
 An ambiguous create is intentionally not retried because Google Calendar does not accept a client-selected calendar ID.
+
+<Warning>
+  An `uncertain` provisioning claim is fail-closed state, not an instruction to retry. Inspect the Google account before changing or reconnecting the integration.
+</Warning>
 
 ## Event projection
 
@@ -109,3 +126,7 @@ Failure state preserves the previous ETag, link, source revision, and verificati
 - A sync is successful only when `events.get` matches ID, summary, description, start, end, transparency, and private properties.
 - A removal is successful only when `events.get` reports `404` or `410`.
 - Offline tests do not prove a live Google account, valid consent screen, deploy-time credentials, or provider availability.
+
+<Card title="Live evidence checklist" icon="clipboard-check" href="/evidence-runbook#google-calendar-evidence">
+  See the exact artifacts required before presenting Google Calendar synchronization as live hackathon evidence.
+</Card>

@@ -11,7 +11,7 @@ Harmonia is not just reactive. A background agent inside the worker scans a regi
 |---|---|---|
 | `trend_scan` | hourly | Front-page Hacker News signals -> 2-3 topic proposals with why-now reasons + sources |
 | `engagement_watch` | 6h | Outliers among published posts (>=2x median likes) -> follow-up proposals |
-| `publish_pulse` | hourly | Fresh metrics for posts <48h old; likes spikes fire momentum proposals immediately |
+| `publish_pulse` | hourly | Fresh metrics for posts less than 48 hours old; likes spikes fire momentum proposals immediately |
 | `morning_briefing` | daily | Digest: today's scheduled posts, pending approvals, waiting proposals, failed jobs (+ Telegram push) |
 | `stale_drafts_nudge` | daily | Draft items idle >7 days get a review nudge |
 | `failure_watchdog` | daily | Permanently failed jobs resurface as critical notifications until resolved |

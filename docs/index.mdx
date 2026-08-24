@@ -5,6 +5,21 @@ description: "Autonomous social media content engine for startups — video in, 
 
 Harmonia turns raw material — a YouTube video or a plain topic brief — into drafted, approved, published, and **independently verified** social media posts. It runs asynchronously in the background, proposes ideas on its own, and never publishes without explicit operator approval.
 
+<CardGroup cols={2}>
+  <Card title="Run Harmonia locally" icon="rocket" href="/quickstart">
+    Start the web app, ADK worker, Firestore emulator, and Pub/Sub emulator.
+  </Card>
+  <Card title="Sync Google Calendar" icon="calendar" href="/google-calendar">
+    Connect a narrowly scoped calendar and explicitly synchronize scheduled content.
+  </Card>
+  <Card title="Understand the architecture" icon="diagram-project" href="/architecture">
+    Follow state, approvals, models, queues, external effects, and verification.
+  </Card>
+  <Card title="Capture hackathon proof" icon="shield-check" href="/evidence-runbook">
+    Collect real authenticated evidence without leaking private data or overstating mocks.
+  </Card>
+</CardGroup>
+
 ## What makes it agentic
 
 - **Autonomous pipeline**: ingest → transcribe → understand → draft runs end-to-end via Pub/Sub with persisted, resumable job state

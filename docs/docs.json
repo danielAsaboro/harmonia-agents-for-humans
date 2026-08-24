@@ -1,0 +1,57 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "palm",
+  "name": "Harmonia",
+  "colors": {
+    "primary": "#7c3aed",
+    "light": "#a78bfa",
+    "dark": "#8b5cf6"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Overview",
+        "pages": [
+          "index",
+          "architecture"
+        ]
+      },
+      {
+        "group": "Getting Started",
+        "pages": [
+          "quickstart",
+          "development"
+        ]
+      },
+      {
+        "group": "How It Works",
+        "pages": [
+          "pipeline",
+          "proactive-agent",
+          "approval-and-audit",
+          "interfaces",
+          "operational-model",
+          "state-ownership",
+          "tool-contracts"
+        ]
+      },
+      {
+        "group": "Integrations",
+        "pages": [
+          "google-calendar",
+          "google-calendar-reference"
+        ]
+      },
+      {
+        "group": "Operations",
+        "pages": [
+          "configuration",
+          "deployment",
+          "cloud-proof",
+          "evidence-runbook"
+        ]
+      }
+    ]
+  }
+}

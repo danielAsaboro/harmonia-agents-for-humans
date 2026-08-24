@@ -26,8 +26,8 @@ export async function advance(
   const next = nextStage(completedStage);
   if (!next) throw new Error(`no successor for stage '${completedStage}'`);
   await setStage(jobId, next);
-  await appendEvent(jobId, completedStage, note, "system");
-  await publishStage(currentTenant(), jobId, next);
+  const pubsubMessageId = await publishStage(currentTenant(), jobId, next);
+  await appendEvent(jobId, completedStage, note, "system", { pubsubMessageId });
 }
 
 export async function recordFailure(

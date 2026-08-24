@@ -4,6 +4,10 @@
 
 Operators drive Harmonia from three equivalent surfaces: the web dashboard, a conversational chat drawer (`/api/chat`), and a Telegram bot. Every surface shares one intent grammar and one approval gate; no side-effecting action happens without an approval receipt.
 
+## Why Harmonia is an agent—and where it deliberately is not
+
+Harmonia is agentic where the problem is ambiguous: Gemini/ADK specialists interpret multimodal source material, identify grounded moments and angles, create platform-native drafts, revise them, and propose bounded actions. It is deliberately deterministic where mistakes have consequences: Firestore/Pub/Sub progression, schema validation, cost reservation, policy, approval, idempotent execution, receipts, and independent verification. Humans retain final publishing authority. This is bounded agency inside a durable workflow, not an unrestricted model loop; the full stage/authority and KPI contract is in [`docs/operational-model.mdx`](./docs/operational-model.mdx).
+
 ## The pipeline
 
 Harmonia runs as an asynchronous, event-driven workflow on Pub/Sub. A single job travels across two services with durable state in Firestore at every step:

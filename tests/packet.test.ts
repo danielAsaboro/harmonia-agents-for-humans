@@ -31,7 +31,7 @@ describe("assemblePacket", () => {
   it("is clean when executed and verified", () => {
     const packet = assemblePacket({
       jobId: "j", config, drafts: [draft], actions: [publishAction],
-      receipts: [{ id: "r", jobId: "j", actionId: "a1", idempotencyKey: "k".repeat(64), actionType: "publish_x_post", performedAt: new Date().toISOString(), outcome: "applied", detail: {} }],
+      receipts: [{ id: "r", jobId: "j", actionId: "a1", idempotencyKey: "k".repeat(64), actionType: "publish_x_post", performedAt: new Date().toISOString(), outcome: "applied", operationId: "j:publish:a1", traceId: "a".repeat(32), detail: {} }],
       verifications: [verification("tweet-1", true)],
     });
     expect(packet.unresolved).toHaveLength(0);

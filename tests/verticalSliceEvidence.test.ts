@@ -76,6 +76,11 @@ function validBundle() {
       method: "artifact_digest_reread", status: "verified",
       checkedAt: "2026-08-24T12:12:00.000Z", observedDigest: digest, traceId,
     },
+    replay: {
+      operationId: "job-1:publish:action-1:replay",
+      receiptId: "receipt-1", outcome: "already_applied",
+      attemptedAt: "2026-08-24T12:13:00.000Z", traceId,
+    },
     costs: {
       pricingVersion: "2026-08-23", currency: "USD",
       records: [
@@ -131,6 +136,19 @@ describe("vertical-slice evidence", () => {
     expect(failureCodes(splitTrace)).toContain("trace_mismatch");
   });
 
+  it("allows non-Pub/Sub lifecycle events but requires real Pub/Sub evidence", () => {
+    const partial = validBundle();
+    partial.events[4] = { ...partial.events[4], pubsubMessageId: undefined as unknown as string };
+    expect(failureCodes(partial)).not.toContain("missing_pubsub_evidence");
+
+    const absent = validBundle();
+    absent.events = absent.events.map((event) => ({
+      ...event,
+      pubsubMessageId: undefined as unknown as string,
+    }));
+    expect(failureCodes(absent)).toContain("missing_pubsub_evidence");
+  });
+
   it("rejects effect execution before durable human approval", () => {
     const bundle = validBundle();
     bundle.approval.decidedAt = "2026-08-24T12:12:00.000Z";
@@ -155,6 +173,16 @@ describe("vertical-slice evidence", () => {
     bundle.events[1].operationId = bundle.events[0].operationId;
     expect(failureCodes(bundle)).toEqual(expect.arrayContaining([
       "verification_before_effect", "duplicate_operation_id",
+    ]));
+  });
+
+  it("requires replay to prove duplicate-effect prevention", () => {
+    const bundle = validBundle();
+    bundle.replay.receiptId = "new-receipt";
+    bundle.replay.outcome = "applied" as "already_applied";
+    bundle.replay.attemptedAt = "2026-08-24T12:10:00.000Z";
+    expect(failureCodes(bundle)).toEqual(expect.arrayContaining([
+      "replay_receipt_mismatch", "duplicate_effect_on_replay", "replay_before_effect",
     ]));
   });
 

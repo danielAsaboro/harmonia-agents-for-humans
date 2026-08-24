@@ -37,6 +37,8 @@ const receipts: Receipt[] = [{
   actionType: "publish_x_post",
   performedAt: "2026-08-23T00:02:00.000Z",
   outcome: "applied",
+  operationId: "job-1:publish:publish-1",
+  traceId: "a".repeat(32),
   detail: { remoteId: "post-1" },
 }];
 

@@ -171,7 +171,8 @@ export default function JobDetail({
       </section>
 
       {pendingActions.length > 0 && (
-        <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/60">
+        <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/60" aria-label="Approval boundary" aria-busy={busy}>
+          <p className="sr-only" role="status" aria-live="polite">{busy ? "Recording operator decision" : `${pendingActions.length} approval decisions pending`}</p>
           <h2 className="font-semibold text-amber-900 dark:text-amber-200">
             Approval required — review before allowing repository writes ({pendingActions.length})
           </h2>
@@ -198,6 +199,7 @@ export default function JobDetail({
                 <ActionPreview action={a} />
                 <div className="mt-3 flex gap-2">
                     <button
+                      aria-label={`Approve ${a.title}`}
                       onClick={() => void decide(a.id, "approved")}
                       disabled={busy}
                       className="rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
@@ -205,6 +207,7 @@ export default function JobDetail({
                       Approve
                     </button>
                   <button
+                    aria-label={`Reject ${a.title}`}
                     onClick={() => void decide(a.id, "rejected")}
                     disabled={busy}
                     className="rounded-full border border-zinc-300 px-4 py-1.5 text-xs font-medium transition-colors hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-600 dark:hover:bg-zinc-800"

@@ -28,6 +28,7 @@ function validBundle() {
     approval: { approvalId: "approval", actionId: "action", decision: "approved", actorType: "human_operator", decidedAt: "2026-08-24T12:10:00.000Z", traceId },
     effect: { actionId: "action", operationId: "job:publish:action", idempotencyKey: digest, receiptId: "receipt", kind: "export_content_pack", outcome: "applied", executedAt: "2026-08-24T12:11:00.000Z", artifactDigest: digest, traceId },
     verification: { verificationId: "verification", receiptId: "receipt", method: "artifact_digest_reread", status: "verified", checkedAt: "2026-08-24T12:12:00.000Z", observedDigest: digest, traceId },
+    replay: { operationId: "job:publish:action:replay", receiptId: "receipt", outcome: "already_applied", attemptedAt: "2026-08-24T12:13:00.000Z", traceId },
     costs: { pricingVersion: "v1", currency: "USD", records: [{ usageRecordId: "u-1", operationId: "job:understand:coordinator", estimatedUsd: "0.010000", observedUsd: "0.009000" }], totalEstimatedUsd: "0.010000", totalObservedUsd: "0.009000" },
     evidenceFiles: [{ kind: "job_export", relativePath: "exports/job.json", sha256: digest }],
   };

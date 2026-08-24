@@ -147,6 +147,18 @@ export interface PlannedAction {
   state: "planned" | "executed" | "skipped" | "failed";
 }
 
+export interface ApprovalDecision {
+  id: string;
+  jobId: string;
+  actionId: string;
+  decision: "approved" | "rejected";
+  actorType: "human_operator";
+  actorUserId: string;
+  operationId: string;
+  traceId: string;
+  decidedAt: string;
+}
+
 export interface Receipt {
   id: string;
   jobId: string;
@@ -157,6 +169,19 @@ export interface Receipt {
   outcome: "applied" | "already_applied" | "rejected" | "failed";
   artifact?: EvidenceRef;
   detail: Record<string, unknown>;
+  operationId: string;
+  traceId: string;
+}
+
+export interface ReplayObservation {
+  id: string;
+  jobId: string;
+  actionId: string;
+  operationId: string;
+  traceId: string;
+  receiptId: string;
+  outcome: "already_applied";
+  attemptedAt: string;
 }
 
 export interface VerificationResult {
@@ -176,6 +201,9 @@ export interface StageEvent {
   stage: Stage;
   message: string;
   actor: "system" | "agent" | "operator";
+  operationId: string;
+  traceId: string;
+  pubsubMessageId?: string;
 }
 
 export interface Observation {

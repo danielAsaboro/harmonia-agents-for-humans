@@ -71,7 +71,8 @@ describe("internal contracts", () => {
   it("rejects receipts for unknown action types", () => {
     const parsed = receiptSubmissionSchema.safeParse({
       jobId: "j1", actionId: "a1", actionType: "github_upsert_file",
-      idempotencyKey: "k".repeat(32), outcome: "applied", detail: {},
+      idempotencyKey: "k".repeat(32), operationId: "j1:publish:a1",
+      traceId: "a".repeat(32), outcome: "applied", detail: {},
     });
     expect(parsed.success).toBe(false);
   });

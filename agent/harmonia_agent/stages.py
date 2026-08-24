@@ -530,6 +530,8 @@ async def run_publish(job_id: str) -> None:
                         web_post("/api/internal/receipt", {
                             "jobId": job_id, "actionId": action["id"],
                             "actionType": action["type"], "idempotencyKey": key,
+                            "operationId": f"{job_id}:publish:{action['id']}:{current_trace_id()}",
+                            "traceId": current_trace_id(),
                             "outcome": outcome, "artifact": artifact, "detail": detail,
                         })
                         continue
@@ -643,7 +645,9 @@ async def run_publish(job_id: str) -> None:
 
         web_post("/api/internal/receipt", {
             "jobId": job_id, "actionId": action["id"], "actionType": action["type"],
-            "idempotencyKey": key, "outcome": outcome,
+            "idempotencyKey": key,
+            "operationId": f"{job_id}:publish:{action['id']}:{current_trace_id()}",
+            "traceId": current_trace_id(), "outcome": outcome,
             "artifact": artifact, "detail": detail,
         })
 

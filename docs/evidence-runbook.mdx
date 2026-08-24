@@ -41,6 +41,8 @@ npm run verify:evidence -- /absolute/private/run/bundle.json
 
 The complete capture must correlate the approval action, idempotency key, effect receipt, verification readback or artifact digest, cognition usage, cost records, and the same `traceId`. A verification timestamp before effect execution, a receipt mismatch, unknown observed cost, mock provenance, or raw private field fails closed.
 
+The redacted bundle also requires replay evidence: a distinct replay operation after the original effect must return `already_applied` and reference the original receipt.
+
 ## Replay proof
 
 Replay the already-approved action only through Harmonia's normal UI. The durable idempotency path must return `already_applied` and reference the original receipt; no second external effect may occur. Capture that response and the external readback privately.

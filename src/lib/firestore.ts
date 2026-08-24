@@ -15,6 +15,8 @@ import type {
   StageEvent,
   VerificationResult,
   UsageRecord,
+  ApprovalDecision,
+  ReplayObservation,
 } from "./types";
 import { applyFinalizedUsage, applyReservation, canReserve } from "./costs";
 import { getConfig } from "./config";
@@ -25,6 +27,7 @@ import {
   tenantCollectionPath,
 } from "./tenancy";
 import { chatScopeKey, retentionPlan, type ChatSurface } from "./chatHistory";
+import { currentTraceId } from "./telemetry";
 
 let client: Firestore | null = null;
 
@@ -69,6 +72,8 @@ const JOBS = "jobs";
 const EVENTS = "events";
 const EVENT_LOG = "event_log";
 const RECEIPTS = "receipts";
+const APPROVAL_DECISIONS = "approval_decisions";
+const REPLAY_OBSERVATIONS = "replay_observations";
 const ASSETS = "assets";
 const CONFIG = "config";
 const CONNECTIONS = "connections";
@@ -756,6 +761,7 @@ export async function recordApproval(
   jobId: string,
   actionId: string,
   decision: "approved" | "rejected",
+  actorUserId: string,
 ): Promise<PlannedAction> {
   return db().runTransaction(async (tx) => {
     const ref = jobRef(jobId);
@@ -770,12 +776,35 @@ export async function recordApproval(
     }
     action.approvalState = decision;
     action.state = decision === "approved" ? "planned" : "skipped";
+    const decidedAt = new Date().toISOString();
+    const traceId = currentTraceId();
+    const decisionRef = ref.collection(APPROVAL_DECISIONS).doc(actionId);
+    tx.create(decisionRef, {
+      id: actionId,
+      jobId,
+      actionId,
+      decision,
+      actorType: "human_operator",
+      actorUserId,
+      operationId: `${jobId}:approval:${actionId}`,
+      traceId,
+      decidedAt,
+    } satisfies ApprovalDecision);
     tx.update(ref, {
       actions: job.actions,
-      updatedAt: new Date().toISOString(),
+      updatedAt: decidedAt,
     });
     return action;
   });
+}
+
+export async function listApprovalDecisions(jobId: string): Promise<Array<Omit<ApprovalDecision, "actorUserId">>> {
+  const snaps = await jobRef(jobId).collection(APPROVAL_DECISIONS).orderBy("decidedAt", "asc").get();
+  return snaps.docs.map((doc) => {
+    const decision = { ...(doc.data() as ApprovalDecision) } as Partial<ApprovalDecision>;
+    delete decision.actorUserId;
+    return decision;
+  }) as Array<Omit<ApprovalDecision, "actorUserId">>;
 }
 
 export async function markActionExecuted(
@@ -823,6 +852,15 @@ export async function findReceiptByIdempotencyKey(
     .limit(1)
     .get();
   return snaps.empty ? null : (snaps.docs[0].data() as Receipt);
+}
+
+export async function writeReplayObservation(observation: ReplayObservation): Promise<void> {
+  await jobRef(observation.jobId).collection(REPLAY_OBSERVATIONS).doc(observation.id).set(observation);
+}
+
+export async function listReplayObservations(jobId: string): Promise<ReplayObservation[]> {
+  const snaps = await jobRef(jobId).collection(REPLAY_OBSERVATIONS).orderBy("attemptedAt", "asc").get();
+  return snaps.docs.map((doc) => doc.data() as ReplayObservation);
 }
 
 export async function saveVerifications(
@@ -934,8 +972,16 @@ export async function appendEvent(
   stage: Stage,
   message: string,
   actor: StageEvent["actor"],
+  metadata: { operationId?: string; traceId?: string; pubsubMessageId?: string } = {},
 ): Promise<void> {
   const id = newId();
+  const traceId = metadata.traceId ?? currentTraceId();
+  const operationId = metadata.operationId ?? `${jobId}:${stage}:${id}`;
+  const eventMetadata = {
+    operationId,
+    traceId,
+    ...(metadata.pubsubMessageId ? { pubsubMessageId: metadata.pubsubMessageId } : {}),
+  };
   await jobRef(jobId)
     .collection(EVENTS)
     .doc(id)
@@ -945,11 +991,12 @@ export async function appendEvent(
       stage,
       message,
       actor,
+      ...eventMetadata,
     } satisfies Omit<StageEvent, "id" | "at"> & { at: unknown });
   // Denormalized within the workspace so monitoring remains tenant-isolated.
   await tenantCollection(EVENT_LOG)
     .doc(id)
-    .set({ jobId, at: FieldValue.serverTimestamp(), stage, message, actor });
+    .set({ jobId, at: FieldValue.serverTimestamp(), stage, message, actor, ...eventMetadata });
 }
 
 export interface EventLogEntry {
@@ -959,6 +1006,9 @@ export interface EventLogEntry {
   stage: string;
   message: string;
   actor: string;
+  operationId: string;
+  traceId: string;
+  pubsubMessageId?: string;
 }
 
 export async function listEventLog(limit = 300): Promise<EventLogEntry[]> {
@@ -967,7 +1017,7 @@ export async function listEventLog(limit = 300): Promise<EventLogEntry[]> {
     .limit(limit)
     .get();
   return snaps.docs.map((d) => {
-    const data = d.data() as { jobId: string; at?: { toDate(): Date }; stage: string; message: string; actor: string };
+    const data = d.data() as Omit<EventLogEntry, "id" | "at"> & { at?: { toDate(): Date } };
     return {
       id: d.id,
       jobId: data.jobId,
@@ -975,6 +1025,9 @@ export async function listEventLog(limit = 300): Promise<EventLogEntry[]> {
       stage: data.stage,
       message: data.message,
       actor: data.actor,
+      operationId: data.operationId,
+      traceId: data.traceId,
+      ...(data.pubsubMessageId ? { pubsubMessageId: data.pubsubMessageId } : {}),
     };
   });
 }
@@ -982,19 +1035,24 @@ export async function listEventLog(limit = 300): Promise<EventLogEntry[]> {
 export async function listEvents(
   jobId: string,
   limit = 200,
-): Promise<Array<{ at: string | null; stage: Stage; message: string; actor: string }>> {
+): Promise<Array<Omit<StageEvent, "at"> & { at: string | null }>> {
   const snaps = await jobRef(jobId)
     .collection(EVENTS)
     .orderBy("at", "asc")
     .limit(limit)
     .get();
   return snaps.docs.map((d) => {
-    const data = d.data() as { at?: { toDate(): Date }; stage: Stage; message: string; actor: string };
+    const data = d.data() as Omit<StageEvent, "id" | "at"> & { at?: { toDate(): Date } };
     return {
+      id: d.id,
+      jobId,
       at: data.at ? data.at.toDate().toISOString() : null,
       stage: data.stage,
       message: data.message,
       actor: data.actor,
+      operationId: data.operationId,
+      traceId: data.traceId,
+      ...(data.pubsubMessageId ? { pubsubMessageId: data.pubsubMessageId } : {}),
     };
   });
 }

@@ -26,8 +26,9 @@ export async function resolveDecision(
   decision: "approved" | "rejected",
   actor: "system" | "agent" | "operator",
 ): Promise<DecisionOutcome> {
+  if (actor !== "operator") throw new Error("only a human operator may record an approval decision");
   const jobBefore = await getJob(jobId);
-  const action = await recordApproval(jobId, actionId, decision);
+  const action = await recordApproval(jobId, actionId, decision, currentTenant().userId);
   await appendEvent(
     jobId,
     jobBefore.stage,
@@ -59,13 +60,13 @@ export async function resolveDecision(
 
   if (executable.length > 0) {
     await setStage(jobId, "publish");
-    await appendEvent(jobId, "draft", `${executable.length} approved action(s) dispatched to publishing`, "system");
-    await publishStage(currentTenant(), jobId, "publish");
+    const pubsubMessageId = await publishStage(currentTenant(), jobId, "publish");
+    await appendEvent(jobId, "draft", `${executable.length} approved action(s) dispatched to publishing`, "system", { pubsubMessageId });
     return { ok: true, triggered: "publish" };
   }
 
   await setStage(jobId, "verify");
-  await appendEvent(jobId, "awaiting_approval", "no executable actions; proceeding to verification of existing evidence", "system");
-  await publishStage(currentTenant(), jobId, "verify");
+  const pubsubMessageId = await publishStage(currentTenant(), jobId, "verify");
+  await appendEvent(jobId, "awaiting_approval", "no executable actions; proceeding to verification of existing evidence", "system", { pubsubMessageId });
   return { ok: true, triggered: "verify" };
 }

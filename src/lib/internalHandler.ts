@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { TransitionError } from "./stages";
 import { withInternalTenant } from "./internalAuth";
+import { withTraceContext } from "./telemetry";
 
 export async function internalRoute<S extends z.ZodType>(
   req: Request,
@@ -16,7 +17,7 @@ export async function internalRoute<S extends z.ZodType>(
     );
   }
   try {
-    const result = await withInternalTenant(req, () => handler(parsed.data));
+    const result = await withTraceContext(req.headers, () => withInternalTenant(req, () => handler(parsed.data)));
     return result ?? Response.json({ ok: true });
   } catch (err) {
     if (err instanceof TransitionError) {

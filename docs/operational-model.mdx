@@ -1,0 +1,35 @@
+---
+title: "Bounded autonomy and operational KPIs"
+description: "Where Harmonia reasons, where deterministic code controls execution, where humans retain authority, and how the demo is measured."
+---
+
+Harmonia uses **bounded agency inside a durable workflow**. Gemini/ADK handles ambiguous media understanding and creative judgment. Deterministic code owns state transitions, validation, policy, cost reservation, idempotency, effects, and verification. A human owns consequential authorization. This hybrid design deliberately limits nondeterminism where correctness and accountability matter.
+
+## Authority by stage
+
+| Stage | Primary mode | What may vary | What cannot vary / stopping condition |
+|---|---|---|---|
+| ingest | deterministic workflow | provider metadata availability | bounded source validation; stop visibly on unsupported/unauthorized source |
+| transcribe | agentic cognition inside deterministic workflow | Gemini transcript content | typed segments, source digest, budget, timeout, and terminal failure contract |
+| understand | agentic cognition | grounded moments, strategy, trend/meme angles | supplied evidence bounds, schema, role policy, and one managed invocation |
+| draft | agentic cognition in fixed ADK sequence | platform-native language | copywriter → editor → planner order; preserved references; planner cannot authorize |
+| awaiting approval | human authority | approve or reject each proposed action | no external effect until a durable human decision exists |
+| publish/export | deterministic workflow | provider response | exact approved payload, idempotency key, bounded retry, immutable receipt |
+| verify | deterministic workflow | observed external/stored state | fresh official API read or digest reread; never trust executor/model assertion |
+| learn/memory | deterministic eligibility plus bounded context | eligible preference/outcome facts | evidence-linked workspace/brand scope; failure cannot erase an effect receipt |
+
+Chat and Telegram are control surfaces, not the autonomous core. The asynchronous pipeline continues in the background and every surface reaches the same policy and approval boundary.
+
+## Demo KPI contract
+
+| KPI | Definition | Evidence source | Current status |
+|---|---|---|---|
+| hands-off processing time | persisted job creation → first `awaiting_approval` event | Firestore job/events with one trace | pending authenticated run |
+| approval latency | durable approval timestamp → effect receipt timestamp | decision + receipt | pending authenticated run |
+| approved-output yield | approved actions with verified outcomes ÷ approved actions | decisions, receipts, verification | pending authenticated run |
+| publish/verify success | verified real effects ÷ attempted approved effects | effect and independent readback/digest | pending authenticated run |
+| duplicate-effect prevention | replay returns `already_applied` with the original receipt and creates no second effect | replay record + receipt/API readback | required by evidence verifier; pending authenticated run |
+| cost per verified asset | reconciled observed model/media USD ÷ verified output count | immutable usage records + verification | pending authenticated run |
+| operator steps eliminated | observed manual baseline steps minus actual Harmonia operator actions | time-stamped operator baseline worksheet + run events | pending a measured baseline; never inferred from code |
+
+The verifier computes consistency from redacted records; authenticated Cloud Run, Agent Engine, Firestore, Pub/Sub, model, effect, and verification exports establish provenance. Until that run exists, numeric KPI values remain explicitly pending rather than estimated or fabricated.

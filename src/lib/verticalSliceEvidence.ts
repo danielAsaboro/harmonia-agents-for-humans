@@ -51,7 +51,7 @@ const eventSchema = z.object({
   status: z.enum(["waiting", "completed"]),
   at: timestamp,
   operationId: z.string().min(1),
-  pubsubMessageId: z.string().min(1),
+  pubsubMessageId: z.string().min(1).optional(),
   traceId,
 }).strict();
 
@@ -96,6 +96,14 @@ const verificationSchema = z.object({
   traceId,
 }).strict();
 
+const replaySchema = z.object({
+  operationId: z.string().min(1),
+  receiptId: z.string().min(1),
+  outcome: z.enum(["already_applied", "applied"]),
+  attemptedAt: timestamp,
+  traceId,
+}).strict();
+
 const costRecordSchema = z.object({
   usageRecordId: z.string().min(1),
   operationId: z.string().min(1),
@@ -129,6 +137,7 @@ export const verticalSliceEvidenceSchema = z.object({
   approval: approvalSchema,
   effect: effectSchema,
   verification: verificationSchema,
+  replay: replaySchema,
   costs: costsSchema,
   evidenceFiles: z.array(evidenceFileSchema).min(1),
 }).strict();
@@ -230,6 +239,7 @@ export function verifyVerticalSliceEvidence(input: unknown): EvidenceVerificatio
     { path: "approval", value: bundle.approval.traceId },
     { path: "effect", value: bundle.effect.traceId },
     { path: "verification", value: bundle.verification.traceId },
+    { path: "replay", value: bundle.replay.traceId },
   ];
   if (!expectedTrace || traceRecords.some((entry) => entry.value !== expectedTrace)) {
     failures.push(failure("trace_mismatch", "traceId", "All lifecycle records must share one trace ID."));
@@ -238,6 +248,13 @@ export function verifyVerticalSliceEvidence(input: unknown): EvidenceVerificatio
   const operationIds = bundle.events.map((event) => event.operationId);
   if (new Set(operationIds).size !== operationIds.length) {
     failures.push(failure("duplicate_operation_id", "events", "Event operation IDs must be unique."));
+  }
+  if (!bundle.events.some((event) => event.pubsubMessageId)) {
+    failures.push(failure(
+      "missing_pubsub_evidence",
+      "events",
+      "At least one lifecycle transition must retain its real Pub/Sub message ID.",
+    ));
   }
 
   if (bundle.approval.actionId !== bundle.effect.actionId) {
@@ -257,6 +274,18 @@ export function verifyVerticalSliceEvidence(input: unknown): EvidenceVerificatio
   }
   if (Date.parse(bundle.verification.checkedAt) < Date.parse(bundle.effect.executedAt)) {
     failures.push(failure("verification_before_effect", "verification.checkedAt", "Verification occurred before effect execution."));
+  }
+  if (bundle.replay.receiptId !== bundle.effect.receiptId) {
+    failures.push(failure("replay_receipt_mismatch", "replay.receiptId", "Replay did not reference the original effect receipt."));
+  }
+  if (bundle.replay.outcome !== "already_applied") {
+    failures.push(failure("duplicate_effect_on_replay", "replay.outcome", "Replay did not stop at the existing idempotent receipt."));
+  }
+  if (Date.parse(bundle.replay.attemptedAt) < Date.parse(bundle.effect.executedAt)) {
+    failures.push(failure("replay_before_effect", "replay.attemptedAt", "Replay evidence predates the original effect."));
+  }
+  if (bundle.replay.operationId === bundle.effect.operationId) {
+    failures.push(failure("replay_operation_reused", "replay.operationId", "Replay observation requires its own operation identifier."));
   }
 
   const costsByUsage = new Map(bundle.costs.records.map((record) => [record.usageRecordId, record]));

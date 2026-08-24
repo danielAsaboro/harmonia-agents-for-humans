@@ -199,6 +199,8 @@ export const receiptSubmissionSchema = z.object({
     "render_reel",
   ]),
   idempotencyKey: z.string().min(16),
+  operationId: z.string().min(1).max(240),
+  traceId: z.string().regex(/^[a-f0-9]{32}$/),
   outcome: z.enum(["applied", "already_applied", "rejected", "failed"]),
   artifact: evidenceRefSchema.nullable().optional(),
   detail: z.record(z.string(), z.unknown()).default({}),

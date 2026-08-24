@@ -20,11 +20,11 @@
     },
     {
       "group": "How It Works",
-      "pages": ["pipeline", "proactive-agent", "approval-and-audit", "interfaces"]
+      "pages": ["pipeline", "proactive-agent", "approval-and-audit", "interfaces", "operational-model", "state-ownership", "tool-contracts"]
     },
     {
       "group": "Operations",
-      "pages": ["configuration", "deployment", "cloud-proof"]
+      "pages": ["configuration", "deployment", "cloud-proof", "evidence-runbook"]
     }
   ]
 }

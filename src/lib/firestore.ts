@@ -28,6 +28,7 @@ import {
   assertResourceWorkspace,
   currentTenant,
   tenantCollectionPath,
+  tenantSubjectId,
 } from "./tenancy";
 import { chatScopeKey, retentionPlan, type ChatSurface } from "./chatHistory";
 import { currentTraceId } from "./telemetry";
@@ -356,8 +357,9 @@ export async function saveChatMessage(
   m: Omit<ChatMessageDoc, "at" | "userId" | "scopeKey"> & { at?: ChatMessageDoc["at"] },
 ): Promise<void> {
   const tenant = currentTenant();
-  const scopeKey = chatScopeKey(tenant.userId, m.surface, m.conversationId);
-  await tenantCollection(CHATS).add({ ...m, userId: tenant.userId, scopeKey, at: FieldValue.serverTimestamp() });
+  const userId = tenantSubjectId(tenant);
+  const scopeKey = chatScopeKey(userId, m.surface, m.conversationId);
+  await tenantCollection(CHATS).add({ ...m, userId, scopeKey, at: FieldValue.serverTimestamp() });
   const scoped = await tenantCollection(CHATS).where("scopeKey", "==", scopeKey).get();
   const retained = scoped.docs.map((doc) => {
     const data = doc.data() as ChatMessageDoc & { at?: { toDate(): Date } | string };
@@ -372,7 +374,7 @@ export async function saveChatMessage(
   const batch = db().batch();
   for (const id of plan.deleteIds) batch.delete(tenantCollection(CHATS).doc(id));
   batch.create(tenantCollection(CHAT_SUMMARIES).doc(newId()), {
-    userId: tenant.userId,
+    userId,
     surface: m.surface,
     conversationId: m.conversationId,
     scopeKey,
@@ -388,7 +390,7 @@ export async function listChatMessages(
   conversationId = "primary",
 ): Promise<Array<{ id: string; surface: string; role: string; text: string; data?: Record<string, unknown>; at: string | null }>> {
   const tenant = currentTenant();
-  const scopeKey = chatScopeKey(tenant.userId, surface, conversationId);
+  const scopeKey = chatScopeKey(tenantSubjectId(tenant), surface, conversationId);
   const snaps = await tenantCollection(CHATS)
     .where("scopeKey", "==", scopeKey)
     .get();
@@ -563,7 +565,7 @@ export async function createJob(
   const doc: JobDoc = {
     workspaceId: tenant.workspaceId,
     brandId: tenant.brandId,
-    createdByUserId: tenant.userId,
+    createdByUserId: tenantSubjectId(tenant),
     createdAt: now,
     updatedAt: now,
     status: "running",

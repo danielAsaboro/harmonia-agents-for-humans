@@ -6,7 +6,7 @@ import {
   setStage,
 } from "@/lib/firestore";
 import { publishStage } from "@/lib/pubsub";
-import { currentTenant } from "@/lib/tenancy";
+import { currentTenant, tenantSubjectId } from "@/lib/tenancy";
 
 export interface DecisionOutcome {
   ok: boolean;
@@ -28,7 +28,7 @@ export async function resolveDecision(
 ): Promise<DecisionOutcome> {
   if (actor !== "operator") throw new Error("only a human operator may record an approval decision");
   const jobBefore = await getJob(jobId);
-  const action = await recordApproval(jobId, actionId, decision, currentTenant().userId);
+  const action = await recordApproval(jobId, actionId, decision, tenantSubjectId(currentTenant()));
   await appendEvent(
     jobId,
     jobBefore.stage,

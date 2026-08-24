@@ -1,7 +1,7 @@
 import { claimEffect, getJob, listReceipts, writeReplayObservation } from "./firestore";
 import { newId } from "./idempotency";
 import { currentTraceId } from "./telemetry";
-import { currentTenant, type WorkspaceRole } from "./tenancy";
+import { currentTenant, tenantWorkspaceRole, type WorkspaceRole } from "./tenancy";
 import type { Job, PlannedAction, Receipt } from "./types";
 
 type JobWithActions = Job & { actions: PlannedAction[] };
@@ -35,7 +35,7 @@ export function assertReplayApplied(result: ReplayClaimResult): string {
 export async function requestReplayProof(jobId: string, actionId: string): Promise<{ receiptId: string; operationId: string }> {
   const tenant = currentTenant();
   const [job, receipts] = await Promise.all([getJob(jobId), listReceipts(jobId)]);
-  const receipt = replayEligibleReceipt(job, actionId, receipts, tenant.role);
+  const receipt = replayEligibleReceipt(job, actionId, receipts, tenantWorkspaceRole(tenant));
   const operationId = `${jobId}:replay:${actionId}:${newId()}`;
   const traceId = currentTraceId();
   const result = await claimEffect({

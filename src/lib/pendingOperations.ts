@@ -1,6 +1,6 @@
 import { db } from "./firestore";
 import { newId } from "./idempotency";
-import { assertResourceWorkspace, currentTenant, tenantCollectionPath } from "./tenancy";
+import { assertResourceWorkspace, currentTenant, tenantCollectionPath, tenantSubjectId } from "./tenancy";
 
 export type PendingOperationDecision = "approved" | "rejected";
 export type PendingOperationState = "pending" | PendingOperationDecision | "expired";
@@ -70,7 +70,7 @@ export async function createPendingOperation(input: {
     id: newId(),
     workspaceId: tenant.workspaceId,
     brandId: tenant.brandId,
-    createdByUserId: tenant.userId,
+    createdByUserId: tenantSubjectId(tenant),
     handler: input.handler,
     title: input.title,
     description: input.description,
@@ -100,7 +100,7 @@ export async function decidePendingOperation(id: string, decision: PendingOperat
     if (!snap.exists) throw new Error("operation not found");
     const operation = snap.data() as PendingOperation;
     assertResourceWorkspace(tenant, operation);
-    const decided = decideOperationRecord(operation, decision, new Date(), tenant.userId);
+    const decided = decideOperationRecord(operation, decision, new Date(), tenantSubjectId(tenant));
     transaction.set(ref, decided);
     return decided;
   });

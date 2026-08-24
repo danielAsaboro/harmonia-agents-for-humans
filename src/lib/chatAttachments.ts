@@ -3,7 +3,13 @@ import { Storage } from "@google-cloud/storage";
 import { db } from "./firestore";
 import { newId } from "./idempotency";
 import { getArtifact, putArtifact } from "./storage";
-import { assertResourceWorkspace, currentTenant, tenantCollectionPath, type TenantScope } from "./tenancy";
+import {
+  assertResourceWorkspace,
+  currentTenant,
+  tenantCollectionPath,
+  tenantSubjectId,
+  type TenantScope,
+} from "./tenancy";
 
 export type AttachmentCategory = "image" | "video" | "audio" | "document";
 export type AttachmentState = "pending" | "uploading" | "ready" | "failed";
@@ -131,7 +137,7 @@ export async function createAttachmentUploadSession(
     id,
     workspaceId: tenant.workspaceId,
     brandId: tenant.brandId,
-    createdByUserId: tenant.userId,
+    createdByUserId: tenantSubjectId(tenant),
     objectName,
     storageUri: bucketName ? `gs://${bucketName}/${objectName}` : `file://chat-attachments/${id}`,
     state: "pending",

@@ -1,7 +1,8 @@
 import { Timestamp } from "@google-cloud/firestore";
 import { db, getConnection, saveConnection } from "@/lib/firestore";
 import { exchangeCode, fetchIdentity, getPlatform } from "@/lib/oauth";
-import { runWithTenant } from "@/lib/tenancy";
+import { currentTenant, runWithTenant } from "@/lib/tenancy";
+import { oauthCallbackPrincipal, requireOAuthCallback } from "@/lib/authority";
 
 function backToSettings(platform: string, result: "ok" | "error", reason?: string): Response {
   const q = new URLSearchParams({ connection: platform, result });
@@ -71,12 +72,12 @@ export async function GET(
   const identity = await fetchIdentity(def, tokens.accessToken);
   await runWithTenant(
     {
-      userId: "oauth-callback",
       workspaceId: stored.workspaceId,
       brandId: stored.brandId,
-      role: "service",
+      principal: oauthCallbackPrincipal({ stateId: state, platform }),
     },
     async () => {
+      requireOAuthCallback(currentTenant(), platform);
       const existing = await getConnection(platform);
       await saveConnection({
         ...existing,

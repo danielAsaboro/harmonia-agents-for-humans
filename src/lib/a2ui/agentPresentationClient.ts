@@ -1,12 +1,18 @@
 import { GoogleAuth } from "google-auth-library";
 import { getConfig } from "@/lib/config";
-import { currentTenant, type TenantContext } from "@/lib/tenancy";
+import { currentTenant, tenantSubjectId } from "@/lib/tenancy";
 import { surfacePlanSchema, type SurfacePlan, type UiContext } from "./presentationContracts";
+
+interface PresentationTenantHeaders {
+  workspaceId: string;
+  brandId: string;
+  userId: string;
+}
 
 interface PresentationClientOptions {
   baseUrl?: string;
   token?: string;
-  tenant?: Pick<TenantContext, "workspaceId" | "brandId" | "userId">;
+  tenant?: PresentationTenantHeaders;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }
@@ -49,7 +55,10 @@ export async function requestSurfacePlan(
   const config = options.baseUrl && options.token ? null : getConfig();
   const baseUrl = normalizedBaseUrl(options.baseUrl ?? config?.AGENT_SERVICE_URL ?? "");
   const token = options.token ?? config?.INTERNAL_API_TOKEN ?? "";
-  const tenant = options.tenant ?? currentTenant();
+  const tenant = options.tenant ?? (() => {
+    const context = currentTenant();
+    return { workspaceId: context.workspaceId, brandId: context.brandId, userId: tenantSubjectId(context) };
+  })();
   const url = `${baseUrl}/internal/a2ui/plan`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 25_000);
@@ -82,4 +91,3 @@ export async function requestSurfacePlan(
     clearTimeout(timer);
   }
 }
-

@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:agent": "cd agent && ./.venv/bin/python -m pytest tests -q",
+    "verify:evidence": "tsx scripts/verify-vertical-slice-evidence.ts",
     "seed": "node scripts/seed-demo.mjs",
     "migrate:legacy": "node scripts/migrate-legacy-workspace.mjs"
   },
@@ -40,6 +41,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
     "tailwindcss": "^4",
+    "tsx": "^4.23.12",
     "typescript": "^5",
     "vitest": "^4.1.11"
   }

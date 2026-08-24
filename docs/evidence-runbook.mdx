@@ -1,0 +1,48 @@
+---
+title: "Authenticated vertical-slice evidence"
+description: "Fail-closed protocol for proving one real Harmonia run without exposing private content."
+---
+
+This protocol preserves the private/public boundary: raw provider responses, authorized source material, cookies, transcripts, drafts, and command exports remain in the parent-private `submission/evidence/` workspace. Only the verifier, redacted schema, and this procedure belong in the public repository. Passing the verifier proves consistency; retained cloud exports prove provenance.
+
+## Phase 1: preflight
+
+Before creating or changing application state, confirm an active gcloud identity and matching project. Record the deployed Cloud Run revision for both services, the exact Agent Engine resource, Firestore database, Pub/Sub topic/subscription, secret metadata (never values), and deployed health response. `HARMONIA_MOCK_AI` and `HARMONIA_MOCK_X` must be unset, as must every emulator setting. Any missing or unauthorized prerequisite stops the run.
+
+```bash
+gcloud auth list --filter=status:ACTIVE
+gcloud config get-value project
+gcloud run services describe harmonia-web --project "$PROJECT_ID" --region "$REGION"
+gcloud run services describe harmonia-agent --project "$PROJECT_ID" --region "$REGION"
+python3 submission/evidence-runner/collect_vertical_slice.py /absolute/private/config.json
+```
+
+The evidence runner path above is relative to the private parent workspace, not this public repository.
+
+## Phase 2: capture-awaiting-approval
+
+Use Harmonia's normal dashboard or chat to ingest one authorized public YouTube URL. Do not call an internal stage or decision endpoint by hand. Wait until the persisted job reaches `awaiting_approval`, then run the read-only collector without `--require-complete`. Preserve one `traceId` across web ingress, Pub/Sub stage events, ADK cognition, usage, and the pending action.
+
+At this checkpoint, the collector must not approve, publish, retry, or manufacture a receipt. An incomplete run is expected and must not be presented as a completed vertical slice.
+
+## Operator checkpoint
+
+The signed-in operator reviews the real drafts and clip candidates in the normal dashboard and makes the approval decision there. This manual checkpoint is intentionally outside the collector. Rejection ends the candidate run honestly; it is never rewritten as approval.
+
+## Phase 3: capture-complete
+
+After the normal workflow persists a human approval, effect receipt, and independent verification, capture again:
+
+```bash
+python3 submission/evidence-runner/collect_vertical_slice.py /absolute/private/config.json --require-complete
+cd harmonia
+npm run verify:evidence -- /absolute/private/run/bundle.json
+```
+
+The complete capture must correlate the approval action, idempotency key, effect receipt, verification readback or artifact digest, cognition usage, cost records, and the same `traceId`. A verification timestamp before effect execution, a receipt mismatch, unknown observed cost, mock provenance, or raw private field fails closed.
+
+## Replay proof
+
+Replay the already-approved action only through Harmonia's normal UI. The durable idempotency path must return `already_applied` and reference the original receipt; no second external effect may occur. Capture that response and the external readback privately.
+
+The collector itself performs neither the original action nor the replay. Do not edit a failed bundle to make it pass. Preserve command status, verifier output, and unresolved gaps exactly as observed.

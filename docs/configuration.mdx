@@ -110,6 +110,17 @@ digests detect mutation relative to the recorded ledger; they do not make a newl
 artifact truthful. Keep the manifest write path access-controlled, retain the originating ADK run
 and Firestore export, and require human review before changing a catalog default.
 
+## Authenticated evidence capture
+
+Use the [authenticated evidence runbook](./evidence-runbook.mdx) for the three-phase production
+protocol. Evidence capture refuses mock AI, mock effects, emulators, unsafe file paths, missing
+human approval, and inconsistent verification. Raw captures remain outside the public repository;
+the public CLI verifies only a redacted bundle:
+
+```bash
+npm run verify:evidence -- /absolute/private/bundle.json
+```
+
 ## Secrets policy
 
 Deployment-wide application credentials and workspace OAuth records stay server-side and never enter Git or browser responses. Scope every integration to minimum permissions. Telegram configuration is stored per workspace and is returned only to the trusted worker.

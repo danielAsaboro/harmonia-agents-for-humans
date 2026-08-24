@@ -153,6 +153,12 @@ inputs and results to the private parent evidence workspace. See
 [`docs/configuration.mdx`](./docs/configuration.mdx) for the exact commands. Passing offline tests
 is not presented as authenticated Gemini, Gemma, Agent Engine, or deployment proof.
 
+Authenticated demo claims follow the fail-closed
+[`docs/evidence-runbook.mdx`](./docs/evidence-runbook.mdx): read-only preflight, a capture at the
+human approval gate, a post-effect capture, independent verification, and idempotent replay proof.
+Raw evidence stays in the private parent workspace; `npm run verify:evidence` validates only the
+redacted consistency bundle.
+
 ## Deploy to Google Cloud
 
 One-time bootstrap, then repeatable deploys:

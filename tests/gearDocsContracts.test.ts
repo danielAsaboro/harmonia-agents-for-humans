@@ -19,8 +19,10 @@ describe("GEAR architecture documentation contracts", () => {
 
   it("does not represent ordinary duplicate suppression as a new audit receipt", () => {
     const readme = readFileSync("README.md", "utf8");
+    const approvalDocs = readFileSync("docs/approval-and-audit.mdx", "utf8");
     expect(readme).toContain("`already_applied` with the original receipt identity");
     expect(readme).toContain("Only explicit operator replay persists a replay observation");
     expect(readme).not.toContain("outcome (`applied` / `already_applied` / `failed`)");
+    expect(approvalDocs).not.toContain("`already_applied` returns the original receipt and suppresses");
   });
 });

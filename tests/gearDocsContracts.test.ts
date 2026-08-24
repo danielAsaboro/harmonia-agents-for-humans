@@ -6,6 +6,8 @@ describe("GEAR architecture documentation contracts", () => {
     const architecture = readFileSync("docs/architecture.mdx", "utf8");
     expect(architecture).toContain("atomically claims");
     expect(architecture).toContain("expired unresolved claim");
+    expect(architecture).toContain("`already_applied` with the original receipt identity");
+    expect(architecture).not.toContain("returns the original receipt as `already_applied`");
     expect(architecture).not.toContain("Before executing, the publish stage checks existing receipts");
   });
 
@@ -13,5 +15,12 @@ describe("GEAR architecture documentation contracts", () => {
     const design = readFileSync("docs/superpowers/specs/2026-08-25-effect-claim-recovery-design.md", "utf8");
     expect(design).toContain("operator replay-proof route");
     expect(design).not.toContain("An `already_applied` claim response writes a durable replay observation");
+  });
+
+  it("does not represent ordinary duplicate suppression as a new audit receipt", () => {
+    const readme = readFileSync("README.md", "utf8");
+    expect(readme).toContain("`already_applied` with the original receipt identity");
+    expect(readme).toContain("Only explicit operator replay persists a replay observation");
+    expect(readme).not.toContain("outcome (`applied` / `already_applied` / `failed`)");
   });
 });

@@ -41,7 +41,7 @@ Every executed action writes a receipt containing:
 }
 ```
 
-The publish stage claims the idempotency key before executing. A retried or re-delivered action with a finalized claim yields `already_applied` and the original receipt—never a duplicate tweet, image, or clip. Operators can trigger **Prove duplicate suppression** in the audit UI; that control calls the same claim boundary, persists a replay observation, and is prohibited from executing an effect.
+The publish stage claims the idempotency key before executing. A retried or re-delivered action with a finalized claim yields `already_applied` with the original receipt identity—never a duplicate tweet, image, or clip and never a new replay record. Operators can trigger **Prove duplicate suppression** in the audit UI; that control calls the same claim boundary, persists a replay observation, and is prohibited from executing an effect.
 
 ## Independent verification
 

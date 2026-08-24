@@ -188,7 +188,7 @@ Trace attributes are metadata-only. Harmonia disables both current and legacy AD
 
 ### Idempotent external effects
 
-Every executable action derives a deterministic idempotency key from `(jobId, actionId, payload)` hashed with SHA-256. After durable approval, the publish stage atomically claims that key in Firestore before calling any provider or writing an artifact. Exactly one live claim may return `execute`; concurrent delivery returns `in_progress`, and a finalized claim returns the original receipt as `already_applied` without repeating the effect. An expired unresolved claim returns `uncertain` and requires operator reconciliation instead of an unsafe automatic retry. Receipt finalization atomically links the claim, immutable receipt, and action state.
+Every executable action derives a deterministic idempotency key from `(jobId, actionId, payload)` hashed with SHA-256. After durable approval, the publish stage atomically claims that key in Firestore before calling any provider or writing an artifact. Exactly one live claim may return `execute`; concurrent delivery returns `in_progress`, and a finalized claim returns `already_applied` with the original receipt identity without repeating the effect. An expired unresolved claim returns `uncertain` and requires operator reconciliation instead of an unsafe automatic retry. Receipt finalization atomically links the claim, immutable receipt, and action state. Only the explicit operator replay-proof route persists a replay observation.
 
 ### Independent verification
 

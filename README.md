@@ -194,8 +194,8 @@ Google sign-in creates an isolated owner workspace. Customer jobs, memory, conne
 
 - **Minimum permissions**: two dedicated service accounts; web gets datastore + pubsub publisher, agent gets datastore + secretAccessor. Platform tokens are scoped to what they publish.
 - **Human approval gate**: publishing requires an explicit approval per action. Chat can propose; only token-holding operators decide. On Telegram, decisions require an inline-button tap scoped to the allow-listed chat.
-- **Idempotency**: every action carries a stable key derived from `(jobId, actionId, contentHash)` and atomically claims it before any external effect; duplicate deliveries return the original `already_applied` receipt instead of creating duplicate posts.
-- **Audit receipts**: each execution records outcome (`applied` / `already_applied` / `failed`), artifact URL, and platform response in Firestore.
+- **Idempotency**: every action carries a stable key derived from `(jobId, actionId, contentHash)` and atomically claims it before any external effect; duplicate deliveries return `already_applied` with the original receipt identity instead of creating duplicate posts. Only explicit operator replay persists a replay observation.
+- **Audit receipts**: each actual effect attempt records its applied or failed outcome, artifact URL, and platform response in Firestore. Duplicate suppression references that immutable receipt rather than creating another one.
 - **Resumable state**: jobs survive worker crashes; Pub/Sub redelivery plus server-side stage guards (`assertTransition`) prevent duplicated side effects. Failed jobs retry from their failure point.
 - **Managed cognition without split-brain state**: Agent Engine sessions are invocation-scoped and discarded; Memory Bank stores only eligible durable facts under exact workspace/brand scope.
 - **Long-horizon context**: Firestore preserves the resumable workflow and audit ledger across worker restarts; Memory Bank carries only approved decisions, verified outcomes, learn-stage counts, and explicit preferences into later jobs.

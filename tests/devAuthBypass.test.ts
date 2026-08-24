@@ -20,6 +20,7 @@ describe("development authentication bypass", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("set-cookie")).toContain("harmonia_session=dev-local");
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
+    expect(response.headers.get("set-cookie")).toContain("Max-Age=1209600");
   });
 
   test("refuses the bypass in production even when the flag is set", async () => {

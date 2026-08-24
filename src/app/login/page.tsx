@@ -1,17 +1,50 @@
 "use client";
 
-import { useState } from "react";
-import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import { useEffect, useRef, useState } from "react";
+import { browserLocalPersistence, GoogleAuthProvider, onAuthStateChanged, setPersistence, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { BrandMark } from "@/components/BrandMark";
 import { clientAuth } from "@/lib/firebaseClient";
+import { establishPersistedIdentity, restorePersistedSession, shouldRestorePersistedSession } from "@/lib/sessionPersistence";
 
 export default function LoginPage() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const interactiveSignIn = useRef(false);
+
+  async function createServerSession(idToken: string): Promise<boolean> {
+    const response = await fetch("/api/auth/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ idToken }),
+    });
+    return response.ok;
+  }
+
+  useEffect(() => {
+    return onAuthStateChanged(clientAuth(), async (user) => {
+      if (!user || interactiveSignIn.current) return;
+      if (!shouldRestorePersistedSession(user.metadata.lastSignInTime)) {
+        await firebaseSignOut(clientAuth());
+        return;
+      }
+      setBusy(true);
+      try {
+        const restored = await restorePersistedSession(user, createServerSession);
+        if (!restored) return;
+        router.replace("/dashboard");
+        router.refresh();
+      } catch {
+        // Keep the interactive Google option available when silent restoration fails.
+      } finally {
+        setBusy(false);
+      }
+    });
+  }, [router]);
 
   async function signIn() {
+    interactiveSignIn.current = true;
     setBusy(true);
     setError("");
     try {
@@ -28,19 +61,19 @@ export default function LoginPage() {
         router.refresh();
         return;
       }
-      const credential = await signInWithPopup(clientAuth(), new GoogleAuthProvider());
+      const auth = clientAuth();
+      const credential = await establishPersistedIdentity(
+        () => setPersistence(auth, browserLocalPersistence),
+        () => signInWithPopup(auth, new GoogleAuthProvider()),
+      );
       const idToken = await credential.user.getIdToken();
-      const response = await fetch("/api/auth/session", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ idToken }),
-      });
-      if (!response.ok) throw new Error("Could not create a secure session.");
+      if (!await createServerSession(idToken)) throw new Error("Could not create a secure session.");
       router.replace("/dashboard");
       router.refresh();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Google sign-in failed.");
     } finally {
+      interactiveSignIn.current = false;
       setBusy(false);
     }
   }

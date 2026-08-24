@@ -3,8 +3,11 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { signOut as firebaseSignOut } from "firebase/auth";
 import { BrandMark } from "@/components/BrandMark";
 import { ChatIcon, CalendarIcon, ChartIcon, SettingsIcon, SparklesIcon } from "@/components/icons";
+import { clientAuth } from "@/lib/firebaseClient";
+import { signOutPersistedSession } from "@/lib/sessionPersistence";
 
 const RAIL = [
   { href: "/dashboard", label: "Console", Icon: ChatIcon },
@@ -30,7 +33,10 @@ export default function NavRail() {
   const [unread, setUnread] = useState(0);
 
   async function signOut() {
-    await fetch("/api/auth/session", { method: "DELETE" });
+    await signOutPersistedSession(
+      () => firebaseSignOut(clientAuth()),
+      async () => { await fetch("/api/auth/session", { method: "DELETE" }); },
+    );
     router.replace("/login");
     router.refresh();
   }
@@ -109,7 +115,7 @@ export default function NavRail() {
           aria-label="Sign out"
           className="mt-1 flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
         >
-          ↗
+          <span aria-hidden>⇥</span>
         </button>
       </div>
     </nav>

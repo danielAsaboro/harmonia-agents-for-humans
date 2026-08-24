@@ -5,7 +5,10 @@ import { requireWorkspaceRole, runWithTenant, type TenantContext } from "./tenan
 import { isInternalAuthorized, withInternalTenant } from "./internalAuth";
 
 export const SESSION_COOKIE = "harmonia_session";
-const SESSION_TTL_MS = 5 * 24 * 60 * 60 * 1000;
+// Firebase session cookies permit a maximum lifetime of 14 days. The client
+// silently renews this cookie from its persisted Firebase identity for up to
+// 30 days after the operator's last interactive Google sign-in.
+const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const DEV_SESSION_VALUE = "dev-local";
 const DEV_USER_ID = "dev-local-user";
 

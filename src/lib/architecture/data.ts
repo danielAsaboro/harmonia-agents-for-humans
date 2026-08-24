@@ -1,0 +1,132 @@
+import type { ArchitectureNode } from "./schema";
+import { validateArchitecture } from "./validate";
+
+const node = (value: Partial<ArchitectureNode> & Pick<ArchitectureNode, "id" | "name" | "kind" | "layer" | "summary">): ArchitectureNode => ({
+  statuses: ["implemented"], authorities: ["none"], dataScope: "none", stateLifetime: "stateless", ...value,
+});
+const group = (id: string, name: string, layer: ArchitectureNode["layer"], summary: string, defaultExpanded = false) => node({ id, name, kind: "group", layer, summary, defaultExpanded });
+
+const nodes: ArchitectureNode[] = [
+  group("group-surfaces", "Operator surfaces", "surfaces", "Authenticated ways operators inspect and direct Harmonia.", true),
+  node({ id: "surface-dashboard", name: "Editorial Studio Dashboard", kind: "surface", layer: "surfaces", parentId: "group-surfaces", summary: "Jobs, proposals, calendar, monitoring, settings, and receipts.", authorities: ["read", "write"], dataScope: "workspace", runtime: "Next.js / Cloud Run", sourceFiles: ["src/components/DashboardFrame.tsx"] }),
+  node({ id: "surface-console", name: "Conversational Console + A2UI", kind: "surface", layer: "surfaces", parentId: "group-surfaces", summary: "Natural-language job and status surface with a validated living canvas.", authorities: ["read", "write"], dataScope: "workspace", sourceFiles: ["src/components/ChatConsole.tsx"], docs: ["a2ui-console"] }),
+  node({ id: "surface-telegram", name: "Telegram Bot", kind: "surface", layer: "surfaces", parentId: "group-surfaces", summary: "Allow-listed Bot API surface; approvals require callback taps.", statuses: ["implemented", "approval-gated"], authorities: ["read", "write"], dataScope: "tenant", sourceFiles: ["agent/harmonia_agent/telegram_bot.py"] }),
+  node({ id: "surface-auth", name: "Google Sign-In / Identity Platform", kind: "surface", layer: "trust", parentId: "group-surfaces", summary: "Verified identity establishes workspace membership and tenant scope.", authorities: ["read"], dataScope: "tenant", sourceFiles: ["src/lib/auth.ts"] }),
+
+  group("group-control", "Next.js control plane", "control", "Authenticated web control plane on Cloud Run."),
+  ...[
+    ["chat", "Chat intent + runs", "Gemini structured intent, durable run events, and replay."],
+    ["upload", "Resumable upload broker", "Tenant-scoped upload sessions with server-side metadata verification."],
+    ["decision", "Decision engine", "One policy and approval boundary for dashboard, chat, and Telegram."],
+    ["calendar", "Calendar sync", "Explicit browser-session sync to an app-created Google calendar."],
+    ["authentication", "Authentication + tenancy", "Server-derived workspace and brand membership."],
+    ["a2ui", "A2UI renderer", "Validated declarative components; no generated JavaScript or arbitrary callbacks."],
+    ["streaming", "NDJSON event streaming", "Persist-before-delivery transport with monotonic sequence replay."],
+  ].map(([id, name, summary]) => node({ id: `control-${id}`, name, kind: "service", layer: "control", parentId: "group-control", summary, authorities: ["read", "write"], dataScope: "workspace", runtime: "Next.js / Cloud Run" })),
+
+  group("group-apis", "API route families", "apis", "Browser-authenticated and service-authenticated route boundaries."),
+  node({ id: "api-auth", name: "Auth + tenancy routes", kind: "route", layer: "apis", parentId: "group-apis", summary: "Session and workspace-scoped settings.", authorities: ["read", "write"], dataScope: "tenant", representativeRoutes: ["/api/auth/session", "/api/settings/*"], sourceFiles: ["src/app/api/auth/session/route.ts"] }),
+  node({ id: "api-jobs", name: "Jobs + decisions", kind: "route", layer: "apis", parentId: "group-apis", summary: "Create/read jobs and record action-specific decisions, retry, or replay observations.", statuses: ["implemented", "approval-gated"], authorities: ["read", "write", "approve"], dataScope: "workspace", representativeRoutes: ["/api/jobs", "/api/jobs/{id}", "/api/jobs/{id}/actions/{actionId}/decision", "/api/jobs/{id}/retry", "/api/jobs/{id}/actions/{actionId}/replay"] }),
+  node({ id: "api-chat", name: "Chat + A2UI", kind: "route", layer: "apis", parentId: "group-apis", summary: "Chat, transport streaming, replay, attachments, and registered-operation decisions.", authorities: ["read", "write"], dataScope: "workspace", representativeRoutes: ["/api/chat", "/api/chat/stream", "/api/chat/runs/{id}/events", "/api/chat/attachments/*", "/api/chat/operations/{id}/decision"] }),
+  node({ id: "api-content", name: "Content + monitoring", kind: "route", layer: "apis", parentId: "group-apis", summary: "Content items, proposals, assets, events, receipts, metrics, and notifications.", authorities: ["read", "write"], dataScope: "workspace", representativeRoutes: ["/api/content-items", "/api/proposals", "/api/assets", "/api/events", "/api/receipts", "/api/metrics", "/api/notifications"] }),
+  node({ id: "api-calendar", name: "Calendar + OAuth", kind: "route", layer: "apis", parentId: "group-apis", summary: "Operator-only Calendar sync and official OAuth connections.", statuses: ["implemented", "approval-gated"], authorities: ["read", "write"], dataScope: "workspace", representativeRoutes: ["/api/calendar", "/api/calendar/google", "/api/oauth/{platform}/*"] }),
+  node({ id: "api-internal", name: "Internal worker boundary", kind: "route", layer: "apis", parentId: "group-apis", summary: "Service-authenticated worker callbacks; never browser-selected tenant scope.", authorities: ["read", "write"], dataScope: "tenant", representativeRoutes: ["/api/internal/ingest", "/api/internal/transcript", "/api/internal/analysis", "/api/internal/drafts", "/api/internal/effect-claim", "/api/internal/receipt", "/api/internal/verification", "/api/internal/usage", "/api/internal/agent-state"], sourceFiles: ["src/lib/internalHandler.ts"] }),
+
+  group("group-workflow", "Durable workflow", "workflow", "Firestore-persisted, Pub/Sub-triggered resumable content pipeline.", true),
+  ...[
+    ["ingest", "1 · Ingest", "Resolve an authorized YouTube source or uploaded media."],
+    ["transcribe", "2 · Transcribe", "Gemini transcription with timed segments."],
+    ["analyze", "3 · Analyze", "Ground clip moments in transcript and video evidence."],
+    ["ideate", "4 · Ideate", "Develop grounded trend, meme, and content angles."],
+    ["draft", "5 · Draft", "Run the bounded sequential drafting team."],
+    ["await-approval", "6 · Await approval", "Hard human gate before every external effect."],
+    ["publish-render", "7 · Publish / export / render", "Claim and execute only approved actions."],
+    ["verify", "8 · Verify", "Independently re-fetch providers or re-read artifact digests."],
+    ["learn", "9 · Learn", "Persist measured outcomes and eligible takeaways."],
+  ].map(([id, name, summary]) => node({ id: `stage-${id}`, name, kind: id === "await-approval" ? "gate" : id === "verify" ? "verification" : "stage", layer: "workflow", parentId: "group-workflow", summary, statuses: id === "await-approval" ? ["approval-gated"] : ["implemented"], authorities: id === "await-approval" ? ["approve"] : id === "verify" ? ["verify"] : ["write"], dataScope: "workspace", stateLifetime: "durable", sourceFiles: ["agent/harmonia_agent/stages.py"], docs: ["pipeline"] })),
+
+  group("group-worker", "ADK worker", "control", "FastAPI Cloud Run worker consumes stages and persists results."),
+  ...[["dispatcher", "Stage dispatcher"], ["scheduler", "Scheduler dispatcher"], ["proactive", "Proactive agent"], ["media", "Direct media operations"], ["ffmpeg", "ffmpeg skills"], ["providers", "Provider clients"], ["tenant", "Tenant-context validation"]].map(([id, name]) => node({ id: `worker-${id}`, name, kind: "service", layer: "control", parentId: "group-worker", summary: `${name} inside the service-authenticated worker boundary.`, authorities: ["read", "write"], dataScope: "workspace-brand", runtime: "FastAPI / Cloud Run" })),
+
+  group("group-agent-engine", "Vertex AI Agent Engine", "agents", "Managed cognitive runtime; never durable workflow ownership."),
+  node({ id: "agent-engine", name: "Vertex AI Agent Engine", kind: "runtime", layer: "agents", parentId: "group-agent-engine", summary: "Ephemeral cognitive runtime with one managed invocation session.", statuses: ["pending-live"], authorities: ["delegate"], dataScope: "workspace-brand", stateLifetime: "ephemeral", runtime: "Vertex AI", sourceFiles: ["agent/harmonia_agent/agent_engine_app.py"], docs: ["agent-platform", "session-memory"], limitations: ["Authenticated live evidence pending."] }),
+  node({ id: "memory-bank", name: "Memory Bank", kind: "store", layer: "data", parentId: "group-agent-engine", summary: "Exact workspace_id + brand_id retrieval of eligible typed facts only.", statuses: ["pending-live"], authorities: ["read", "write"], dataScope: "workspace-brand", stateLifetime: "durable", sourceFiles: ["agent/harmonia_agent/memory_bank.py"], limitations: ["Excludes raw sources, transcripts, prompts, drafts, errors, and unverified claims."] }),
+
+  group("group-agent-team", "Agent team + delegation", "agents", "Bounded ADK roles with no effect authority."),
+  node({ id: "agent-harmonia", name: "Harmonia coordinator", kind: "agent", layer: "agents", parentId: "group-agent-team", summary: "Routes exactly one bounded specialist; cannot answer the task, approve, or publish.", statuses: ["offline-verified", "pending-live"], authorities: ["delegate"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash-Lite" }, promptResponsibility: "Exact one-specialist routing and delegation only.", sourceFiles: ["agent/harmonia_agent/agents.py"] }),
+  node({ id: "agent-ryan", name: "Ryan strategist", kind: "agent", layer: "agents", parentId: "group-agent-team", summary: "Produces grounded strategy contracts from supplied briefs and signals.", statuses: ["offline-verified", "pending-live"], authorities: ["propose"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash" }, promptResponsibility: "Grounded strategy; never invent evidence." }),
+  node({ id: "agent-sophia", name: "Sophia multimodal analyst", kind: "agent", layer: "agents", parentId: "group-agent-team", summary: "Analyzes bounded video plus timed transcript with quote/time/frame grounding.", statuses: ["offline-verified", "pending-live"], authorities: ["propose"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash" }, promptResponsibility: "Grounded moments, visual hooks, crop suitability, and evidence references." }),
+  group("workflow-flo", "Flo draft workflow", "agents", "ADK SequentialAgent exposed through AgentTool."),
+  node({ id: "agent-nimi", name: "Nimi copywriter", kind: "agent", layer: "agents", parentId: "workflow-flo", summary: "Creates typed platform-native drafts from grounded state.", statuses: ["offline-verified", "pending-live"], authorities: ["propose"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemma 3 12B IT" }, promptResponsibility: "Draft with valid references and X length constraints." }),
+  node({ id: "agent-dara", name: "Dara editor", kind: "agent", layer: "agents", parentId: "workflow-flo", summary: "Performs exactly one revision while preserving IDs and references.", statuses: ["offline-verified", "pending-live"], authorities: ["propose"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash" }, promptResponsibility: "Edit Nimi drafts without creating new facts." }),
+  node({ id: "agent-temi", name: "Temi planner", kind: "agent", layer: "agents", parentId: "workflow-flo", summary: "Proposes actions from exact reviewed text; never approves or executes.", statuses: ["offline-verified", "pending-live"], authorities: ["propose"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash-Lite" }, promptResponsibility: "Proposal-only action plan from Dara-reviewed text." }),
+  node({ id: "agent-maya", name: "Maya A2UI presenter", kind: "agent", layer: "agents", parentId: "group-agent-team", summary: "Produces bounded declarative A2UI plans from typed UiContext.", statuses: ["offline-verified", "pending-live"], authorities: ["propose"], dataScope: "workspace", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash" }, promptResponsibility: "Reference known components and entities only." }),
+  node({ id: "agent-nova", name: "Nova insight liaison", kind: "agent", layer: "agents", parentId: "group-agent-team", summary: "Loads the matching skill first and answers through read-only grounded tools.", statuses: ["offline-verified", "pending-live", "read-only"], authorities: ["read"], dataScope: "workspace", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash" }, promptResponsibility: "Skill-first grounded operator answers.", skills: ["trend-scan", "signal-watch", "engagement-insights", "job-status", "posting-schedule"] }),
+
+  group("group-skills", "Runtime skills + read-only tools", "skills", "Nova's ADK SkillToolset and bounded FunctionTools."),
+  ...["trend-scan", "signal-watch", "engagement-insights", "job-status", "posting-schedule"].map((name) => node({ id: `skill-${name}`, name, kind: "skill", layer: "skills", parentId: "group-skills", summary: `Filesystem ADK skill: ${name}.`, statuses: ["offline-verified", "read-only"], authorities: ["read"], dataScope: name.includes("trend") || name === "signal-watch" ? "public" : "workspace", stateLifetime: "stateless", sourceFiles: [`agent/harmonia_agent/skills/${name}/SKILL.md`] })),
+  ...[
+    ["fetch-trend-signals", "fetch_trend_signals", "public"], ["search-trend-signals", "search_trend_signals", "public"],
+    ["get-engagement-insights", "get_engagement_insights", "workspace"], ["get-operator-feed", "get_operator_feed", "workspace"],
+    ["get-job-status", "get_job_status", "workspace"], ["suggest-posting-windows", "suggest_posting_windows", "workspace"],
+  ].map(([id, name, scope]) => node({ id: `tool-${id}`, name, kind: "tool", layer: "skills", parentId: "group-skills", summary: `Read-only ${scope}-scoped tool.`, statuses: ["offline-verified", "read-only"], authorities: ["read"], dataScope: scope as "public" | "workspace", stateLifetime: "stateless", sourceFiles: ["agent/harmonia_agent/skills_runtime.py"] })),
+
+  group("group-state", "Data stores + state ownership", "data", "Durable business state, scoped memory, assets, usage, and evidence."),
+  node({ id: "firestore", name: "Firestore", kind: "store", layer: "data", parentId: "group-state", summary: "Durable source of truth under workspaces/{workspaceId}/…", authorities: ["read", "write"], dataScope: "workspace", stateLifetime: "durable", sourceFiles: ["src/lib/firestore.ts"], docs: ["state-ownership"] }),
+  node({ id: "pubsub", name: "Pub/Sub", kind: "service", layer: "workflow", parentId: "group-state", summary: "Asynchronous stage delivery and retry; payload and attributes repeat tenant scope.", authorities: ["write"], dataScope: "workspace-brand", stateLifetime: "durable", sourceFiles: ["src/lib/pubsub.ts"] }),
+  node({ id: "asset-store", name: "Cloud Storage / local artifacts", kind: "store", layer: "data", parentId: "group-state", summary: "Workspace- and brand-scoped content packs and generated media.", authorities: ["read", "write"], dataScope: "workspace-brand", stateLifetime: "durable", sourceFiles: ["src/lib/storage.ts"] }),
+  ...[["budget", "Budget reservations"], ["usage", "Immutable usage ledger"], ["claims", "Effect claims"], ["receipts", "Immutable receipts"], ["verifications", "Verification records"]].map(([id, name]) => node({ id: `state-${id}`, name, kind: "store", layer: id === "budget" || id === "usage" ? "observability" : "data", parentId: "group-state", summary: `${name} persisted transactionally in workspace-scoped Firestore.`, authorities: ["read", "write"], dataScope: "workspace", stateLifetime: "durable" })),
+
+  group("group-effect-safety", "Human approval + effect safety", "effects", "Action-specific human approval, idempotent execution, and independent truth checks."),
+  node({ id: "approval-receipt", name: "Action-specific approval receipt", kind: "gate", layer: "effects", parentId: "group-effect-safety", summary: "Records who approved exactly which action and payload.", statuses: ["approval-gated"], authorities: ["approve"], dataScope: "workspace", stateLifetime: "durable", approval: "Required before every external effect." }),
+  ...[["idempotency-key", "SHA-256 idempotency key"], ["effect-claim", "Atomic Firestore effect claim"], ["execution-receipt", "Immutable execution receipt"], ["independent-readback", "Independent provider/digest read-back"], ["verification-record", "Immutable verification record"]].map(([id, name]) => node({ id, name, kind: id.includes("verification") || id.includes("readback") ? "verification" : "control", layer: "effects", parentId: "group-effect-safety", summary: `${name} in the deterministic effect-safety lifecycle.`, statuses: ["implemented"], authorities: id.includes("verification") || id.includes("readback") ? ["verify"] : ["write"], dataScope: "workspace", stateLifetime: "durable" })),
+  node({ id: "uncertain-claim", name: "UNCERTAIN · operator reconciliation", kind: "control", layer: "effects", parentId: "group-effect-safety", summary: "Expired unresolved claims never auto-retry unsafely.", statuses: ["implemented"], authorities: ["none"], dataScope: "workspace", stateLifetime: "durable", limitations: ["Requires explicit operator reconciliation."] }),
+  ...[["publish-x", "Publish X post"], ["export-pack", "Export content pack"], ["generate-image", "Generate image"], ["render-media", "Render clip / reel"], ["generate-veo", "Generate Veo b-roll"], ["generate-lyria", "Generate Lyria soundtrack"], ["schedule-content", "Schedule due content"]].map(([id, name]) => node({ id: `effect-${id}`, name, kind: "effect", layer: "effects", parentId: "group-effect-safety", summary: `${name} only after an action-specific approval receipt.`, statuses: ["approval-gated"], authorities: ["execute-effect"], dataScope: "external", stateLifetime: "external", approval: "Required", idempotency: "Deterministic SHA-256 operation key", verification: "Independent re-fetch or digest read-back" })),
+
+  group("group-external", "External services", "external", "Official APIs and Google model services."),
+  ...[
+    ["youtube", "YouTube / oEmbed / yt-dlp", "implemented"], ["x", "X API v2", "approval-gated"], ["calendar", "Google Calendar API", "approval-gated"],
+    ["hn", "Hacker News / Algolia", "read-only"], ["gemini", "Gemini transcription + analysis", "pending-live"],
+    ["veo", "Veo 3.1 Fast", "pending-live"], ["lyria", "Lyria 3 Clip", "pending-live"], ["image", "Gemini image generation", "pending-live"],
+  ].map(([id, name, status]) => node({ id: `external-${id}`, name, kind: "integration", layer: "external", parentId: "group-external", summary: `${name} integration through an official or authorized boundary.`, statuses: [status as ArchitectureNode["statuses"][number]], authorities: status === "read-only" ? ["read"] : ["none"], dataScope: id === "hn" || id === "youtube" ? "public" : "external", stateLifetime: "external" })),
+
+  group("group-observability", "Observability + cost", "observability", "Metadata-only trace correlation and deterministic cost accounting."),
+  ...[["trace", "W3C trace propagation"], ["spans", "Metadata-only OpenTelemetry spans"], ["cost", "Role/model cost accounting"], ["budgets", "Workspace + job budget guards"]].map(([id, name]) => node({ id: `observe-${id}`, name, kind: "control", layer: "observability", parentId: "group-observability", summary: `${name}; no prompts, responses, transcripts, drafts, media, or chain-of-thought.`, statuses: id === "trace" || id === "spans" ? ["offline-verified", "pending-live"] : ["offline-verified"], authorities: ["read"], dataScope: "metadata-only", stateLifetime: "durable", sourceFiles: ["agent/harmonia_agent/telemetry.py"], docs: ["observability", "models-cost-evaluation"] })),
+];
+
+const workflowIds = ["ingest", "transcribe", "analyze", "ideate", "draft", "await-approval", "publish-render", "verify", "learn"].map((id) => `stage-${id}`);
+const effectIds = nodes.filter((item) => item.kind === "effect").map((item) => item.id);
+const edges = [
+  ...workflowIds.slice(0, -1).map((source, index) => ({ id: `flow-${index + 1}`, source, target: workflowIds[index + 1], kind: index === 4 ? "approval" as const : index === 6 ? "verification" as const : "workflow" as const, label: index === 4 ? "Human approval" : index === 6 ? "Independent verification" : "Durable transition" })),
+  { id: "delegate-ryan", source: "agent-harmonia", target: "agent-ryan", kind: "delegation" as const, label: "Delegate strategy" },
+  { id: "delegate-sophia", source: "agent-harmonia", target: "agent-sophia", kind: "delegation" as const, label: "Delegate analysis" },
+  { id: "delegate-flo", source: "agent-harmonia", target: "workflow-flo", kind: "delegation" as const, label: "AgentTool" },
+  { id: "delegate-maya", source: "agent-harmonia", target: "agent-maya", kind: "delegation" as const, label: "Delegate presentation" },
+  { id: "delegate-nova", source: "agent-harmonia", target: "agent-nova", kind: "delegation" as const, label: "Delegate insight" },
+  { id: "flo-1", source: "agent-nimi", target: "agent-dara", kind: "workflow" as const, label: "Sequential draft" },
+  { id: "flo-2", source: "agent-dara", target: "agent-temi", kind: "workflow" as const, label: "Reviewed text" },
+  { id: "memory", source: "memory-bank", target: "agent-harmonia", kind: "memory" as const, label: "Exact-scope facts" },
+  { id: "state-pubsub", source: "firestore", target: "pubsub", kind: "workflow" as const, label: "Persist then publish" },
+  ...effectIds.flatMap((effectId) => [
+    { id: `approval-${effectId}`, source: "approval-receipt", target: effectId, kind: "approval" as const, label: "Human approval" },
+    { id: `verification-${effectId}`, source: effectId, target: "verification-record", kind: "verification" as const, label: "Independent read-back" },
+  ]),
+  { id: "claim-uncertain", source: "effect-claim", target: "uncertain-claim", kind: "blocked" as const, label: "Expired unresolved claim" },
+  { id: "telemetry-worker", source: "group-worker", target: "group-observability", kind: "telemetry" as const, label: "Trace context" },
+  { id: "retrieval-hn", source: "external-hn", target: "agent-nova", kind: "retrieval" as const, label: "Read-only public signals" },
+];
+
+export const architectureDefinition = validateArchitecture({
+  version: "2026-08-26",
+  nodes,
+  edges,
+  presets: [
+    { id: "overview", name: "System overview", expanded: ["group-surfaces", "group-workflow"], layers: [], statuses: [], focusNodeIds: ["group-workflow"] },
+    { id: "agents", name: "Agent team", expanded: ["group-agent-engine", "group-agent-team", "workflow-flo", "group-skills"], layers: ["agents", "skills", "models", "prompts", "data"], statuses: [], focusNodeIds: ["agent-harmonia"] },
+    { id: "workflow", name: "Content workflow", expanded: ["group-workflow", "group-worker"], layers: ["workflow", "control", "effects"], statuses: [], focusNodeIds: ["stage-ingest"] },
+    { id: "effect-safety", name: "Approval and effect safety", expanded: ["group-effect-safety"], layers: ["effects", "external", "data"], statuses: [], focusNodeIds: ["approval-receipt"] },
+    { id: "state", name: "State ownership", expanded: ["group-state", "group-agent-engine"], layers: ["data", "workflow", "agents"], statuses: [], focusNodeIds: ["firestore"] },
+    { id: "apis", name: "APIs and integrations", expanded: ["group-control", "group-apis", "group-external"], layers: ["control", "apis", "external"], statuses: [], focusNodeIds: ["group-apis"] },
+    { id: "observability", name: "Observability and cost", expanded: ["group-observability", "group-state"], layers: ["observability", "data"], statuses: [], focusNodeIds: ["group-observability"] },
+  ],
+});

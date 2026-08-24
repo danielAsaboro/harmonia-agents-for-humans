@@ -8,7 +8,7 @@ from harmonia_agent.failures import FailureCategory, normalize_failure
 from harmonia_agent.generative_media import MediaProviderError
 from harmonia_agent.memory_bank import MemoryProviderError
 from harmonia_agent.model_catalog import UnknownModelPrice
-from harmonia_agent.web_client import WebApiError
+from harmonia_agent.web_client import EffectClaimInProgress, EffectClaimUncertain, WebApiError
 from harmonia_agent.x_client import XError
 from harmonia_agent import stages
 
@@ -66,6 +66,18 @@ def test_policy_failure_is_explicit_and_never_retryable():
     assert result.category == FailureCategory.POLICY
     assert result.retryable is False
     assert result.public_message == "Operator or policy action is required before this stage can continue."
+
+
+def test_effect_claim_contention_retries_but_uncertain_effect_requires_operator():
+    in_progress = envelope(EffectClaimInProgress("another worker owns the claim"))
+    assert in_progress.category == FailureCategory.DEPENDENCY
+    assert in_progress.code == "effect_claim_in_progress"
+    assert in_progress.retryable is True
+
+    uncertain = envelope(EffectClaimUncertain("provider outcome is unknown"))
+    assert uncertain.category == FailureCategory.POLICY
+    assert uncertain.code == "effect_outcome_uncertain"
+    assert uncertain.retryable is False
 
 
 def test_retryable_failures_stop_after_the_central_attempt_limit():

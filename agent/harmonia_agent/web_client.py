@@ -24,6 +24,14 @@ class WebApiError(RuntimeError):
         return self.status is not None and 400 <= self.status < 500 and self.status != 429
 
 
+class EffectClaimInProgress(RuntimeError):
+    pass
+
+
+class EffectClaimUncertain(RuntimeError):
+    pass
+
+
 def _client(*, tenant_required: bool = True) -> httpx.Client:
     tenant = current_tenant() if tenant_required else None
     headers = {
@@ -166,6 +174,14 @@ def post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     if res.status_code >= 300:
         raise WebApiError(f"{path} failed: {res.status_code} {res.text}", res.status_code)
     return res.json()
+
+
+def claim_effect(payload: dict[str, Any]) -> dict[str, Any]:
+    result = post("/api/internal/effect-claim", payload)
+    outcome = result.get("outcome")
+    if outcome not in {"execute", "in_progress", "already_applied", "uncertain"}:
+        raise WebApiError("effect claim returned an invalid outcome")
+    return result
 
 
 def reserve_budget(payload: dict[str, object]) -> None:

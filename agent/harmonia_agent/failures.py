@@ -14,7 +14,7 @@ from .generative_media import MediaProtocolError, MediaProviderError
 from .memory_bank import MemoryProtocolError, MemoryProviderError
 from .model_catalog import UnknownModelPrice
 from .team_runtime import AgentEngineProtocolError, AgentEngineProviderError
-from .web_client import WebApiError
+from .web_client import EffectClaimInProgress, EffectClaimUncertain, WebApiError
 from .x_client import XError
 from .youtube import IngestError
 
@@ -70,6 +70,10 @@ def _status(exc: Exception) -> int | None:
 
 def _classification(exc: Exception) -> tuple[FailureCategory, str, bool]:
     status = _status(exc)
+    if isinstance(exc, EffectClaimInProgress):
+        return FailureCategory.DEPENDENCY, "effect_claim_in_progress", True
+    if isinstance(exc, EffectClaimUncertain):
+        return FailureCategory.POLICY, "effect_outcome_uncertain", False
     if isinstance(exc, ValidationError) or isinstance(exc, (ValueError, KeyError, IngestError)):
         if isinstance(exc, UnknownModelPrice):
             return FailureCategory.BUDGET, "unknown_model_price", False

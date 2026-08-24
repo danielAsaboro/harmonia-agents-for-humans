@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import uuid
 from pathlib import Path
 import asyncio
 from datetime import datetime, timezone
@@ -51,7 +52,10 @@ from .team_runtime import AgentEngineProtocolError, AgentEngineProviderError
 from .telemetry import current_trace_id, inject_context, safe_attributes, tracer
 from .usage import InvocationContext, media_usage_record
 from .web_client import (
+    EffectClaimInProgress,
+    EffectClaimUncertain,
     WebApiError,
+    claim_effect,
     get_asset,
     get_connection,
     get_insights,
@@ -422,6 +426,20 @@ async def run_publish(job_id: str) -> None:
 
     for action in executable:
         key = _idempotency_key(job_id, action)
+        trace_id = current_trace_id()
+        operation_id = f"{job_id}:publish:{action['id']}:{trace_id}"
+        claim_token = uuid.uuid4().hex
+        claim_result = claim_effect({
+            "jobId": job_id, "actionId": action["id"], "actionType": action["type"],
+            "idempotencyKey": key, "operationId": operation_id,
+            "traceId": trace_id, "claimToken": claim_token,
+        })
+        if claim_result["outcome"] == "already_applied":
+            continue
+        if claim_result["outcome"] == "in_progress":
+            raise EffectClaimInProgress("another worker currently owns this effect")
+        if claim_result["outcome"] == "uncertain":
+            raise EffectClaimUncertain("a prior effect attempt has no final receipt")
         detail: dict[str, Any] = {"idempotencyKey": key}
         outcome, artifact = "failed", None
         try:
@@ -538,8 +556,8 @@ async def run_publish(job_id: str) -> None:
                         web_post("/api/internal/receipt", {
                             "jobId": job_id, "actionId": action["id"],
                             "actionType": action["type"], "idempotencyKey": key,
-                            "operationId": f"{job_id}:publish:{action['id']}:{current_trace_id()}",
-                            "traceId": current_trace_id(),
+                            "operationId": operation_id,
+                            "traceId": trace_id, "claimToken": claim_token,
                             "outcome": outcome, "artifact": artifact, "detail": detail,
                         })
                         continue
@@ -654,8 +672,8 @@ async def run_publish(job_id: str) -> None:
         web_post("/api/internal/receipt", {
             "jobId": job_id, "actionId": action["id"], "actionType": action["type"],
             "idempotencyKey": key,
-            "operationId": f"{job_id}:publish:{action['id']}:{current_trace_id()}",
-            "traceId": current_trace_id(), "outcome": outcome,
+            "operationId": operation_id,
+            "traceId": trace_id, "claimToken": claim_token, "outcome": outcome,
             "artifact": artifact, "detail": detail,
         })
 

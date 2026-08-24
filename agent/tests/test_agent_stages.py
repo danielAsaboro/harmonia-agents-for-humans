@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+import pytest
 
 from harmonia_agent import stages
 from harmonia_agent.agent_models import AnalysisResult, StrategistResult
+from harmonia_agent.web_client import EffectClaimInProgress, EffectClaimUncertain
 
 
 def _analysis() -> dict:
@@ -175,6 +177,7 @@ def test_content_pack_receipt_carries_the_applied_artifact_digest(monkeypatch):
     monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
     monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
+    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1})
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
 
     asyncio.run(stages.run_publish("job-1"))
@@ -183,6 +186,37 @@ def test_content_pack_receipt_carries_the_applied_artifact_digest(monkeypatch):
     assert receipt["outcome"] == "applied"
     assert receipt["artifact"]["digest"] == receipt["detail"]["digest"]
     assert len(receipt["artifact"]["digest"]) == 64
+    assert receipt["claimToken"]
+
+
+def test_publish_never_enters_effect_adapter_without_execute_claim(monkeypatch):
+    calls = []
+    job = {
+        "stage": "publish", "ingestedTitle": "Launch", "config": {"brief": "Launch"},
+        "moments": [], "angles": [], "drafts": [],
+        "actions": [{
+            "id": "a1", "type": "export_content_pack", "state": "planned",
+            "requiresApproval": True, "approvalState": "approved", "payload": {},
+        }],
+    }
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
+    monkeypatch.setattr(stages.content, "build_content_pack", lambda *_args: calls.append("effect") or "pack")
+    monkeypatch.setattr(stages, "web_post", lambda path, payload: calls.append(path))
+
+    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "already_applied", "attempt": 1, "receiptId": "r1"})
+    asyncio.run(stages.run_publish("job-1"))
+    assert "effect" not in calls
+
+    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "in_progress", "attempt": 1})
+    with pytest.raises(EffectClaimInProgress):
+        asyncio.run(stages.run_publish("job-1"))
+    assert "effect" not in calls
+
+    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "uncertain", "attempt": 1})
+    with pytest.raises(EffectClaimUncertain):
+        asyncio.run(stages.run_publish("job-1"))
+    assert "effect" not in calls
 
 
 def test_uploaded_media_is_materialized_for_clip_rendering(monkeypatch, tmp_path):

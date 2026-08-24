@@ -1,12 +1,9 @@
 import { receiptSubmissionSchema } from "@/lib/contracts";
 import {
   appendEvent,
-  findReceiptByIdempotencyKey,
+  finalizeEffectReceipt,
   getJob,
-  markActionExecuted,
   setStage,
-  writeReceipt,
-  writeReplayObservation,
 } from "@/lib/firestore";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
@@ -24,43 +21,8 @@ export async function POST(req: Request) {
         { status: 409 },
       );
     }
-    // Redelivery safety: a receipt with this idempotency key already exists,
-    // so suppress the duplicate write but still reconcile action state (the
-    // original run may have crashed between the external effect and the
-    // receipt write).
-    const duplicate = await findReceiptByIdempotencyKey(
-      body.jobId,
-      body.idempotencyKey,
-    );
     const action = job.actions.find((a) => a.id === body.actionId);
-    if (duplicate) {
-      await writeReplayObservation({
-        id: newId(),
-        jobId: body.jobId,
-        actionId: body.actionId,
-        operationId: `${body.operationId}:replay`,
-        traceId: body.traceId,
-        receiptId: duplicate.id,
-        outcome: "already_applied",
-        attemptedAt: new Date().toISOString(),
-      });
-      if (action && action.state === "planned") {
-        await markActionExecuted(
-          body.jobId,
-          body.actionId,
-          body.outcome === "failed" ? "failed" : "executed",
-        );
-        await appendEvent(
-          body.jobId,
-          "publish",
-          `duplicate receipt suppressed for '${action.title}' (state reconciled)`,
-          "system",
-          { operationId: `${body.operationId}:reconcile`, traceId: body.traceId },
-        );
-      }
-      return Response.json({ ok: true, duplicateSuppressed: true });
-    }
-    await writeReceipt({
+    const finalized = await finalizeEffectReceipt({
       id: newId(),
       jobId: body.jobId,
       actionId: body.actionId,
@@ -72,13 +34,9 @@ export async function POST(req: Request) {
       detail: body.detail,
       operationId: body.operationId,
       traceId: body.traceId,
-    });
-    if (action) {
-      await markActionExecuted(
-        body.jobId,
-        body.actionId,
-        body.outcome === "failed" ? "failed" : "executed",
-      );
+    }, body.claimToken);
+    if (finalized.duplicate) {
+      return Response.json({ ok: true, duplicateSuppressed: true, receiptId: finalized.receipt.id });
     }
     await appendEvent(
       body.jobId,

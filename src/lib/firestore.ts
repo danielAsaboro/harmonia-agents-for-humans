@@ -31,7 +31,7 @@ import {
 } from "./tenancy";
 import { chatScopeKey, retentionPlan, type ChatSurface } from "./chatHistory";
 import { currentTraceId } from "./telemetry";
-import { decideEffectClaim } from "./effectClaims";
+import { decideEffectClaim, decideEffectFinalization } from "./effectClaims";
 
 let client: Firestore | null = null;
 
@@ -837,6 +837,42 @@ export async function writeReceipt(receipt: Receipt): Promise<void> {
     .collection(RECEIPTS)
     .doc(receipt.id)
     .set(receipt);
+}
+
+export async function finalizeEffectReceipt(
+  receipt: Receipt,
+  claimToken: string,
+): Promise<{ duplicate: boolean; receipt: Receipt }> {
+  const ref = jobRef(receipt.jobId);
+  const claimRef = ref.collection(EFFECT_CLAIMS).doc(receipt.idempotencyKey);
+  return db().runTransaction(async (tx) => {
+    const [jobSnap, claimSnap] = await Promise.all([tx.get(ref), tx.get(claimRef)]);
+    const job = requireJobDoc(jobSnap);
+    if (!claimSnap.exists) throw new Error("effect receipt has no durable claim");
+    const claim = claimSnap.data() as EffectClaim;
+    if (
+      claim.actionId !== receipt.actionId
+      || claim.actionType !== receipt.actionType
+      || claim.operationId !== receipt.operationId
+      || claim.traceId !== receipt.traceId
+    ) {
+      throw new Error("effect receipt does not match its durable claim");
+    }
+    const decision = decideEffectFinalization(claim, claimToken, receipt.id, receipt.outcome);
+    if (decision.duplicate) {
+      const originalSnap = await tx.get(ref.collection(RECEIPTS).doc(decision.receiptId));
+      if (!originalSnap.exists) throw new Error("finalized effect claim receipt is missing");
+      return { duplicate: true, receipt: originalSnap.data() as Receipt };
+    }
+    const action = job.actions.find((candidate) => candidate.id === receipt.actionId);
+    if (!action) throw new Error(`action ${receipt.actionId} not found`);
+    if (action.state !== "planned") throw new Error(`action ${receipt.actionId} is not awaiting finalization`);
+    action.state = receipt.outcome === "failed" || receipt.outcome === "rejected" ? "failed" : "executed";
+    tx.create(ref.collection(RECEIPTS).doc(receipt.id), receipt);
+    tx.set(claimRef, decision.claim);
+    tx.update(ref, { actions: job.actions, updatedAt: receipt.performedAt });
+    return { duplicate: false, receipt };
+  });
 }
 
 export async function listReceipts(jobId: string): Promise<Receipt[]> {

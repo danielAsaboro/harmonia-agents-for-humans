@@ -43,3 +43,29 @@ export function decideEffectClaim(
   }
   return { outcome: "in_progress", claim: existing };
 }
+
+export type EffectFinalization =
+  | { duplicate: true; claim: EffectClaim; receiptId: string }
+  | { duplicate: false; claim: EffectClaim; receiptId: string };
+
+export function decideEffectFinalization(
+  claim: EffectClaim,
+  claimToken: string,
+  receiptId: string,
+  outcome: "applied" | "already_applied" | "rejected" | "failed",
+  now = new Date(),
+): EffectFinalization {
+  if (claim.state === "applied") {
+    if (!claim.receiptId) throw new Error("applied effect claim is missing its receipt");
+    return { duplicate: true, claim, receiptId: claim.receiptId };
+  }
+  if (claim.state !== "claimed") throw new Error(`effect claim cannot finalize from state '${claim.state}'`);
+  if (claim.claimToken !== claimToken) throw new Error("effect claim owner mismatch");
+  const finalized: EffectClaim = {
+    ...claim,
+    state: outcome === "applied" || outcome === "already_applied" ? "applied" : "failed",
+    receiptId,
+    finalizedAt: now.toISOString(),
+  };
+  return { duplicate: false, claim: finalized, receiptId };
+}

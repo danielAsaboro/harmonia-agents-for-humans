@@ -201,9 +201,23 @@ export const receiptSubmissionSchema = z.object({
   idempotencyKey: z.string().min(16),
   operationId: z.string().min(1).max(240),
   traceId: z.string().regex(/^[a-f0-9]{32}$/),
+  claimToken: z.string().min(1).max(240),
   outcome: z.enum(["applied", "already_applied", "rejected", "failed"]),
   artifact: evidenceRefSchema.nullable().optional(),
   detail: z.record(z.string(), z.unknown()).default({}),
+});
+
+export const effectClaimSubmissionSchema = z.object({
+  jobId: z.string().min(1),
+  actionId: z.string().min(1),
+  actionType: z.enum([
+    "export_content_pack", "publish_x_post", "generate_image",
+    "generate_veo_broll", "generate_lyria_soundtrack", "render_clip", "render_reel",
+  ]),
+  idempotencyKey: z.string().regex(/^[a-f0-9]{64}$/),
+  operationId: z.string().min(1).max(240),
+  traceId: z.string().regex(/^[a-f0-9]{32}$/).refine((value) => value !== "0".repeat(32)),
+  claimToken: z.string().min(1).max(240),
 });
 
 export const mediaOperationSchema = z.object({

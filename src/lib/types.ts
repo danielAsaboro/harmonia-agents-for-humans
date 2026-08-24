@@ -185,10 +185,14 @@ export interface ReplayObservation {
 }
 
 export interface VerificationResult {
+  id: string;
   target: string;
-  actionId?: string;
+  actionId: string;
+  receiptId: string;
+  operationId: string;
+  traceId: string;
   verified: boolean;
-  method: string;
+  method: "artifact_digest_reread" | "official_api_readback";
   evidence: EvidenceRef;
   checkedAt: string;
   note?: string;

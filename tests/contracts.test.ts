@@ -7,6 +7,7 @@ import {
   ingestSubmissionSchema,
   receiptSubmissionSchema,
   usageRecordSchema,
+  verificationSubmissionSchema,
 } from "@/lib/contracts";
 
 describe("internal contracts", () => {
@@ -75,6 +76,22 @@ describe("internal contracts", () => {
       traceId: "a".repeat(32), outcome: "applied", detail: {},
     });
     expect(parsed.success).toBe(false);
+  });
+
+  it("requires durable verification lineage metadata", () => {
+    const result = {
+      target: "content-pack", actionId: "a1", receiptId: "r1",
+      operationId: "j1:verify:a1", traceId: "a".repeat(32),
+      verified: true, method: "artifact_digest_reread",
+      evidence: { kind: "firestore_doc", url: "", fetchedAt: "2026-08-25T00:00:00Z", digest: "b".repeat(64) },
+    };
+    expect(verificationSubmissionSchema.safeParse({ jobId: "j1", results: [result] }).success).toBe(true);
+    expect(verificationSubmissionSchema.safeParse({
+      jobId: "j1", results: [{ ...result, receiptId: undefined }],
+    }).success).toBe(false);
+    expect(verificationSubmissionSchema.safeParse({
+      jobId: "j1", results: [{ ...result, traceId: "0".repeat(32) }],
+    }).success).toBe(false);
   });
 
   it("accepts strict budget reservations and usage records", () => {

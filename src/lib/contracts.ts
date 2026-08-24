@@ -216,8 +216,12 @@ export const verificationSubmissionSchema = z.object({
   results: z.array(
     z.object({
       target: z.string().min(1),
+      actionId: z.string().min(1),
+      receiptId: z.string().min(1),
+      operationId: z.string().min(1).max(240),
+      traceId: z.string().regex(/^[a-f0-9]{32}$/).refine((value) => value !== "0".repeat(32)),
       verified: z.boolean(),
-      method: z.string().min(1),
+      method: z.enum(["artifact_digest_reread", "official_api_readback"]),
       evidence: evidenceRefSchema,
       note: z.string().optional(),
     }),

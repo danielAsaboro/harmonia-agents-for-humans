@@ -12,7 +12,12 @@ const publishAction: PlannedAction = {
 };
 
 function verification(target: string, verified: boolean): VerificationResult {
-  return { target, verified, method: "independent_refetch", evidence: { kind: "x_api", url: "https://x.com/i/web/status/1", fetchedAt: new Date().toISOString() }, checkedAt: new Date().toISOString() };
+  return {
+    id: "v1", target, actionId: "a1", receiptId: "r", operationId: "j:verify:a1",
+    traceId: "a".repeat(32), verified, method: "official_api_readback",
+    evidence: { kind: "x_api", url: "https://x.com/i/web/status/1", fetchedAt: new Date().toISOString() },
+    checkedAt: new Date().toISOString(),
+  };
 }
 
 describe("assemblePacket", () => {

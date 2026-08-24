@@ -89,6 +89,7 @@ const effectSchema = z.object({
 const verificationSchema = z.object({
   verificationId: z.string().min(1),
   receiptId: z.string().min(1),
+  operationId: z.string().min(1),
   method: z.enum(["artifact_digest_reread", "official_api_readback"]),
   status: z.enum(["verified", "failed"]),
   checkedAt: timestamp,
@@ -232,17 +233,54 @@ export function verifyVerticalSliceEvidence(input: unknown): EvidenceVerificatio
     }
   }
 
-  const expectedTrace = bundle.events[0]?.traceId;
   const traceRecords = [
-    ...bundle.events.map((entry) => ({ path: "events", value: entry.traceId })),
-    ...bundle.cognition.map((entry) => ({ path: "cognition", value: entry.traceId })),
+    ...bundle.events.map((entry, index) => ({ path: `events.${index}.traceId`, value: entry.traceId })),
+    ...bundle.cognition.map((entry, index) => ({ path: `cognition.${index}.traceId`, value: entry.traceId })),
     { path: "approval", value: bundle.approval.traceId },
     { path: "effect", value: bundle.effect.traceId },
     { path: "verification", value: bundle.verification.traceId },
     { path: "replay", value: bundle.replay.traceId },
   ];
-  if (!expectedTrace || traceRecords.some((entry) => entry.value !== expectedTrace)) {
-    failures.push(failure("trace_mismatch", "traceId", "All lifecycle records must share one trace ID."));
+  for (const record of traceRecords) {
+    if (record.value === "0".repeat(32)) {
+      failures.push(failure(
+        "missing_trace_context",
+        record.path,
+        "Authenticated evidence requires a real OpenTelemetry trace context.",
+      ));
+    }
+  }
+
+  const eventTraceIds = new Set(bundle.events.map((entry) => entry.traceId));
+  for (let index = 0; index < bundle.cognition.length; index += 1) {
+    if (!eventTraceIds.has(bundle.cognition[index].traceId)) {
+      failures.push(failure(
+        "cognition_trace_unlinked",
+        `cognition.${index}.traceId`,
+        "Cognition must share trace context with a persisted lifecycle event.",
+      ));
+    }
+  }
+  if (bundle.approval.traceId !== bundle.effect.traceId) {
+    failures.push(failure(
+      "approval_effect_trace_mismatch",
+      "effect.traceId",
+      "The approved effect must descend from the operator approval trace.",
+    ));
+  }
+  if (bundle.effect.traceId !== bundle.verification.traceId) {
+    failures.push(failure(
+      "effect_verification_trace_mismatch",
+      "verification.traceId",
+      "Verification must remain linked to the applied effect trace.",
+    ));
+  }
+  if (bundle.replay.traceId === bundle.effect.traceId) {
+    failures.push(failure(
+      "replay_trace_reused",
+      "replay.traceId",
+      "Replay proof must come from a distinct traced attempt.",
+    ));
   }
 
   const operationIds = bundle.events.map((event) => event.operationId);
@@ -271,6 +309,13 @@ export function verifyVerticalSliceEvidence(input: unknown): EvidenceVerificatio
   }
   if (bundle.verification.status !== "verified") {
     failures.push(failure("effect_not_verified", "verification.status", "The external effect was not independently verified."));
+  }
+  if (bundle.verification.operationId === bundle.effect.operationId) {
+    failures.push(failure(
+      "verification_operation_reused",
+      "verification.operationId",
+      "Verification requires its own operation identifier.",
+    ));
   }
   if (Date.parse(bundle.verification.checkedAt) < Date.parse(bundle.effect.executedAt)) {
     failures.push(failure("verification_before_effect", "verification.checkedAt", "Verification occurred before effect execution."));

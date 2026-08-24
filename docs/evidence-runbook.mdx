@@ -21,7 +21,7 @@ The evidence runner path above is relative to the private parent workspace, not 
 
 ## Phase 2: capture-awaiting-approval
 
-Use Harmonia's normal dashboard or chat to ingest one authorized public YouTube URL. Do not call an internal stage or decision endpoint by hand. Wait until the persisted job reaches `awaiting_approval`, then run the read-only collector without `--require-complete`. Preserve one `traceId` across web ingress, Pub/Sub stage events, ADK cognition, usage, and the pending action.
+Use Harmonia's normal dashboard or chat to ingest one authorized public YouTube URL. Do not call an internal stage or decision endpoint by hand. Wait until the persisted job reaches `awaiting_approval`, then run the read-only collector without `--require-complete`. Preserve each W3C `traceId` and its lineage across web ingress, Pub/Sub stage events, ADK cognition, usage, and the pending action. A later operator decision is a separate inbound request and may correctly begin a new trace.
 
 At this checkpoint, the collector must not approve, publish, retry, or manufacture a receipt. An incomplete run is expected and must not be presented as a completed vertical slice.
 
@@ -39,7 +39,7 @@ cd harmonia
 npm run verify:evidence -- /absolute/private/run/bundle.json
 ```
 
-The complete capture must correlate the approval action, idempotency key, effect receipt, verification readback or artifact digest, cognition usage, cost records, and the same `traceId`. A verification timestamp before effect execution, a receipt mismatch, unknown observed cost, mock provenance, or raw private field fails closed.
+The complete capture must correlate the approval action, idempotency key, effect receipt, verification readback or artifact digest, cognition usage, cost records, and trace lineage. Cognition must share a trace with a lifecycle event; approval, effect, and verification must share their action trace; replay must be a distinct traced attempt. A zero trace ID, verification timestamp before effect execution, receipt mismatch, unknown observed cost, mock provenance, or raw private field fails closed.
 
 The redacted bundle also requires replay evidence: a distinct replay operation after the original effect must return `already_applied` and reference the original receipt.
 

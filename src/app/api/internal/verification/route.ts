@@ -13,6 +13,7 @@ import { publishStage } from "@/lib/pubsub";
 import { currentTenant } from "@/lib/tenancy";
 import { assemblePacket } from "@/lib/packet";
 import type { VerificationResult } from "@/lib/types";
+import { newId } from "@/lib/idempotency";
 
 export async function POST(req: Request) {
   if (!isInternalAuthorized(req)) return unauthorized();
@@ -26,6 +27,7 @@ export async function POST(req: Request) {
     }
     const results: VerificationResult[] = body.results.map((r) => ({
       ...r,
+      id: newId(),
       checkedAt: new Date().toISOString(),
     }));
     await saveVerifications(body.jobId, results);

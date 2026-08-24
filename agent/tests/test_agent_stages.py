@@ -138,6 +138,53 @@ def test_ingest_uploaded_media_uses_tenant_scoped_attachment(monkeypatch):
     assert payload["mediaBytes"] == len(media)
 
 
+def test_verify_posts_observed_receipt_and_trace_lineage(monkeypatch):
+    posts = []
+    digest = "b" * 64
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: {
+        "actions": [{"id": "a1", "type": "export_content_pack", "state": "executed"}],
+        "contentPack": {"digest": digest},
+    })
+    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [{
+        "id": "r1", "actionId": "a1", "detail": {"digest": digest},
+    }])
+    monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
+    monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
+
+    asyncio.run(stages.run_verify("job-1"))
+
+    path, payload = posts[0]
+    assert path == "/api/internal/verification"
+    result = payload["results"][0]
+    assert result["receiptId"] == "r1"
+    assert result["operationId"] == "job-1:verify:a1"
+    assert result["traceId"] == "a" * 32
+    assert result["method"] == "artifact_digest_reread"
+
+
+def test_content_pack_receipt_carries_the_applied_artifact_digest(monkeypatch):
+    posts = []
+    job = {
+        "stage": "publish", "ingestedTitle": "Launch", "config": {"brief": "Launch"},
+        "moments": [], "angles": [], "drafts": [],
+        "actions": [{
+            "id": "a1", "type": "export_content_pack", "state": "planned",
+            "requiresApproval": True, "approvalState": "approved", "payload": {},
+        }],
+    }
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
+    monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
+    monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
+
+    asyncio.run(stages.run_publish("job-1"))
+
+    receipt = next(payload for path, payload in posts if path == "/api/internal/receipt")
+    assert receipt["outcome"] == "applied"
+    assert receipt["artifact"]["digest"] == receipt["detail"]["digest"]
+    assert len(receipt["artifact"]["digest"]) == 64
+
+
 def test_uploaded_media_is_materialized_for_clip_rendering(monkeypatch, tmp_path):
     monkeypatch.setattr(stages, "get_chat_attachment", lambda _id: (b"video", "video/mp4", "demo.mp4"))
     source = stages._materialize_source_video({

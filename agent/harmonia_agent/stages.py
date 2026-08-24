@@ -434,7 +434,11 @@ async def run_publish(job_id: str) -> None:
                         action["payload"]["text"], connection.get("accessToken"),
                     )
                     outcome = "applied"
-                    artifact = {"kind": "x_api", "url": posted["url"], "fetchedAt": _now()}
+                    digest = hashlib.sha256(action["payload"]["text"].encode()).hexdigest()
+                    artifact = {
+                        "kind": "x_api", "url": posted["url"],
+                        "fetchedAt": _now(), "digest": digest,
+                    }
                     detail.update(posted)
             elif action["type"] == "export_content_pack":
                 pack = content.build_content_pack(
@@ -445,7 +449,11 @@ async def run_publish(job_id: str) -> None:
                 digest = hashlib.sha256(pack.encode()).hexdigest()
                 web_post("/api/internal/pack", {"jobId": job_id, "markdown": pack, "digest": digest})
                 outcome = "already_applied" if key in done_keys else "applied"
-                artifact = {"kind": "firestore_doc", "url": f"{os.environ.get('WEB_INTERNAL_URL', '')}/api/internal/job/{job_id}", "fetchedAt": _now()}
+                artifact = {
+                    "kind": "firestore_doc",
+                    "url": f"{os.environ.get('WEB_INTERNAL_URL', '')}/api/internal/job/{job_id}",
+                    "fetchedAt": _now(), "digest": digest,
+                }
                 detail["digest"] = digest
             elif action["type"] == "generate_image":
                 if key in done_keys:
@@ -661,19 +669,29 @@ async def run_verify(job_id: str) -> None:
     receipts = _receipts_for_job(job_id)
     receipt_by_action = {r["actionId"]: r for r in receipts}
     results: list[dict[str, Any]] = []
+    trace_id = current_trace_id()
 
     for action in job.get("actions", []):
         if action.get("state") != "executed":
             continue
-        detail = receipt_by_action.get(action["id"], {}).get("detail", {})
+        receipt = receipt_by_action.get(action["id"])
+        if not receipt:
+            raise RuntimeError(f"executed action {action['id']} has no durable receipt")
+        detail = receipt.get("detail", {})
+        lineage = {
+            "receiptId": receipt["id"],
+            "operationId": f"{job_id}:verify:{action['id']}",
+            "traceId": trace_id,
+        }
         if action["type"] == "publish_x_post" and detail.get("id"):
             connection = get_connection("x")
             post = x_client.get_post(str(detail["id"]), connection.get("accessToken"))
+            observed_digest = hashlib.sha256(str(post.get("text", "")).encode()).hexdigest() if post else None
             results.append({
                 "target": f"x:{detail['id']}", "actionId": action["id"],
                 "verified": bool(post),
-                "method": "independent_refetch:x_api",
-                "evidence": {"kind": "x_api", "url": detail.get("url", ""), "fetchedAt": _now()},
+                "method": "official_api_readback", **lineage,
+                "evidence": {"kind": "x_api", "url": detail.get("url", ""), "fetchedAt": _now(), "digest": observed_digest},
                 "note": "re-fetched from X API" if post else "tweet not found on refetch",
             })
         elif action["type"] == "export_content_pack" and job.get("contentPack"):
@@ -681,7 +699,7 @@ async def run_verify(job_id: str) -> None:
             results.append({
                 "target": "content-pack", "actionId": action["id"],
                 "verified": bool(expected and actual == expected),
-                "method": "independent_refetch:firestore_doc",
+                "method": "artifact_digest_reread", **lineage,
                 "evidence": {"kind": "firestore_doc", "url": "", "fetchedAt": _now(), "digest": actual},
                 "note": "pack digest matches receipt" if expected == actual else "pack digest mismatch",
             })
@@ -694,7 +712,7 @@ async def run_verify(job_id: str) -> None:
             results.append({
                 "target": f"asset:{action['id']}", "actionId": action["id"],
                 "verified": bool(stored) and actual == detail["digest"],
-                "method": "independent_refetch:asset_store",
+                "method": "artifact_digest_reread", **lineage,
                 "evidence": {
                     "kind": "asset_store",
                     "url": f"/api/jobs/{job_id}/assets/{action['id']}",

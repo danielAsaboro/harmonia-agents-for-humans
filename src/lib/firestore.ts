@@ -145,7 +145,9 @@ export async function saveCalendarSyncIfUnchanged(
     const snap = await tx.get(ref);
     if (!snap.exists) throw new Error("content item disappeared during calendar synchronization");
     const current = snap.data() as import("./types").ContentItem;
-    const persisted = current.updatedAt === expectedUpdatedAt ? sync : { ...sync, status: "update_required" as const };
+    const persisted = current.updatedAt === expectedUpdatedAt || sync.status === "removed"
+      ? sync
+      : { ...sync, status: "update_required" as const };
     tx.set(ref, { googleCalendarSync: persisted, updatedAt: new Date().toISOString() }, { merge: true });
     return persisted;
   });

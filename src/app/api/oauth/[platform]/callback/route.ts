@@ -1,5 +1,5 @@
 import { Timestamp } from "@google-cloud/firestore";
-import { db, saveConnection } from "@/lib/firestore";
+import { db, getConnection, saveConnection } from "@/lib/firestore";
 import { exchangeCode, fetchIdentity, getPlatform } from "@/lib/oauth";
 import { runWithTenant } from "@/lib/tenancy";
 
@@ -76,19 +76,23 @@ export async function GET(
       brandId: stored.brandId,
       role: "service",
     },
-    () => saveConnection({
-      platform,
-      mode: "oauth",
-      handle: identity?.handle,
-      accountId: identity?.accountId,
-      scopes: tokens.scopes ?? def.oauth.scopes.join(def.oauth.scopeSeparator),
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      expiresAt: tokens.expiresInSeconds
-        ? new Date(Date.now() + tokens.expiresInSeconds * 1000).toISOString()
-        : undefined,
-      connectedAt: new Date().toISOString(),
-    }),
+    async () => {
+      const existing = await getConnection(platform);
+      await saveConnection({
+        ...existing,
+        platform,
+        mode: "oauth",
+        handle: identity?.handle ?? existing?.handle,
+        accountId: identity?.accountId ?? existing?.accountId,
+        scopes: tokens.scopes ?? def.oauth.scopes.join(def.oauth.scopeSeparator),
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken ?? existing?.refreshToken,
+        expiresAt: tokens.expiresInSeconds
+          ? new Date(Date.now() + tokens.expiresInSeconds * 1000).toISOString()
+          : existing?.expiresAt,
+        connectedAt: new Date().toISOString(),
+      });
+    },
   );
 
   return backToSettings(platform, "ok");

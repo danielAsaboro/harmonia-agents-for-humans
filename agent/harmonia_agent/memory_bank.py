@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -30,10 +31,24 @@ class MemoryCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     kind: Literal["operator_decision", "verified_outcome", "learning", "preference"]
     fact: str = Field(min_length=1, max_length=1000)
+    evidence_ref: "MemoryEvidenceRef"
+
+
+class MemoryEvidenceRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    workspace_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
+    brand_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
+    job_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
+    kind: Literal["decision", "receipt", "verification", "learning"]
+    record_id: str = Field(min_length=1, max_length=240, pattern=r"^[A-Za-z0-9._:-]+$")
+
+
+class MemoryFact(MemoryCandidate):
+    pass
 
 
 class MemoryBank(Protocol):
-    def retrieve(self, *, scope: MemoryScope, query: str, top_k: int = 3) -> list[str]: ...
+    def retrieve(self, *, scope: MemoryScope, query: str, top_k: int = 3) -> list[MemoryFact]: ...
 
     def generate(self, *, scope: MemoryScope, candidates: list[MemoryCandidate]) -> None: ...
 
@@ -65,7 +80,7 @@ class VertexMemoryBank:
             client = vertexai.Client()
         return client.agent_engines.memories
 
-    def retrieve(self, *, scope: MemoryScope, query: str, top_k: int = 3) -> list[str]:
+    def retrieve(self, *, scope: MemoryScope, query: str, top_k: int = 3) -> list[MemoryFact]:
         if not query.strip():
             return []
         bounded_top_k = min(max(top_k, 1), 5)
@@ -84,12 +99,18 @@ class VertexMemoryBank:
                         "top_k": bounded_top_k,
                     },
                 )
-                facts: list[str] = []
+                facts: list[MemoryFact] = []
                 for result in results:
-                    fact = _fact_from_result(result)
-                    if not isinstance(fact, str) or not fact.strip():
+                    raw = _fact_from_result(result)
+                    if not isinstance(raw, str) or not raw.strip():
                         raise MemoryProtocolError("Memory Bank result is missing a valid fact")
-                    facts.append(fact.strip()[:1000])
+                    try:
+                        fact = MemoryFact.model_validate_json(raw)
+                    except Exception as exc:
+                        raise MemoryProtocolError("Memory Bank fact is missing typed evidence") from exc
+                    if fact.evidence_ref.workspace_id != scope.workspace_id or fact.evidence_ref.brand_id != scope.brand_id:
+                        raise MemoryProtocolError("Memory Bank returned a cross-scope fact")
+                    facts.append(fact)
                 span.set_attribute("memory.result_count", len(facts))
                 return facts
             except MemoryProtocolError:
@@ -103,6 +124,12 @@ class VertexMemoryBank:
         if len(candidates) > 5:
             raise MemoryProtocolError("Memory Bank accepts at most five eligible facts per write")
         validated = [MemoryCandidate.model_validate(candidate) for candidate in candidates]
+        if any(
+            item.evidence_ref.workspace_id != scope.workspace_id
+            or item.evidence_ref.brand_id != scope.brand_id
+            for item in validated
+        ):
+            raise MemoryProtocolError("Memory Bank candidate evidence does not match retrieval scope")
         with tracer().start_as_current_span("harmonia.memory.generate") as span:
             span.set_attributes(safe_attributes({
                 "workspace.id": scope.workspace_id,
@@ -114,20 +141,22 @@ class VertexMemoryBank:
                     name=self.resource_name,
                     scope=scope.to_wire(),
                     direct_memories_source={
-                        "direct_memories": [{"fact": item.fact} for item in validated],
+                        "direct_memories": [{
+                            "fact": json.dumps(item.model_dump(mode="json"), sort_keys=True, separators=(",", ":")),
+                        } for item in validated],
                     },
                 )
             except Exception as exc:  # noqa: BLE001 - provider boundary
                 raise MemoryProviderError(f"Memory Bank generation failed: {exc}") from exc
 
 
-def format_memory_context(facts: list[str], *, max_chars: int = 3500) -> str:
+def format_memory_context(facts: list[MemoryFact], *, max_chars: int = 3500) -> str:
     """Bound retrieved facts before they enter an agent input contract."""
     lines: list[str] = []
     used = 0
     for fact in facts[:5]:
-        line = f"- {fact.strip()}"
-        if not fact.strip() or used + len(line) > max_chars:
+        line = f"- {fact.fact.strip()} [evidence:{fact.evidence_ref.kind}/{fact.evidence_ref.record_id}]"
+        if not fact.fact.strip() or used + len(line) > max_chars:
             break
         lines.append(line)
         used += len(line) + 1
@@ -136,24 +165,40 @@ def format_memory_context(facts: list[str], *, max_chars: int = 3500) -> str:
 
 def eligible_job_memories(job: dict[str, Any], *, measured_posts: int) -> list[MemoryCandidate]:
     """Extract only durable decisions/outcomes; never raw creative or source content."""
+    # Engagement is not durable until the later web write succeeds, so this pre-write
+    # memory step deliberately does not claim `measured_posts` as evidence.
+    _ = measured_posts
     actions = job.get("actions") or []
-    approved = sum(1 for action in actions if action.get("approvalState") == "approved")
-    rejected = sum(1 for action in actions if action.get("approvalState") == "rejected")
+    workspace_id = str(job.get("workspaceId") or "")
+    brand_id = str(job.get("brandId") or "")
+    job_id = str(job.get("id") or "")
+    if not workspace_id or not brand_id or not job_id:
+        raise MemoryProtocolError("eligible memory job is missing durable scope identifiers")
     verifications = job.get("verifications") or job.get("verification") or []
-    verified = sum(1 for result in verifications if result.get("verified") is True)
     candidates: list[MemoryCandidate] = []
-    if approved or rejected:
+    for action in actions:
+        decision = action.get("approvalState")
+        action_id = action.get("id")
+        if decision not in {"approved", "rejected"} or not action_id:
+            continue
         candidates.append(MemoryCandidate(
             kind="operator_decision",
-            fact=f"Operator approved {approved} action(s) and rejected {rejected} action(s) in this job.",
+            fact=f"Operator {decision} 1 action in this job.",
+            evidence_ref=MemoryEvidenceRef(
+                workspace_id=workspace_id, brand_id=brand_id, job_id=job_id,
+                kind="decision", record_id=str(action_id),
+            ),
         ))
-    if verified:
+    for result in verifications:
+        record_id = result.get("actionId") or result.get("target")
+        if result.get("verified") is not True or not record_id:
+            continue
         candidates.append(MemoryCandidate(
             kind="verified_outcome",
-            fact=f"The job independently verified {verified} external or stored outcome(s).",
+            fact="The job independently verified 1 external or stored outcome.",
+            evidence_ref=MemoryEvidenceRef(
+                workspace_id=workspace_id, brand_id=brand_id, job_id=job_id,
+                kind="verification", record_id=str(record_id),
+            ),
         ))
-    candidates.append(MemoryCandidate(
-        kind="learning",
-        fact=f"The learn stage measured {measured_posts} published post(s) for this job.",
-    ))
-    return candidates
+    return candidates[:5]

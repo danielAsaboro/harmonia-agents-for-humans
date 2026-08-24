@@ -6,6 +6,8 @@ import pytest
 
 from harmonia_agent.memory_bank import (
     MemoryCandidate,
+    MemoryEvidenceRef,
+    MemoryFact,
     MemoryProtocolError,
     MemoryScope,
     VertexMemoryBank,
@@ -42,7 +44,7 @@ class _Client:
 
 def test_memory_bank_retrieves_only_the_exact_workspace_and_brand_scope():
     api = _MemoryApi(results=[
-        {"memory": {"fact": "Operators prefer direct, evidence-led hooks."}},
+        {"memory": {"fact": '{"evidence_ref":{"brand_id":"brand-a","job_id":"job-1","kind":"decision","record_id":"a1","workspace_id":"workspace-1"},"fact":"Operators prefer direct, evidence-led hooks.","kind":"preference"}'}},
     ])
     bank = VertexMemoryBank(
         resource_name="projects/p/locations/us-central1/reasoningEngines/42",
@@ -52,7 +54,7 @@ def test_memory_bank_retrieves_only_the_exact_workspace_and_brand_scope():
 
     facts = bank.retrieve(scope=scope, query="video launch", top_k=3)
 
-    assert facts == ["Operators prefer direct, evidence-led hooks."]
+    assert facts == [MemoryFact(kind="preference", fact="Operators prefer direct, evidence-led hooks.", evidence_ref=MemoryEvidenceRef(workspace_id="workspace-1", brand_id="brand-a", job_id="job-1", kind="decision", record_id="a1"))]
     assert api.retrieve_calls == [{
         "name": "projects/p/locations/us-central1/reasoningEngines/42",
         "scope": {"workspace_id": "workspace-1", "brand_id": "brand-a"},
@@ -69,16 +71,16 @@ def test_memory_bank_generates_only_typed_eligible_facts_in_the_same_scope():
     scope = MemoryScope(workspace_id="workspace-1", brand_id="brand-a")
 
     bank.generate(scope=scope, candidates=[
-        MemoryCandidate(kind="operator_decision", fact="Operator approved one publish action."),
-        MemoryCandidate(kind="verified_outcome", fact="One published post was independently verified."),
+        MemoryCandidate(kind="operator_decision", fact="Operator approved one publish action.", evidence_ref=MemoryEvidenceRef(workspace_id="workspace-1", brand_id="brand-a", job_id="job-1", kind="decision", record_id="a1")),
+        MemoryCandidate(kind="verified_outcome", fact="One published post was independently verified.", evidence_ref=MemoryEvidenceRef(workspace_id="workspace-1", brand_id="brand-a", job_id="job-1", kind="verification", record_id="a1")),
     ])
 
     assert api.generate_calls == [{
         "name": "projects/p/locations/us-central1/reasoningEngines/42",
         "scope": {"workspace_id": "workspace-1", "brand_id": "brand-a"},
         "direct_memories_source": {"direct_memories": [
-            {"fact": "Operator approved one publish action."},
-            {"fact": "One published post was independently verified."},
+            {"fact": '{"evidence_ref":{"brand_id":"brand-a","job_id":"job-1","kind":"decision","record_id":"a1","workspace_id":"workspace-1"},"fact":"Operator approved one publish action.","kind":"operator_decision"}'},
+            {"fact": '{"evidence_ref":{"brand_id":"brand-a","job_id":"job-1","kind":"verification","record_id":"a1","workspace_id":"workspace-1"},"fact":"One published post was independently verified.","kind":"verified_outcome"}'},
         ]},
     }]
 
@@ -97,10 +99,11 @@ def test_memory_bank_rejects_malformed_results_instead_of_hiding_them():
 
 def test_learn_stage_memory_candidates_exclude_raw_content_and_unverified_claims():
     candidates = eligible_job_memories({
+        "id": "job-1", "workspaceId": "workspace-1", "brandId": "brand-a",
         "actions": [
-            {"type": "publish_x_post", "approvalState": "approved", "state": "executed",
+            {"id": "a1", "type": "publish_x_post", "approvalState": "approved", "state": "executed",
              "payload": {"text": "raw draft must never be memorized"}},
-            {"type": "generate_image", "approvalState": "rejected", "state": "skipped",
+            {"id": "a2", "type": "generate_image", "approvalState": "rejected", "state": "skipped",
              "payload": {"prompt": "raw prompt must never be memorized"}},
         ],
         "verification": [
@@ -115,7 +118,19 @@ def test_learn_stage_memory_candidates_exclude_raw_content_and_unverified_claims
     assert "approved 1" in facts
     assert "rejected 1" in facts
     assert "independently verified 1" in facts
-    assert "measured 1" in facts
+    assert all(candidate.evidence_ref.workspace_id == "workspace-1" for candidate in candidates)
+    assert {candidate.evidence_ref.kind for candidate in candidates} == {"decision", "verification"}
+
+
+def test_memory_generation_rejects_cross_scope_evidence():
+    bank = VertexMemoryBank(
+        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
+        client=_Client(_MemoryApi()),
+    )
+    with pytest.raises(MemoryProtocolError, match="scope"):
+        bank.generate(scope=MemoryScope(workspace_id="workspace-1", brand_id="brand-a"), candidates=[
+            MemoryCandidate(kind="preference", fact="Use concise hooks.", evidence_ref=MemoryEvidenceRef(workspace_id="workspace-2", brand_id="brand-a", job_id="job-1", kind="decision", record_id="a1")),
+        ])
 
 
 def test_agent_entrypoint_retrieves_scoped_memory_before_mock_normalization(monkeypatch):
@@ -125,7 +140,7 @@ def test_agent_entrypoint_retrieves_scoped_memory_before_mock_normalization(monk
 
         def retrieve(self, **kwargs):
             self.calls.append(kwargs)
-            return ["Use concise, evidence-led hooks."]
+            return [MemoryFact(kind="preference", fact="Use concise, evidence-led hooks.", evidence_ref=MemoryEvidenceRef(workspace_id="workspace-1", brand_id="brand-a", job_id="job-1", kind="decision", record_id="a1"))]
 
     monkeypatch.setenv("HARMONIA_MOCK_AI", "1")
     bank = FakeBank()

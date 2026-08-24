@@ -20,8 +20,8 @@ export function parseExplorerQuery(params: URLSearchParams, definition: Architec
   const base = createDefaultExplorerState(definition);
   const nodeIds = new Set(definition.nodes.map((node) => node.id));
   const groupIds = new Set(definition.nodes.filter((node) => node.kind === "group").map((node) => node.id));
-  const layerIds = new Set(definition.nodes.map((node) => node.layer));
-  const statusIds = new Set(definition.nodes.flatMap((node) => node.statuses));
+  const layerIds = new Set<string>(definition.nodes.map((node) => node.layer));
+  const statusIds = new Set<string>(definition.nodes.flatMap((node) => node.statuses));
   const presetId = definition.presets.some((preset) => preset.id === params.get("preset")) ? params.get("preset")! : base.presetId;
   const preset = definition.presets.find((item) => item.id === presetId)!;
   return {

@@ -16,7 +16,8 @@ export function markCalendarSyncStale(item: ContentItem, patch: Partial<ContentI
   };
 }
 
-export function calendarSyncFailure(item: ContentItem, now: string, _error: unknown): GoogleCalendarSync {
+export function calendarSyncFailure(item: ContentItem, now: string, error: unknown): GoogleCalendarSync {
+  void error;
   return {
     status: "failed",
     calendarId: item.googleCalendarSync?.calendarId ?? "",
@@ -25,4 +26,10 @@ export function calendarSyncFailure(item: ContentItem, now: string, _error: unkn
     lastAttemptAt: now,
     failureReason: "Google Calendar synchronization failed",
   };
+}
+
+export function calendarSyncActionLabel(status?: GoogleCalendarSync["status"]): string {
+  if (status === "failed") return "Retry Google Calendar sync";
+  if (status === "synced" || status === "update_required") return "Update Google Calendar";
+  return "Add to Google Calendar";
 }

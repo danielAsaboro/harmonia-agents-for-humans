@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildGoogleCalendarEvent, googleCalendarEventId } from "@/lib/googleCalendarContracts";
-import { markCalendarSyncStale } from "@/lib/calendarSyncState";
+import { calendarSyncActionLabel, markCalendarSyncStale } from "@/lib/calendarSyncState";
 import type { ContentItem } from "@/lib/types";
 
 const item: ContentItem = {
@@ -35,5 +35,12 @@ describe("Google Calendar contracts", () => {
     expect(markCalendarSyncStale(synced, { text: "Changed" }).googleCalendarSync?.status).toBe("update_required");
     expect(markCalendarSyncStale(synced, { scheduledFor: "2026-08-27T10:00:00.000Z" }).googleCalendarSync?.status).toBe("update_required");
     expect(markCalendarSyncStale(synced, { status: "cancelled" }).googleCalendarSync?.status).toBe("update_required");
+  });
+
+  it("presents an explicit action for each sync state", () => {
+    expect(calendarSyncActionLabel(undefined)).toBe("Add to Google Calendar");
+    expect(calendarSyncActionLabel("update_required")).toBe("Update Google Calendar");
+    expect(calendarSyncActionLabel("failed")).toBe("Retry Google Calendar sync");
+    expect(calendarSyncActionLabel("synced")).toBe("Update Google Calendar");
   });
 });

@@ -5,6 +5,7 @@ import AskAiButton from "@/components/AskAiButton";
 import { useEffect, useMemo, useState } from "react";
 import type { ContentItem } from "@/lib/types";
 import { PlatformIcon } from "@/components/socialIcons";
+import { calendarSyncActionLabel } from "@/lib/calendarSyncState";
 
 interface ConnectionInfo {
   id: string;
@@ -96,6 +97,25 @@ export default function ItemDrawer({
           "content-type": "application/json",
         },
         body: JSON.stringify({ id: item.id, ...body }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function syncGoogleCalendar(operation: "sync" | "remove") {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/calendar/google", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ itemId: item.id, operation }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
@@ -288,6 +308,44 @@ export default function ItemDrawer({
             </div>
           </section>
         )}
+
+        <section className="rounded-lg border border-blue-200 bg-blue-50/50 p-3 dark:border-blue-900 dark:bg-blue-950/20">
+          <h3 className="text-xs font-semibold text-blue-900 dark:text-blue-200">Google Calendar</h3>
+          {connections.find((connection) => connection.id === "google-calendar")?.status === "connected" ? (
+            <>
+              <p className="mt-1 text-xs leading-5 text-blue-700 dark:text-blue-300">
+                {item.googleCalendarSync?.status === "synced"
+                  ? `Verified ${item.googleCalendarSync.verifiedAt ? new Date(item.googleCalendarSync.verifiedAt).toLocaleString() : "by read-back"}.`
+                  : item.googleCalendarSync?.status === "update_required"
+                    ? "This item changed after its last verified sync. Google is unchanged until you approve an update."
+                    : item.googleCalendarSync?.status === "failed"
+                      ? item.googleCalendarSync.failureReason ?? "The last synchronization failed."
+                      : item.googleCalendarSync?.status === "removed"
+                        ? "The external event was removed and its absence verified."
+                        : "No Google Calendar event exists for this item."}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {item.scheduledFor && item.status !== "cancelled" && (
+                  <button onClick={() => syncGoogleCalendar("sync")} disabled={busy} className="rounded-full bg-blue-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-40">
+                    {calendarSyncActionLabel(item.googleCalendarSync?.status)}
+                  </button>
+                )}
+                {item.googleCalendarSync?.status === "synced" || item.googleCalendarSync?.status === "update_required" || item.googleCalendarSync?.status === "failed" ? (
+                  <button onClick={() => syncGoogleCalendar("remove")} disabled={busy} className="rounded-full border border-blue-300 px-4 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-40 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950">
+                    Remove from Google Calendar
+                  </button>
+                ) : null}
+                {item.googleCalendarSync?.htmlLink && (
+                  <a href={item.googleCalendarSync.htmlLink} target="_blank" rel="noopener noreferrer" className="self-center text-xs text-blue-700 underline dark:text-blue-300">Open verified event ↗</a>
+                )}
+              </div>
+            </>
+          ) : (
+            <p className="mt-1 text-xs leading-5 text-blue-700 dark:text-blue-300">
+              <a href="/dashboard/settings" className="font-medium underline">Connect Google Calendar</a> to sync this schedule into a dedicated Harmonia calendar.
+            </p>
+          )}
+        </section>
 
         {/* Final review */}
         {item.status === "awaiting_final_review" && (

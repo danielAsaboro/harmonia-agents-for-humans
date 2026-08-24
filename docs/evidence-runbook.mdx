@@ -31,7 +31,7 @@ The signed-in operator reviews the real drafts and clip candidates in the normal
 
 ## Phase 3: capture-complete
 
-After the normal workflow persists a human approval, effect receipt, and independent verification, capture again:
+After the normal workflow persists a human approval, a finalized pre-effect claim, effect receipt, and independent verification, capture again:
 
 ```bash
 python3 submission/evidence-runner/collect_vertical_slice.py /absolute/private/config.json --require-complete
@@ -39,12 +39,12 @@ cd harmonia
 npm run verify:evidence -- /absolute/private/run/bundle.json
 ```
 
-The complete capture must correlate the approval action, idempotency key, effect receipt, verification readback or artifact digest, cognition usage, cost records, and trace lineage. Cognition must share a trace with a lifecycle event; approval, effect, and verification must share their action trace; replay must be a distinct traced attempt. A zero trace ID, verification timestamp before effect execution, receipt mismatch, unknown observed cost, mock provenance, or raw private field fails closed.
+The complete capture must correlate the approval action, finalized effect claim, idempotency key, effect receipt, verification readback or artifact digest, cognition usage, cost records, and trace lineage. The claim must follow durable human approval, precede effect execution, own the same idempotency key, operation, and action trace as the effect, and finalize against the original receipt. Cognition must share a trace with a lifecycle event; approval, claim, effect, and verification must share their action trace; replay must be a distinct traced attempt. A missing or late claim, zero trace ID, verification timestamp before effect execution, receipt mismatch, unknown observed cost, mock provenance, or raw private field fails closed.
 
 The redacted bundle also requires replay evidence: a distinct replay operation after the original effect must return `already_applied` and reference the original receipt.
 
 ## Replay proof
 
-Replay the already-approved action only through Harmonia's normal UI. The durable idempotency path must return `already_applied` and reference the original receipt; no second external effect may occur. Capture that response and the external readback privately.
+Replay the already-approved action only through Harmonia's **Prove duplicate suppression** audit control. The normal claim state machine must return `already_applied` and reference the original receipt; the replay route has no authority to execute. Capture that durable replay observation and the external readback privately.
 
 The collector itself performs neither the original action nor the replay. Do not edit a failed bundle to make it pass. Preserve command status, verifier output, and unresolved gaps exactly as observed.

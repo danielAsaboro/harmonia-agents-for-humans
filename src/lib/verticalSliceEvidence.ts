@@ -74,6 +74,19 @@ const approvalSchema = z.object({
   traceId,
 }).strict();
 
+const claimSchema = z.object({
+  claimId: sha256,
+  actionId: z.string().min(1),
+  idempotencyKey: sha256,
+  state: z.literal("applied"),
+  receiptId: z.string().min(1),
+  attempt: z.number().int().positive(),
+  claimedAt: timestamp,
+  finalizedAt: timestamp,
+  operationId: z.string().min(1),
+  traceId,
+}).strict();
+
 const effectSchema = z.object({
   actionId: z.string().min(1),
   operationId: z.string().min(1),
@@ -136,6 +149,7 @@ export const verticalSliceEvidenceSchema = z.object({
   events: z.array(eventSchema),
   cognition: z.array(cognitionSchema).min(1),
   approval: approvalSchema,
+  claim: claimSchema,
   effect: effectSchema,
   verification: verificationSchema,
   replay: replaySchema,
@@ -237,6 +251,7 @@ export function verifyVerticalSliceEvidence(input: unknown): EvidenceVerificatio
     ...bundle.events.map((entry, index) => ({ path: `events.${index}.traceId`, value: entry.traceId })),
     ...bundle.cognition.map((entry, index) => ({ path: `cognition.${index}.traceId`, value: entry.traceId })),
     { path: "approval", value: bundle.approval.traceId },
+    { path: "claim", value: bundle.claim.traceId },
     { path: "effect", value: bundle.effect.traceId },
     { path: "verification", value: bundle.verification.traceId },
     { path: "replay", value: bundle.replay.traceId },
@@ -267,6 +282,27 @@ export function verifyVerticalSliceEvidence(input: unknown): EvidenceVerificatio
       "effect.traceId",
       "The approved effect must descend from the operator approval trace.",
     ));
+  }
+  if (bundle.claim.actionId !== bundle.effect.actionId) {
+    failures.push(failure("claim_action_mismatch", "claim.actionId", "Effect claim does not match the applied action."));
+  }
+  if (bundle.claim.receiptId !== bundle.effect.receiptId) {
+    failures.push(failure("claim_receipt_mismatch", "claim.receiptId", "Effect claim does not reference the applied receipt."));
+  }
+  if (bundle.claim.claimId !== bundle.effect.idempotencyKey || bundle.claim.idempotencyKey !== bundle.effect.idempotencyKey) {
+    failures.push(failure("claim_idempotency_mismatch", "claim.idempotencyKey", "Effect claim does not own the applied idempotency key."));
+  }
+  if (bundle.claim.operationId !== bundle.effect.operationId || bundle.claim.traceId !== bundle.effect.traceId) {
+    failures.push(failure("claim_lineage_mismatch", "claim.operationId", "Effect receipt does not descend from its execution claim."));
+  }
+  if (Date.parse(bundle.claim.claimedAt) < Date.parse(bundle.approval.decidedAt)) {
+    failures.push(failure("claim_before_approval", "claim.claimedAt", "Effect was claimed before human approval."));
+  }
+  if (Date.parse(bundle.claim.claimedAt) > Date.parse(bundle.effect.executedAt)) {
+    failures.push(failure("claim_after_effect", "claim.claimedAt", "Effect was executed before its durable claim."));
+  }
+  if (Date.parse(bundle.claim.finalizedAt) < Date.parse(bundle.effect.executedAt)) {
+    failures.push(failure("claim_finalized_before_effect", "claim.finalizedAt", "Effect claim finalized before effect execution."));
   }
   if (bundle.effect.traceId !== bundle.verification.traceId) {
     failures.push(failure(

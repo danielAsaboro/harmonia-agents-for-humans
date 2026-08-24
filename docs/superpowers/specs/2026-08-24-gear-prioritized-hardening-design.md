@@ -97,7 +97,7 @@ Where supported by the installed ADK version, record golden conformance sessions
 
 ### 7. Observability and judge-facing evidence
 
-One W3C trace connects authenticated web request, Pub/Sub publication/delivery, stage execution, Agent Engine invocation, specialist delegation, model usage, validation, approval wait, external effect, receipt, and verification. Firestore events retain trace and operation identifiers.
+W3C trace lineage connects authenticated web requests, Pub/Sub publication/delivery, stage execution, Agent Engine invocation, specialist delegation, model usage, validation, approval wait, external effect, receipt, and verification. Separate inbound requests—such as operator approval and replay proof—correctly start separate traces. Firestore records retain trace and operation identifiers so cognition links to lifecycle events while approval, claim, effect, and verification share the action trace.
 
 The architecture documentation contains three matrices:
 

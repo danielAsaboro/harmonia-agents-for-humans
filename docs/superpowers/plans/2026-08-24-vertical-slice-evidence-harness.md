@@ -16,7 +16,7 @@
 - The verifier proves internal consistency of captured evidence; it cannot convert self-asserted JSON into authenticated cloud proof.
 - Raw transcripts, drafts, credentials, session cookies, tokens, private logs, and screenshots stay outside the public repository.
 - The collector never approves, publishes, changes credentials, purchases, or sends an external message. It observes an approval already persisted through Harmonia's normal decision engine.
-- One trace must correlate web request, Pub/Sub progression, agent invocation, approval/effect, receipt, and verification.
+- Trace lineage must correlate web request, Pub/Sub progression, agent invocation, approval/claim/effect, receipt, and verification. Separate operator requests may start distinct traces; replay proof must be a distinct traced attempt.
 - Evidence timestamps use timezone-aware ISO 8601 UTC strings; digests are lowercase SHA-256.
 - The first real effect may be an exported content pack only when it contains Gemini-derived artifacts and independent digest verification; no fake/social mock receipt is accepted.
 
@@ -34,7 +34,7 @@
 
 - [ ] **Step 1: Write failing schema and invariant tests**
 
-Create tests with a single `validBundle()` fixture and mutations proving rejection of mock/emulator provenance, non-Gemini-3.5 cognition, missing Agent Engine resource, missing stage, out-of-order timestamps, different trace IDs, approval after effect, missing idempotency key, duplicate operation IDs, unverified effect, verification before receipt, unknown cost, sum mismatch, and raw/private fields.
+Create tests with a single `validBundle()` fixture and mutations proving rejection of mock/emulator provenance, non-Gemini-3.5 cognition, missing Agent Engine resource, missing stage, out-of-order timestamps, broken trace lineage, approval after effect, missing or late effect claim, missing idempotency key, duplicate operation IDs, unverified effect, verification before receipt, unknown cost, sum mismatch, and raw/private fields.
 
 ```ts
 it("accepts a complete authenticated redacted bundle", () => {
@@ -80,8 +80,9 @@ Use `.strict()` for every Zod object. The top-level bundle contains exactly:
   events: [{ eventId, stage, status, at, operationId, pubsubMessageId, traceId }],
   cognition: [{ role, model, provider, policyVersion, usageRecordId, operationId, traceId }],
   approval: { approvalId, actionId, decision, actorType, decidedAt, traceId },
+  claim: { claimId, actionId, idempotencyKey, state, receiptId, attempt, claimedAt, finalizedAt, operationId, traceId },
   effect: { actionId, operationId, idempotencyKey, receiptId, kind, outcome, executedAt, artifactDigest, traceId },
-  verification: { verificationId, receiptId, method, status, checkedAt, observedDigest, traceId },
+  verification: { verificationId, receiptId, operationId, method, status, checkedAt, observedDigest, traceId },
   costs: { pricingVersion, currency, records: [{ usageRecordId, operationId, estimatedUsd, observedUsd }], totalEstimatedUsd, totalObservedUsd },
   evidenceFiles: [{ kind, relativePath, sha256 }]
 }

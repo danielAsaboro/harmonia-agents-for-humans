@@ -934,6 +934,11 @@ export async function getEffectClaim(jobId: string, idempotencyKey: string): Pro
   return snap.exists ? snap.data() as EffectClaim : null;
 }
 
+export async function listEffectClaims(jobId: string): Promise<EffectClaim[]> {
+  const snaps = await jobRef(jobId).collection(EFFECT_CLAIMS).orderBy("claimedAt", "asc").get();
+  return snaps.docs.map((doc) => doc.data() as EffectClaim);
+}
+
 export async function saveVerifications(
   jobId: string,
   results: VerificationResult[],

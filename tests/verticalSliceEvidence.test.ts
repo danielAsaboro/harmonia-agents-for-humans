@@ -67,6 +67,12 @@ function validBundle() {
       approvalId: "approval-1", actionId: "action-1", decision: "approved",
       actorType: "human_operator", decidedAt: "2026-08-24T12:10:00.000Z", traceId: approvalTraceId,
     },
+    claim: {
+      claimId: digest, actionId: "action-1", idempotencyKey: digest,
+      state: "applied", receiptId: "receipt-1", attempt: 1,
+      claimedAt: "2026-08-24T12:10:30.000Z", finalizedAt: "2026-08-24T12:11:30.000Z",
+      operationId: "job-1:publish:action-1", traceId: approvalTraceId,
+    },
     effect: {
       actionId: "action-1", operationId: "job-1:publish:action-1",
       idempotencyKey: digest, receiptId: "receipt-1", kind: "export_content_pack",
@@ -169,6 +175,16 @@ describe("vertical-slice evidence", () => {
     const bundle = validBundle();
     bundle.approval.decidedAt = "2026-08-24T12:12:00.000Z";
     expect(failureCodes(bundle)).toContain("effect_before_approval");
+  });
+
+  it("requires a finalized pre-effect claim linked to the applied receipt", () => {
+    const bundle = validBundle();
+    bundle.claim.actionId = "different-action";
+    bundle.claim.receiptId = "different-receipt";
+    bundle.claim.claimedAt = "2026-08-24T12:12:00.000Z";
+    expect(failureCodes(bundle)).toEqual(expect.arrayContaining([
+      "claim_action_mismatch", "claim_receipt_mismatch", "claim_after_effect",
+    ]));
   });
 
   it("rejects mismatched actions, receipts, digests, and unverified effects", () => {

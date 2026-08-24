@@ -23,7 +23,8 @@
 .arch-live { position:absolute; z-index:7; right:22px; top:102px; padding:6px 9px; border-radius:999px; color:#71766f; background:rgba(255,255,255,.7); font:600 9px var(--font-mono); }
 .arch-stage { position:relative; height:calc(100dvh - 92px); } .arch-stage::before { content:""; position:absolute; inset:0; pointer-events:none; background:radial-gradient(circle at 50% 45%,rgba(255,255,255,.65),transparent 55%); }
 .arch-graph { position:absolute; inset:0; } .arch-mobile-tree { display:none; }
-.arch-node { position:relative; width:250px; min-height:112px; padding:14px; overflow:hidden; border:1px solid #cfcec5; border-radius:14px; background:rgba(255,255,252,.96); box-shadow:0 10px 25px rgba(23,34,29,.08),0 1px 0 rgba(255,255,255,.9) inset; }
+.arch-node { position:relative; width:250px; min-height:112px; padding:14px; overflow:hidden; border:1px solid #cfcec5; border-radius:14px; background:rgba(255,255,252,.96); box-shadow:0 10px 25px rgba(23,34,29,.08),0 1px 0 rgba(255,255,255,.9) inset; cursor:grab; }
+.arch-node:active { cursor:grabbing; }
 .arch-node::before { content:""; position:absolute; inset:0 auto 0 0; width:4px; background:#87928a; }
 .arch-node.is-selected { outline:2px solid var(--arch-forest); box-shadow:0 0 0 5px rgba(185,255,102,.72),0 16px 34px rgba(23,34,29,.15); }
 .arch-node--agents::before,.arch-node--skills::before,.arch-node--models::before,.arch-node--prompts::before { background:var(--arch-violet); }
@@ -34,7 +35,11 @@
 .arch-node__model { color:#6f5688!important; font-family:var(--font-mono); } .arch-node__statuses { display:flex; gap:4px; margin:9px 0 0 3px; }
 .arch-node__statuses span { padding:3px 6px; border:1px solid currentColor; border-radius:999px; background:#fff; font:700 7px var(--font-mono); text-transform:uppercase; }
 .arch-status--approval { color:var(--arch-amber); } .arch-status--verified,.arch-status--implemented { color:var(--arch-green); } .arch-status--pending,.arch-status--unsupported { color:var(--arch-red); } .arch-status--read { color:#66706b; } .arch-status--planned { color:#858580; }
-.arch-edge-label { position:absolute; padding:3px 7px; border:1px solid #d6d4ca; border-radius:999px; color:#60675f; background:rgba(251,250,244,.94); font:700 7px var(--font-mono); pointer-events:none; box-shadow:0 2px 8px rgba(23,34,29,.05); }
+.arch-edge-label { position:absolute; z-index:1; max-width:72px; overflow:hidden; padding:3px 6px; border:1px solid #d6d4ca; border-radius:999px; color:#505950; background:rgba(251,250,244,.96); font:750 7px var(--font-mono); line-height:1; text-overflow:ellipsis; white-space:nowrap; pointer-events:none; box-shadow:0 2px 8px rgba(23,34,29,.05); }
+.arch-edge-label.is-selected { z-index:4; max-width:260px; padding:5px 8px; color:var(--arch-forest); border-color:#a8aaa0; box-shadow:0 5px 16px rgba(23,34,29,.12); }
+.react-flow__node { z-index:2!important; }
+.react-flow__node.selected { z-index:5!important; }
+.react-flow__edge { cursor:pointer; }
 .arch-layout-state { position:absolute; left:50%; top:18px; transform:translateX(-50%); padding:7px 11px; border:1px solid #c5c7bc; border-radius:999px; background:#fffefa; color:#58625a; font:700 9px var(--font-mono); box-shadow:0 8px 20px rgba(23,34,29,.08); }
 .arch-legend { position:absolute; z-index:5; left:14px; bottom:14px; width:220px; max-height:44vh; overflow:auto; padding:11px; border:1px solid #cccac0; border-radius:14px; color:#60665f; background:rgba(255,255,252,.92); box-shadow:0 12px 34px rgba(23,34,29,.1); font-size:9px; }
 .arch-legend summary { cursor:pointer; color:var(--arch-forest); font-weight:800; text-transform:uppercase; letter-spacing:.1em; } .arch-legend ul { display:grid; gap:7px; padding:9px 0 0; margin:0; list-style:none; } .arch-legend i { display:inline-block; width:20px; border-top-width:2px; }

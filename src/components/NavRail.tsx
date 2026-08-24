@@ -14,7 +14,7 @@ const RAIL = [
   { href: "/dashboard/proposals", label: "Proposals", Icon: SparklesIcon },
   { href: "/dashboard/calendar", label: "Calendar", Icon: CalendarIcon },
   { href: "/dashboard/monitoring", label: "Monitoring", Icon: ChartIcon },
-  { href: "/dashboard/architecture", label: "Architecture", Icon: ArchitectureIcon },
+  { href: "/docs/architecture", label: "Architecture", Icon: ArchitectureIcon },
   { href: "/dashboard/settings", label: "Settings", Icon: SettingsIcon },
 ];
 

@@ -20,8 +20,10 @@ export const edgeAppearance: Record<EdgeKind, { label: string; color: string; da
 export function ArchitectureEdge(props: EdgeProps) {
   const kind = (props.data?.kind ?? "workflow") as EdgeKind; const appearance = edgeAppearance[kind];
   const [path, labelX, labelY] = getSmoothStepPath(props);
+  const relationship = typeof props.data?.label === "string" ? props.data.label : appearance.label;
+  const label = props.selected ? `${appearance.marker} · ${relationship}` : appearance.marker;
   return <>
-    <BaseEdge path={path} markerEnd={props.markerEnd} style={{ stroke: appearance.color, strokeWidth: 2, strokeDasharray: appearance.dash }} />
-    <EdgeLabelRenderer><span className="arch-edge-label" style={{ transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)` }}>{appearance.marker} · {appearance.label}</span></EdgeLabelRenderer>
+    <BaseEdge path={path} markerEnd={props.markerEnd} interactionWidth={24} style={{ stroke: appearance.color, strokeWidth: props.selected ? 3.4 : 2.4, strokeDasharray: appearance.dash }} />
+    <EdgeLabelRenderer><span className={`arch-edge-label${props.selected ? " is-selected" : ""}`} title={`${appearance.label}: ${relationship}`} style={{ transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)` }}>{label}</span></EdgeLabelRenderer>
   </>;
 }

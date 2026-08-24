@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ChatResponse } from "../src/app/api/chat/route";
+import type { ChatResponse } from "../src/lib/chatHandler";
 import type { JobFull } from "../src/components/jobTypes";
-import { loadGeneratedPresentation } from "../src/app/api/chat/stream/route";
+import { loadGeneratedPresentation } from "../src/lib/a2ui/generatedPresentation";
 
 const job: JobFull = {
   id: "job-1", status: "running", stage: "draft", createdAt: "2026-08-23T00:00:00.000Z", updatedAt: "2026-08-23T00:01:00.000Z",

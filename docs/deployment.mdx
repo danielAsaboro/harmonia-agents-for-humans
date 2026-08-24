@@ -31,7 +31,9 @@ gcloud firestore databases create --location=<region>
 gcloud pubsub topics create harmonia-stages
 ```
 
-Create one runtime service account for each Cloud Run service. Both receive `roles/cloudtrace.agent`; preserve the existing least-privilege data, messaging, and asset permissions.
+`infra/setup.sh` also creates regional staging and durable-media buckets. The media bucket uses uniform access, grants object access only to the two runtime service accounts, and is injected as `GCS_BUCKET` by `infra/deploy.sh`. Deployment configures CORS for the resulting Cloud Run web origin so direct resumable uploads do not depend on ephemeral container storage.
+
+Create one runtime service account for each Cloud Run service. Both receive `roles/cloudtrace.agent`; preserve the existing least-privilege data, messaging, and asset permissions. The web identity can sign only as itself for short-lived upload/download URLs. The Pub/Sub service agent receives token-creator authority only on that web identity so the private worker push subscription can authenticate with OIDC.
 
 ## Deploying
 

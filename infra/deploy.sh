@@ -29,6 +29,7 @@ VERTEX_MEDIA_LOCATION="${VERTEX_MEDIA_LOCATION:-${REGION}}"
 FIREBASE_API_KEY="${FIREBASE_API_KEY:?set FIREBASE_API_KEY for Identity Platform web sign-in}"
 FIREBASE_AUTH_DOMAIN="${FIREBASE_AUTH_DOMAIN:-${PROJECT_ID}.firebaseapp.com}"
 FIREBASE_APP_ID="${FIREBASE_APP_ID:?set FIREBASE_APP_ID for the registered web application}"
+GCS_BUCKET="${GCS_BUCKET:-${PROJECT_ID}-harmonia-assets}"
 
 resource_location() {
   local resource="$1"
@@ -79,6 +80,14 @@ WEB_SECRETS="INTERNAL_API_TOKEN=internal-api-token:latest"
 if secret_exists gemini-api-key; then
   WEB_SECRETS="${WEB_SECRETS},GEMINI_API_KEY=gemini-api-key:latest"
 fi
+for pair in GOOGLE_CLIENT_ID:google-oauth-client-id GOOGLE_CLIENT_SECRET:google-oauth-client-secret; do
+  env_name="${pair%%:*}"; secret_name="${pair##*:}"
+  if ! secret_exists "${secret_name}"; then
+    echo "required Google OAuth secret '${secret_name}' not found; run infra/setup.sh with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET" >&2
+    exit 2
+  fi
+  WEB_SECRETS="${WEB_SECRETS},${env_name}=${secret_name}:latest"
+done
 
 echo "== Deploying harmonia-web (Next.js) =="
 gcloud run deploy harmonia-web \
@@ -88,12 +97,19 @@ gcloud run deploy harmonia-web \
   --allow-unauthenticated \
   --min-instances 0 --max-instances 2 \
   --set-build-env-vars "NEXT_PUBLIC_FIREBASE_API_KEY=${FIREBASE_API_KEY},NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN},NEXT_PUBLIC_FIREBASE_PROJECT_ID=${PROJECT_ID},NEXT_PUBLIC_FIREBASE_APP_ID=${FIREBASE_APP_ID}" \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},MODEL_ID=${MODEL_ID},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},DEFAULT_WORKSPACE_BUDGET_USD=${DEFAULT_WORKSPACE_BUDGET_USD},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-web,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false" \
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GCS_BUCKET=${GCS_BUCKET},MODEL_ID=${MODEL_ID},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},DEFAULT_WORKSPACE_BUDGET_USD=${DEFAULT_WORKSPACE_BUDGET_USD},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-web,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false" \
   --set-secrets "${WEB_SECRETS}" \
   --project "${PROJECT_ID}"
 
 WEB_URL="$(gcloud run services describe harmonia-web --region "${REGION}" --project "${PROJECT_ID}" --format 'value(status.url)')"
 echo "web: ${WEB_URL}"
+
+CORS_FILE="$(mktemp)"
+trap 'rm -f "${CORS_FILE}"' EXIT
+printf '[{"origin":["%s"],"method":["GET","HEAD","PUT"],"responseHeader":["Content-Type","Range","x-goog-resumable"],"maxAgeSeconds":3600}]' \
+  "${WEB_URL}" > "${CORS_FILE}"
+gcloud storage buckets update "gs://${GCS_BUCKET}" \
+  --cors-file="${CORS_FILE}" --project "${PROJECT_ID}"
 
 AGENT_SECRETS="INTERNAL_API_TOKEN=internal-api-token:latest"
 for pair in GEMINI_API_KEY:gemini-api-key YOUTUBE_API_KEY:youtube-api-key; do

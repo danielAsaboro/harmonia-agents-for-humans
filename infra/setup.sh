@@ -12,7 +12,9 @@ gcloud config set project "${PROJECT_ID}"
 
 echo "-- Enabling services"
 for svc in run.googleapis.com firestore.googleapis.com pubsub.googleapis.com \
-           cloudbuild.googleapis.com secretmanager.googleapis.com iam.googleapis.com \
+           cloudbuild.googleapis.com artifactregistry.googleapis.com \
+           secretmanager.googleapis.com iam.googleapis.com iamcredentials.googleapis.com \
+           cloudresourcemanager.googleapis.com \
            aiplatform.googleapis.com cloudtrace.googleapis.com \
            telemetry.googleapis.com monitoring.googleapis.com logging.googleapis.com \
            storage.googleapis.com identitytoolkit.googleapis.com; do
@@ -29,6 +31,19 @@ BUCKET_LOCATION="$(gcloud storage buckets describe "${STAGING_BUCKET}" \
   --project="${PROJECT_ID}" --format='value(location)' | tr '[:upper:]' '[:lower:]')"
 if [[ "${BUCKET_LOCATION}" != "${REGION}" ]]; then
   echo "staging bucket is in ${BUCKET_LOCATION}; required residency region is ${REGION}" >&2
+  exit 2
+fi
+
+echo "-- Durable media bucket"
+ASSET_BUCKET="gs://${PROJECT_ID}-harmonia-assets"
+if ! gcloud storage buckets describe "${ASSET_BUCKET}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud storage buckets create "${ASSET_BUCKET}" \
+    --location="${REGION}" --uniform-bucket-level-access --project="${PROJECT_ID}"
+fi
+ASSET_BUCKET_LOCATION="$(gcloud storage buckets describe "${ASSET_BUCKET}" \
+  --project="${PROJECT_ID}" --format='value(location)' | tr '[:upper:]' '[:lower:]')"
+if [[ "${ASSET_BUCKET_LOCATION}" != "${REGION}" ]]; then
+  echo "asset bucket is in ${ASSET_BUCKET_LOCATION}; required residency region is ${REGION}" >&2
   exit 2
 fi
 
@@ -57,6 +72,27 @@ for sa in harmonia-web harmonia-agent; do
   gcloud iam service-accounts create "$sa" --project "${PROJECT_ID}" \
     --display-name "Harmonia ${sa}" 2>/dev/null || echo "sa $sa exists"
 done
+
+for sa in harmonia-web harmonia-agent; do
+  gcloud storage buckets add-iam-policy-binding "${ASSET_BUCKET}" \
+    --member "serviceAccount:${sa}@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --role roles/storage.objectAdmin --project "${PROJECT_ID}" >/dev/null
+done
+
+# Cloud Run metadata credentials sign short-lived upload/download URLs through
+# IAM Credentials. Scope that authority to the web identity signing as itself.
+gcloud iam service-accounts add-iam-policy-binding \
+  "harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role roles/iam.serviceAccountTokenCreator --project "${PROJECT_ID}" >/dev/null
+
+# Pub/Sub's service agent must mint the OIDC token used by the private worker's
+# push subscription; it receives no general project-level token authority.
+PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format 'value(projectNumber)')"
+gcloud iam service-accounts add-iam-policy-binding \
+  "harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
+  --role roles/iam.serviceAccountTokenCreator --project "${PROJECT_ID}" >/dev/null
 
 for sa in harmonia-web harmonia-agent; do
   gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
@@ -93,6 +129,16 @@ if [[ -n "${YOUTUBE_API_KEY:-}" ]]; then
 else
   echo "  YOUTUBE_API_KEY not provided; ingest falls back to oEmbed."
 fi
+if [[ -n "${GOOGLE_CLIENT_ID:-}" || -n "${GOOGLE_CLIENT_SECRET:-}" ]]; then
+  : "${GOOGLE_CLIENT_ID:?set GOOGLE_CLIENT_ID together with GOOGLE_CLIENT_SECRET}"
+  : "${GOOGLE_CLIENT_SECRET:?set GOOGLE_CLIENT_SECRET together with GOOGLE_CLIENT_ID}"
+  printf '%s' "${GOOGLE_CLIENT_ID}" | gcloud secrets create google-oauth-client-id --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
+    || printf '%s' "${GOOGLE_CLIENT_ID}" | gcloud secrets versions add google-oauth-client-id --data-file=- --project "${PROJECT_ID}"
+  printf '%s' "${GOOGLE_CLIENT_SECRET}" | gcloud secrets create google-oauth-client-secret --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
+    || printf '%s' "${GOOGLE_CLIENT_SECRET}" | gcloud secrets versions add google-oauth-client-secret --data-file=- --project "${PROJECT_ID}"
+else
+  echo "  Google OAuth credentials not provided; Calendar and YouTube OAuth will remain unavailable."
+fi
 INTERNAL_TOKEN="$(openssl rand -hex 32)"
 printf '%s' "${INTERNAL_TOKEN}" | gcloud secrets create internal-api-token --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
   || echo "internal-api-token secret already exists (not rotated)"
@@ -106,6 +152,11 @@ for sa in harmonia-web harmonia-agent; do
     --member "serviceAccount:${sa}@${PROJECT_ID}.iam.gserviceaccount.com" \
     --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
 done
+for secret in google-oauth-client-id google-oauth-client-secret; do
+  gcloud secrets add-iam-policy-binding "${secret}" \
+    --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
+done
 gcloud secrets add-iam-policy-binding youtube-api-key \
   --member "serviceAccount:harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
@@ -117,6 +168,7 @@ Setup complete.
   Firestore:    (default) @ ${REGION}
   Web SA:       harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com
   Agent SA:     harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com
+  Assets:       ${ASSET_BUCKET}
 
 Next: ./infra/deploy.sh   (deploys both Cloud Run services and wires the push subscription)
 DONE

@@ -89,6 +89,29 @@ def test_agent_engine_runtime_seeds_state_collects_deltas_and_discards_session()
     assert remote.deleted == [{"user_id": "job-123", "session_id": "managed-session-1"}]
 
 
+def test_runtime_never_mutates_the_caller_payload_or_retrieved_session_state():
+    class ReadOnlySessionRemote(_RemoteAgent):
+        async def async_create_session(self, **kwargs):
+            self.created.append(kwargs)
+            return {"id": "managed-session-1", "state": _MutationTrap()}
+
+    class _MutationTrap(dict):
+        def __setitem__(self, key, value):
+            raise AssertionError("retrieved session state must not be mutated")
+
+        def update(self, *args, **kwargs):
+            raise AssertionError("retrieved session state must not be mutated")
+
+    payload = {"title": "Demo", "nested": {"evidence": "bounded"}}
+    original = {"title": "Demo", "nested": {"evidence": "bounded"}}
+    runtime = AgentEngineTeamRuntime(
+        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
+        client=_Client(ReadOnlySessionRemote()),
+    )
+    asyncio.run(runtime.invoke(specialist="sophia_analyst", payload=payload, user_id="job-123"))
+    assert payload == original
+
+
 def test_agent_engine_runtime_rejects_events_without_state_and_does_not_fallback():
     class EmptyRemote(_RemoteAgent):
         async def async_stream_query(self, **kwargs):

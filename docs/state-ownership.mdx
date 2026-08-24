@@ -1,0 +1,27 @@
+---
+title: "State ownership and retention"
+description: "The authoritative owner, scope, lifetime, writers, readers, and retention boundary for every Harmonia state store."
+---
+
+Harmonia separates model context from operational truth. A model may receive a bounded snapshot and produce a typed handoff, but it cannot authorize a side effect or overwrite the durable workflow by changing conversation or session state.
+
+| Store | Scope | Lifetime | Writers | Readers | Retention | Source of truth |
+|---|---|---|---|---|---|---|
+| Invocation state | one managed cognition call | until the call ends | web/worker seeds validated JSON; ADK `output_key` and event `state_delta` add handoffs | coordinator and selected specialists | discarded after validation | no; typed transport only |
+| Managed ADK session | namespaced `{workspace}:{user}:{job}` | one Agent Engine invocation | Agent Engine event lifecycle only | managed runner during that invocation | explicitly deleted after the result or failure | no; never workflow authority |
+| Firestore job | workspace + brand + job | workflow plus deployment retention policy | authenticated web internal routes and deterministic state machine | dashboard, worker, chat, evidence collector | deployment-controlled; no prompt-window dependency | **yes** for stage, status, artifacts, budget, and failure |
+| Approval decisions | workspace + job + action | durable audit record | authenticated decision engine after explicit operator input | publish stage, UI, evidence collector | retained with the job/audit record | **yes** for human authority |
+| Receipts and verification | workspace + job + action/idempotency key | durable and replay-relevant | deterministic executor writes receipt; independent verifier writes verification | worker, UI, monitoring, evidence collector | retained through judging and deployment audit policy | **yes** for effects and observed outcome |
+| Usage and reservations | workspace + job + operation | durable, immutable after finalization | budget service and provider usage normalizer | dispatcher, monitoring, evidence verifier | deployment accounting policy | **yes** for authorized/observed cost |
+| Chat history | workspace + authenticated user + interface + conversation | bounded conversational continuity | dashboard or allow-listed Telegram path | the same scoped operator/interface/conversation | maximum 300 messages; pruning stores metadata-only turn/time and linked-ID boundaries | no; cannot grant approval or reconstruct job state |
+| Memory Bank | exact workspace + brand | cross-session eligible knowledge | learn path writes only typed, evidence-linked decisions and verified outcomes | bounded analysis/strategy/drafting retrieval | provider/deployment policy, maximum five facts per retrieval/write | no; advisory context linked back to Firestore evidence |
+| Secrets | deployment or workspace integration | until rotation/revocation | deployment operator or authenticated connection flow | server-side minimum-permission adapters | secret-manager/rotation policy | **yes** for credentials; never copied to state, telemetry, chat, or evidence bundles |
+| Private evidence | one authorized demo/evaluation run | submission and judging evidence period | read-only collector and operator capture procedure | submission team and judges as authorized | private parent workspace; frozen at submission deadline | yes for claims, paired with authenticated provider exports |
+
+## Write rules
+
+- Retrieved session objects are read-only. Harmonia copies serializable input into a new seed object, consumes only event `state_delta`, validates required output keys, and deletes the ephemeral session.
+- Firestore mutations go through authenticated typed routes and deterministic transitions. Models cannot write approval, receipt, verification, credentials, or budget authority.
+- Chat summaries contain counts, time boundaries, and durable job/run identifiers only. They never contain transcripts, drafts, approval decisions, credentials, or generated claims.
+- Memory facts carry workspace, brand, job, evidence kind, and durable record ID. Cross-scope or legacy untyped memories fail visibly instead of entering prompts.
+- Retryable failures remain visible with a typed category/code and stop after the central attempt limit. A completed external effect remains governed by its receipt and verification even if later memory or reporting work fails.

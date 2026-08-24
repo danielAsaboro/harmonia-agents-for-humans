@@ -11,7 +11,8 @@ Harmonia turns raw material — a YouTube video or a plain topic brief — into 
 - **Proactive intelligence**: a background agent scans trends and your own engagement metrics on a schedule and proposes topics *with reasons and sources* (see [Proactive Agent](/proactive-agent))
 - **Meaningful action**: it publishes to X through the official API, renders real media with ffmpeg, and exports content packs
 - **Human-in-the-loop**: publishing, scheduling, and proposal acceptance all pass through explicit approval gates
-- **Auditable**: every external effect produces an idempotent receipt and an independent verification record
+- **Auditable**: publishing and export effects produce idempotent receipts and independent verification; Calendar mutations retain their latest verified projection or verified absence on the content item
+- **Calendar-aware**: scheduled content can be explicitly synchronized to an app-created Google Calendar without exposing unrelated calendars
 
 ## The short version
 

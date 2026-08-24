@@ -20,6 +20,7 @@ flowchart TB
         UPLOAD[Resumable upload broker<br/>metadata verification]
         CHAT[Chat intent parser<br/>Gemini structured output]
         DEC[Decision engine<br/>policy + approval gates]
+        CALSYNC[Operator-only Calendar sync<br/>deterministic IDs + read-back]
         FS[(Firestore<br/>workspaces/{workspaceId}/...)]
         LEDGER[(Budget reservations<br/>+ immutable usage records)]
         PS[Pub/Sub topics]
@@ -49,6 +50,7 @@ flowchart TB
         TRACE[Cloud Trace / Telemetry API<br/>metadata-only OpenTelemetry]
         VEO[Veo 3.1 Fast<br/>4-second b-roll]
         LYRIA[Lyria 3 Clip<br/>30-second music]
+        GCAL[Google Calendar API<br/>app-created calendar only]
     end
 
     UI --> IDP --> API
@@ -57,6 +59,8 @@ flowchart TB
     TG --> API
     API --> CHAT --> FS
     API --> DEC --> FS
+    UI --> CALSYNC --> GCAL
+    CALSYNC --> FS
     API --> LEDGER
     API --> PS
     PS --> PULL
@@ -169,6 +173,8 @@ Each workspace has a cumulative budget guard in addition to per-job reservations
 ### One decision engine
 
 Every mutating action (approve, publish, schedule) flows through the same decision layer regardless of surface — dashboard button, chat message, or Telegram inline button. Telegram approvals additionally require an explicit callback tap; parsed text alone can never execute.
+
+Google Calendar is deliberately adjacent to, rather than inside, the worker action engine. A browser-session-only route accepts the operator’s explicit Add, Update, or Remove action; internal service authentication cannot invoke it. Firestore claims first-calendar provisioning, content revisions invalidate old projections, deterministic event IDs converge inserts, ETags guard updates, and Google read-back determines the stored sync state. The narrow `calendar.app.created` scope prevents Harmonia from reading unrelated personal calendar data.
 
 ### Async by Pub/Sub, state in Firestore
 

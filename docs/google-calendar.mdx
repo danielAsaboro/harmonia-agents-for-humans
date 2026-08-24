@@ -1,0 +1,82 @@
+---
+title: "How to sync content with Google Calendar"
+description: "Connect Google Calendar and explicitly add, update, or remove scheduled Harmonia content."
+---
+
+Use this guide to place Harmonia’s content schedule in a dedicated calendar in the signed-in operator’s Google Calendar account.
+
+## Before you begin
+
+You need:
+
+- a Google Cloud project with the Google Calendar API enabled;
+- an OAuth 2.0 Web application client;
+- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` configured on the Harmonia web service; and
+- an authorized redirect URI for every Harmonia origin:
+
+```text
+https://YOUR_ORIGIN/api/oauth/google-calendar/callback
+```
+
+The OAuth consent screen must allow the single scope Harmonia requests:
+
+```text
+https://www.googleapis.com/auth/calendar.app.created
+```
+
+This scope lets Harmonia create and manage its own secondary calendar. It does not grant access to unrelated calendars or events.
+
+## Connect Google Calendar
+
+1. Open **Dashboard → Settings**.
+2. Find **Google Calendar** under connected accounts.
+3. Select **Connect with OAuth 2.0**.
+4. Review Google’s consent screen and approve the requested app-created-calendar permission.
+5. Return to Harmonia. The connection is workspace-scoped; OAuth tokens remain server-side.
+
+Harmonia creates **Harmonia Content Calendar** on the first approved item sync, not during OAuth. A durable provisioning claim prevents concurrent first-sync requests from creating multiple calendars.
+
+## Add a scheduled item
+
+1. Schedule a draft in Harmonia’s content calendar.
+2. Open the scheduled item.
+3. In **Google Calendar**, select **Add to Google Calendar**.
+4. Wait for the item to show a verified timestamp and an **Open verified event** link.
+
+The click is the approval for this external calendar mutation. The background worker and internal service token cannot call the mutation route.
+
+Harmonia creates a transparent 30-minute event at the content item’s scheduled time. It records success only after reading the event back from Google and matching its identity, time, text, platforms, and private Harmonia references.
+
+## Update a synchronized item
+
+Editing the post text, platforms, schedule, or status does not silently alter Google Calendar. Harmonia marks the item **update required**.
+
+1. Open the changed item.
+2. Review the new content and time.
+3. Select **Update Google Calendar**.
+4. Confirm that the verified timestamp advances.
+
+If the item changes while the Google request is running, Harmonia retains **update required** instead of claiming the older projection is current.
+
+## Remove an event
+
+1. Open an item with a synchronized event.
+2. Select **Remove from Google Calendar**.
+3. Wait for Harmonia to report that removal was verified.
+
+Removal deletes only the Google event. It does not cancel or delete the Harmonia content item. Repeating removal is an idempotent no-op whose absence is verified again.
+
+## Recover from a failure
+
+- **Authorization expired:** reconnect Google Calendar under Settings. Reauthorization preserves the existing Harmonia calendar identity and refresh token when Google omits a new one.
+- **Update required:** the Harmonia item changed after the last verified sync. Review it and select **Update Google Calendar**.
+- **Synchronization failed:** retry from the item drawer. Harmonia preserves the last verified event link and revision evidence.
+- **Provisioning outcome uncertain:** inspect Google Calendar before reconnecting. Harmonia locks provisioning rather than risk creating another calendar after a response was lost.
+- **Harmonia calendar removed in Google:** reconnect only after confirming the old calendar is gone. Harmonia does not silently replace a missing calendar.
+
+## Disconnect
+
+Select **Disconnect** under Settings to remove Harmonia’s workspace-scoped credentials. Disconnecting does not delete the user-owned secondary calendar or its events.
+
+For endpoint, state, retry, and verification details, see [Google Calendar sync reference](/google-calendar-reference).
+

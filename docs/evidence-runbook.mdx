@@ -47,4 +47,18 @@ The redacted bundle also requires replay evidence: a distinct replay operation a
 
 Replay the already-approved action only through Harmonia's **Prove duplicate suppression** audit control. The normal claim state machine must return `already_applied` and reference the original receipt; the replay route has no authority to execute. Capture that durable replay observation and the external readback privately.
 
+## Google Calendar evidence
+
+Calendar sync is useful supporting product evidence, but it does not replace the required publishing or content-pack effect in the vertical-slice bundle.
+
+To claim Calendar integration in the demo, capture privately:
+
+1. the Google consent screen showing only `calendar.app.created`;
+2. the connected workspace state with credentials redacted;
+3. one operator-triggered event creation and its verified link/timestamp;
+4. one Harmonia reschedule that becomes `update_required`, followed by an operator-triggered update and a newer verified ETag/timestamp; and
+5. one operator-triggered removal followed by Google API `404` or `410` read-back.
+
+Retain the content-item document before and after each action, sanitized Calendar API request/response metadata, and trace correlation outside the public repository. Offline tests, a green connection badge, or an event visible only in the Harmonia UI are not live-provider proof. Do not include OAuth tokens, calendar IDs tied to a personal account, personal event data, or private extended-property values in public artifacts.
+
 The collector itself performs neither the original action nor the replay. Do not edit a failed bundle to make it pass. Preserve command status, verifier output, and unresolved gaps exactly as observed.

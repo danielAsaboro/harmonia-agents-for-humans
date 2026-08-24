@@ -118,15 +118,15 @@ Open http://localhost:3000, continue with Google, then paste a YouTube URL and w
 
 ### Google Calendar synchronization
 
-Harmonia can put scheduled content on a dedicated **Harmonia Content Calendar** in the operator’s Google Calendar account. Enable the Google Calendar API on the same Google Cloud project as the OAuth web client, set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, and register this redirect URI for each deployed origin:
+Harmonia can put scheduled content on a dedicated **Harmonia Content Calendar** in the operator’s Google Calendar account. Enable the Google Calendar API, configure `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, and register this redirect URI for each deployed origin:
 
 ```text
 https://YOUR_ORIGIN/api/oauth/google-calendar/callback
 ```
 
-Connect **Google Calendar** under Settings. Harmonia requests only `https://www.googleapis.com/auth/calendar.app.created`, so it can manage the secondary calendar it creates but cannot read unrelated calendars or events. Open a scheduled content item in the calendar and explicitly choose **Add**, **Update**, or **Remove**. Harmonia uses a deterministic event ID, guards updates with Google’s ETag, and records success only after API read-back matches the intended event (or confirms removal). Editing or rescheduling an item marks it as needing sync; it never silently changes Google Calendar. Disconnecting revokes Harmonia’s stored connection but deliberately leaves the user-owned calendar and events intact.
+Connect **Google Calendar** under Settings, then open a scheduled item and explicitly choose **Add**, **Update**, or **Remove**. Harmonia requests only `calendar.app.created`; it cannot read unrelated calendars or events. It records success only after Google API read-back verifies the event or its removal.
 
-Local tests verify the contracts and failure paths, not a live Google account. Do not claim the integration is operational until OAuth and a create/update/remove sequence have been captured against a real account.
+See [How to sync content with Google Calendar](./docs/google-calendar.mdx) for setup and recovery, and the [Google Calendar sync reference](./docs/google-calendar-reference.mdx) for endpoint, state, idempotency, and verification contracts. Local tests do not prove a live Google account.
 
 For generated campaign workspaces, `AGENT_SERVICE_URL` must point to the FastAPI worker (normally `http://localhost:8080` locally), `INTERNAL_API_TOKEN` must match across both services, and `AGENT_ENGINE_RESOURCE` plus Google credentials must be configured. There is deliberately no local-model or deterministic production fallback for presentation planning.
 

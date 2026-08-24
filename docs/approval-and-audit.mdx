@@ -15,6 +15,10 @@ All approval paths converge on one decision engine:
 
 Scheduling is treated as approval for calendar items in `auto` mode; `approval` mode items additionally require a final review when they come due.
 
+Google Calendar synchronization has a separate, narrower approval boundary. Scheduling a Harmonia item does not mutate Google Calendar. Only the signed-in operator’s **Add**, **Update**, or **Remove** button calls `/api/calendar/google`; the worker’s internal bearer token is rejected. The route records success only after Google API read-back. See the [Google Calendar sync reference](/google-calendar-reference).
+
+This calendar verification record is stored on the content item rather than in the publishing receipt ledger. It proves the latest calendar projection or verified absence; it does not prove that a social post was published.
+
 ## Claim-before-effect execution
 
 After approval, every worker must atomically claim the action's stable idempotency key before calling an external provider. The durable claim records the action, operation ID, trace ID, lease, and attempt. Only the worker receiving `execute` may call the provider.

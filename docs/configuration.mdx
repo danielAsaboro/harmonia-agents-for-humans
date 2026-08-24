@@ -15,6 +15,8 @@ description: "Every environment variable Harmonia reads, with defaults and requi
 | `GOOGLE_CLOUD_PROJECT` | cloud | `harmonia-local` | Project id |
 | `GCS_BUCKET` | production media | local `.data/artifacts` | Cloud Storage bucket for generated assets and direct resumable chat uploads; configure bucket CORS for the web origin |
 | `YOUTUBE_API_KEY` | recommended | — | Data API durations at ingest (ffprobe fallback otherwise) |
+| `GOOGLE_CLIENT_ID` | Google Calendar or YouTube OAuth | — | Server-side OAuth web-client ID; Calendar requests only `calendar.app.created` |
+| `GOOGLE_CLIENT_SECRET` | Google Calendar or YouTube OAuth | — | Server-side OAuth web-client secret; never exposed to the browser |
 | `NEXT_PUBLIC_FIREBASE_API_KEY` | yes | — | Public Identity Platform web configuration value |
 | `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` | yes | — | Identity Platform authentication domain |
 | `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | yes | — | Identity Platform project |
@@ -124,3 +126,5 @@ npm run verify:evidence -- /absolute/private/bundle.json
 ## Secrets policy
 
 Deployment-wide application credentials and workspace OAuth records stay server-side and never enter Git or browser responses. Scope every integration to minimum permissions. Telegram configuration is stored per workspace and is returned only to the trusted worker.
+
+Google Calendar does not accept manually pasted tokens. Register `/api/oauth/google-calendar/callback` for each deployed origin and use the normal OAuth connection flow. See [How to sync content with Google Calendar](/google-calendar).

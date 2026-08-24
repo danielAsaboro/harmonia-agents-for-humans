@@ -10,7 +10,7 @@ Every side-effecting action must acquire a tenant-scoped Firestore claim keyed b
 
 - `execute`: this operation created the claim and exclusively owns the first attempt;
 - `in_progress`: another operation owns a live claim; the stage remains retryable and performs no effect;
-- `already_applied`: an immutable receipt already finalized the claim; the caller performs no effect and records a replay observation;
+- `already_applied`: an immutable receipt already finalized the claim; the caller performs no effect and receives the original receipt identity;
 - `uncertain`: a prior claim expired without a receipt; Harmonia performs no automatic retry because the provider may have applied the effect before the worker crashed.
 
 Claims never grant approval. The claim endpoint verifies that the action is approved or does not require approval, is still executable, and matches the submitted action type and idempotency key.
@@ -19,7 +19,7 @@ Claims never grant approval. The claim endpoint verifies that the action is appr
 
 Claims live under the job so tenant isolation follows the existing Firestore boundary. A claim stores job/action identity, action type, idempotency key, owner operation and trace IDs, state, attempt count, claimed/expiry timestamps, and optional receipt/finalization identifiers. Receipt finalization runs in a Firestore transaction that validates claim ownership, creates the immutable receipt, marks the action executed or failed, and marks the claim `applied` or `failed` atomically.
 
-An `already_applied` claim response writes a durable replay observation referencing the original receipt. An `uncertain` response becomes a permanent visible failure requiring operator reconciliation; it never becomes simulated success and never automatically repeats a paid or public action.
+Only the authenticated operator replay-proof route writes a durable replay observation referencing the original receipt. Ordinary worker redelivery may receive `already_applied`, but it does not manufacture operator replay evidence. An `uncertain` response becomes a permanent visible failure requiring operator reconciliation; it never becomes simulated success and never automatically repeats a paid or public action.
 
 ## Agent behavior
 
@@ -36,7 +36,7 @@ The normal authenticated operator UI exposes a replay-proof action only for an a
 - Concurrent claim attempts produce exactly one `execute` owner.
 - Live claims return `in_progress`; expired unfinalized claims return `uncertain`.
 - Finalization rejects the wrong owner and atomically links one receipt.
-- A later claim returns `already_applied` with the original receipt and records replay evidence.
+- A later claim returns `already_applied` with the original receipt; only explicit operator replay records replay evidence.
 - Agent tests prove no provider/effect adapter runs for non-`execute` outcomes.
 - Operator replay cannot approve, reset, or execute an action.
 - Existing TypeScript, Python, lint, build, and evidence-collector gates remain green.

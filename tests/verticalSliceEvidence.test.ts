@@ -1,0 +1,179 @@
+import { describe, expect, it } from "vitest";
+
+import { verifyVerticalSliceEvidence } from "@/lib/verticalSliceEvidence";
+
+const traceId = "a".repeat(32);
+const digest = "b".repeat(64);
+
+function validBundle() {
+  const stages = [
+    "ingest", "transcribe", "understand", "draft",
+    "awaiting_approval", "publish", "verify",
+  ] as const;
+  return {
+    schemaVersion: "harmonia.vertical-slice-evidence.v1",
+    runId: "run-20260824-001",
+    capturedAt: "2026-08-24T12:20:00.000Z",
+    source: {
+      kind: "youtube",
+      sourceId: "public-video-id",
+      authorizationRef: "operator-record-1",
+      metadataDigest: digest,
+    },
+    environment: {
+      projectId: "harmonia-prod",
+      location: "us-central1",
+      webService: "harmonia-web",
+      webRevision: "harmonia-web-00001-abc",
+      agentService: "harmonia-agent",
+      agentRevision: "harmonia-agent-00001-def",
+      agentEngineResource: "projects/123/locations/us-central1/reasoningEngines/456",
+      firestoreDatabase: "projects/harmonia-prod/databases/(default)",
+      pubsubTopic: "projects/harmonia-prod/topics/harmonia-stages",
+      mockAi: false,
+      mockEffects: false,
+      emulator: false,
+    },
+    job: {
+      workspaceId: "workspace-1", brandId: "brand-1", jobId: "job-1",
+      createdAt: "2026-08-24T12:00:00.000Z",
+      completedAt: "2026-08-24T12:18:00.000Z",
+    },
+    events: stages.map((stage, index) => ({
+      eventId: `event-${index}`, stage,
+      status: stage === "awaiting_approval" ? "waiting" : "completed",
+      at: new Date(Date.parse("2026-08-24T12:01:00.000Z") + index * 60_000).toISOString(),
+      operationId: `job-1:${stage}:0`,
+      pubsubMessageId: `message-${index}`,
+      traceId,
+    })),
+    cognition: [
+      {
+        role: "harmonia_coordinator", model: "gemini-3.5-flash-lite",
+        provider: "gemini", policyVersion: "gear-2026-08-24",
+        usageRecordId: "usage-coordinator", operationId: "job-1:understand:0:harmonia_coordinator",
+        traceId,
+      },
+      {
+        role: "sophia_analyst", model: "gemini-3.5-flash",
+        provider: "gemini", policyVersion: "gear-2026-08-24",
+        usageRecordId: "usage-analyst", operationId: "job-1:understand:0:sophia_analyst",
+        traceId,
+      },
+    ],
+    approval: {
+      approvalId: "approval-1", actionId: "action-1", decision: "approved",
+      actorType: "human_operator", decidedAt: "2026-08-24T12:10:00.000Z", traceId,
+    },
+    effect: {
+      actionId: "action-1", operationId: "job-1:publish:action-1",
+      idempotencyKey: digest, receiptId: "receipt-1", kind: "export_content_pack",
+      outcome: "applied", executedAt: "2026-08-24T12:11:00.000Z",
+      artifactDigest: digest, traceId,
+    },
+    verification: {
+      verificationId: "verification-1", receiptId: "receipt-1",
+      method: "artifact_digest_reread", status: "verified",
+      checkedAt: "2026-08-24T12:12:00.000Z", observedDigest: digest, traceId,
+    },
+    costs: {
+      pricingVersion: "2026-08-23", currency: "USD",
+      records: [
+        { usageRecordId: "usage-coordinator", operationId: "job-1:understand:0:harmonia_coordinator", estimatedUsd: "0.010000", observedUsd: "0.009000" },
+        { usageRecordId: "usage-analyst", operationId: "job-1:understand:0:sophia_analyst", estimatedUsd: "0.020000", observedUsd: "0.018000" },
+      ],
+      totalEstimatedUsd: "0.030000", totalObservedUsd: "0.027000",
+    },
+    evidenceFiles: [
+      { kind: "job_export", relativePath: "exports/job.json", sha256: digest },
+      { kind: "trace_export", relativePath: "exports/trace.json", sha256: digest },
+    ],
+  };
+}
+
+function failureCodes(bundle: unknown) {
+  return verifyVerticalSliceEvidence(bundle).failures.map((failure) => failure.code);
+}
+
+describe("vertical-slice evidence", () => {
+  it("accepts a complete authenticated redacted bundle", () => {
+    expect(verifyVerticalSliceEvidence(validBundle())).toEqual({ ok: true, failures: [] });
+  });
+
+  it.each([
+    ["mockAi"], ["mockEffects"], ["emulator"],
+  ] as const)("rejects non-production provenance: %s", (field) => {
+    const bundle = validBundle();
+    bundle.environment[field] = true;
+    expect(failureCodes(bundle)).toContain("non_production_provenance");
+  });
+
+  it("rejects missing or non-Gemini-3.5 cognition", () => {
+    const bundle = validBundle();
+    bundle.environment.agentEngineResource = "not-an-agent-engine-resource";
+    bundle.cognition[1].model = "gemini-2.5-flash";
+    expect(failureCodes(bundle)).toEqual(expect.arrayContaining([
+      "missing_agent_engine", "missing_required_gemini",
+    ]));
+  });
+
+  it("rejects missing, reordered, and cross-trace stages", () => {
+    const missing = validBundle();
+    missing.events = missing.events.filter((event) => event.stage !== "draft");
+    expect(failureCodes(missing)).toContain("missing_stage");
+
+    const reordered = validBundle();
+    [reordered.events[1], reordered.events[2]] = [reordered.events[2], reordered.events[1]];
+    expect(failureCodes(reordered)).toContain("stage_order_invalid");
+
+    const splitTrace = validBundle();
+    splitTrace.events[2].traceId = "c".repeat(32);
+    expect(failureCodes(splitTrace)).toContain("trace_mismatch");
+  });
+
+  it("rejects effect execution before durable human approval", () => {
+    const bundle = validBundle();
+    bundle.approval.decidedAt = "2026-08-24T12:12:00.000Z";
+    expect(failureCodes(bundle)).toContain("effect_before_approval");
+  });
+
+  it("rejects mismatched actions, receipts, digests, and unverified effects", () => {
+    const bundle = validBundle();
+    bundle.effect.actionId = "different-action";
+    bundle.verification.receiptId = "different-receipt";
+    bundle.verification.observedDigest = "d".repeat(64);
+    bundle.verification.status = "failed";
+    expect(failureCodes(bundle)).toEqual(expect.arrayContaining([
+      "action_mismatch", "receipt_mismatch", "artifact_digest_mismatch",
+      "effect_not_verified",
+    ]));
+  });
+
+  it("rejects verification before execution and duplicate operation IDs", () => {
+    const bundle = validBundle();
+    bundle.verification.checkedAt = "2026-08-24T12:10:30.000Z";
+    bundle.events[1].operationId = bundle.events[0].operationId;
+    expect(failureCodes(bundle)).toEqual(expect.arrayContaining([
+      "verification_before_effect", "duplicate_operation_id",
+    ]));
+  });
+
+  it("rejects unknown or unreconciled cost", () => {
+    const unknown = validBundle();
+    unknown.costs.records[0].observedUsd = null as unknown as string;
+    expect(failureCodes(unknown)).toContain("schema_invalid");
+
+    const mismatch = validBundle();
+    mismatch.costs.totalObservedUsd = "0.999999";
+    expect(failureCodes(mismatch)).toContain("cost_total_mismatch");
+  });
+
+  it("rejects missing usage links and private/raw fields", () => {
+    const missingUsage = validBundle();
+    missingUsage.costs.records.pop();
+    expect(failureCodes(missingUsage)).toContain("missing_usage_record");
+
+    const leaked = { ...validBundle(), transcript: "private source text" };
+    expect(failureCodes(leaked)).toContain("schema_invalid");
+  });
+});

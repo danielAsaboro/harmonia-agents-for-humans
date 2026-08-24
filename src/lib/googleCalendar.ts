@@ -16,6 +16,13 @@ export interface GoogleCalendarGateway {
   deleteEvent(calendarId: string, eventId: string, etag?: string): Promise<void>;
 }
 
+export class CalendarApiError extends Error {
+  constructor(readonly status: number, detail: string) {
+    super(`Google Calendar API ${status}: ${detail}`);
+    this.name = "CalendarApiError";
+  }
+}
+
 export async function ensureHarmoniaCalendar(gateway: GoogleCalendarGateway, calendarId?: string) {
   if (calendarId) {
     const existing = await gateway.getCalendar(calendarId);
@@ -47,7 +54,15 @@ export async function executeCalendarMutation(
 
   const intended = buildGoogleCalendarEvent(input.item, eventId, input.workspaceId, input.brandId);
   if (existing) await gateway.updateEvent(input.calendarId, intended, existing.etag);
-  else await gateway.insertEvent(input.calendarId, intended);
+  else {
+    try {
+      await gateway.insertEvent(input.calendarId, intended);
+    } catch (error) {
+      if (!(error instanceof CalendarApiError) || error.status !== 409) throw error;
+      // A deterministic insert may have succeeded even if its response was
+      // lost. A 409 converges through the mandatory read-back below.
+    }
+  }
   const verified = await gateway.getEvent(input.calendarId, eventId);
   assertVerified(verified, intended);
   return { status: "synced", calendarId: input.calendarId, eventId, etag: verified.etag, htmlLink: verified.htmlLink, sourceUpdatedAt: input.item.updatedAt, verifiedAt: input.now, lastAttemptAt: input.now };
@@ -60,10 +75,11 @@ export class GoogleCalendarApi implements GoogleCalendarGateway {
     private readonly sleeper: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   ) {}
 
-  private async request(path: string, init: RequestInit = {}, missingIsNull = false): Promise<Record<string, unknown> | null> {
+  private async request(path: string, init: RequestInit = {}, missingIsNull = false, retryable = true): Promise<Record<string, unknown> | null> {
     let res: Response | undefined;
     let networkError: unknown;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    const attempts = retryable ? 3 : 1;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
         res = await this.fetcher(`https://www.googleapis.com/calendar/v3${path}`, {
           ...init,
@@ -74,20 +90,20 @@ export class GoogleCalendarApi implements GoogleCalendarGateway {
       } catch (error) {
         networkError = error;
       }
-      if (attempt < 2) await this.sleeper(200 * 2 ** attempt);
+      if (attempt < attempts - 1) await this.sleeper(200 * 2 ** attempt);
     }
     if (!res) throw networkError instanceof Error ? networkError : new Error("Google Calendar network request failed");
     if (missingIsNull && (res.status === 404 || res.status === 410)) return null;
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 300);
-      throw new Error(`Google Calendar API ${res.status}: ${detail}`);
+      throw new CalendarApiError(res.status, detail);
     }
     if (res.status === 204) return {};
     return await res.json() as Record<string, unknown>;
   }
 
   async getCalendar(id: string) { return await this.request(`/calendars/${encodeURIComponent(id)}`, {}, true) as { id: string; summary: string } | null; }
-  async createCalendar(summary: string) { return await this.request("/calendars", { method: "POST", body: JSON.stringify({ summary, description: "Content schedule synchronized by Harmonia." }) }) as { id: string; summary: string }; }
+  async createCalendar(summary: string) { return await this.request("/calendars", { method: "POST", body: JSON.stringify({ summary, description: "Content schedule synchronized by Harmonia." }) }, false, false) as { id: string; summary: string }; }
   async getEvent(calendarId: string, eventId: string) { return await this.request(`/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`, {}, true) as unknown as GoogleEvent | null; }
   async insertEvent(calendarId: string, event: GoogleCalendarEventInput) { return await this.request(`/calendars/${encodeURIComponent(calendarId)}/events`, { method: "POST", body: JSON.stringify(event) }) as unknown as GoogleEvent; }
   async updateEvent(calendarId: string, event: GoogleCalendarEventInput, etag: string) { return await this.request(`/calendars/${encodeURIComponent(calendarId)}/events/${event.id}`, { method: "PUT", headers: { "if-match": etag }, body: JSON.stringify(event) }) as unknown as GoogleEvent; }

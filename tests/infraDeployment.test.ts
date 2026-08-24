@@ -41,6 +41,31 @@ exit 0
 }
 
 describe("Google Cloud deployment automation", () => {
+  it("deploys a scale-to-zero web preview without paid agent resources", () => {
+    const fake = fakeGcloudEnvironment();
+
+    execFileSync("bash", ["infra/deploy-web-preview.sh"], {
+      cwd: repoRoot,
+      env: {
+        ...fake.env,
+        FIREBASE_API_KEY: "firebase-api-key",
+        FIREBASE_APP_ID: "firebase-app-id",
+      },
+    });
+
+    const log = fake.log();
+    expect(log).toContain("run deploy harmonia-web");
+    expect(log).toContain("--min-instances 0");
+    expect(log).toContain("--max-instances 1");
+    expect(log).toContain("--cpu-throttling");
+    expect(log).toContain("HARMONIA_PREVIEW_MODE=1");
+    expect(log).not.toContain("run deploy harmonia-agent");
+    expect(log).not.toContain("GEMMA_VERTEX_ENDPOINT");
+    expect(log).not.toContain("AGENT_ENGINE_RESOURCE");
+    expect(log).not.toContain("GEMINI_API_KEY=");
+    expect(log).not.toContain("pubsub subscriptions create");
+  });
+
   it("provisions server-side Google OAuth credentials as managed secrets", () => {
     const fake = fakeGcloudEnvironment();
 

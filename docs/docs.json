@@ -25,15 +25,31 @@
         ]
       },
       {
-        "group": "How It Works",
+        "group": "Product",
         "pages": [
           "pipeline",
           "proactive-agent",
+          "a2ui-console",
           "approval-and-audit",
-          "interfaces",
-          "operational-model",
-          "state-ownership",
+          "interfaces"
+        ]
+      },
+      {
+        "group": "Agent Platform",
+        "pages": [
+          "agent-platform",
+          "session-memory",
+          "models-cost-evaluation",
           "tool-contracts"
+        ]
+      },
+      {
+        "group": "Reliability",
+        "pages": [
+          "operational-model",
+          "failure-recovery",
+          "state-ownership",
+          "observability"
         ]
       },
       {

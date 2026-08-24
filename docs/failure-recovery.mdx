@@ -1,0 +1,68 @@
+---
+title: "Failure and recovery reference"
+description: "Typed failure categories, retry limits, escalation, replay, and fail-closed recovery behavior."
+---
+
+## Failure envelope
+
+Agent and tool boundaries normalize failures into safe structured data rather than passing provider bodies downstream.
+
+```json
+{
+  "category": "dependency",
+  "code": "provider_unavailable",
+  "message": "The provider is temporarily unavailable.",
+  "retryable": true,
+  "stage": "understand",
+  "attempt": 1,
+  "maxAttempts": 3
+}
+```
+
+Credentials, prompts, transcripts, drafts, private provider payloads, and stack traces are excluded from operator and model-facing envelopes.
+
+## Classification and action
+
+| Category | Typical examples | Automatic action |
+|---|---|---|
+| validation | malformed schema, unsupported source | terminal; surface correction |
+| authorization | missing consent, wrong tenant, expired non-refreshable token | terminal; operator action |
+| policy | budget, safety, or approval violation | terminal; preserve decision context |
+| dependency | timeout, `429`, provider `5xx` | bounded retry when explicitly retryable |
+| conflict | ETag mismatch, concurrent state change | read-back or transaction reconciliation |
+| uncertain effect | claim expired without a receipt, ambiguous calendar provisioning | fail closed; operator reconciliation |
+| internal | invariant or protocol failure | terminal and observable |
+
+## Recovery sequence
+
+```mermaid
+flowchart TD
+  E[Failure] --> C{Retryable?}
+  C -- no --> V[Persist visible terminal failure]
+  C -- yes --> L{Attempts remain?}
+  L -- yes --> R[Bounded retry with same operation identity]
+  L -- no --> V
+  R --> O{External outcome ambiguous?}
+  O -- no --> S[Continue or persist result]
+  O -- yes --> Q[Read back or mark uncertain]
+  Q -->|verified| S
+  Q -->|cannot prove| H[Require operator reconciliation]
+```
+
+Retries reuse stable operation and idempotency identities. They do not manufacture a new action or bypass human approval.
+
+## Effect recovery states
+
+| Claim result | Meaning | Provider call allowed? |
+|---|---|---|
+| `execute` | caller owns a live claim | yes, once |
+| `in_progress` | another delivery owns the claim | no |
+| `already_applied` | original receipt exists | no; return original receipt identity |
+| `uncertain` | lease expired without final proof | no; operator reconciliation required |
+
+Only the explicit **Prove duplicate suppression** control creates replay evidence. Ordinary duplicate delivery suppresses the provider call without creating a new replay record.
+
+<Warning>A visible failure is a valid terminal outcome. Harmonia never converts an unavailable provider, missing credential, unverifiable effect, or exhausted retry into simulated success.</Warning>
+
+See [Approvals & Audit](/approval-and-audit) for claim-before-effect ordering and [Authenticated vertical-slice evidence](/evidence-runbook) for proof requirements.
+

@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { JobFull, PlannedAction, Receipt } from "@/components/jobTypes";
 import { HarmoniaA2uiHost } from "@/components/a2ui/HarmoniaCatalog";
 import { latestSurfaceOperations } from "@/lib/a2ui/surfaceSlots";
+import { isReplayableAction } from "@/lib/replayEligibility";
 import { StudioFailure } from "./StudioStates";
 
 type Verification = NonNullable<JobFull["verifications"]>[number];
@@ -33,11 +34,12 @@ function generatedApprovalActionIds(operations: unknown[]): string[] {
   return ids;
 }
 
-export function ApprovalDock({ jobId, actions, verifications, receipts, busy, onDecide, operations = [], onOperationDecision }: {
+export function ApprovalDock({ jobId, actions, verifications, receipts, claims = [], busy, onDecide, operations = [], onOperationDecision }: {
   jobId: string;
   actions: PlannedAction[];
   verifications: Verification[];
   receipts: Receipt[];
+  claims?: NonNullable<JobFull["claims"]>;
   busy: boolean;
   onDecide: (jobId: string, actionId: string, decision: "approved" | "rejected") => Promise<void> | void;
   operations?: unknown[];
@@ -47,7 +49,7 @@ export function ApprovalDock({ jobId, actions, verifications, receipts, busy, on
   const [replayBusy, setReplayBusy] = useState<string | null>(null);
   const [replayStatus, setReplayStatus] = useState<Record<string, string>>({});
   const pending = actions.filter((action) => action.approvalState === "pending" && action.state === "planned");
-  const replayable = actions.filter((action) => action.state === "executed" && receipts.some((receipt) => receipt.actionId === action.id && receipt.outcome === "applied"));
+  const replayable = actions.filter((action) => isReplayableAction(action, receipts, claims));
   let approvalOperations: unknown[] = [];
   let protocolError: string | null = null;
   try {

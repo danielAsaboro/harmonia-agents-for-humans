@@ -1,5 +1,6 @@
 import { getJob, listApprovalDecisions, listAssets, listEffectClaims, listEvents, listReceipts, listReplayObservations, listUsageRecords } from "@/lib/firestore";
 import { tenantHandler } from "@/lib/auth";
+import { redactEffectClaim } from "@/lib/effectClaims";
 
 async function get(
   _req: Request,
@@ -23,7 +24,7 @@ async function get(
     decisions,
     replays,
     usage,
-    claims,
+    claims: claims.map(redactEffectClaim),
     assets: assets.map((a) => ({
       actionId: a.actionId,
       mime: a.mime,

@@ -25,6 +25,8 @@ After approval, every worker must atomically claim the action's stable idempoten
 
 Receipt finalization atomically links the claim, immutable receipt, and action state. A receipt is evidence of an effect; it is not a substitute for the pre-effect claim.
 
+The Firestore concurrency integration test runs against a real Firestore emulator when `FIRESTORE_EMULATOR_HOST` is configured. The pure state-machine tests always run; authenticated production evidence remains required before making a live-cloud concurrency claim.
+
 ## Idempotent receipts
 
 Every executed action writes a receipt containing:

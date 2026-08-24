@@ -112,7 +112,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
           {events.length ? <details className="mt-6 border-t border-black/15 pt-3"><summary className="cursor-pointer text-[10px] font-black uppercase tracking-[0.14em] text-black/40">Execution timeline · {events.length} events</summary><ol className="mt-3 space-y-2">{[...events].reverse().map((event, index) => <li key={`${event.at}-${index}`} className="grid grid-cols-[5rem_1fr] gap-3 text-xs"><span className="font-mono text-black/35">{event.at ? new Date(event.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}</span><span>{event.message}</span></li>)}</ol></details> : null}
         </> : null}
       </div>
-      {job && onDecide ? <ApprovalDock jobId={job.id} actions={job.actions} verifications={job.verifications ?? []} receipts={receipts} busy={approvalBusy} onDecide={onDecide} operations={operations} onOperationDecision={onOperationDecision} /> : null}
+      {job && onDecide ? <ApprovalDock jobId={job.id} actions={job.actions} verifications={job.verifications ?? []} receipts={receipts} claims={job.claims ?? []} busy={approvalBusy} onDecide={onDecide} operations={operations} onOperationDecision={onOperationDecision} /> : null}
     </section>
   );
 }

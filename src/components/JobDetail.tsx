@@ -7,6 +7,7 @@ import Timeline from "@/components/Timeline";
 import type { JobFull } from "@/components/jobTypes";
 import type { TimelineEvent } from "@/components/Timeline";
 import type { PlannedAction, Receipt } from "@/lib/types";
+import { isReplayableAction } from "@/lib/replayEligibility";
 
 type Tab = "overview" | "drafts" | "actions" | "receipts" | "packet";
 
@@ -351,7 +352,7 @@ export default function JobDetail({
                         </div>
                       </div>
                       <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{a.description}</p>
-                      {a.state === "executed" && receipts.some((receipt) => receipt.actionId === a.id && receipt.outcome === "applied") && (
+                      {isReplayableAction(a, receipts, job.claims ?? []) && (
                         <div className="mt-2 flex flex-wrap items-center gap-2">
                           <button type="button" aria-label={`Replay proof for ${a.title}`} disabled={busy} onClick={() => void proveReplay(a.id)} className="rounded-full border border-blue-300 px-3 py-1 text-xs font-medium text-blue-700 disabled:opacity-50 dark:border-blue-700 dark:text-blue-300">Prove duplicate suppression</button>
                           <span role="status" aria-live="polite" className="text-xs text-zinc-500">{replayStatus[a.id]}</span>

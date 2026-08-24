@@ -1,4 +1,4 @@
-import type { EvidenceRef, Angle, Moment, PlannedAction, PostDraft, Receipt, Stage } from "@/lib/types";
+import type { EvidenceRef, Angle, EffectClaimSummary, Moment, PlannedAction, PostDraft, Receipt, Stage } from "@/lib/types";
 
 export interface JobSummary {
   id: string;
@@ -52,6 +52,7 @@ export interface JobFull extends JobSummary {
     receipts: Receipt[];
   };
   assets?: Array<{ actionId: string; mime: string; sizeBytes: number; digest: string }>;
+  claims?: EffectClaimSummary[];
 }
 
 export type { Angle, Moment, PlannedAction, PostDraft, Receipt, Stage };

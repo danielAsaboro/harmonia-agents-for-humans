@@ -1,4 +1,4 @@
-import type { EffectClaim, EffectClaimInput, EffectClaimOutcome } from "./types";
+import type { EffectClaim, EffectClaimInput, EffectClaimOutcome, EffectClaimSummary } from "./types";
 
 const CLAIM_LEASE_MS = 5 * 60 * 1000;
 
@@ -47,6 +47,26 @@ export function decideEffectClaim(
 export type EffectFinalization =
   | { duplicate: true; claim: EffectClaim; receiptId: string }
   | { duplicate: false; claim: EffectClaim; receiptId: string };
+
+export function redactEffectClaim(claim: EffectClaim): EffectClaimSummary {
+  return {
+    id: claim.id, actionId: claim.actionId, idempotencyKey: claim.idempotencyKey,
+    state: claim.state, attempt: claim.attempt, claimedAt: claim.claimedAt,
+    finalizedAt: claim.finalizedAt, receiptId: claim.receiptId,
+    operationId: claim.operationId, traceId: claim.traceId,
+  };
+}
+
+export function effectClaimResponse(result: EffectClaimOutcome, input: EffectClaimInput) {
+  return {
+    outcome: result.outcome,
+    attempt: result.claim.attempt,
+    idempotencyKey: input.idempotencyKey,
+    operationId: input.operationId,
+    traceId: input.traceId,
+    ...(result.outcome === "already_applied" ? { receiptId: result.receiptId } : {}),
+  };
+}
 
 export function decideEffectFinalization(
   claim: EffectClaim,

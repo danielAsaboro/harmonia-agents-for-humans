@@ -204,6 +204,10 @@ export interface EffectClaim extends EffectClaimInput {
   receiptId?: string;
 }
 
+export type EffectClaimSummary = Pick<EffectClaim,
+  "id" | "actionId" | "idempotencyKey" | "state" | "attempt" | "claimedAt" | "finalizedAt" | "receiptId" | "operationId" | "traceId"
+>;
+
 export type EffectClaimOutcome =
   | { outcome: "execute"; claim: EffectClaim }
   | { outcome: "in_progress"; claim: EffectClaim }

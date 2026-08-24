@@ -105,6 +105,19 @@ describe("Google Cloud deployment automation", () => {
     expect(fake.log()).toContain("roles/iam.serviceAccountTokenCreator");
   });
 
+  it("grants the web runtime only the Firebase permissions required for server sessions", () => {
+    const fake = fakeGcloudEnvironment();
+
+    execFileSync("bash", ["infra/setup.sh"], { cwd: repoRoot, env: fake.env });
+
+    expect(fake.log()).toContain("iam roles update harmoniaFirebaseSessionIssuer");
+    expect(fake.log()).toContain("firebaseauth.users.createSession");
+    expect(fake.log()).toContain("firebaseauth.users.get");
+    expect(fake.log()).toContain("roles/harmoniaFirebaseSessionIssuer");
+    expect(fake.log()).toContain("serviceAccount:harmonia-web@project-eabd3654-89fd-476d-b23.iam.gserviceaccount.com");
+    expect(fake.log()).not.toContain("roles/firebaseauth.admin");
+  });
+
   it("injects durable media storage and configures its deployed web origin", () => {
     const fake = fakeGcloudEnvironment();
 

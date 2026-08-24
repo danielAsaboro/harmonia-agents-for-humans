@@ -73,6 +73,25 @@ for sa in harmonia-web harmonia-agent; do
     --display-name "Harmonia ${sa}" 2>/dev/null || echo "sa $sa exists"
 done
 
+# The web service exchanges verified Google/Firebase ID tokens for secure
+# server-side session cookies. Keep this authority narrower than Firebase Admin.
+FIREBASE_SESSION_ROLE="harmoniaFirebaseSessionIssuer"
+FIREBASE_SESSION_PERMISSIONS="firebaseauth.users.createSession,firebaseauth.users.get,resourcemanager.projects.get"
+if ! gcloud iam roles describe "${FIREBASE_SESSION_ROLE}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud iam roles create "${FIREBASE_SESSION_ROLE}" --project "${PROJECT_ID}" \
+    --title="Harmonia Firebase Session Issuer" \
+    --description="Create and verify Harmonia Firebase server sessions" \
+    --permissions="${FIREBASE_SESSION_PERMISSIONS}" --stage=GA
+else
+  gcloud iam roles update "${FIREBASE_SESSION_ROLE}" --project "${PROJECT_ID}" \
+    --title="Harmonia Firebase Session Issuer" \
+    --description="Create and verify Harmonia Firebase server sessions" \
+    --permissions="${FIREBASE_SESSION_PERMISSIONS}" --stage=GA
+fi
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role "projects/${PROJECT_ID}/roles/${FIREBASE_SESSION_ROLE}" >/dev/null
+
 for sa in harmonia-web harmonia-agent; do
   gcloud storage buckets add-iam-policy-binding "${ASSET_BUCKET}" \
     --member "serviceAccount:${sa}@${PROJECT_ID}.iam.gserviceaccount.com" \

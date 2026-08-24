@@ -3,6 +3,7 @@ import {
   analysisSubmissionSchema,
   budgetReservationSchema,
   draftsSubmissionSchema,
+  failureSubmissionSchema,
   ingestSubmissionSchema,
   receiptSubmissionSchema,
   usageRecordSchema,
@@ -110,5 +111,18 @@ describe("internal contracts", () => {
       estimatedCostUsd: "0.01", pricingVersion: "2026-08-23", traceId: "short",
       createdAt: "2026-08-23T12:00:00+00:00",
     }).success).toBe(false);
+  });
+
+  it("requires a complete typed failure envelope", () => {
+    const valid = {
+      jobId: "j1", stage: "draft", category: "provider_transient",
+      code: "provider_timeout", publicMessage: "The provider timed out.",
+      retryable: true, operationId: "j1:draft:0", traceId: "a".repeat(32),
+      attempt: 0, maxAttempts: 3, details: { exceptionType: "ReadTimeout" },
+    };
+    expect(failureSubmissionSchema.safeParse(valid).success).toBe(true);
+    expect(failureSubmissionSchema.safeParse({ ...valid, error: "token=secret" }).success).toBe(false);
+    expect(failureSubmissionSchema.safeParse({ ...valid, category: "mystery" }).success).toBe(false);
+    expect(failureSubmissionSchema.safeParse({ ...valid, details: { responseBody: "secret" } }).success).toBe(false);
   });
 });

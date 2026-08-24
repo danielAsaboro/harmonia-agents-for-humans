@@ -46,6 +46,7 @@ from .memory_bank import (
     MemoryProviderError,
     eligible_job_memories,
 )
+from .failures import FailureCategory, FailureEnvelope, normalize_failure
 from .team_runtime import AgentEngineProtocolError, AgentEngineProviderError
 from .telemetry import current_trace_id, inject_context, safe_attributes, tracer
 from .usage import InvocationContext, media_usage_record
@@ -777,26 +778,31 @@ HANDLERS: dict[str, Handler] = {
 
 
 def classify_failure(exc: Exception) -> bool:
-    if isinstance(exc, (
-        AgentProtocolError, AgentEngineProtocolError, GemmaProtocolError,
-        MediaProtocolError, MemoryProtocolError, ValidationError,
-    )):
-        return True
-    if isinstance(exc, MediaProviderError):
-        return exc.permanent
-    if isinstance(exc, (AgentEngineProviderError, MemoryProviderError)):
-        return False
-    if isinstance(exc, WebApiError):
-        return exc.permanent
-    if isinstance(exc, x_client.XError):
-        return exc.permanent
-    if isinstance(exc, youtube.IngestError):
-        return True
-    if isinstance(exc, httpx.HTTPError):
-        return False
-    if isinstance(exc, KeyError):
-        return True
-    return False
+    """Compatibility view: True means acknowledge instead of retrying."""
+    envelope = normalize_failure(
+        exc,
+        stage="unknown",
+        operation_id="compatibility:unknown:0",
+        trace_id="0" * 32,
+        attempt=0,
+    )
+    return not envelope.retryable
+
+
+def _failure_payload(job_id: str, envelope: FailureEnvelope) -> dict[str, object]:
+    return {
+        "jobId": job_id,
+        "stage": envelope.stage,
+        "category": envelope.category.value,
+        "code": envelope.code,
+        "publicMessage": envelope.public_message,
+        "retryable": envelope.retryable,
+        "operationId": envelope.operation_id,
+        "traceId": envelope.trace_id,
+        "attempt": envelope.attempt,
+        "maxAttempts": envelope.max_attempts,
+        "details": envelope.details,
+    }
 
 
 async def dispatch(job_id: str, stage: str, *, attempt: int = 0) -> bool:
@@ -808,25 +814,41 @@ async def dispatch(job_id: str, stage: str, *, attempt: int = 0) -> bool:
         }))
         handler = HANDLERS.get(stage)
         if handler is None:
-            error = f"no handler for stage '{stage}'"
-            span.set_status(Status(StatusCode.ERROR, error))
-            web_post("/api/internal/failure", {
-                "jobId": job_id, "stage": stage, "error": error, "permanent": True,
-            })
+            envelope = normalize_failure(
+                RuntimeError("stage handler is missing"),
+                stage=stage,
+                operation_id=f"{job_id}:{stage}:{attempt}",
+                trace_id=current_trace_id(),
+                attempt=attempt,
+                category=FailureCategory.PROTOCOL,
+                code="missing_stage_handler",
+            )
+            span.set_status(Status(StatusCode.ERROR, envelope.code))
+            web_post("/api/internal/failure", _failure_payload(job_id, envelope))
             return True
         try:
             await handler(job_id)
             return True
         except Exception as exc:  # noqa: BLE001 - classified then reported
-            permanent = classify_failure(exc)
-            span.record_exception(exc)
-            span.set_status(Status(StatusCode.ERROR, type(exc).__name__))
-            logger.exception("stage %s failed for %s (permanent=%s)", stage, job_id, permanent)
+            envelope = normalize_failure(
+                exc,
+                stage=stage,
+                operation_id=f"{job_id}:{stage}:{attempt}",
+                trace_id=current_trace_id(),
+                attempt=attempt,
+            )
+            span.set_attributes(safe_attributes({
+                "failure.category": envelope.category.value,
+                "failure.code": envelope.code,
+                "failure.retryable": envelope.retryable,
+            }))
+            span.set_status(Status(StatusCode.ERROR, envelope.code))
+            logger.error(
+                "stage %s failed for %s (%s/%s retryable=%s)",
+                stage, job_id, envelope.category.value, envelope.code, envelope.retryable,
+            )
             try:
-                web_post("/api/internal/failure", {
-                    "jobId": job_id, "stage": stage,
-                    "error": f"{type(exc).__name__}: {exc}", "permanent": permanent,
-                })
+                web_post("/api/internal/failure", _failure_payload(job_id, envelope))
             except Exception:  # noqa: BLE001
                 logger.exception("failure reporting also failed")
-            return permanent
+            return not envelope.retryable

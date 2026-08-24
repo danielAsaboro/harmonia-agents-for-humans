@@ -853,17 +853,23 @@ export async function listRecentEngagement(limit = 20): Promise<PriorInsight[]> 
 }
 
 export async function markFailed(
-  jobId: string,
-  stage: Stage,
-  error: string,
-  permanent: boolean,
+  failure: import("./contracts").FailureSubmission,
 ) {
-  await jobRef(jobId).update({
-    status: permanent ? "failed" : "running",
+  await jobRef(failure.jobId).update({
+    status: failure.retryable ? "running" : "failed",
     failure: {
-      stage,
-      error,
-      permanent,
+      stage: failure.stage,
+      category: failure.category,
+      code: failure.code,
+      publicMessage: failure.publicMessage,
+      retryable: failure.retryable,
+      operationId: failure.operationId,
+      traceId: failure.traceId,
+      attempt: failure.attempt,
+      maxAttempts: failure.maxAttempts,
+      details: failure.details,
+      error: failure.publicMessage,
+      permanent: !failure.retryable,
       at: new Date().toISOString(),
     },
     updatedAt: new Date().toISOString(),

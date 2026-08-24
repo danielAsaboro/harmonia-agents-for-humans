@@ -268,6 +268,24 @@ export const engagementSubmissionSchema = z.object({
 export const failureSubmissionSchema = z.object({
   jobId: z.string().min(1),
   stage: z.string().min(1),
-  error: z.string().min(1),
-  permanent: z.boolean(),
-});
+  category: z.enum([
+    "validation", "authorization", "policy", "budget",
+    "provider_transient", "provider_permanent", "dependency", "protocol",
+  ]),
+  code: z.string().regex(/^[a-z0-9_]+$/).max(80),
+  publicMessage: z.string().min(1).max(240),
+  retryable: z.boolean(),
+  operationId: z.string().min(1).max(240),
+  traceId: z.string().regex(/^[a-f0-9]{32}$/),
+  attempt: z.number().int().nonnegative(),
+  maxAttempts: z.number().int().min(1).max(10),
+  details: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).superRefine((details, ctx) => {
+    for (const key of Object.keys(details)) {
+      if (/(body|content|cookie|prompt|response|secret|text|token|transcript)/i.test(key)) {
+        ctx.addIssue({ code: "custom", path: [key], message: "content-bearing failure detail is forbidden" });
+      }
+    }
+  }),
+}).strict();
+
+export type FailureSubmission = z.infer<typeof failureSubmissionSchema>;

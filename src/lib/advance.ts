@@ -9,6 +9,7 @@ import { publishStage } from "./pubsub";
 import { currentTenant } from "./tenancy";
 import { assertTransition, nextStage } from "./stages";
 import type { Stage } from "./types";
+import type { FailureSubmission } from "./contracts";
 
 /**
  * Single place where a completed stage result advances the pipeline:
@@ -30,19 +31,16 @@ export async function advance(
 }
 
 export async function recordFailure(
-  jobId: string,
-  stage: Stage,
-  error: string,
-  permanent: boolean,
+  failure: FailureSubmission,
 ): Promise<void> {
-  await markFailed(jobId, stage, error, permanent);
+  await markFailed(failure);
   await appendEvent(
-    jobId,
-    stage,
-    `${permanent ? "permanent failure" : "transient failure (will be retried by Pub/Sub redelivery)"}: ${error}`,
+    failure.jobId,
+    failure.stage as Stage,
+    `${failure.retryable ? "retryable failure" : "permanent failure"} [${failure.category}/${failure.code}]: ${failure.publicMessage}`,
     "system",
   );
-  if (permanent) {
-    await notifyPermanentFailure(jobId, stage, error);
+  if (!failure.retryable) {
+    await notifyPermanentFailure(failure.jobId, failure.stage as Stage, failure.publicMessage);
   }
 }

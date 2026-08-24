@@ -94,7 +94,8 @@ async def pubsub_push(request: Request) -> JSONResponse:
         workspace_id = str(data["workspaceId"])
         brand_id = str(data["brandId"])
         stage = str(data["stage"])
-        attempt = int(data.get("attempt", 0))
+        delivery_attempt = max(int(envelope.get("deliveryAttempt", 1)) - 1, 0)
+        attempt = max(int(data.get("attempt", 0)), delivery_attempt)
         carrier = {str(k): str(v) for k, v in (message.get("attributes") or {}).items()}
         if carrier.get("workspaceId") != workspace_id or carrier.get("brandId") != brand_id:
             raise ValueError("tenant attributes do not match stage payload")
@@ -105,12 +106,17 @@ async def pubsub_push(request: Request) -> JSONResponse:
     token = otel_context.attach(extract_context(carrier))
     try:
         with tenant_scope(workspace_id, brand_id):
-            permanent = await dispatch(job_id, stage, attempt=attempt)
+            acknowledge = await dispatch(job_id, stage, attempt=attempt)
     finally:
         otel_context.detach(token)
     # 200 acknowledges regardless once reported; transient failures raise below
     # only when they were NOT yet reported as permanent.
-    return JSONResponse({"ack": True, "permanent": permanent})
+    if not acknowledge:
+        return JSONResponse(
+            {"ack": False, "retryable": True, "attempt": attempt},
+            status_code=503,
+        )
+    return JSONResponse({"ack": True, "retryable": False, "attempt": attempt})
 
 
 def _run_pull_loop() -> None:
@@ -151,7 +157,8 @@ def _run_pull_loop() -> None:
                 workspace_id = str(data["workspaceId"])
                 brand_id = str(data["brandId"])
                 stage = str(data["stage"])
-                attempt = int(data.get("attempt", 0))
+                delivery_attempt = max(int(getattr(msg, "delivery_attempt", 1) or 1) - 1, 0)
+                attempt = max(int(data.get("attempt", 0)), delivery_attempt)
                 carrier = {str(k): str(v) for k, v in msg.message.attributes.items()}
                 if carrier.get("workspaceId") != workspace_id or carrier.get("brandId") != brand_id:
                     raise ValueError("tenant attributes do not match stage payload")

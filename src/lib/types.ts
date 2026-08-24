@@ -51,7 +51,18 @@ export interface Job {
   budget?: JobBudget;
   failure?: {
     stage: Stage;
+    category: "validation" | "authorization" | "policy" | "budget" | "provider_transient" | "provider_permanent" | "dependency" | "protocol";
+    code: string;
+    publicMessage: string;
+    retryable: boolean;
+    operationId: string;
+    traceId: string;
+    attempt: number;
+    maxAttempts: number;
+    details: Record<string, string | number | boolean>;
+    /** Compatibility display alias for publicMessage. */
     error: string;
+    /** Compatibility display alias for !retryable. */
     permanent: boolean;
     at: string;
   };

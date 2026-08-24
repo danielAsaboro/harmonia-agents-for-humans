@@ -17,6 +17,9 @@ import type {
   UsageRecord,
   ApprovalDecision,
   ReplayObservation,
+  EffectClaim,
+  EffectClaimInput,
+  EffectClaimOutcome,
 } from "./types";
 import { applyFinalizedUsage, applyReservation, canReserve } from "./costs";
 import { getConfig } from "./config";
@@ -28,6 +31,7 @@ import {
 } from "./tenancy";
 import { chatScopeKey, retentionPlan, type ChatSurface } from "./chatHistory";
 import { currentTraceId } from "./telemetry";
+import { decideEffectClaim } from "./effectClaims";
 
 let client: Firestore | null = null;
 
@@ -74,6 +78,7 @@ const EVENT_LOG = "event_log";
 const RECEIPTS = "receipts";
 const APPROVAL_DECISIONS = "approval_decisions";
 const REPLAY_OBSERVATIONS = "replay_observations";
+const EFFECT_CLAIMS = "effect_claims";
 const ASSETS = "assets";
 const CONFIG = "config";
 const CONNECTIONS = "connections";
@@ -861,6 +866,36 @@ export async function writeReplayObservation(observation: ReplayObservation): Pr
 export async function listReplayObservations(jobId: string): Promise<ReplayObservation[]> {
   const snaps = await jobRef(jobId).collection(REPLAY_OBSERVATIONS).orderBy("attemptedAt", "asc").get();
   return snaps.docs.map((doc) => doc.data() as ReplayObservation);
+}
+
+export async function claimEffect(input: EffectClaimInput): Promise<EffectClaimOutcome> {
+  const ref = jobRef(input.jobId);
+  const claimRef = ref.collection(EFFECT_CLAIMS).doc(input.idempotencyKey);
+  return db().runTransaction(async (tx) => {
+    const [jobSnap, claimSnap] = await Promise.all([tx.get(ref), tx.get(claimRef)]);
+    const job = requireJobDoc(jobSnap);
+    const action = job.actions.find((candidate) => candidate.id === input.actionId);
+    if (!action) throw new Error(`action ${input.actionId} not found on job ${input.jobId}`);
+    if (action.type !== input.actionType) throw new Error("effect claim action type mismatch");
+
+    const existing = claimSnap.exists ? claimSnap.data() as EffectClaim : null;
+    const decision = decideEffectClaim(existing, input);
+    if (decision.outcome !== "execute") return decision;
+    if (action.state !== "planned") {
+      throw new Error(`action ${input.actionId} is not executable from state '${action.state}'`);
+    }
+    if (action.requiresApproval && action.approvalState !== "approved") {
+      throw new Error(`action ${input.actionId} has no durable approval`);
+    }
+    if (claimSnap.exists) tx.set(claimRef, decision.claim);
+    else tx.create(claimRef, decision.claim);
+    return decision;
+  });
+}
+
+export async function getEffectClaim(jobId: string, idempotencyKey: string): Promise<EffectClaim | null> {
+  const snap = await jobRef(jobId).collection(EFFECT_CLAIMS).doc(idempotencyKey).get();
+  return snap.exists ? snap.data() as EffectClaim : null;
 }
 
 export async function saveVerifications(

@@ -184,6 +184,32 @@ export interface ReplayObservation {
   attemptedAt: string;
 }
 
+export interface EffectClaimInput {
+  jobId: string;
+  actionId: string;
+  actionType: ActionType;
+  idempotencyKey: string;
+  operationId: string;
+  traceId: string;
+  claimToken: string;
+}
+
+export interface EffectClaim extends EffectClaimInput {
+  id: string;
+  state: "claimed" | "applied" | "failed";
+  attempt: number;
+  claimedAt: string;
+  leaseExpiresAt: string;
+  finalizedAt?: string;
+  receiptId?: string;
+}
+
+export type EffectClaimOutcome =
+  | { outcome: "execute"; claim: EffectClaim }
+  | { outcome: "in_progress"; claim: EffectClaim }
+  | { outcome: "uncertain"; claim: EffectClaim }
+  | { outcome: "already_applied"; claim: EffectClaim; receiptId: string };
+
 export interface VerificationResult {
   id: string;
   target: string;

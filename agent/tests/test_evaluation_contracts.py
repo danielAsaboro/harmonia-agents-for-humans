@@ -7,6 +7,7 @@ from harmonia_agent.evaluation_contracts import (
     evaluate_analysis,
     evaluate_drafts,
     evaluate_editor,
+    evaluate_liaison_tool_use,
     validate_specialist_trajectory,
 )
 
@@ -56,6 +57,26 @@ def test_trajectory_requires_exact_specialist_route():
 
     assert result.passed is False
     assert result.failures[0].code == "wrong_specialist"
+
+
+def test_liaison_evaluation_requires_exact_tool_and_evidence_citation():
+    passing = evaluate_liaison_tool_use(
+        expected_tool="get_job_status",
+        steps=[TrajectoryStep(kind="tool", name="get_job_status")],
+        envelopes=[{"status": "success", "evidence": [{"source": "harmonia_firestore_job"}]}],
+        answer="According to harmonia_firestore_job, the job is awaiting approval.",
+    )
+    assert passing.passed
+
+    failing = evaluate_liaison_tool_use(
+        expected_tool="get_job_status",
+        steps=[TrajectoryStep(kind="tool", name="fetch_trend_signals")],
+        envelopes=[{"status": "error", "error": {"code": "authorization_failed"}, "evidence": []}],
+        answer="Harmonia has published it successfully.",
+    )
+    assert {failure.code for failure in failing.failures} == {
+        "wrong_tool_trajectory", "unreported_tool_error", "liaison_claimed_authority",
+    }
 
 
 def test_analysis_rejects_out_of_bounds_time_and_ungrounded_quote():

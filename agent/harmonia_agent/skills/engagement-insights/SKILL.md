@@ -24,3 +24,7 @@ Ground every performance claim in the insights feed.
 - Empty feeds are reported as "no measured posts yet" — the learn loop has
   nothing to draw from, and that is the answer.
 - Never extrapolate a metric that was not returned.
+
+## Tool envelope and escalation
+
+Read only `data` when `status=success` and cite the returned `evidence`. On `status=error`, report `error.code` and `error.message`; retry once only when `error.retryable=true`, then tell the operator the read remains unavailable. Never call approval, publishing, job retry, credential, budget, or mutation paths.

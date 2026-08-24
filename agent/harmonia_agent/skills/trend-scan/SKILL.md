@@ -26,3 +26,7 @@ Produce trend angles that cite current, verifiable signals.
 ## Evidence rules
 
 See references/evidence-rules.md for citation and honesty requirements.
+
+## Tool envelope and escalation
+
+Use only `data` when `status=success` and cite the returned `evidence`. Retry once only when `error.retryable=true`; otherwise report the typed error and stop. Never approve, publish, retry jobs, alter credentials/budgets, or mutate workspace state.

@@ -25,3 +25,7 @@ Derive windows from the workspace's measured history via
 
 - Windows are proposals for the operator. Scheduling or publishing still runs
   through the normal proposal and approval flow.
+
+## Tool envelope and escalation
+
+Read only `data` on success and cite `evidence`. Report typed errors exactly; retry once only for a retryable provider/dependency error. Never schedule, approve, publish, change a budget, or mutate history.

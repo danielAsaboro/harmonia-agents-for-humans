@@ -23,3 +23,7 @@ Search public startup-tech discussion for a watch topic and report honestly.
 
 - Public discussion APIs only; no scraping, no login-walled content.
 - Zero results means zero results. Say the niche is quiet right now.
+
+## Tool envelope and escalation
+
+Use only `data` from successful envelopes and cite `evidence`. If the first call returns a retryable error, retry once; otherwise report the typed error and stop. Never approve, publish, modify credentials/budgets, or cause another external effect.

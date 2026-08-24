@@ -19,6 +19,7 @@ from google.adk.tools import FunctionTool, skill_toolset
 from . import signals, web_client
 from .mock_ai import mock_ai_enabled
 from .telemetry import safe_attributes, tracer
+from .tool_contracts import ToolContract, error, evidence, provider_error, success
 
 SKILLS_DIR = pathlib.Path(__file__).parent / "skills"
 
@@ -54,17 +55,28 @@ _MOCK_FEED = {
 
 def fetch_trend_signals(limit: int = 6) -> dict[str, Any]:
     """Fetch current front-page startup-tech stories from Hacker News."""
-    with tracer().start_as_current_span("harmonia.skill.fetch_signals"):
-        found = signals.fetch_signals(limit=max(1, min(int(limit), 10)))
-    return {"signals": found, "count": len(found)}
+    try:
+        with tracer().start_as_current_span("harmonia.skill.fetch_signals"):
+            found = signals.fetch_signals(limit=max(1, min(int(limit), 10)))
+        provenance = "mock" if mock_ai_enabled() else "live"
+        return success({"signals": found, "count": len(found)}, evidence_items=[evidence("hacker_news_algolia", provenance=provenance)])
+    except Exception as exc:  # noqa: BLE001 - normalized tool boundary
+        return provider_error(exc)
 
 
 def search_trend_signals(query: str, limit: int = 5) -> dict[str, Any]:
     """Search recent Hacker News stories for a topic or keyword."""
-    with tracer().start_as_current_span("harmonia.skill.search_signals") as span:
-        span.set_attributes(safe_attributes({"query.length": len(query or "")}))
-        found = signals.search_signals((query or "").strip(), limit=max(1, min(int(limit), 10)))
-    return {"query": query, "signals": found, "count": len(found)}
+    normalized = (query or "").strip()
+    if not normalized:
+        return error("invalid_query", "Provide a non-empty trend query.", category="validation", retryable=False)
+    try:
+        with tracer().start_as_current_span("harmonia.skill.search_signals") as span:
+            span.set_attributes(safe_attributes({"query.length": len(normalized)}))
+            found = signals.search_signals(normalized, limit=max(1, min(int(limit), 10)))
+        provenance = "mock" if mock_ai_enabled() else "live"
+        return success({"query": normalized, "signals": found, "count": len(found)}, evidence_items=[evidence("hacker_news_algolia", provenance=provenance)])
+    except Exception as exc:  # noqa: BLE001
+        return provider_error(exc)
 
 
 def _mock_insights() -> dict[str, Any]:
@@ -79,23 +91,37 @@ def _mock_feed() -> dict[str, Any]:
     return copy.deepcopy(_MOCK_FEED)
 
 
+def _engagement_data() -> tuple[dict[str, Any], str]:
+    if mock_ai_enabled():
+        return _mock_insights(), "mock"
+    data = web_client.get_insights()
+    return {"topPosts": list(data.get("topPosts") or []), **{k: v for k, v in data.items() if k != "topPosts"}}, "live"
+
+
+def _feed_data() -> tuple[dict[str, Any], str]:
+    if mock_ai_enabled():
+        return _mock_feed(), "mock"
+    return web_client.get_feed(), "live"
+
+
 # ---------- harmonia-state read tools ----------
 
 def get_engagement_insights() -> dict[str, Any]:
     """Read measured engagement outcomes for this workspace's published posts."""
-    if mock_ai_enabled():
-        return _mock_insights()
-    data = web_client.get_insights()
-    return {"topPosts": list(data.get("topPosts") or []), **{
-        k: v for k, v in data.items() if k != "topPosts"
-    }}
+    try:
+        data, provenance = _engagement_data()
+        return success(data, evidence_items=[evidence("harmonia_firestore_engagement", provenance=provenance)])
+    except Exception as exc:  # noqa: BLE001
+        return provider_error(exc)
 
 
 def get_operator_feed() -> dict[str, Any]:
     """Read the workspace feed: pending items, job health, goals, recent posts."""
-    if mock_ai_enabled():
-        return _mock_feed()
-    return web_client.get_feed()
+    try:
+        data, provenance = _feed_data()
+        return success(data, evidence_items=[evidence("harmonia_firestore_feed", provenance=provenance)])
+    except Exception as exc:  # noqa: BLE001
+        return provider_error(exc)
 
 
 _JOB_STATUS_FIELDS = (
@@ -135,9 +161,9 @@ def get_job_status(job_id: str) -> dict[str, Any]:
     """Read the live pipeline state of one content job by id."""
     job_id = str(job_id or "").strip()
     if not job_id:
-        return {"found": False, "reason": "no job id supplied"}
+        return error("invalid_job_id", "Provide one job ID.", category="validation", retryable=False)
     if mock_ai_enabled():
-        return {"found": True, "job": _summarize_job({
+        data = {"found": True, "job": _summarize_job({
             "id": job_id,
             "title": "Mock launch video",
             "sourceType": "youtube",
@@ -150,13 +176,14 @@ def get_job_status(job_id: str) -> dict[str, Any]:
             }],
             "verifications": [], "receipts": [],
         })}
+        return success(data, evidence_items=[evidence("harmonia_firestore_job", provenance="mock", reference=job_id)])
     try:
         job = web_client.get_job(job_id)
     except web_client.WebApiError as exc:
         if exc.status == 404:
-            return {"found": False, "reason": f"job {job_id} does not exist"}
-        return {"found": False, "reason": f"job lookup failed ({exc.status})"}
-    return {"found": True, "job": _summarize_job(job)}
+            return error("job_not_found", "No job exists in this workspace with that ID.", category="not_found", retryable=False)
+        return provider_error(exc)
+    return success({"found": True, "job": _summarize_job(job)}, evidence_items=[evidence("harmonia_firestore_job", provenance="live", reference=job_id)])
 
 
 # ---------- schedule derivation ----------
@@ -179,9 +206,14 @@ def suggest_posting_windows() -> dict[str, Any]:
     if mock_ai_enabled():
         insights = _mock_insights()
         feed = _mock_feed()
+        provenance = "mock"
     else:
-        insights = get_engagement_insights()
-        feed = get_operator_feed()
+        try:
+            insights, _ = _engagement_data()
+            feed, _ = _feed_data()
+            provenance = "live"
+        except Exception as exc:  # noqa: BLE001
+            return provider_error(exc)
 
     samples: list[dict[str, Any]] = []
     for post in insights.get("topPosts") or []:
@@ -197,15 +229,7 @@ def suggest_posting_windows() -> dict[str, Any]:
 
     measured = [s for s in samples if s["likes"] is not None]
     if len(measured) < 3:
-        return {
-            "windows": [],
-            "insufficientData": True,
-            "measuredPosts": len(measured),
-            "missing": (
-                "at least three published posts with recorded timestamps and "
-                "engagement; publish more content so the learn loop can measure it"
-            ),
-        }
+        return error("insufficient_measured_history", "At least three timestamped posts with measured engagement are required.", category="not_found", retryable=False)
 
     by_hour: dict[int, list[int]] = defaultdict(list)
     for s in measured:
@@ -215,7 +239,7 @@ def suggest_posting_windows() -> dict[str, Any]:
         key=lambda item: (-item[1], item[0]),
     )
     top_hours = ranked[:2]
-    return {
+    data = {
         "windows": [
             {
                 "hourUtc": hour,
@@ -232,6 +256,7 @@ def suggest_posting_windows() -> dict[str, Any]:
             for s in measured
         ],
     }
+    return success(data, evidence_items=[evidence("harmonia_measured_post_history", provenance=provenance)])
 
 
 _TOOLS = (
@@ -243,9 +268,31 @@ _TOOLS = (
     suggest_posting_windows,
 )
 
+_TOOL_CONTRACTS = {
+    "fetch_trend_signals": ToolContract(name="fetch_trend_signals", purpose="Read the current public startup technology story feed for bounded trend context.", input_schema={"limit": "integer 1..10"}, return_schema="ToolEnvelope containing signals and count", error_codes=("dependency_unavailable",), permission="read", data_scope="public", timeout_seconds=20, retry="one_transient_retry", external_effect=False, skill_names=("trend-scan", "signal-watch")),
+    "search_trend_signals": ToolContract(name="search_trend_signals", purpose="Read recent public startup technology stories matching one operator query.", input_schema={"query": "non-empty string", "limit": "integer 1..10"}, return_schema="ToolEnvelope containing query, signals, and count", error_codes=("invalid_query", "dependency_unavailable"), permission="read", data_scope="public", timeout_seconds=20, retry="one_transient_retry", external_effect=False, skill_names=("trend-scan", "signal-watch")),
+    "get_engagement_insights": ToolContract(name="get_engagement_insights", purpose="Read measured engagement outcomes already persisted for the active workspace.", input_schema={}, return_schema="ToolEnvelope containing measured top posts and takeaways", error_codes=("authorization_failed", "dependency_unavailable"), permission="read", data_scope="workspace", timeout_seconds=30, retry="one_transient_retry", external_effect=False, skill_names=("engagement-insights", "posting-schedule")),
+    "get_operator_feed": ToolContract(name="get_operator_feed", purpose="Read pending items, job health, goals, and recent posts for the active workspace.", input_schema={}, return_schema="ToolEnvelope containing the scoped operator feed", error_codes=("authorization_failed", "dependency_unavailable"), permission="read", data_scope="workspace", timeout_seconds=30, retry="one_transient_retry", external_effect=False, skill_names=("signal-watch", "posting-schedule")),
+    "get_job_status": ToolContract(name="get_job_status", purpose="Read a metadata-only summary of one job in the active workspace by identifier.", input_schema={"job_id": "non-empty workspace job id"}, return_schema="ToolEnvelope containing one redacted job summary", error_codes=("invalid_job_id", "job_not_found", "authorization_failed", "dependency_unavailable"), permission="read", data_scope="workspace", timeout_seconds=30, retry="one_transient_retry", external_effect=False, skill_names=("job-status",)),
+    "suggest_posting_windows": ToolContract(name="suggest_posting_windows", purpose="Derive bounded UTC posting windows only from measured active-workspace history.", input_schema={}, return_schema="ToolEnvelope containing measured posting windows and evidence", error_codes=("insufficient_measured_history", "authorization_failed", "dependency_unavailable"), permission="read", data_scope="workspace", timeout_seconds=30, retry="one_transient_retry", external_effect=False, skill_names=("posting-schedule",)),
+}
+
+
+def validate_tool_contracts() -> dict[str, ToolContract]:
+    """Fail closed when an exposed ADK tool lacks a least-privilege contract."""
+    exposed = {tool.__name__ for tool in _TOOLS}
+    registered = set(_TOOL_CONTRACTS)
+    if exposed != registered:
+        raise RuntimeError(f"tool contract mismatch: missing={sorted(exposed - registered)} extra={sorted(registered - exposed)}")
+    for tool in _TOOLS:
+        if not (tool.__doc__ or "").strip() or not tool.__annotations__.get("return"):
+            raise RuntimeError(f"tool metadata incomplete: {tool.__name__}")
+    return dict(_TOOL_CONTRACTS)
+
 
 def build_insight_skillset() -> skill_toolset.SkillToolset:
     """One SkillToolset covering all Harmonia insight skills plus their tools."""
+    validate_tool_contracts()
     skills = [load_skill_from_dir(SKILLS_DIR / name) for name in _SKILL_NAMES]
     return skill_toolset.SkillToolset(
         skills=skills,

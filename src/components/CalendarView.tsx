@@ -40,16 +40,19 @@ export default function CalendarView() {
   const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [platformFilter, setPlatformFilter] = useState<string>("");
+  const [googleCalendar, setGoogleCalendar] = useState<{ connected: boolean; calendarTitle?: string } | null>(null);
 
   const load = useCallback(async () => {
-    const [cal, goalsRes] = await Promise.all([
+    const [cal, goalsRes, googleRes] = await Promise.all([
       fetch("/api/calendar", { cache: "no-store" }).then((r) => r.json()),
       fetch("/api/settings/goals", { cache: "no-store" }).then((r) => r.json()).catch(() => null),
+      fetch("/api/calendar/google", { cache: "no-store" }).then((r) => r.json()).catch(() => null),
     ]);
     setEvents(cal.events ?? []);
     setItems(cal.items ?? []);
     setJobTitles(cal.jobTitles ?? {});
     if (goalsRes?.goals) setGoals(goalsRes.goals);
+    if (googleRes) setGoogleCalendar(googleRes);
   }, []);
 
   useEffect(() => {
@@ -154,6 +157,14 @@ export default function CalendarView() {
 
   return (
     <div className="flex flex-col gap-4">
+      <div className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-3 text-xs ${googleCalendar?.connected ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300" : "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300"}`}>
+        <span>
+          {googleCalendar?.connected
+            ? `Google Calendar connected${googleCalendar.calendarTitle ? ` · ${googleCalendar.calendarTitle}` : ""}. Open a scheduled item to approve its sync.`
+            : "Connect Google Calendar to put Harmonia’s content schedule on your calendar."}
+        </span>
+        {!googleCalendar?.connected && <a href="/dashboard/settings" className="font-semibold underline">Connect Google Calendar</a>}
+      </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         {view === "month" ? (
           <div className="flex items-center gap-2">

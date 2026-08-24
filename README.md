@@ -116,6 +116,18 @@ cp .env.example .env.local   # set Identity Platform, internal service, and Agen
 
 Open http://localhost:3000, continue with Google, then paste a YouTube URL and watch the workspace-scoped job move through the stages. Approve or reject proposed actions when the job reaches the approval gate.
 
+### Google Calendar synchronization
+
+Harmonia can put scheduled content on a dedicated **Harmonia Content Calendar** in the operator’s Google Calendar account. Enable the Google Calendar API on the same Google Cloud project as the OAuth web client, set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, and register this redirect URI for each deployed origin:
+
+```text
+https://YOUR_ORIGIN/api/oauth/google-calendar/callback
+```
+
+Connect **Google Calendar** under Settings. Harmonia requests only `https://www.googleapis.com/auth/calendar.app.created`, so it can manage the secondary calendar it creates but cannot read unrelated calendars or events. Open a scheduled content item in the calendar and explicitly choose **Add**, **Update**, or **Remove**. Harmonia uses a deterministic event ID, guards updates with Google’s ETag, and records success only after API read-back matches the intended event (or confirms removal). Editing or rescheduling an item marks it as needing sync; it never silently changes Google Calendar. Disconnecting revokes Harmonia’s stored connection but deliberately leaves the user-owned calendar and events intact.
+
+Local tests verify the contracts and failure paths, not a live Google account. Do not claim the integration is operational until OAuth and a create/update/remove sequence have been captured against a real account.
+
 For generated campaign workspaces, `AGENT_SERVICE_URL` must point to the FastAPI worker (normally `http://localhost:8080` locally), `INTERNAL_API_TOKEN` must match across both services, and `AGENT_ENGINE_RESOURCE` plus Google credentials must be configured. There is deliberately no local-model or deterministic production fallback for presentation planning.
 
 > Full documentation lives in [`docs/`](./docs) — a Mintlify site covering the [architecture](./docs/architecture.mdx), [pipeline](./docs/pipeline.mdx), the [proactive agent](./docs/proactive-agent.mdx), offline mock modes, configuration, and deployment.

@@ -13,7 +13,7 @@ async function get(_req: Request) {
       PLATFORMS.map(async (def) => {
         const conn = await getConnection(def.id);
         const expired = conn?.expiresAt ? Date.parse(conn.expiresAt) < Date.now() : false;
-        if (conn && !expired) {
+        if (conn && (!expired || Boolean(conn.refreshToken))) {
           return {
             id: def.id,
             label: def.label,

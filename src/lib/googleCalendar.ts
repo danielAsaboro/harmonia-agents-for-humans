@@ -54,14 +54,29 @@ export async function executeCalendarMutation(
 }
 
 export class GoogleCalendarApi implements GoogleCalendarGateway {
-  constructor(private readonly accessToken: string, private readonly fetcher: typeof fetch = fetch) {}
+  constructor(
+    private readonly accessToken: string,
+    private readonly fetcher: typeof fetch = fetch,
+    private readonly sleeper: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  ) {}
 
   private async request(path: string, init: RequestInit = {}, missingIsNull = false): Promise<Record<string, unknown> | null> {
-    const res = await this.fetcher(`https://www.googleapis.com/calendar/v3${path}`, {
-      ...init,
-      headers: { authorization: `Bearer ${this.accessToken}`, accept: "application/json", ...(init.body ? { "content-type": "application/json" } : {}), ...init.headers },
-      signal: init.signal ?? AbortSignal.timeout(20_000),
-    });
+    let res: Response | undefined;
+    let networkError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        res = await this.fetcher(`https://www.googleapis.com/calendar/v3${path}`, {
+          ...init,
+          headers: { authorization: `Bearer ${this.accessToken}`, accept: "application/json", ...(init.body ? { "content-type": "application/json" } : {}), ...init.headers },
+          signal: init.signal ?? AbortSignal.timeout(20_000),
+        });
+        if (res.status !== 429 && res.status < 500) break;
+      } catch (error) {
+        networkError = error;
+      }
+      if (attempt < 2) await this.sleeper(200 * 2 ** attempt);
+    }
+    if (!res) throw networkError instanceof Error ? networkError : new Error("Google Calendar network request failed");
     if (missingIsNull && (res.status === 404 || res.status === 410)) return null;
     if (!res.ok) {
       const detail = (await res.text()).slice(0, 300);

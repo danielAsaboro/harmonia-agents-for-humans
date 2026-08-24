@@ -19,6 +19,9 @@ async function put(
   if (!getPlatform(platform)) {
     return Response.json({ error: "unknown platform" }, { status: 404 });
   }
+  if (platform === "google-calendar") {
+    return Response.json({ error: "Google Calendar requires scoped OAuth consent" }, { status: 400 });
+  }
   const body = await req.json().catch(() => null);
   const parsed = manualTokenSchema.safeParse(body);
   if (!parsed.success) {

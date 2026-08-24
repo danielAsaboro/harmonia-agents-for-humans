@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { executeCalendarMutation, type GoogleCalendarGateway, type GoogleEvent } from "@/lib/googleCalendar";
+import { executeCalendarMutation, GoogleCalendarApi, type GoogleCalendarGateway, type GoogleEvent } from "@/lib/googleCalendar";
 import type { ContentItem } from "@/lib/types";
 
 const item: ContentItem = { id: "i1", jobId: "j1", text: "Launch", platforms: ["x"], status: "scheduled", publishMode: "approval", scheduledFor: "2026-08-26T10:00:00.000Z", createdAt: "2026-08-25T09:00:00.000Z", updatedAt: "2026-08-25T09:30:00.000Z" };
@@ -56,5 +56,18 @@ describe("verified Google Calendar effects", () => {
       return reads > 1 && found ? { ...found, summary: "Tampered" } : found;
     };
     await expect(executeCalendarMutation({ operation: "sync", item, workspaceId: "w", brandId: "b", calendarId: "cal1", now: "2026-08-25T10:00:00.000Z" }, gateway)).rejects.toThrow("verification mismatch");
+  });
+
+  it("retries a transient Calendar API response", async () => {
+    let calls = 0;
+    const fetcher = async () => {
+      calls += 1;
+      return calls === 1
+        ? new Response("busy", { status: 503 })
+        : Response.json({ id: "event1", etag: "v1", summary: "ok" });
+    };
+    const api = new GoogleCalendarApi("token", fetcher as typeof fetch, async () => {});
+    expect((await api.getEvent("cal", "event1"))?.id).toBe("event1");
+    expect(calls).toBe(2);
   });
 });

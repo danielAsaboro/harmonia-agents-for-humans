@@ -24,6 +24,7 @@ import {
   currentTenant,
   tenantCollectionPath,
 } from "./tenancy";
+import { chatScopeKey, retentionPlan, type ChatSurface } from "./chatHistory";
 
 let client: Firestore | null = null;
 
@@ -262,40 +263,74 @@ export async function listConnections(): Promise<ConnectionDoc[]> {
 // ---------- operator chat history ----------
 
 const CHATS = "chat_messages";
+const CHAT_SUMMARIES = "chat_summaries";
+const CHAT_RETENTION_MAX = 300;
 
 export interface ChatMessageDoc {
-  surface: "dashboard" | "telegram";
+  userId: string;
+  surface: ChatSurface;
+  conversationId: string;
+  scopeKey: string;
   role: "user" | "assistant";
   text: string;
   data?: Record<string, unknown>;
   at?: FirebaseFirestore.FieldValue | string;
 }
 
-export async function saveChatMessage(m: Omit<ChatMessageDoc, "at"> & { at?: ChatMessageDoc["at"] }): Promise<void> {
-  await tenantCollection(CHATS).add({ ...m, at: FieldValue.serverTimestamp() });
+export async function saveChatMessage(
+  m: Omit<ChatMessageDoc, "at" | "userId" | "scopeKey"> & { at?: ChatMessageDoc["at"] },
+): Promise<void> {
+  const tenant = currentTenant();
+  const scopeKey = chatScopeKey(tenant.userId, m.surface, m.conversationId);
+  await tenantCollection(CHATS).add({ ...m, userId: tenant.userId, scopeKey, at: FieldValue.serverTimestamp() });
+  const scoped = await tenantCollection(CHATS).where("scopeKey", "==", scopeKey).get();
+  const retained = scoped.docs.map((doc) => {
+    const data = doc.data() as ChatMessageDoc & { at?: { toDate(): Date } | string };
+    return {
+      id: doc.id,
+      at: typeof data.at === "string" ? data.at : data.at?.toDate().toISOString() ?? null,
+      data: data.data,
+    };
+  });
+  const plan = retentionPlan(retained, CHAT_RETENTION_MAX);
+  if (!plan.summary) return;
+  const batch = db().batch();
+  for (const id of plan.deleteIds) batch.delete(tenantCollection(CHATS).doc(id));
+  batch.create(tenantCollection(CHAT_SUMMARIES).doc(newId()), {
+    userId: tenant.userId,
+    surface: m.surface,
+    conversationId: m.conversationId,
+    scopeKey,
+    ...plan.summary,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  await batch.commit();
 }
 
 export async function listChatMessages(
   limit = 100,
+  surface: ChatSurface = "dashboard",
+  conversationId = "primary",
 ): Promise<Array<{ id: string; surface: string; role: string; text: string; data?: Record<string, unknown>; at: string | null }>> {
-  // orderBy desc + client-side reverse: more portable than limitToLast.
+  const tenant = currentTenant();
+  const scopeKey = chatScopeKey(tenant.userId, surface, conversationId);
   const snaps = await tenantCollection(CHATS)
-    .orderBy("at", "desc")
-    .limit(limit)
+    .where("scopeKey", "==", scopeKey)
     .get();
   return snaps.docs
     .map((d) => {
-      const data = d.data() as { surface?: string; role: string; text: string; data?: Record<string, unknown>; at?: { toDate(): Date } };
+      const data = d.data() as { surface: string; role: string; text: string; data?: Record<string, unknown>; at?: { toDate(): Date } | string };
       return {
         id: d.id,
         surface: data.surface ?? "dashboard",
         role: data.role,
         text: data.text,
         data: data.data,
-        at: data.at ? data.at.toDate().toISOString() : null,
+        at: typeof data.at === "string" ? data.at : data.at?.toDate().toISOString() ?? null,
       };
     })
-    .reverse();
+    .sort((a, b) => Date.parse(a.at ?? "0") - Date.parse(b.at ?? "0"))
+    .slice(-Math.min(Math.max(limit, 1), CHAT_RETENTION_MAX));
 }
 
 export interface OperatorGoals {

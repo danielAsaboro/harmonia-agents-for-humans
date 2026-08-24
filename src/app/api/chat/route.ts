@@ -23,6 +23,7 @@ import { requireReadyAttachments, type ChatAttachment } from "@/lib/chatAttachme
 const chatSchema = z.object({
   message: z.string().min(1).max(2000),
   surface: z.enum(["dashboard", "telegram"]).default("dashboard"),
+  conversationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).default("primary"),
   /** Grounded Q&A about one record ("chat with any item"). */
   context: z
     .object({
@@ -123,7 +124,7 @@ export async function handleChat(req: Request, options: { chatRunId?: string } =
   if (!parsed.success) {
     return Response.json({ error: "invalid chat payload" }, { status: 400 });
   }
-  const { message, surface, context, attachmentIds } = parsed.data;
+  const { message, surface, conversationId, context, attachmentIds } = parsed.data;
 
   let attachments: ChatAttachment[] = [];
   try {
@@ -152,6 +153,7 @@ export async function handleChat(req: Request, options: { chatRunId?: string } =
   try {
     await saveChatMessage({
       surface,
+      conversationId,
       role: "user",
       text: message,
       data: attachments.length ? {
@@ -167,6 +169,7 @@ export async function handleChat(req: Request, options: { chatRunId?: string } =
     });
     await saveChatMessage({
       surface,
+      conversationId,
       role: "assistant",
       text: payload.reply,
       data: JSON.parse(JSON.stringify({

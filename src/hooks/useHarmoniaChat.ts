@@ -62,14 +62,14 @@ export function useHarmoniaChat() {
   const [run, setRun] = useState<ChatRunState | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const send = useCallback(async (message: string, attachmentIds: string[] = []) => {
+  const send = useCallback(async (message: string, attachmentIds: string[] = [], conversationId = "primary") => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     const response = await apiFetch("/api/chat/stream", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message, surface: "dashboard", attachmentIds }),
+      body: JSON.stringify({ message, surface: "dashboard", conversationId, attachmentIds }),
       signal: controller.signal,
     });
     if (!response.ok) {

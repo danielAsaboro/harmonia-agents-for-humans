@@ -11,6 +11,7 @@ import type { HydratedSurfaceSet } from "@/lib/a2ui/hydrateSurfacePlan";
 const streamRequestSchema = z.object({
   message: z.string().min(1).max(2_000),
   surface: z.literal("dashboard").default("dashboard"),
+  conversationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).default("primary"),
   attachmentIds: z.array(z.string().min(1)).max(20).default([]),
 }).strict();
 
@@ -111,7 +112,7 @@ async function post(req: Request): Promise<Response> {
           const chatRequest = new Request(req.url.replace(/\/stream$/, ""), {
             method: "POST",
             headers: chatHeaders,
-            body: JSON.stringify({ message: parsed.data.message, surface: parsed.data.surface, attachmentIds: parsed.data.attachmentIds }),
+            body: JSON.stringify({ message: parsed.data.message, surface: parsed.data.surface, conversationId: parsed.data.conversationId, attachmentIds: parsed.data.attachmentIds }),
           });
           const chatResponse = await handleChat(chatRequest, { chatRunId: run.id });
           const payload = await chatResponse.json().catch(() => null) as (ChatResponse & { error?: string }) | null;

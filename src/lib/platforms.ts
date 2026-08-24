@@ -31,6 +31,23 @@ export interface PlatformDef {
 
 export const PLATFORMS: PlatformDef[] = [
   {
+    id: "google-calendar",
+    label: "Google Calendar",
+    requiredEnv: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
+    capabilities: [],
+    oauth: {
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      scopes: ["https://www.googleapis.com/auth/calendar.app.created"],
+      usesPkce: true,
+      scopeSeparator: " ",
+      tokenAuth: "body",
+      extraAuthorizeParams: { access_type: "offline", prompt: "consent" },
+    },
+    docsUrl: "https://developers.google.com/workspace/calendar/api/auth",
+    note: "Syncs scheduled content to a dedicated Harmonia calendar. It cannot access unrelated calendars or events.",
+  },
+  {
     id: "x",
     label: "X (Twitter)",
     requiredEnv: ["X_CLIENT_ID", "X_CLIENT_SECRET"],

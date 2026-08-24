@@ -245,6 +245,9 @@ export interface ConnectionDoc {
   refreshToken?: string;
   expiresAt?: string;
   connectedAt: string;
+  calendarId?: string;
+  calendarTitle?: string;
+  calendarProvisionedAt?: string;
 }
 
 export function connectionRef(platform: string) {

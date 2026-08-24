@@ -44,7 +44,10 @@ export function ApprovalDock({ jobId, actions, verifications, receipts, busy, on
   onOperationDecision?: (operationId: string, decision: "approved" | "rejected") => Promise<void> | void;
 }) {
   const [actionError, setActionError] = useState<string | null>(null);
+  const [replayBusy, setReplayBusy] = useState<string | null>(null);
+  const [replayStatus, setReplayStatus] = useState<Record<string, string>>({});
   const pending = actions.filter((action) => action.approvalState === "pending" && action.state === "planned");
+  const replayable = actions.filter((action) => action.state === "executed" && receipts.some((receipt) => receipt.actionId === action.id && receipt.outcome === "applied"));
   let approvalOperations: unknown[] = [];
   let protocolError: string | null = null;
   try {
@@ -55,9 +58,23 @@ export function ApprovalDock({ jobId, actions, verifications, receipts, busy, on
   } catch (error) {
     protocolError = error instanceof Error ? error.message : String(error);
   }
-  if (!pending.length && !approvalOperations.length && !protocolError) return null;
+  if (!pending.length && !replayable.length && !approvalOperations.length && !protocolError) return null;
   const totalRecordedCost = pending.reduce((sum, action) => sum + (recordedCost(action) ?? 0), 0);
   const decisionCount = pending.length;
+
+  async function proveReplay(action: PlannedAction) {
+    setReplayBusy(action.id);
+    try {
+      const response = await fetch(`/api/jobs/${jobId}/actions/${action.id}/replay`, { method: "POST" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Replay proof failed");
+      setReplayStatus((current) => ({ ...current, [action.id]: `Duplicate suppressed; receipt ${body.receiptId}` }));
+    } catch (error) {
+      setReplayStatus((current) => ({ ...current, [action.id]: error instanceof Error ? error.message : "Replay proof failed" }));
+    } finally {
+      setReplayBusy(null);
+    }
+  }
 
   return (
     <aside className="shrink-0 border-t border-black/10 bg-[#ebe7de] pb-20 min-[900px]:pb-0" aria-label="Approval boundary" aria-busy={busy} data-a2ui-slot="approval">
@@ -95,7 +112,7 @@ export function ApprovalDock({ jobId, actions, verifications, receipts, busy, on
         }
         setActionError(`Unknown or invalid A2UI action: ${action.name}`);
         }} /> : null}
-      {pending.map((action) => {
+        {pending.map((action) => {
         const cost = recordedCost(action);
         const relatedReceipts = receipts.filter((receipt) => receipt.actionId === action.id);
         const verifiedCount = verifications.filter((verification) => verification.verified).length;
@@ -110,6 +127,12 @@ export function ApprovalDock({ jobId, actions, verifications, receipts, busy, on
           </details>
         );
         })}
+        {replayable.map((action) => (
+          <section key={`replay-${action.id}`} className="mx-2 mb-2 flex flex-wrap items-center justify-between gap-3 border border-blue-200 bg-blue-50 p-3">
+            <div><b className="text-xs">Idempotency proof · {action.title}</b><p role="status" aria-live="polite" className="text-[10px] text-blue-700">{replayStatus[action.id] ?? "No replay attempted in this view."}</p></div>
+            <button type="button" aria-label={`Replay proof for ${action.title}`} disabled={busy || replayBusy !== null} onClick={() => void proveReplay(action)} className="rounded-full border border-blue-700 px-3 py-1.5 text-xs font-bold text-blue-800 disabled:opacity-40">Prove duplicate suppression</button>
+          </section>
+        ))}
         </div>
       </details>
     </aside>

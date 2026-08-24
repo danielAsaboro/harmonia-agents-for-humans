@@ -83,6 +83,7 @@ export default function JobDetail({
 }) {
   const [tab, setTab] = useState<Tab>("overview");
   const [busy, setBusy] = useState(false);
+  const [replayStatus, setReplayStatus] = useState<Record<string, string>>({});
 
   const verificationByItem = new Map<string, NonNullable<JobFull["verifications"]>[number]>();
   for (const v of job.verifications ?? []) {
@@ -100,6 +101,20 @@ export default function JobDetail({
     setBusy(true);
     try {
       await onDecide(actionId, decision);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function proveReplay(actionId: string) {
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/jobs/${job.id}/actions/${actionId}/replay`, { method: "POST" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Replay proof failed");
+      setReplayStatus((current) => ({ ...current, [actionId]: `Duplicate suppressed; original receipt ${body.receiptId}` }));
+    } catch (error) {
+      setReplayStatus((current) => ({ ...current, [actionId]: error instanceof Error ? error.message : "Replay proof failed" }));
     } finally {
       setBusy(false);
     }
@@ -336,6 +351,12 @@ export default function JobDetail({
                         </div>
                       </div>
                       <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{a.description}</p>
+                      {a.state === "executed" && receipts.some((receipt) => receipt.actionId === a.id && receipt.outcome === "applied") && (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <button type="button" aria-label={`Replay proof for ${a.title}`} disabled={busy} onClick={() => void proveReplay(a.id)} className="rounded-full border border-blue-300 px-3 py-1 text-xs font-medium text-blue-700 disabled:opacity-50 dark:border-blue-700 dark:text-blue-300">Prove duplicate suppression</button>
+                          <span role="status" aria-live="polite" className="text-xs text-zinc-500">{replayStatus[a.id]}</span>
+                        </div>
+                      )}
                       {a.state === "executed" && assetMime.get(a.id) === "video/mp4" && (
                         <video
                           src={`/api/jobs/${job.id}/assets/${a.id}`}

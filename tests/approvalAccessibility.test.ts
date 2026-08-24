@@ -11,6 +11,7 @@ describe("approval accessibility contract", () => {
       expect(source).toContain("aria-busy={busy}");
       expect(source).toMatch(/aria-label={`Approve \$\{/);
       expect(source).toMatch(/aria-label={`Reject \$\{/);
+      expect(source).toContain("Replay proof for");
       expect(source).not.toContain("tabIndex={-1}");
     },
   );

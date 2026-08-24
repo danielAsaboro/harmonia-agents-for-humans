@@ -131,6 +131,26 @@ export async function updateContentItem(
   await contentItemRef(id).set({ ...clean, updatedAt: new Date().toISOString() }, { merge: true });
 }
 
+export function deleteFirestoreField(): FirebaseFirestore.FieldValue {
+  return FieldValue.delete();
+}
+
+export async function saveCalendarSyncIfUnchanged(
+  id: string,
+  expectedUpdatedAt: string,
+  sync: import("./types").GoogleCalendarSync,
+): Promise<import("./types").GoogleCalendarSync> {
+  const ref = contentItemRef(id);
+  return db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error("content item disappeared during calendar synchronization");
+    const current = snap.data() as import("./types").ContentItem;
+    const persisted = current.updatedAt === expectedUpdatedAt ? sync : { ...sync, status: "update_required" as const };
+    tx.set(ref, { googleCalendarSync: persisted, updatedAt: new Date().toISOString() }, { merge: true });
+    return persisted;
+  });
+}
+
 export async function listContentItems(): Promise<import("./types").ContentItem[]> {
   const snaps = await tenantCollection(CONTENT_ITEMS)
     .orderBy("createdAt", "desc")
@@ -248,6 +268,46 @@ export interface ConnectionDoc {
   calendarId?: string;
   calendarTitle?: string;
   calendarProvisionedAt?: string;
+  calendarProvisioning?: { status: "claimed" | "uncertain"; claimId: string; at: string };
+}
+
+export async function claimCalendarProvisioning(): Promise<{ calendarId?: string; claimId?: string }> {
+  const ref = connectionRef("google-calendar");
+  return db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error("Google Calendar is not connected");
+    const connection = snap.data() as ConnectionDoc;
+    if (connection.calendarId) return { calendarId: connection.calendarId };
+    if (connection.calendarProvisioning) {
+      throw new Error(connection.calendarProvisioning.status === "uncertain"
+        ? "Calendar provisioning outcome is uncertain; inspect Google Calendar before reconnecting"
+        : "Calendar provisioning is already in progress");
+    }
+    const claimId = newId();
+    tx.set(ref, { calendarProvisioning: { status: "claimed", claimId, at: new Date().toISOString() } }, { merge: true });
+    return { claimId };
+  });
+}
+
+export async function completeCalendarProvisioning(claimId: string, calendar: { id: string; summary: string }): Promise<void> {
+  const ref = connectionRef("google-calendar");
+  await db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const connection = snap.data() as ConnectionDoc | undefined;
+    if (connection?.calendarProvisioning?.claimId !== claimId) throw new Error("calendar provisioning claim was lost");
+    tx.set(ref, { calendarId: calendar.id, calendarTitle: calendar.summary, calendarProvisionedAt: new Date().toISOString(), calendarProvisioning: FieldValue.delete() }, { merge: true });
+  });
+}
+
+export async function markCalendarProvisioningUncertain(claimId: string): Promise<void> {
+  const ref = connectionRef("google-calendar");
+  await db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const connection = snap.data() as ConnectionDoc | undefined;
+    if (connection?.calendarProvisioning?.claimId === claimId) {
+      tx.set(ref, { calendarProvisioning: { status: "uncertain", claimId, at: new Date().toISOString() } }, { merge: true });
+    }
+  });
 }
 
 export function connectionRef(platform: string) {

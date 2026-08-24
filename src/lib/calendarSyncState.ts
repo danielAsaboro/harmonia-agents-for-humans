@@ -19,6 +19,7 @@ export function markCalendarSyncStale(item: ContentItem, patch: Partial<ContentI
 export function calendarSyncFailure(item: ContentItem, now: string, error: unknown): GoogleCalendarSync {
   void error;
   return {
+    ...item.googleCalendarSync,
     status: "failed",
     calendarId: item.googleCalendarSync?.calendarId ?? "",
     eventId: item.googleCalendarSync?.eventId ?? "",

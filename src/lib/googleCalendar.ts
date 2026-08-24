@@ -27,6 +27,7 @@ export async function ensureHarmoniaCalendar(gateway: GoogleCalendarGateway, cal
   if (calendarId) {
     const existing = await gateway.getCalendar(calendarId);
     if (existing) return existing;
+    throw new Error("The Harmonia calendar was removed in Google Calendar; reconnect to provision a replacement safely");
   }
   return gateway.createCalendar("Harmonia Content Calendar");
 }
@@ -53,7 +54,15 @@ export async function executeCalendarMutation(
   }
 
   const intended = buildGoogleCalendarEvent(input.item, eventId, input.workspaceId, input.brandId);
-  if (existing) await gateway.updateEvent(input.calendarId, intended, existing.etag);
+  if (existing) {
+    try {
+      await gateway.updateEvent(input.calendarId, intended, existing.etag);
+    } catch (error) {
+      if (!(error instanceof CalendarApiError) || error.status !== 412) throw error;
+      // The first PUT may have committed while its response was lost. Strict
+      // read-back below distinguishes convergence from a real conflict.
+    }
+  }
   else {
     try {
       await gateway.insertEvent(input.calendarId, intended);

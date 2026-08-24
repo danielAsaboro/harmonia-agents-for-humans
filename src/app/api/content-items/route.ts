@@ -4,6 +4,7 @@ import {
   getContentItem,
   listContentItems,
   updateContentItem,
+  deleteFirestoreField,
 } from "@/lib/firestore";
 import { tenantHandler } from "@/lib/auth";
 import { validateDraftText } from "@/lib/policy";
@@ -74,7 +75,7 @@ async function patch(req: Request) {
 
   if (patch.scheduledFor !== undefined) {
     if (patch.scheduledFor === null) {
-      updates.scheduledFor = undefined as unknown as string | undefined;
+      updates.scheduledFor = deleteFirestoreField();
       updates.status = "draft";
     } else {
       updates.scheduledFor = patch.scheduledFor;
@@ -84,7 +85,7 @@ async function patch(req: Request) {
 
   if (patch.status === "cancelled") {
     updates.status = "cancelled";
-    updates.scheduledFor = undefined as unknown as string | undefined;
+    updates.scheduledFor = deleteFirestoreField();
   } else if (patch.status === "draft" && !("scheduledFor" in updates)) {
     updates.status = "draft";
   } else if (patch.status === "scheduled") {

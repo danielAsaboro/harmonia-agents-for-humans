@@ -155,6 +155,19 @@ export function tenantHandler<Args extends unknown[]>(
   };
 }
 
+/** Browser-session-only tenant boundary for explicit operator effects. */
+export function operatorTenantHandler<Args extends unknown[]>(
+  handler: (req: Request, ...args: Args) => Promise<Response>,
+): (req: Request, ...args: Args) => Promise<Response> {
+  return async (req, ...args) => {
+    try {
+      return await withTenant(req, () => handler(req, ...args));
+    } catch (error) {
+      return authErrorResponse(error);
+    }
+  };
+}
+
 export async function createSessionCookie(idToken: string): Promise<string> {
   const decoded = await adminAuth().verifyIdToken(idToken, true);
   if (decoded.firebase?.sign_in_provider !== "google.com") {

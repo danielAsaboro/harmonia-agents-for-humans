@@ -82,4 +82,17 @@ describe("verified Google Calendar effects", () => {
     expect(result.status).toBe("synced");
     expect(result.etag).toBe("v1");
   });
+
+  it("converges an ambiguous etag conflict only when read-back matches", async () => {
+    const seed = memoryGateway();
+    await executeCalendarMutation({ operation: "sync", item, workspaceId: "w", brandId: "b", calendarId: "cal1", now: "2026-08-25T10:00:00.000Z" }, seed.gateway);
+    const realUpdate = seed.gateway.updateEvent;
+    seed.gateway.updateEvent = async (...args) => {
+      await realUpdate(...args);
+      throw new CalendarApiError(412, "precondition failed");
+    };
+    const result = await executeCalendarMutation({ operation: "sync", item: { ...item, text: "new" }, workspaceId: "w", brandId: "b", calendarId: "cal1", now: "2026-08-25T10:01:00.000Z" }, seed.gateway);
+    expect(result.status).toBe("synced");
+    expect(result.etag).toBe("v2");
+  });
 });

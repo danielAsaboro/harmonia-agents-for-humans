@@ -35,6 +35,17 @@ export function ChartIcon({ className }: IconProps) {
   );
 }
 
+export function ArchitectureIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className ?? base} aria-hidden>
+      <rect x="9" y="2" width="6" height="5" rx="1" />
+      <rect x="2" y="17" width="6" height="5" rx="1" />
+      <rect x="16" y="17" width="6" height="5" rx="1" />
+      <path d="M12 7v5M5 17v-3h14v3" />
+    </svg>
+  );
+}
+
 export function SparklesIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className ?? base} aria-hidden>

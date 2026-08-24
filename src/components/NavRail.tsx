@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { signOut as firebaseSignOut } from "firebase/auth";
 import { BrandMark } from "@/components/BrandMark";
-import { ChatIcon, CalendarIcon, ChartIcon, SettingsIcon, SparklesIcon } from "@/components/icons";
+import { ArchitectureIcon, ChatIcon, CalendarIcon, ChartIcon, SettingsIcon, SparklesIcon } from "@/components/icons";
 import { clientAuth } from "@/lib/firebaseClient";
 import { signOutPersistedSession } from "@/lib/sessionPersistence";
 
@@ -14,6 +14,7 @@ const RAIL = [
   { href: "/dashboard/proposals", label: "Proposals", Icon: SparklesIcon },
   { href: "/dashboard/calendar", label: "Calendar", Icon: CalendarIcon },
   { href: "/dashboard/monitoring", label: "Monitoring", Icon: ChartIcon },
+  { href: "/dashboard/architecture", label: "Architecture", Icon: ArchitectureIcon },
   { href: "/dashboard/settings", label: "Settings", Icon: SettingsIcon },
 ];
 
@@ -72,7 +73,7 @@ export default function NavRail() {
         </Link>
         <div className="mb-1 h-px w-6 bg-zinc-200 dark:bg-zinc-700" />
         {RAIL.map(({ href, label, Icon }) => {
-          const active = pathname === href;
+          const active = pathname === href || pathname.startsWith(`${href}/`);
           return (
             <Link
               key={href}

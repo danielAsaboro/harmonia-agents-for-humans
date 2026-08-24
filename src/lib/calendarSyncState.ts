@@ -1,4 +1,4 @@
-import type { ContentItem } from "./types";
+import type { ContentItem, GoogleCalendarSync } from "./types";
 
 const MATERIAL_FIELDS = new Set(["text", "scheduledFor", "platforms", "status"]);
 
@@ -13,5 +13,16 @@ export function markCalendarSyncStale(item: ContentItem, patch: Partial<ContentI
     googleCalendarSync: changed
       ? { ...item.googleCalendarSync, status: "update_required" }
       : item.googleCalendarSync,
+  };
+}
+
+export function calendarSyncFailure(item: ContentItem, now: string, _error: unknown): GoogleCalendarSync {
+  return {
+    status: "failed",
+    calendarId: item.googleCalendarSync?.calendarId ?? "",
+    eventId: item.googleCalendarSync?.eventId ?? "",
+    verifiedAt: item.googleCalendarSync?.verifiedAt,
+    lastAttemptAt: now,
+    failureReason: "Google Calendar synchronization failed",
   };
 }

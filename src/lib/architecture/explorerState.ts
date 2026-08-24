@@ -38,7 +38,7 @@ export function serializeExplorerQuery(state: ExplorerState): URLSearchParams {
   const params = new URLSearchParams();
   if (state.presetId) params.set("preset", state.presetId);
   if (state.selectedNodeId) params.set("node", state.selectedNodeId);
-  if (state.expanded.length) params.set("expanded", [...state.expanded].sort().join(","));
+  params.set("expanded", [...state.expanded].sort().join(","));
   if (state.layers.length) params.set("layers", [...state.layers].sort().join(","));
   if (state.statuses.length) params.set("statuses", [...state.statuses].sort().join(","));
   if (state.query) params.set("q", state.query);
@@ -55,4 +55,10 @@ export function toggleGroup(state: ExplorerState, groupId: string): ExplorerStat
   const expanded = new Set(state.expanded);
   if (expanded.has(groupId)) expanded.delete(groupId); else expanded.add(groupId);
   return { ...state, expanded: [...expanded].sort() };
+}
+
+export function activateNode(state: ExplorerState, nodeId: string, definition: ArchitectureDefinition): ExplorerState {
+  const node = definition.nodes.find((item) => item.id === nodeId);
+  const selected = { ...state, selectedNodeId: nodeId };
+  return node?.kind === "group" ? toggleGroup(selected, nodeId) : selected;
 }

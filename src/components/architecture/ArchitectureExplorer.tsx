@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Background, Controls, MarkerType, MiniMap, ReactFlow, ReactFlowProvider, type Edge, type Node, type ReactFlowInstance } from "@xyflow/react";
 import { useRouter } from "next/navigation";
 import { architectureDefinition } from "@/lib/architecture/data";
-import { applyPreset, createDefaultExplorerState, parseExplorerQuery, serializeExplorerQuery, toggleGroup, type ExplorerState } from "@/lib/architecture/explorerState";
+import { activateNode, applyPreset, createDefaultExplorerState, parseExplorerQuery, serializeExplorerQuery, toggleGroup, type ExplorerState } from "@/lib/architecture/explorerState";
 import { layoutArchitecture, layoutCacheKey, type LayoutResult } from "@/lib/architecture/layout";
 import { projectArchitecture } from "@/lib/architecture/project";
 import { ArchitectureDetails } from "./ArchitectureDetails";
@@ -27,7 +27,7 @@ function ExplorerInner() {
   const update = useCallback((next: ExplorerState) => { setState(next); router.replace(`?${serializeExplorerQuery(next)}`, { scroll: false }); }, [router]);
   useEffect(() => { let active = true; layoutArchitecture(projection, "desktop").then((result) => { if (!active) return; setLayoutState({ key: projectionKey, result }); if (shouldFit.current) requestAnimationFrame(() => instance.current?.fitView({ padding: 0.16, duration: 500 })); shouldFit.current = false; }); return () => { active = false; }; }, [projection, projectionKey]);
   const selected = architectureDefinition.nodes.find((node) => node.id === state.selectedNodeId);
-  const select = (id?: string) => update({ ...state, selectedNodeId: id });
+  const select = (id?: string) => update(id ? activateNode(state, id, architectureDefinition) : { ...state, selectedNodeId: undefined });
   const preset = (id: string) => { shouldFit.current = true; update(applyPreset(state, id, architectureDefinition)); };
   const expandAll = () => update({ ...state, expanded: architectureDefinition.nodes.filter((node) => node.kind === "group").map((node) => node.id) });
   return <div className="architecture-shell">

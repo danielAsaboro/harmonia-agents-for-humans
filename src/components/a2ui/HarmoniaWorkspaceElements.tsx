@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, type ReactNode } from "react";
+import { BrandMark } from "@/components/BrandMark";
 import styles from "./HarmoniaWorkspaceElements.module.css";
 
 type Emphasis = "primary" | "secondary" | "compact";
@@ -164,7 +165,7 @@ export function PlatformPreview({ title, draft, assets, agentFraming, emphasis, 
     <article className={styles.platformPreview} data-emphasis={emphasis ?? "primary"}>
       <FrameHeading title={title} agentFraming={agentFraming} />
       <div className={styles.socialCard}>
-        <header><span className={styles.avatar}>H</span><div><strong>Harmonia campaign</strong><small>@startup · draft</small></div><span>•••</span></header>
+        <header><BrandMark className={styles.avatar} decorative /><div><strong>Harmonia campaign</strong><small>@startup · draft</small></div><span>•••</span></header>
         <p>{draft.text}</p>
         {assets.map((asset) => asset.mime.startsWith("image/")
           // Dynamic, authenticated job assets cannot use Next's unauthenticated image optimizer.

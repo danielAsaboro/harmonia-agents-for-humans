@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { BrandMark } from "@/components/BrandMark";
 import { ApprovalDemo } from "@/components/landing/ApprovalDemo";
 import { LiveWorkflow } from "@/components/landing/LiveWorkflow";
 import { ReturnGlobe } from "@/components/landing/ReturnGlobe";
@@ -15,7 +16,7 @@ export default function LandingPage() {
 
         <header className="landing-nav">
           <Link href="/" className="brand-pill" aria-label="Harmonia home">
-            <span className="brand-mark">H</span>
+            <BrandMark className="brand-mark" decorative />
             <span>Harmonia</span>
           </Link>
           <nav className="nav-island" aria-label="Primary navigation">
@@ -203,7 +204,7 @@ export default function LandingPage() {
       </section>
 
       <footer className="landing-footer">
-        <Link href="/" className="footer-brand"><span className="brand-mark">H</span> Harmonia</Link>
+        <Link href="/" className="footer-brand"><BrandMark className="brand-mark" decorative /> Harmonia</Link>
         <p>From source to signal to proof.</p>
         <div><a href="#workflow">Workflow</a><a href="#outputs">Outputs</a><Link href="/dashboard">Studio ↗</Link></div>
       </footer>

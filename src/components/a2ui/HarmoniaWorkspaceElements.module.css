@@ -76,7 +76,7 @@
 .socialCard header { display:flex; align-items:center; gap:.65rem; }
 .socialCard header div { display:flex; flex:1; flex-direction:column; }
 .socialCard header small { color:#777; }
-.avatar { display:grid; width:2.35rem; height:2.35rem; place-items:center; border-radius:50%; background:#161512; color:#d9ff43; font-family:Georgia,serif; }
+.avatar { display:block; width:2.35rem; height:2.35rem; padding:.18rem; border:1px solid rgba(217,255,67,.35); border-radius:.75rem; background:#080b08; object-fit:contain; }
 .socialCard > p { white-space:pre-wrap; font-size:.9rem; line-height:1.5; }
 .socialCard img,.socialCard video { width:100%; max-height:24rem; border-radius:.8rem; background:#161512; object-fit:contain; }
 .socialCard audio { width:100%; }

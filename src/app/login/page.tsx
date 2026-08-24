@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { useRouter } from "next/navigation";
+import { BrandMark } from "@/components/BrandMark";
 import { clientAuth } from "@/lib/firebaseClient";
 
 export default function LoginPage() {
@@ -47,7 +48,7 @@ export default function LoginPage() {
   return (
     <main className="flex min-h-screen items-center justify-center px-4">
       <section className="w-full max-w-sm rounded-2xl border border-zinc-200 p-7 shadow-xl shadow-zinc-900/5 dark:border-zinc-800">
-        <p className="text-sm font-semibold">Harmonia</p>
+        <div className="flex items-center gap-3 text-sm font-semibold"><BrandMark className="h-10 w-14 rounded-xl bg-[#080b08] object-contain" decorative />Harmonia</div>
         <h1 className="mt-6 text-2xl font-semibold">Create or open your workspace</h1>
         <p className="mt-2 text-sm leading-6 text-zinc-500">
           Continue with Google. Your jobs, connections, memory, assets, and publishing approvals stay isolated in your workspace.

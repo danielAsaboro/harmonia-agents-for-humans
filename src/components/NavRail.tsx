@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { BrandMark } from "@/components/BrandMark";
 import { ChatIcon, CalendarIcon, ChartIcon, SettingsIcon, SparklesIcon } from "@/components/icons";
 
 const RAIL = [
@@ -59,9 +60,9 @@ export default function NavRail() {
           href="/"
           title="Harmonia"
           aria-label="Harmonia home"
-          className="mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-zinc-900 text-sm font-bold text-white dark:bg-white dark:text-black"
+          className="mb-2 flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-[#080b08] shadow-sm"
         >
-          H
+          <BrandMark className="h-full w-full object-contain" decorative />
         </Link>
         <div className="mb-1 h-px w-6 bg-zinc-200 dark:bg-zinc-700" />
         {RAIL.map(({ href, label, Icon }) => {

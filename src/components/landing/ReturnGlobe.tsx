@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
+import { BrandMark } from "@/components/BrandMark";
 
 const GLOBE_LABELS = [
   ["Research", "globe-research"],
@@ -179,7 +180,7 @@ export function ReturnGlobe() {
   return (
     <div className="return-globe" aria-label="Interactive signal globe">
       <div ref={mountRef} className="return-globe-canvas" aria-hidden="true" />
-      <span className="return-globe-core" aria-hidden="true">H</span>
+      <span className="return-globe-core" aria-hidden="true"><BrandMark className="h-12 w-12 object-contain" decorative /></span>
       {GLOBE_LABELS.map(([label, className]) => (
         <span key={label} className={`return-globe-label ${className}`}>{label}</span>
       ))}

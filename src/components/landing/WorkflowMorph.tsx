@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { BrandMark } from "@/components/BrandMark";
 import { WORKFLOW_STAGES } from "./workflow";
 
 const WAVES = [34, 58, 42, 82, 66, 28, 74, 92, 48, 64, 36, 78, 54, 88, 44, 68, 30, 62, 76, 40, 86, 56, 72, 46];
@@ -63,7 +64,7 @@ function MatterContents() {
       </div>
 
       <div className="matter-learn">
-        <span className="learn-seed">H</span>
+        <BrandMark className="learn-seed" decorative />
         <i /><i /><i />
         <small>MEMORY UPDATED</small>
       </div>

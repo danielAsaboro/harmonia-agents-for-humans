@@ -2,7 +2,7 @@
 
 ## Problem
 
-Harmonia currently derives stable idempotency keys and suppresses duplicate receipt writes, but the agent checks existing receipts before performing an external effect. Two concurrent Pub/Sub deliveries can both observe no receipt and both execute. Receipt deduplication after the calls cannot prove duplicate-effect prevention.
+Before this change, Harmonia derived stable idempotency keys and suppressed duplicate receipt writes, but the agent checked existing receipts before performing an external effect. Two concurrent Pub/Sub deliveries could both observe no receipt and both execute. Receipt deduplication after the calls could not prove duplicate-effect prevention.
 
 ## Safety model
 

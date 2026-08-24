@@ -14,7 +14,8 @@
         "group": "Overview",
         "pages": [
           "index",
-          "architecture"
+          "architecture",
+          "architecture-explorer"
         ]
       },
       {

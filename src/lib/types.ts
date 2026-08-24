@@ -326,6 +326,18 @@ export interface ContentItemRevision {
   at: string;
 }
 
+export interface GoogleCalendarSync {
+  status: "synced" | "update_required" | "removed" | "failed";
+  calendarId: string;
+  eventId: string;
+  etag?: string;
+  htmlLink?: string;
+  sourceUpdatedAt?: string;
+  verifiedAt?: string;
+  lastAttemptAt?: string;
+  failureReason?: string;
+}
+
 export interface ContentItem {
   id: string;
   jobId: string;
@@ -342,6 +354,7 @@ export interface ContentItem {
   publishedUrl?: string;
   publishedAt?: string;
   failureReason?: string;
+  googleCalendarSync?: GoogleCalendarSync;
   createdAt: string;
   updatedAt: string;
 }

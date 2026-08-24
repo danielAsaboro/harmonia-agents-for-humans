@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
-import type { ArchitectureDefinition, ArchitectureNode } from "@/lib/architecture/schema";
+import type { ArchitectureNode } from "@/lib/architecture/schema";
 import { buildArchitectureDetail } from "./detailModel";
 
-export function ArchitectureDetails({ node, definition, onClose }: { node?: ArchitectureNode; definition: ArchitectureDefinition; onClose: () => void }) {
+export function ArchitectureDetails({ node, onClose }: { node?: ArchitectureNode; onClose: () => void }) {
   useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); }; window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close); }, [onClose]);
-  if (!node) return null; const detail = buildArchitectureDetail(node, definition);
+  if (!node) return null; const detail = buildArchitectureDetail(node);
   return <aside className="arch-details" aria-label="Architecture component details">
     <button type="button" aria-label="Close architecture details" className="arch-details__close" onClick={onClose}>×</button>
     <p className="arch-details__eyebrow">{detail.kind} · {detail.layer}</p><h2>{detail.name}</h2><p className="arch-details__summary">{detail.summary}</p>

@@ -6,7 +6,7 @@ const byId = (id: string) => architectureDefinition.nodes.find((node) => node.id
 
 describe("architecture interaction view models", () => {
   it("builds truthful selected-node details", () => {
-    const detail = buildArchitectureDetail(byId("agent-temi"), architectureDefinition);
+    const detail = buildArchitectureDetail(byId("agent-temi"));
     expect(detail.model).toBe("Gemini 3.5 Flash-Lite");
     expect(detail.authorityNote).toMatch(/proposes.*does not execute/i);
     expect(detail.deepLink).toBe("?node=agent-temi");

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 
 import { assertReplayApplied, replayEligibleReceipt } from "@/lib/replay";
 import type { Job, PlannedAction, Receipt } from "@/lib/types";
@@ -28,5 +29,12 @@ describe("operator replay authority", () => {
     for (const outcome of ["execute", "in_progress", "uncertain"] as const) {
       expect(() => assertReplayApplied({ outcome })).toThrow("cannot execute");
     }
+  });
+
+  it("records replay proof only through the operator route", () => {
+    const internalClaimRoute = readFileSync("src/app/api/internal/effect-claim/route.ts", "utf8");
+    const operatorReplayRoute = readFileSync("src/lib/replay.ts", "utf8");
+    expect(internalClaimRoute).not.toContain("writeReplayObservation");
+    expect(operatorReplayRoute).toContain("writeReplayObservation");
   });
 });

@@ -144,6 +144,8 @@ export interface PlannedAction {
   requiresApproval: boolean;
   approvalState: "not_required" | "pending" | "approved" | "rejected";
   payload: Record<string, unknown>;
+  /** Server-computed when an action is presented for an approval decision. */
+  payloadDigest?: string;
   state: "planned" | "executed" | "skipped" | "failed";
 }
 
@@ -152,8 +154,13 @@ export interface ApprovalDecision {
   jobId: string;
   actionId: string;
   decision: "approved" | "rejected";
-  actorType: "human_operator";
-  actorUserId: string;
+  payloadDigest: string;
+  actorType: "firebase_operator" | "telegram_operator" | "human_operator";
+  actorSubjectId?: string;
+  authenticationId?: string;
+  channel?: "dashboard" | "telegram";
+  /** Legacy records only; new decisions never write this field. */
+  actorUserId?: string;
   operationId: string;
   traceId: string;
   decidedAt: string;

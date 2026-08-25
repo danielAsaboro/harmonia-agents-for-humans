@@ -6,7 +6,33 @@ import {
   setStage,
 } from "@/lib/firestore";
 import { publishStage } from "@/lib/pubsub";
-import { currentTenant, tenantSubjectId } from "@/lib/tenancy";
+import { requireContentOperator } from "@/lib/authority";
+import { actionPayloadDigest } from "@/lib/idempotency";
+import { currentTenant, type TenantContext } from "@/lib/tenancy";
+import type { PlannedAction } from "@/lib/types";
+
+export interface ApprovalActor {
+  actorType: "firebase_operator" | "telegram_operator";
+  actorSubjectId: string;
+  authenticationId: string;
+  channel: "dashboard" | "telegram";
+}
+
+export function approvalActor(context: TenantContext): ApprovalActor {
+  const principal = requireContentOperator(context);
+  return {
+    actorType: principal.kind === "firebase_user" ? "firebase_operator" : "telegram_operator",
+    actorSubjectId: principal.subjectId,
+    authenticationId: principal.authenticationId,
+    channel: principal.kind === "firebase_user" ? "dashboard" : "telegram",
+  };
+}
+
+export function assertApprovalPayload(action: PlannedAction, expectedPayloadDigest: string): string {
+  const actual = actionPayloadDigest(action);
+  if (actual !== expectedPayloadDigest) throw new Error("approval payload changed");
+  return actual;
+}
 
 export interface DecisionOutcome {
   ok: boolean;
@@ -24,16 +50,19 @@ export async function resolveDecision(
   jobId: string,
   actionId: string,
   decision: "approved" | "rejected",
-  actor: "system" | "agent" | "operator",
+  expectedPayloadDigest: string,
 ): Promise<DecisionOutcome> {
-  if (actor !== "operator") throw new Error("only a human operator may record an approval decision");
+  const actor = approvalActor(currentTenant());
   const jobBefore = await getJob(jobId);
-  const action = await recordApproval(jobId, actionId, decision, tenantSubjectId(currentTenant()));
+  const actionBefore = jobBefore.actions.find((candidate) => candidate.id === actionId);
+  if (!actionBefore) throw new Error(`action ${actionId} not found on job ${jobId}`);
+  assertApprovalPayload(actionBefore, expectedPayloadDigest);
+  const action = await recordApproval(jobId, actionId, decision, expectedPayloadDigest, actor);
   await appendEvent(
     jobId,
     jobBefore.stage,
     `${decision} action '${action.title}' (${action.type})`,
-    actor,
+    "operator",
   );
 
   const job = await getJob(jobId);

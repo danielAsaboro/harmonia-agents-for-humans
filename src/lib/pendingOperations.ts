@@ -47,6 +47,14 @@ export function decideOperationRecord(
   if (!REGISTERED_HANDLERS.has(operation.handler as PendingOperationHandler)) {
     throw new Error("operation handler is not registered");
   }
+  if (
+    typeof operation.arguments.jobId !== "string"
+    || typeof operation.arguments.actionId !== "string"
+    || typeof operation.arguments.payloadDigest !== "string"
+    || !/^[a-f0-9]{64}$/.test(operation.arguments.payloadDigest)
+  ) {
+    throw new Error("operation is not payload-bound");
+  }
   return {
     ...operation,
     state: decision,

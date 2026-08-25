@@ -18,6 +18,7 @@ import { publishStage } from "@/lib/pubsub";
 import { parseYouTubeUrl } from "@/lib/youtubeUrl";
 import type { PlannedAction, PostDraft, Stage } from "@/lib/types";
 import { requireReadyAttachments, type ChatAttachment } from "@/lib/chatAttachments";
+import { actionPayloadDigest } from "@/lib/idempotency";
 
 const chatSchema = z.object({
   message: z.string().min(1).max(2000),
@@ -46,6 +47,7 @@ export interface PendingActionSummary {
   title: string;
   type: string;
   risk: string;
+  payloadDigest: string;
 }
 
 export interface ChatAsset {
@@ -98,7 +100,13 @@ function pendingOf(job: FullJob): PlannedAction[] {
 }
 
 function summarizeActions(actions: PlannedAction[]): PendingActionSummary[] {
-  return actions.map((a) => ({ id: a.id, title: a.title, type: a.type, risk: a.risk }));
+  return actions.map((a) => ({
+    id: a.id,
+    title: a.title,
+    type: a.type,
+    risk: a.risk,
+    payloadDigest: actionPayloadDigest(a),
+  }));
 }
 
 async function assetsOf(jobId: string) {
@@ -379,7 +387,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
       }
 
       const target = pending[0];
-      const outcome = await resolveDecision(job.id, target.id, "approved", "operator");
+      const outcome = await resolveDecision(job.id, target.id, "approved", actionPayloadDigest(target));
       const note = outcome.triggered
         ? ` Approved. Publishing dispatched (${outcome.triggered}).`
         : outcome.remainingApprovals

@@ -4,6 +4,7 @@ import { operatorTenantHandler } from "@/lib/auth";
 
 const decisionSchema = z.object({
   decision: z.enum(["approved", "rejected"]),
+  payloadDigest: z.string().regex(/^[a-f0-9]{64}$/),
 }).strict();
 
 async function post(
@@ -20,7 +21,7 @@ async function post(
     id,
     actionId,
     parsed.data.decision,
-    "operator",
+    parsed.data.payloadDigest,
   );
   return Response.json(outcome);
 }

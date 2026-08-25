@@ -1,6 +1,7 @@
 import { getJob, listApprovalDecisions, listAssets, listEffectClaims, listEvents, listReceipts, listReplayObservations, listUsageRecords } from "@/lib/firestore";
 import { tenantHandler } from "@/lib/auth";
 import { redactEffectClaim } from "@/lib/effectClaims";
+import { actionPayloadDigest } from "@/lib/idempotency";
 
 async function get(
   _req: Request,
@@ -18,7 +19,7 @@ async function get(
     listEffectClaims(id),
   ]);
   return Response.json({
-    job,
+    job: { ...job, actions: job.actions.map((action) => ({ ...action, payloadDigest: actionPayloadDigest(action) })) },
     events,
     receipts,
     decisions,

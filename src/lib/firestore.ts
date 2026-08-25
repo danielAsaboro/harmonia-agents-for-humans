@@ -23,7 +23,8 @@ import type {
 } from "./types";
 import { applyFinalizedUsage, applyReservation, canReserve } from "./costs";
 import { getConfig } from "./config";
-import { newId } from "./idempotency";
+import { actionPayloadDigest, newId } from "./idempotency";
+import type { ApprovalActor } from "./decisions";
 import {
   assertResourceWorkspace,
   currentTenant,
@@ -833,7 +834,8 @@ export async function recordApproval(
   jobId: string,
   actionId: string,
   decision: "approved" | "rejected",
-  actorUserId: string,
+  expectedPayloadDigest: string,
+  actor: ApprovalActor,
 ): Promise<PlannedAction> {
   return db().runTransaction(async (tx) => {
     const ref = jobRef(jobId);
@@ -841,6 +843,8 @@ export async function recordApproval(
     const job = requireJobDoc(snap);
     const action = job.actions.find((a) => a.id === actionId);
     if (!action) throw new Error(`action ${actionId} not found on job ${jobId}`);
+    const payloadDigest = actionPayloadDigest(action);
+    if (payloadDigest !== expectedPayloadDigest) throw new Error("approval payload changed");
     if (action.approvalState !== "pending") {
       throw new Error(
         `action ${actionId} approval state is '${action.approvalState}', expected 'pending'`,
@@ -856,8 +860,8 @@ export async function recordApproval(
       jobId,
       actionId,
       decision,
-      actorType: "human_operator",
-      actorUserId,
+      payloadDigest,
+      ...actor,
       operationId: `${jobId}:approval:${actionId}`,
       traceId,
       decidedAt,
@@ -870,13 +874,14 @@ export async function recordApproval(
   });
 }
 
-export async function listApprovalDecisions(jobId: string): Promise<Array<Omit<ApprovalDecision, "actorUserId">>> {
+export async function listApprovalDecisions(jobId: string): Promise<Array<Omit<ApprovalDecision, "actorUserId" | "authenticationId">>> {
   const snaps = await jobRef(jobId).collection(APPROVAL_DECISIONS).orderBy("decidedAt", "asc").get();
   return snaps.docs.map((doc) => {
     const decision = { ...(doc.data() as ApprovalDecision) } as Partial<ApprovalDecision>;
     delete decision.actorUserId;
+    delete decision.authenticationId;
     return decision;
-  }) as Array<Omit<ApprovalDecision, "actorUserId">>;
+  }) as Array<Omit<ApprovalDecision, "actorUserId" | "authenticationId">>;
 }
 
 export async function markActionExecuted(

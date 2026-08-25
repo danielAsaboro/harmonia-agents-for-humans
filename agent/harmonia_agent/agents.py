@@ -682,7 +682,7 @@ _TEMI_AUTHORITY_PATTERNS = tuple(re.compile(pattern, re.IGNORECASE) for pattern 
     r"\b(?:temi|i|we|harmonia)\s+(?:has\s+|have\s+|will\s+)?(?:approved|rejected|authorized)\b",
     r"\b(?:content|campaign|post|plan)\s+(?:is|was|has been)\s+(?:approved|rejected|authorized)\b",
     r"\bapproval\s+(?:is|was|has been)\s+(?:granted|recorded|received)\b",
-    r"\b(?:temi|i|we|harmonia)\s+(?:has\s+|have\s+|will\s+)?publish(?:ed|ing)?\b",
+    r"\b(?:temi|i|we|harmonia)\s+(?:has\s+|have\s+|will\s+|is\s+|are\s+|was\s+|were\s+)?publish(?:es|ed|ing)?\b",
     r"\b(?:post|content|campaign)\s+(?:is|was|has been)\s+published\b",
     r"\bpublished successfully\b",
     r"\bpublish\s+(?:it|this|now)\b",

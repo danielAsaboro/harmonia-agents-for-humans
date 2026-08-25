@@ -397,6 +397,7 @@ def test_planning_horizon_duration_must_exactly_match_strategy_weeks(end):
 
 @pytest.mark.parametrize("claim", [
     "Temi approved this campaign for publication.",
+    "Temi publishes this post to X now.",
     "The post was scheduled in Google Calendar.",
     "Publishing receipt receipt-123 was recorded.",
     "Use credential token abc to publish the final post copy.",

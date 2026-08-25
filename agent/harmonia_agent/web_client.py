@@ -206,16 +206,3 @@ def chat(message: str, surface: str = "telegram") -> dict[str, Any]:
     if res.status_code >= 300:
         raise WebApiError(f"chat failed: {res.status_code} {res.text}", res.status_code)
     return res.json()
-
-
-def decide(job_id: str, action_id: str, decision: str) -> dict[str, Any]:
-    with _client() as c:
-        res = c.post(
-            f"/api/jobs/{job_id}/actions/{action_id}/decision",
-            json={"decision": decision, "actor": "operator"},
-        )
-    if res.status_code >= 300:
-        raise WebApiError(
-            f"decision failed: {res.status_code} {res.text}", res.status_code
-        )
-    return res.json()

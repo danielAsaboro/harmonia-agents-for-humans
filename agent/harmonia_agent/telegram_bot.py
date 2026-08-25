@@ -17,7 +17,7 @@ from typing import Any
 
 import httpx
 
-from .web_client import WebApiError, chat, decide, get_telegram_connection, get_workspaces
+from .web_client import WebApiError, chat, get_telegram_connection, get_workspaces
 from .tenant_context import current_tenant, tenant_scope
 
 logger = logging.getLogger("harmonia.telegram")
@@ -78,18 +78,8 @@ class TelegramBot:
     def _render_reply(self, payload: dict[str, Any]) -> tuple[str, list[list[dict[str, str]]]]:
         text = str(payload.get("reply", "…"))
         buttons: list[list[dict[str, str]]] = []
-        pending = payload.get("pendingActions") or []
-        job_id = payload.get("jobId")
-        if pending and job_id:
-            rows = []
-            for action in pending:
-                aid = action["id"]
-                label = action.get("title", aid)[:60]
-                rows.append([
-                    {"text": f"✅ Approve: {label}", "callback_data": f"decide:{job_id}:{aid}:approved"},
-                    {"text": "✗ Reject", "callback_data": f"decide:{job_id}:{aid}:rejected"},
-                ])
-            buttons = rows
+        # The worker may display pending work, but it never mints approval
+        # callbacks. Only the web service can issue one-time webhook nonces.
         drafts = payload.get("drafts") or []
         for draft in drafts:
             text += f"\n\n— {draft.get('platform', 'x')}:\n{draft.get('text', '')}"
@@ -135,16 +125,7 @@ class TelegramBot:
             if callback_id:
                 self._api("answerCallbackQuery", {"callback_query_id": callback_id, "text": "Unrecognized button"})
             return
-        job_id, action_id, decision_str = parsed
-        try:
-            result = decide(job_id, action_id, decision_str)
-            note = result.get("note") or (
-                f"publishing dispatched ({result['triggered']})" if result.get("triggered") else ""
-            )
-            answer_text = f"{decision_str.capitalize()} recorded." + (f" {note}." if note else "")
-        except WebApiError as exc:
-            logger.error("decision failed: %s", exc)
-            answer_text = f"Decision failed ({exc.status}); check worker logs."
+        answer_text = "This legacy callback cannot authorize an action. Use a new server-issued confirmation."
         if callback_id:
             self._api("answerCallbackQuery", {"callback_query_id": callback_id, "text": answer_text})
         message_id = (query.get("message") or {}).get("message_id")

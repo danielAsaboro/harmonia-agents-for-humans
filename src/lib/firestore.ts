@@ -34,6 +34,7 @@ import {
 import { chatScopeKey, retentionPlan, type ChatSurface } from "./chatHistory";
 import { currentTraceId } from "./telemetry";
 import { decideEffectClaim, decideEffectFinalization } from "./effectClaims";
+import { decideTelegramNonceClaim, telegramDigest, type TelegramWebhookRoute } from "./telegramWebhook";
 
 let client: Firestore | null = null;
 
@@ -432,6 +433,65 @@ export interface TelegramConnectionDoc {
   botToken: string;
   chatId: string;
   connectedAt: string;
+  routeTokenDigest: string;
+  webhookSecretDigest: string;
+  chatIdDigest: string;
+}
+
+export interface TelegramDecisionNonceDoc {
+  routeTokenDigest: string;
+  workspaceId: string;
+  brandId: string;
+  jobId: string;
+  actionId: string;
+  payloadDigest: string;
+  decision: "approved" | "rejected";
+  expiresAt: string;
+  state: "pending" | "processing" | "consumed";
+  claimedAt?: string;
+  decisionId?: string;
+}
+
+const TELEGRAM_WEBHOOK_ROUTES = "telegram_webhook_routes";
+const TELEGRAM_DECISION_NONCES = "telegram_decision_nonces";
+
+export async function getTelegramWebhookRoute(routeToken: string): Promise<TelegramWebhookRoute | null> {
+  const routeTokenDigest = telegramDigest(routeToken);
+  const snap = await db().collection(TELEGRAM_WEBHOOK_ROUTES).doc(routeTokenDigest).get();
+  return snap.exists ? (snap.data() as TelegramWebhookRoute) : null;
+}
+
+export async function claimTelegramDecisionNonce(
+  routeToken: string,
+  nonce: string,
+): Promise<{ duplicate: boolean; nonce: TelegramDecisionNonceDoc }> {
+  const routeTokenDigest = telegramDigest(routeToken);
+  const nonceId = telegramDigest(`${routeTokenDigest}:${nonce}`);
+  const ref = db().collection(TELEGRAM_DECISION_NONCES).doc(nonceId);
+  return db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error("Telegram decision nonce not found");
+    const value = snap.data() as TelegramDecisionNonceDoc;
+    if (value.routeTokenDigest !== routeTokenDigest) throw new Error("Telegram decision nonce route mismatch");
+    const decision = decideTelegramNonceClaim(value);
+    if (decision.outcome === "duplicate") return { duplicate: true, nonce: value };
+    const claimed = { ...value, state: "processing" as const, claimedAt: new Date().toISOString() };
+    tx.update(ref, claimed);
+    return { duplicate: false, nonce: claimed };
+  });
+}
+
+export async function finalizeTelegramDecisionNonce(
+  routeToken: string,
+  nonce: string,
+  decisionId: string,
+): Promise<void> {
+  const routeTokenDigest = telegramDigest(routeToken);
+  const nonceId = telegramDigest(`${routeTokenDigest}:${nonce}`);
+  await db().collection(TELEGRAM_DECISION_NONCES).doc(nonceId).update({
+    state: "consumed",
+    decisionId,
+  });
 }
 
 export async function getTelegramConnection(): Promise<TelegramConnectionDoc | null> {
@@ -440,11 +500,34 @@ export async function getTelegramConnection(): Promise<TelegramConnectionDoc | n
 }
 
 export async function saveTelegramConnection(connection: TelegramConnectionDoc): Promise<void> {
-  await tenantCollection(CONFIG).doc("telegram").set(connection);
+  const tenant = currentTenant();
+  const configRef = tenantCollection(CONFIG).doc("telegram");
+  const routeRef = db().collection(TELEGRAM_WEBHOOK_ROUTES).doc(connection.routeTokenDigest);
+  await db().runTransaction(async (tx) => {
+    const existing = await tx.get(configRef);
+    const existingRoute = existing.get("routeTokenDigest") as string | undefined;
+    if (existingRoute && existingRoute !== connection.routeTokenDigest) {
+      tx.delete(db().collection(TELEGRAM_WEBHOOK_ROUTES).doc(existingRoute));
+    }
+    tx.set(configRef, connection);
+    tx.set(routeRef, {
+      routeTokenDigest: connection.routeTokenDigest,
+      webhookSecretDigest: connection.webhookSecretDigest,
+      chatIdDigest: connection.chatIdDigest,
+      workspaceId: tenant.workspaceId,
+      brandId: tenant.brandId,
+    } satisfies TelegramWebhookRoute);
+  });
 }
 
 export async function deleteTelegramConnection(): Promise<void> {
-  await tenantCollection(CONFIG).doc("telegram").delete();
+  const configRef = tenantCollection(CONFIG).doc("telegram");
+  await db().runTransaction(async (tx) => {
+    const existing = await tx.get(configRef);
+    const routeTokenDigest = existing.get("routeTokenDigest") as string | undefined;
+    if (routeTokenDigest) tx.delete(db().collection(TELEGRAM_WEBHOOK_ROUTES).doc(routeTokenDigest));
+    tx.delete(configRef);
+  });
 }
 
 export interface AssetDoc {

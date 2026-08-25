@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   attachmentObjectName,
   metadataMatchesAttachment,
+  sniffAttachmentMime,
   validateAttachmentInput,
 } from "../src/lib/chatAttachments";
 
@@ -33,5 +34,11 @@ describe("chat attachment transport", () => {
     expect(metadataMatchesAttachment(attachment, { contentType: "video/mp4", size: "42" })).toBe(true);
     expect(metadataMatchesAttachment(attachment, { contentType: "video/mp4", size: "41" })).toBe(false);
     expect(metadataMatchesAttachment(attachment, { contentType: "text/plain", size: "42" })).toBe(false);
+  });
+
+  test("rejects declared media whose magic bytes identify another format", () => {
+    const png = Buffer.from("89504e470d0a1a0a00000000", "hex");
+    expect(sniffAttachmentMime(png)).toBe("image/png");
+    expect(() => sniffAttachmentMime(Buffer.from("MZ executable"))).toThrow("unrecognized attachment content");
   });
 });

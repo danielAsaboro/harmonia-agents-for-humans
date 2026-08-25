@@ -31,6 +31,7 @@ export interface JobConfig {
   /** Operator-supplied topic/brief for concept jobs that skip ingest+transcribe. */
   brief?: string;
   platforms: string[];
+  sourceRights?: import("./sourceRights").SourceRightsAuthorization;
 }
 
 export interface Job {

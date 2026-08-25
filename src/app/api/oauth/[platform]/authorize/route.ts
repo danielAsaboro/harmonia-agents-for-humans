@@ -23,6 +23,9 @@ async function get(
   const { platform } = await params;
   const def = getPlatform(platform);
   if (!def) return backToSettings("error", `unknown platform ${platform}`);
+  if (def.productAvailability !== "active") {
+    return backToSettings("error", `${def.label}: credential groundwork only; publishing is not implemented`);
+  }
 
   const status = platformStatus(def);
   if (status.status === "credentials_needed") {

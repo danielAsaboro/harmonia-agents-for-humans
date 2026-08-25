@@ -19,6 +19,7 @@ import type { PlannedAction, PostDraft, Stage } from "@/lib/types";
 import { requireReadyAttachments, type ChatAttachment } from "@/lib/chatAttachments";
 import { actionPayloadDigest } from "@/lib/idempotency";
 import { createPendingOperation, type PendingOperation } from "@/lib/pendingOperations";
+import { hasRightsAttestation, RIGHTS_ATTESTATION_PHRASE, sourceRightsAuthorization } from "@/lib/sourceRights";
 
 const chatSchema = z.object({
   message: z.string().min(1).max(2000),
@@ -279,11 +280,16 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
       const videoId = intent.youtubeUrl ? parseYouTubeUrl(intent.youtubeUrl) : null;
       const media = attachments.find((attachment) => attachment.category === "video" || attachment.category === "audio");
       if (media) {
+        if (!hasRightsAttestation(message)) return { payload: {
+          intent: intent.intent,
+          reply: `Before processing this upload, send the request again with: “${RIGHTS_ATTESTATION_PHRASE}”.`,
+        } satisfies ChatResponse };
         const job = await createJob({
           mediaAttachmentId: media.id,
           mediaFilename: media.filename,
           mediaMime: media.mime,
           mediaStorageUri: media.storageUri,
+          sourceRights: sourceRightsAuthorization(currentTenant(), "upload"),
           platforms: ["x"],
         }, "ingest");
         await appendEvent(job.id, "queued", `job created via ${surface} chat for uploaded ${media.category}`, "operator");
@@ -296,8 +302,12 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
         } satisfies ChatResponse };
       }
       if (videoId) {
+        if (!hasRightsAttestation(message)) return { payload: {
+          intent: intent.intent,
+          reply: `Before downloading or clipping this video, send the request again with: “${RIGHTS_ATTESTATION_PHRASE}”.`,
+        } satisfies ChatResponse };
         const job = await createJob(
-          { youtubeUrl: intent.youtubeUrl as string, platforms: ["x"] },
+          { youtubeUrl: intent.youtubeUrl as string, platforms: ["x"], sourceRights: sourceRightsAuthorization(currentTenant(), "youtube") },
           "ingest",
         );
         await appendEvent(job.id, "queued", `job created via ${surface} chat for video ${videoId}`, "operator");

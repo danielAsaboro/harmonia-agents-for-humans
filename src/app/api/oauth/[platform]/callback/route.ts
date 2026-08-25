@@ -26,6 +26,9 @@ export async function GET(
   const { platform } = await params;
   const def = getPlatform(platform);
   if (!def) return backToSettings(platform, "error", "unknown platform");
+  if (def.productAvailability !== "active") {
+    return backToSettings(platform, "error", "credential groundwork only; publishing is not implemented");
+  }
 
   const url = new URL(req.url);
   const error = url.searchParams.get("error_description") ?? url.searchParams.get("error");

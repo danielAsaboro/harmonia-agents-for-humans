@@ -223,6 +223,7 @@ interface ConnectionInfo {
   id: string;
   label: string;
   capabilities: string[];
+  productAvailability: "active" | "credential_groundwork";
   note: string;
   docsUrl: string;
   status: "connected" | "connectable" | "credentials_needed";
@@ -360,6 +361,10 @@ function ConnectionsSection() {
                       className="w-full rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
                     >
                       Disconnect
+                    </button>
+                  ) : c.productAvailability === "credential_groundwork" ? (
+                    <button disabled className="w-full cursor-not-allowed rounded-full border border-dashed border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-400 dark:border-zinc-800">
+                      Credential groundwork only
                     </button>
                   ) : c.status === "connectable" ? (
                     <button

@@ -24,6 +24,7 @@ export interface PlatformDef {
   /** Env vars that must be set for this platform to be connectable. */
   requiredEnv: string[];
   capabilities: PlatformCapability[];
+  productAvailability: "active" | "credential_groundwork";
   docsUrl: string;
   note: string;
   oauth: OAuthConfig;
@@ -35,6 +36,7 @@ export const PLATFORMS: PlatformDef[] = [
     label: "Google Calendar",
     requiredEnv: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
     capabilities: [],
+    productAvailability: "active",
     oauth: {
       authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
@@ -52,6 +54,7 @@ export const PLATFORMS: PlatformDef[] = [
     label: "X (Twitter)",
     requiredEnv: ["X_CLIENT_ID", "X_CLIENT_SECRET"],
     capabilities: ["publish", "verify", "metrics"],
+    productAvailability: "active",
     oauth: {
     authorizeUrl: "https://x.com/i/oauth2/authorize",
     tokenUrl: "https://api.x.com/2/oauth2/token",
@@ -67,7 +70,8 @@ export const PLATFORMS: PlatformDef[] = [
     id: "tiktok",
     label: "TikTok",
     requiredEnv: ["TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"],
-    capabilities: ["publish", "verify"],
+    capabilities: [],
+    productAvailability: "credential_groundwork",
     oauth: {
     authorizeUrl: "https://www.tiktok.com/v2/auth/authorize/",
     tokenUrl: "https://open.tiktokapis.com/v2/oauth/token/",
@@ -83,7 +87,8 @@ export const PLATFORMS: PlatformDef[] = [
     id: "instagram",
     label: "Instagram",
     requiredEnv: ["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"],
-    capabilities: ["publish", "verify"],
+    capabilities: [],
+    productAvailability: "credential_groundwork",
     oauth: {
     authorizeUrl: "https://www.facebook.com/v21.0/dialog/oauth",
     tokenUrl: "https://graph.facebook.com/v21.0/oauth/access_token",
@@ -99,7 +104,8 @@ export const PLATFORMS: PlatformDef[] = [
     id: "linkedin",
     label: "LinkedIn",
     requiredEnv: ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"],
-    capabilities: ["publish", "verify", "metrics"],
+    capabilities: [],
+    productAvailability: "credential_groundwork",
     oauth: {
     authorizeUrl: "https://www.linkedin.com/oauth/v2/authorization",
     tokenUrl: "https://www.linkedin.com/oauth/v2/accessToken",
@@ -115,7 +121,8 @@ export const PLATFORMS: PlatformDef[] = [
     id: "facebook",
     label: "Facebook Pages",
     requiredEnv: ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"],
-    capabilities: ["publish", "verify", "metrics"],
+    capabilities: [],
+    productAvailability: "credential_groundwork",
     oauth: {
     authorizeUrl: "https://www.facebook.com/v21.0/dialog/oauth",
     tokenUrl: "https://graph.facebook.com/v21.0/oauth/access_token",
@@ -131,7 +138,8 @@ export const PLATFORMS: PlatformDef[] = [
     id: "youtube",
     label: "YouTube",
     requiredEnv: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
-    capabilities: ["publish", "verify", "metrics"],
+    capabilities: [],
+    productAvailability: "credential_groundwork",
     oauth: {
     authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     tokenUrl: "https://oauth2.googleapis.com/token",

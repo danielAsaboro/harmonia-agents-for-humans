@@ -311,3 +311,54 @@ def test_paid_media_actions_are_deterministic_and_reference_reviewed_evidence_on
     assert actions[0]["payload"]["durationSec"] == 4
     assert actions[1]["payload"]["durationSec"] == 30
     assert all("requiresApproval" not in action for action in actions)
+
+
+def test_paid_media_releases_budget_when_state_lookup_fails_before_dispatch(monkeypatch):
+    action = {
+        "id": "veo-1", "type": "generate_veo_broll",
+        "payload": {"prompt": "city", "durationSec": 4, "aspectRatio": "9:16"},
+    }
+    job = {
+        "stage": "publish", "workspaceId": "w1", "brandId": "b1",
+        "createdByUserId": "u1", "actions": [action],
+    }
+    resolutions = []
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(action)])
+    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
+    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1})
+    monkeypatch.setattr(stages, "reserve_budget", lambda _payload: None)
+    monkeypatch.setattr(stages, "get_media_operation", lambda *_args: (_ for _ in ()).throw(RuntimeError("store down")))
+    monkeypatch.setattr(stages, "resolve_budget_reservation", resolutions.append)
+
+    with pytest.raises(RuntimeError, match="store down"):
+        asyncio.run(stages.run_publish("job-1"))
+
+    assert resolutions[0]["outcome"] == "not_invoked"
+
+
+def test_paid_media_quarantines_budget_when_provider_times_out(monkeypatch):
+    action = {
+        "id": "veo-1", "type": "generate_veo_broll",
+        "payload": {"prompt": "city", "durationSec": 4, "aspectRatio": "9:16"},
+    }
+    job = {
+        "stage": "publish", "workspaceId": "w1", "brandId": "b1",
+        "createdByUserId": "u1", "actions": [action],
+    }
+    resolutions = []
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(action)])
+    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
+    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1})
+    monkeypatch.setattr(stages, "reserve_budget", lambda _payload: None)
+    monkeypatch.setattr(stages, "get_media_operation", lambda *_args: None)
+    monkeypatch.setattr(stages, "get_asset", lambda *_args: None)
+    monkeypatch.setattr(stages, "GoogleMediaTransport", lambda **_kwargs: object())
+    monkeypatch.setattr(stages.VeoGenerator, "generate", lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("provider timeout")))
+    monkeypatch.setattr(stages, "resolve_budget_reservation", resolutions.append)
+
+    with pytest.raises(TimeoutError, match="provider timeout"):
+        asyncio.run(stages.run_publish("job-1"))
+
+    assert resolutions[0]["outcome"] == "uncertain"

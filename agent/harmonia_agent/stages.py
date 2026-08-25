@@ -70,6 +70,7 @@ from .web_client import (
     post as web_post,
     report_usage,
     reserve_budget,
+    resolve_budget_reservation,
     save_media_operation,
 )
 
@@ -463,6 +464,8 @@ async def run_publish(job_id: str) -> None:
             raise EffectClaimUncertain("a prior effect attempt has no final receipt")
         detail: dict[str, Any] = {"idempotencyKey": key}
         outcome, artifact = "failed", None
+        budget_operation_id: str | None = None
+        budget_dispatched = False
         try:
             if action["type"] == "export_content_pack":
                 pack = content.build_content_pack(
@@ -535,9 +538,11 @@ async def run_publish(job_id: str) -> None:
                         "estimatedCostUsd": cost,
                         "pricingVersion": "2026-08-23",
                     })
+                    budget_operation_id = invocation.operation_id
                     recorded = get_media_operation(job_id, action["id"])
                     existing_asset = get_asset(job_id, action["id"])
                     if recorded is not None and existing_asset is not None:
+                        budget_dispatched = True
                         report_usage(media_usage_record(
                             invocation=invocation,
                             role=role,
@@ -545,6 +550,7 @@ async def run_publish(job_id: str) -> None:
                             estimated_cost_usd=cost,
                             trace_id=current_trace_id(),
                         ).to_wire())
+                        budget_operation_id = None
                         outcome = "already_applied"
                         digest = str(existing_asset["digest"])
                         artifact = {
@@ -571,7 +577,9 @@ async def run_publish(job_id: str) -> None:
                     transport = GoogleMediaTransport(
                         project=cfg.gcp_project, location=cfg.vertex_media_location,
                     )
+                    budget_dispatched = recorded is not None
                     if action["type"] == "generate_veo_broll":
+                        budget_dispatched = True
                         generated = VeoGenerator(transport=transport).generate(
                             prompt=payload["prompt"],
                             duration_sec=int(payload["durationSec"]),
@@ -582,6 +590,7 @@ async def run_publish(job_id: str) -> None:
                             ),
                         )
                     else:
+                        budget_dispatched = True
                         generated = LyriaGenerator(transport=transport).generate(
                             prompt=payload["prompt"],
                             duration_sec=int(payload["durationSec"]),
@@ -600,6 +609,7 @@ async def run_publish(job_id: str) -> None:
                         estimated_cost_usd=generated.estimated_cost_usd,
                         trace_id=current_trace_id(),
                     ).to_wire())
+                    budget_operation_id = None
                     outcome = "applied"
                     artifact = {
                         "kind": "asset_store",
@@ -675,6 +685,18 @@ async def run_publish(job_id: str) -> None:
                     })
         except (x_client.XError, content.ImageGenError, ClipRenderError) as exc:
             outcome, detail["error"] = "failed", str(exc)
+        except Exception:
+            if budget_operation_id is not None:
+                resolve_budget_reservation({
+                    "jobId": job_id,
+                    "operationId": budget_operation_id,
+                    "outcome": "uncertain" if budget_dispatched else "not_invoked",
+                    "reason": (
+                        "paid media failed after provider dispatch"
+                        if budget_dispatched else "paid media failed before provider dispatch"
+                    ),
+                })
+            raise
 
         web_post("/api/internal/receipt", {
             "commandId": command["id"],

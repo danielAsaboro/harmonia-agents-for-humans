@@ -17,7 +17,7 @@ Harmonia has four distinct continuity layers. They are intentionally not interch
 | Layer | Scope | Retention | May authorize effects? |
 |---|---|---|---|
 | ADK invocation state | one managed call | discarded after validation | no |
-| Agent Engine session | `{workspace}:{user}:{job}` | deleted after invocation | no |
+| Agent Engine session | deterministic hash of `{workspace}:{user}:{job}:{operation}:{specialist}` | retained by Agent Engine for restart recovery under provider/deployment lifecycle policy | no |
 | dashboard chat | workspace + user + dashboard conversation | bounded to 300 messages | no |
 | Telegram chat | workspace + allow-listed chat + conversation | bounded to 300 messages | no |
 | Firestore job and audit records | workspace + brand + entity | deployment policy | yes, only through typed deterministic contracts |
@@ -51,5 +51,11 @@ Retrieval is bounded to five facts and formatted within a fixed character budget
 
 <Info>Firestore remains the recovery source after a crash or Pub/Sub redelivery. Memory Bank improves later judgment; it cannot reconstruct or overwrite workflow truth.</Info>
 
-See the exhaustive [state ownership and retention matrix](/state-ownership).
+Each cognitive operation derives a stable, non-content-bearing Agent Engine session ID. A restarted
+worker retrieves that exact session before continuing; concurrent creators converge on the same ID.
+The caller payload is copied only when the session is first created, and retrieved session objects are
+never mutated in process. This preserves managed event continuity for a single operation without
+allowing session state to authorize, replay, or advance the Firestore workflow. Durable stage leases
+still decide whether a crashed operation may continue or must be quarantined as uncertain.
 
+See the exhaustive [state ownership and retention matrix](/state-ownership).

@@ -8,7 +8,7 @@ Harmonia separates model context from operational truth. A model may receive a b
 | Store | Scope | Lifetime | Writers | Readers | Retention | Source of truth |
 |---|---|---|---|---|---|---|
 | Invocation state | one managed cognition call | until the call ends | web/worker seeds validated JSON; ADK `output_key` and event `state_delta` add handoffs | coordinator and selected specialists | discarded after validation | no; typed transport only |
-| Managed ADK session | namespaced `{workspace}:{user}:{job}` | one Agent Engine invocation | Agent Engine event lifecycle only | managed runner during that invocation | explicitly deleted after the result or failure | no; never workflow authority |
+| Managed ADK session | hashed workspace/user/job/operation/specialist | restart-resumable cognitive operation | Agent Engine event lifecycle only | managed runner for that operation | provider/deployment session lifecycle; job erasure remains Firestore/storage scoped | no; never workflow authority |
 | Firestore job | workspace + brand + job | workflow plus explicit retention policy | authenticated web internal routes and deterministic state machine | dashboard, worker, chat, evidence collector | terminal jobs receive a 90-day deletion deadline; holds block erasure | **yes** for stage, status, artifacts, budget, and failure |
 | Approval decisions | workspace + job + action | durable audit record | authenticated decision engine after explicit operator input | publish stage, UI, evidence collector | retained with the job/audit record | **yes** for human authority |
 | Receipts and verification | workspace + job + action/idempotency key | durable and replay-relevant | deterministic executor writes receipt; independent verifier writes verification | worker, UI, monitoring, evidence collector | retained through judging and deployment audit policy | **yes** for effects and observed outcome |
@@ -20,7 +20,7 @@ Harmonia separates model context from operational truth. A model may receive a b
 
 ## Write rules
 
-- Retrieved session objects are read-only. Harmonia copies serializable input into a new seed object, consumes only event `state_delta`, validates required output keys, and deletes the ephemeral session.
+- Retrieved session objects are read-only. Harmonia copies serializable input into a new seed object only on deterministic session creation, consumes only event `state_delta`, and validates required output keys. Firestore—not the managed session—governs recovery and authority.
 - Firestore mutations go through authenticated typed routes and deterministic transitions. Models cannot write approval, receipt, verification, credentials, or budget authority.
 - Chat summaries contain counts, time boundaries, and durable job/run identifiers only. They never contain transcripts, drafts, approval decisions, credentials, or generated claims.
 - Memory facts carry workspace, brand, job, evidence kind, and durable record ID. Cross-scope or legacy untyped memories fail visibly instead of entering prompts.

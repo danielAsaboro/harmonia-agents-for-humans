@@ -503,6 +503,10 @@ async def _run_coordinator(
                     specialist=specialist,
                     payload=payload.model_dump(mode="json"),
                     user_id=managed_user_id,
+                    session_key=(
+                        f"{invocation.operation_id}:{specialist}"
+                        if invocation else f"proactive:{specialist}"
+                    ),
                 )
             managed_trace_id = current_trace_id()
         _validate_run_output(specialist, payload, final_state)

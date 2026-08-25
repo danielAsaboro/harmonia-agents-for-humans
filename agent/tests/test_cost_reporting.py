@@ -75,6 +75,62 @@ def test_draft_run_reserves_and_reports_each_participating_role():
     assert next(iter(trace_ids)) != "0" * 32
 
 
+def test_team_releases_prior_reservations_when_reservation_fails_before_dispatch():
+    resolutions: list[dict] = []
+    calls = 0
+
+    def reserve(_payload):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("budget service unavailable")
+
+    with pytest.raises(RuntimeError, match="budget service unavailable"):
+        asyncio.run(_run_coordinator(
+            "flo_draft_workflow",
+            DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="direct"),
+            model=ScriptedDraftModel(model="gemini-3.5-flash"),
+            team_runtime=ManagedRuntime(),
+            invocation=InvocationContext(
+                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
+                job_id="job-1", stage="draft", operation_id="job-1:draft:0",
+            ),
+            budget_reserver=reserve,
+            budget_resolver=resolutions.append,
+        ))
+
+    assert len(resolutions) == 1
+    assert resolutions[0]["operationId"] == "job-1:draft:0:harmonia_coordinator"
+    assert resolutions[0]["outcome"] == "not_invoked"
+
+
+def test_team_quarantines_all_reservations_when_runtime_fails_after_dispatch():
+    class FailingRuntime:
+        async def invoke(self, **_kwargs):
+            raise TimeoutError("managed runtime timeout")
+
+    resolutions: list[dict] = []
+    with pytest.raises(TimeoutError, match="managed runtime timeout"):
+        asyncio.run(_run_coordinator(
+            "sophia_analyst",
+            AnalystInput(title="Demo", transcript="[0s] proof"),
+            model="gemini-3.5-flash",
+            team_runtime=FailingRuntime(),
+            invocation=InvocationContext(
+                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
+                job_id="job-1", stage="understand", operation_id="job-1:understand:0",
+            ),
+            budget_reserver=lambda _payload: None,
+            budget_resolver=resolutions.append,
+        ))
+
+    assert [item["operationId"] for item in resolutions] == [
+        "job-1:understand:0:harmonia_coordinator",
+        "job-1:understand:0:sophia_analyst",
+    ]
+    assert {item["outcome"] for item in resolutions} == {"uncertain"}
+
+
 def test_transcription_reserves_before_provider_and_reports_tokens(monkeypatch):
     order: list[str] = []
     reservations: list[dict] = []

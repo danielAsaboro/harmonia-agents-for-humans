@@ -53,7 +53,7 @@ from .usage import (
     endpoint_usage_record,
     estimate_request_tokens,
 )
-from .web_client import report_usage, reserve_budget
+from .web_client import report_usage, reserve_budget, resolve_budget_reservation
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -458,79 +458,98 @@ async def _run_coordinator(
     models: RoleModelInstances | None = None,
     invocation: InvocationContext | None = None,
     budget_reserver: Callable[[dict[str, object]], None] = reserve_budget,
+    budget_resolver: Callable[[dict[str, object]], None] = resolve_budget_reservation,
     usage_reporter: Callable[[dict[str, object]], None] = report_usage,
     team_runtime: TeamRuntime | None = None,
 ) -> dict[str, Any]:
     resolved = _resolve_role_models(model, models)
     roles = _SPECIALIST_ROLES[specialist]
     timeout_seconds = _enforce_role_eligibility(specialist, payload, resolved)
-    if invocation is not None:
-        for reservation in _reservation_payloads(
-            specialist, payload, invocation, resolved,
-        ):
-            budget_reserver(reservation)
-    managed_runtime = team_runtime or AgentEngineTeamRuntime(
-        resource_name=settings().agent_engine_resource,
-    )
-    if invocation is not None:
-        managed_user_id = invocation.agent_engine_user_id()
-    else:
-        tenant = current_tenant()
-        managed_user_id = f"{tenant.workspace_id}:system:proactive"
-    with tracer().start_as_current_span("harmonia.agent.invoke") as invoke_span:
-        invoke_span.set_attributes(safe_attributes({
-            "job.id": invocation.job_id if invocation else None,
-            "workspace.id": invocation.workspace_id if invocation else current_tenant().workspace_id,
-            "stage": invocation.stage if invocation else "proactive",
-            "agent": specialist,
-            "runtime": "agent_engine",
-        }))
-        invoke_span.add_event("harmonia.agent.delegate", safe_attributes({
-            "agent": specialist,
-            "runtime": "agent_engine",
-        }))
-        async with asyncio.timeout(timeout_seconds):
-            final_state = await managed_runtime.invoke(
-                specialist=specialist,
-                payload=payload.model_dump(mode="json"),
-                user_id=managed_user_id,
-            )
-        managed_trace_id = current_trace_id()
-    _validate_run_output(specialist, payload, final_state)
-    if invocation is not None:
-        serialized = payload.model_dump_json(exclude_none=True)
-        trace_id = managed_trace_id
-        for role in roles:
-            config = resolved.config_for(role)
-            model_id = _instance_model_id(resolved.model_for(role))
-            if config.provider == "vertex_endpoint":
-                record = endpoint_usage_record(
-                    invocation=invocation,
-                    role=role,
-                    model=model_id,
-                    elapsed_seconds=0,
-                    estimated_cost_usd=config.reservation_usd or "0.000001",
-                    trace_id=trace_id,
-                    model_policy=config.policy_snapshot(),
+    reserved: list[dict[str, object]] = []
+    dispatched = False
+    try:
+        if invocation is not None:
+            for reservation in _reservation_payloads(
+                specialist, payload, invocation, resolved,
+            ):
+                budget_reserver(reservation)
+                reserved.append(reservation)
+        managed_runtime = team_runtime or AgentEngineTeamRuntime(
+            resource_name=settings().agent_engine_resource,
+        )
+        if invocation is not None:
+            managed_user_id = invocation.agent_engine_user_id()
+        else:
+            tenant = current_tenant()
+            managed_user_id = f"{tenant.workspace_id}:system:proactive"
+        with tracer().start_as_current_span("harmonia.agent.invoke") as invoke_span:
+            invoke_span.set_attributes(safe_attributes({
+                "job.id": invocation.job_id if invocation else None,
+                "workspace.id": invocation.workspace_id if invocation else current_tenant().workspace_id,
+                "stage": invocation.stage if invocation else "proactive",
+                "agent": specialist,
+                "runtime": "agent_engine",
+            }))
+            invoke_span.add_event("harmonia.agent.delegate", safe_attributes({
+                "agent": specialist,
+                "runtime": "agent_engine",
+            }))
+            async with asyncio.timeout(timeout_seconds):
+                dispatched = True
+                final_state = await managed_runtime.invoke(
+                    specialist=specialist,
+                    payload=payload.model_dump(mode="json"),
+                    user_id=managed_user_id,
                 )
-            else:
-                estimated_input, estimated_output = estimate_request_tokens(
-                    serialized * (2 if role == "harmonia_coordinator" else 1),
-                    config.max_output_tokens,
-                )
-                accumulator = UsageAccumulator(
-                    job_id=invocation.job_id,
-                    operation_id=invocation.role_operation_id(role),
-                    stage=invocation.stage,
-                    role=role,
-                    model=model_id,
-                    model_policy=config.policy_snapshot(),
-                )
-                accumulator.input_tokens = estimated_input
-                accumulator.output_tokens = estimated_output
-                record = accumulator.finalize(trace_id=trace_id)
-            usage_reporter(record.to_wire())
-    return final_state
+            managed_trace_id = current_trace_id()
+        _validate_run_output(specialist, payload, final_state)
+        if invocation is not None:
+            serialized = payload.model_dump_json(exclude_none=True)
+            trace_id = managed_trace_id
+            for role in roles:
+                config = resolved.config_for(role)
+                model_id = _instance_model_id(resolved.model_for(role))
+                if config.provider == "vertex_endpoint":
+                    record = endpoint_usage_record(
+                        invocation=invocation,
+                        role=role,
+                        model=model_id,
+                        elapsed_seconds=0,
+                        estimated_cost_usd=config.reservation_usd or "0.000001",
+                        trace_id=trace_id,
+                        model_policy=config.policy_snapshot(),
+                    )
+                else:
+                    estimated_input, estimated_output = estimate_request_tokens(
+                        serialized * (2 if role == "harmonia_coordinator" else 1),
+                        config.max_output_tokens,
+                    )
+                    accumulator = UsageAccumulator(
+                        job_id=invocation.job_id,
+                        operation_id=invocation.role_operation_id(role),
+                        stage=invocation.stage,
+                        role=role,
+                        model=model_id,
+                        model_policy=config.policy_snapshot(),
+                    )
+                    accumulator.input_tokens = estimated_input
+                    accumulator.output_tokens = estimated_output
+                    record = accumulator.finalize(trace_id=trace_id)
+                usage_reporter(record.to_wire())
+        return final_state
+    except Exception:  # noqa: BLE001 - preserve original runtime/provider failure
+        if invocation is not None:
+            for reservation in reserved:
+                budget_resolver({
+                    "jobId": invocation.job_id,
+                    "operationId": reservation["operationId"],
+                    "outcome": "uncertain" if dispatched else "not_invoked",
+                    "reason": (
+                        "agent team failed after managed runtime dispatch"
+                        if dispatched else "agent team failed before managed runtime dispatch"
+                    ),
+                })
+        raise
 
 
 async def analyze_with_team(

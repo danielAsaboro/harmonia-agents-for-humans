@@ -1,4 +1,4 @@
-"""Attach authorized media references to Sophia's model request."""
+"""Attach authorized media references to Nimi's model request."""
 
 from __future__ import annotations
 

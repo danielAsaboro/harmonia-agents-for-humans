@@ -11,8 +11,6 @@ import asyncio
 import base64
 import json
 import logging
-import os
-import threading
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -25,7 +23,6 @@ from .ask_api import router as ask_router
 from .stages import HANDLERS, dispatch
 from .telemetry import configure_telemetry, extract_context
 from .tenant_context import tenant_scope
-from .resident_loops import resident_loops_enabled
 from .durable_tick import run_durable_tick
 
 configure_telemetry()
@@ -43,36 +40,6 @@ if settings().telemetry_enabled:
 
     FastAPIInstrumentor.instrument_app(app)
     HTTPXClientInstrumentor().instrument()
-
-
-def _start_telegram_if_configured() -> None:
-    from . import telegram_bot
-
-    try:
-        telegram_bot.start_background()
-    except Exception:  # noqa: BLE001 - misconfiguration must be visible, not silent
-        logger.exception("telegram bot failed to start")
-
-
-def _start_scheduler() -> None:
-    from . import scheduler
-
-    scheduler.start_background()
-
-
-def _start_proactive_agent() -> None:
-    from . import proactive
-
-    proactive.start_background()
-
-
-if resident_loops_enabled(os.environ):
-    logger.warning("development-only resident loops are enabled")
-    _start_telegram_if_configured()
-    _start_scheduler()
-    _start_proactive_agent()
-else:
-    logger.info("resident loops disabled; durable external triggers are required")
 
 
 @app.get("/healthz")

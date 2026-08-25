@@ -7,8 +7,8 @@ Harmonia uses Google ADK for bounded judgment inside a deterministic asynchronou
 
 <CardGroup cols={3}>
   <Card title="Harmonia" icon="route">Routes one bounded task to the appropriate specialist.</Card>
-  <Card title="Ryan & Sophia" icon="magnifying-glass-chart">Produce grounded strategy and multimodal analysis.</Card>
-  <Card title="Flo" icon="people-arrows">Runs Nimi → Dara → Temi in a fixed sequential workflow.</Card>
+  <Card title="Nimi & Ryan" icon="magnifying-glass-chart">Produce grounded analysis, strategy, and content plans.</Card>
+  <Card title="Flo" icon="people-arrows">Runs Temi planning followed by the bounded Noni ↔ Dara production loop.</Card>
 </CardGroup>
 
 ## Team topology
@@ -17,25 +17,26 @@ Harmonia uses Google ADK for bounded judgment inside a deterministic asynchronou
 flowchart LR
   W[Deterministic worker] --> H[Harmonia coordinator]
   H --> R[Ryan strategist]
-  H --> S[Sophia analyst]
+  H --> S[Nimi analyst]
   H --> F[Flo sequential workflow]
-  F --> N[Nimi copywriter]
+  F --> T[Temi editorial planner]
+  T --> N[Noni copywriter]
   N --> D[Dara editor]
-  D --> T[Temi planner]
+  D --> N
   W --> M[Maya presenter]
   W --> V[Nova liaison]
-  T --> P[Typed action proposals]
+  D --> P[Reviewed drafts]
   P --> G[Deterministic policy + human gate]
 ```
 
 | Role | Responsibility | Allowed context | Prohibited authority |
 |---|---|---|---|
 | Harmonia | exact specialist routing | typed invocation state | answer the specialist task, approve, publish |
-| Ryan | strategy and signal synthesis | supplied brief, signals, eligible memory | invent evidence, mutate state, publish |
-| Sophia | transcript and video understanding | bounded source media, timed transcript | invent quotes or frames, approve, publish |
-| Nimi | platform-native drafting | validated analysis and strategy | create facts, approve, publish |
-| Dara | one constraint-preserving revision | Nimi drafts and source references | replace evidence or create new authority |
-| Temi | deterministic-shape action planning | Dara-reviewed drafts | approve or execute proposed actions |
+| Nimi | transcript, video, and performance analysis | bounded source media and verified evidence | invent evidence, define strategy, approve, publish |
+| Ryan | strategy and content planning | Nimi analysis, goals, and brand contract | write final copy, alter approval, publish |
+| Temi | editorial calendar planning | Ryan strategy and grounded references | write final copy, approve, schedule externally, publish |
+| Noni | platform-native writing and revision | Temi plan plus Ryan/Nimi references | create facts, approve, publish |
+| Dara | bounded constraint-preserving review | Noni drafts and immutable references | replace evidence or create authority |
 | Maya | A2UI layout selection | typed entity references and UI context | emit executable UI or mutate records |
 | Nova | read-only operational answers | allow-listed tools and skills | write Firestore, retry jobs, approve, publish |
 
@@ -64,4 +65,3 @@ Nova loads a skill before calling its associated tools. Every skill constrains t
 | `job-status` | answer scoped operational status questions | job status |
 
 See [Agent tool contracts](/tool-contracts) for the exact envelope and permission model.
-

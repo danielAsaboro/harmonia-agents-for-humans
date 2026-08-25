@@ -7,8 +7,8 @@ describe("Harmonia architecture dataset", () => {
   it("contains the exact agent and model team", () => {
     expect(byId("agent-harmonia").model?.name).toBe("Gemini 3.5 Flash-Lite");
     expect(byId("agent-ryan").model?.name).toBe("Gemini 3.5 Flash");
-    expect(byId("agent-sophia").model?.name).toBe("Gemini 3.5 Flash");
-    expect(byId("agent-nimi").model?.name).toBe("Gemma 3 12B IT");
+    expect(byId("agent-nimi").model?.name).toBe("Gemini 3.5 Flash");
+    expect(byId("agent-noni").model?.name).toBe("Gemma 3 12B IT");
     expect(byId("agent-dara").model?.name).toBe("Gemini 3.5 Flash");
     expect(byId("agent-temi").model?.name).toBe("Gemini 3.5 Flash-Lite");
     expect(byId("agent-maya").model?.name).toBe("Gemini 3.5 Flash");

@@ -52,7 +52,7 @@ def test_draft_run_reserves_and_reports_each_participating_role():
     payload = DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="voice: direct")
 
     asyncio.run(_run_coordinator(
-        "flo_draft_workflow",
+        "flo_content_engine",
         payload,
         model=model,
         team_runtime=ManagedRuntime(),
@@ -65,10 +65,10 @@ def test_draft_run_reserves_and_reports_each_participating_role():
     ))
 
     assert [item["role"] for item in reservations] == [
-        "harmonia_coordinator", "nimi_copywriter", "dara_editor", "temi_planner",
+        "harmonia_coordinator", "temi_editorial_planner", "noni_copywriter", "dara_editor",
     ]
     assert [item["role"] for item in reports] == [
-        "harmonia_coordinator", "nimi_copywriter", "dara_editor", "temi_planner",
+        "harmonia_coordinator", "temi_editorial_planner", "noni_copywriter", "dara_editor",
     ]
     trace_ids = {item["traceId"] for item in reports}
     assert len(trace_ids) == 1
@@ -87,7 +87,7 @@ def test_team_releases_prior_reservations_when_reservation_fails_before_dispatch
 
     with pytest.raises(RuntimeError, match="budget service unavailable"):
         asyncio.run(_run_coordinator(
-            "flo_draft_workflow",
+            "flo_content_engine",
             DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="direct"),
             model=ScriptedDraftModel(model="gemini-3.5-flash"),
             team_runtime=ManagedRuntime(),
@@ -112,7 +112,7 @@ def test_team_quarantines_all_reservations_when_runtime_fails_after_dispatch():
     resolutions: list[dict] = []
     with pytest.raises(TimeoutError, match="managed runtime timeout"):
         asyncio.run(_run_coordinator(
-            "sophia_analyst",
+            "nimi_analyst",
             AnalystInput(title="Demo", transcript="[0s] proof"),
             model="gemini-3.5-flash",
             team_runtime=FailingRuntime(),
@@ -126,7 +126,7 @@ def test_team_quarantines_all_reservations_when_runtime_fails_after_dispatch():
 
     assert [item["operationId"] for item in resolutions] == [
         "job-1:understand:0:harmonia_coordinator",
-        "job-1:understand:0:sophia_analyst",
+        "job-1:understand:0:nimi_analyst",
     ]
     assert {item["outcome"] for item in resolutions} == {"uncertain"}
 
@@ -301,7 +301,7 @@ def test_agent_trace_has_safe_delegation_model_and_validation_spans():
     )
 
     asyncio.run(_run_coordinator(
-        "flo_draft_workflow",
+        "flo_content_engine",
         payload,
         model=ScriptedDraftModel(model="gemini-3.5-flash"),
         team_runtime=ManagedRuntime(),
@@ -352,8 +352,8 @@ def test_heterogeneous_draft_usage_keeps_each_actual_role_model():
         presenter=ScriptedDraftModel(model="gemini-3.5-flash"),
         liaison=ScriptedDraftModel(model="gemini-3.5-flash"),
         configs={
-            "nimi_copywriter": RoleModelConfig(
-                role="nimi_copywriter",
+            "noni_copywriter": RoleModelConfig(
+                role="noni_copywriter",
                 provider="vertex_endpoint",
                 model_id="gemma-3-12b-it",
                 endpoint="projects/p/locations/us-central1/endpoints/1",
@@ -364,7 +364,7 @@ def test_heterogeneous_draft_usage_keeps_each_actual_role_model():
     )
 
     asyncio.run(_run_coordinator(
-        "flo_draft_workflow",
+        "flo_content_engine",
         DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="voice: direct"),
         models=models,
         team_runtime=ManagedRuntime(),
@@ -378,13 +378,13 @@ def test_heterogeneous_draft_usage_keeps_each_actual_role_model():
 
     expected = {
         "harmonia_coordinator": "gemini-3.5-flash-lite",
-        "nimi_copywriter": "gemma-3-12b-it",
+        "noni_copywriter": "gemma-3-12b-it",
         "dara_editor": "gemini-3.5-flash",
-        "temi_planner": "gemini-3.5-flash-lite",
+        "temi_editorial_planner": "gemini-3.5-flash-lite",
     }
     assert {item["role"]: item["model"] for item in reservations} == expected
     assert {item["role"]: item["model"] for item in reports} == expected
-    gemma_usage = next(item for item in reports if item["role"] == "nimi_copywriter")
+    gemma_usage = next(item for item in reports if item["role"] == "noni_copywriter")
     assert gemma_usage["unitType"] == "endpoint_seconds"
     assert gemma_usage["estimatedCostUsd"] == "0.100000"
 
@@ -396,7 +396,7 @@ def test_multimodal_source_uri_is_not_exported_in_trace_content():
 
     with tenant_scope("workspace-test", "brand-test"):
         asyncio.run(_run_coordinator(
-            "sophia_analyst",
+            "nimi_analyst",
             AnalystInput(
                 title="Demo",
                 transcript="[0s] hello",
@@ -433,7 +433,7 @@ def test_managed_runtime_finalizes_explicit_estimated_usage_for_every_reserved_r
     reservations: list[dict] = []
     reports: list[dict] = []
     asyncio.run(_run_coordinator(
-        "sophia_analyst",
+        "nimi_analyst",
         AnalystInput(title="Demo", transcript="[0s] proof"),
         model="gemini-3.5-flash",
         invocation=InvocationContext(
@@ -446,7 +446,7 @@ def test_managed_runtime_finalizes_explicit_estimated_usage_for_every_reserved_r
     ))
 
     assert [item["role"] for item in reports] == [
-        "harmonia_coordinator", "sophia_analyst",
+        "harmonia_coordinator", "nimi_analyst",
     ]
     assert all(item["unitType"] == "tokens" for item in reports)
     assert all(item.get("observedCostUsd") is None for item in reports)

@@ -12,7 +12,7 @@ describe("architecture projection", () => {
   });
 
   it("searches names, models, routes, tools, and skills and reveals ancestors", () => {
-    expect(searchArchitecture(architectureDefinition, "Gemma 3")).toContain("agent-nimi");
+    expect(searchArchitecture(architectureDefinition, "Gemma 3")).toContain("agent-noni");
     expect(searchArchitecture(architectureDefinition, "/api/chat/stream")).toContain("api-chat");
     const projection = projectArchitecture(architectureDefinition, { ...createDefaultExplorerState(architectureDefinition), expanded: [], query: "suggest_posting_windows" });
     expect(projection.nodes.some((node) => node.id === "tool-suggest-posting-windows")).toBe(true);

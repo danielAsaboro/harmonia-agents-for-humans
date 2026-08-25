@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
-from google.adk.agents import Agent, SequentialAgent
+from google.adk.agents import Agent, LoopAgent, SequentialAgent
 from google.adk.models.base_llm import BaseLlm
 from google.adk.tools.agent_tool import AgentTool
 from pydantic import BaseModel, ValidationError
@@ -21,6 +21,7 @@ from .agent_models import (
     DraftSet,
     DraftWorkflowInput,
     DraftWorkflowResult,
+    EditorialPlan,
     LiaisonInput,
     StrategistInput,
     StrategistResult,
@@ -37,7 +38,6 @@ from .mock_ai import (
     mock_ask,
     mock_drafts,
     mock_ideate,
-    mock_plan_actions,
     mock_propose_gap_fillers,
     mock_propose_ideas,
     mock_propose_recycle,
@@ -61,21 +61,21 @@ logger = logging.getLogger("harmonia.agents")
 T = TypeVar("T", bound=BaseModel)
 
 _SPECIALIST_ROLES = {
-    "sophia_analyst": ("harmonia_coordinator", "sophia_analyst"),
+    "nimi_analyst": ("harmonia_coordinator", "nimi_analyst"),
     "ryan_strategist": ("harmonia_coordinator", "ryan_strategist"),
-    "flo_draft_workflow": (
-        "harmonia_coordinator", "nimi_copywriter", "dara_editor", "temi_planner",
+    "flo_content_engine": (
+        "harmonia_coordinator", "temi_editorial_planner", "noni_copywriter", "dara_editor",
     ),
     "maya_presenter": ("harmonia_coordinator", "maya_presenter"),
     "nova_liaison": ("harmonia_coordinator", "nova_liaison"),
 }
 _MAX_OUTPUT_TOKENS = {
     "harmonia_coordinator": 1024,
-    "sophia_analyst": 2048,
+    "nimi_analyst": 2048,
     "ryan_strategist": 2048,
-    "nimi_copywriter": 2048,
+    "noni_copywriter": 2048,
     "dara_editor": 2048,
-    "temi_planner": 1024,
+    "temi_editorial_planner": 1024,
     "maya_presenter": 2048,
     "nova_liaison": 2048,
 }
@@ -101,10 +101,10 @@ class RoleModelInstances:
         mapping = {
             "harmonia_coordinator": self.coordinator,
             "ryan_strategist": self.strategist,
-            "sophia_analyst": self.analyst,
-            "nimi_copywriter": self.copywriter,
+            "nimi_analyst": self.analyst,
+            "noni_copywriter": self.copywriter,
             "dara_editor": self.editor,
-            "temi_planner": self.planner,
+            "temi_editorial_planner": self.planner,
             "maya_presenter": self.presenter,
             "nova_liaison": self.liaison,
         }
@@ -214,12 +214,12 @@ def _role_task(role: str, specialist: str, payload: BaseModel) -> str:
         return "route"
     if role == "ryan_strategist":
         return str(getattr(payload, "task"))
-    if role == "sophia_analyst":
+    if role == "nimi_analyst":
         return "analyze_media" if getattr(payload, "media_evidence", None) else "analyze_transcript"
     return {
-        "nimi_copywriter": "draft_x",
+        "noni_copywriter": "draft_or_revise_x",
         "dara_editor": "review_drafts",
-        "temi_planner": "plan_publish_proposals",
+        "temi_editorial_planner": "plan_editorial_calendar",
         "maya_presenter": "compose_surface",
         "nova_liaison": "answer_status",
     }[role]
@@ -254,8 +254,9 @@ def build_agent_team(
             "past learnings, and proven posts."
         ),
         instruction=(
-            "Complete exactly the requested strategy task. For task=brief, return analysis with "
-            "a summary, 3-6 key-point moments using zero timestamps, and trend/meme angles. For "
+            "Complete exactly the requested strategy task. For task=brief, return analysis plus a "
+            "ContentStrategy with objective, audience, pillars, cadence, KPIs, and grounded briefs. "
+            "The analysis must contain a summary, 3-6 key-point moments using zero timestamps, and trend/meme angles. For "
             "other tasks return 1-3 timely ideas grounded only in the supplied evidence. Return "
             "only the StrategistResult JSON contract."
         ),
@@ -266,8 +267,8 @@ def build_agent_team(
     )
     analyst = Agent(
         model=resolved.analyst,
-        generate_content_config=generation_config(resolved.config_for("sophia_analyst")),
-        name="sophia_analyst",
+        generate_content_config=generation_config(resolved.config_for("nimi_analyst")),
+        name="nimi_analyst",
         description="Finds clip-worthy moments and defensible trend or meme angles in a transcript.",
         instruction=(
             "Analyze only the supplied video/audio parts, metadata, transcript, and learnings. "
@@ -303,11 +304,13 @@ def build_agent_team(
     )
     copywriter = Agent(
         model=resolved.copywriter,
-        generate_content_config=generation_config(resolved.config_for("nimi_copywriter")),
-        name="nimi_copywriter",
+        generate_content_config=generation_config(resolved.config_for("noni_copywriter")),
+        name="noni_copywriter",
         description="Writes platform-native X drafts grounded in supplied moments and angles.",
         instruction=(
-            "Write up to 10 punchy X posts for a startup audience. Every draft must be at most 280 "
+            "Use {editorial_plan} to write up to 10 punchy X posts for a startup audience. "
+            "Previously reviewed drafts, when this is a later loop pass, are {reviewed_drafts?}. "
+            "Revise only what needs improvement. Every draft must be at most 280 "
             "characters and may reference only a supplied momentId or angleId. Preserve useful "
             "brand context. Return only the DraftSet JSON contract."
         ),
@@ -319,10 +322,10 @@ def build_agent_team(
         model=resolved.editor,
         generate_content_config=generation_config(resolved.config_for("dara_editor")),
         name="dara_editor",
-        description="Performs one editorial revision pass against brand voice and source grounding.",
+        description="Reviews each Noni draft against brand voice, strategy, and source grounding.",
         instruction=(
-            "Edit {copywriter_drafts} against the analysis and brand context already in session "
-            "state. Return the final DraftSet after one revision pass. You may revise or omit drafts, "
+            "Review and edit {copywriter_drafts} against {editorial_plan}, the analysis, and brand context in session "
+            "state. Return the reviewed DraftSet. You may revise or omit drafts, "
             "but must preserve each retained draft id, platform, momentId, and angleId. Never add a "
             "new draft. Keep every text at most 280 characters."
         ),
@@ -331,21 +334,29 @@ def build_agent_team(
     )
     planner = Agent(
         model=resolved.planner,
-        generate_content_config=generation_config(resolved.config_for("temi_planner")),
-        name="temi_planner",
-        description="Selects reviewed X drafts for operator-approved publishing actions.",
+        generate_content_config=generation_config(resolved.config_for("temi_editorial_planner")),
+        name="temi_editorial_planner",
+        description="Converts Ryan's strategy evidence into an executable editorial calendar plan.",
         instruction=(
-            "Read {reviewed_drafts}. Propose publish_x_post actions only for exact reviewed draft "
-            "text. Do not create, revise, delete, approve, or publish content. Return only the "
-            "ActionPlan JSON contract."
+            "Create an editorial plan from the supplied strategy, analysis, and brand context. For each item, "
+            "choose an objective, one supplied momentId or angleId as sourceRef, X as platform, "
+            "text_post as format, and a priority from 1 to 5. Do not write copy, approve, schedule "
+            "externally, or publish. Return only the EditorialPlan JSON contract."
         ),
-        output_schema=ActionPlan,
-        output_key="action_plan",
+        input_schema=DraftWorkflowInput,
+        output_schema=EditorialPlan,
+        output_key="editorial_plan",
+    )
+    revision_loop = LoopAgent(
+        name="noni_dara_revision_loop",
+        description="Runs at most two bounded Noni writing and Dara review passes.",
+        sub_agents=[copywriter, editor],
+        max_iterations=2,
     )
     draft_workflow = SequentialAgent(
-        name="flo_draft_workflow",
-        description="Runs copywriting, one editor revision, then safe action planning in fixed order.",
-        sub_agents=[copywriter, editor, planner],
+        name="flo_content_engine",
+        description="Turns strategy evidence into an editorial plan and bounded reviewed content.",
+        sub_agents=[planner, revision_loop],
     )
     from .skills_runtime import build_insight_skillset
 
@@ -378,8 +389,8 @@ def build_agent_team(
         description="Routes Harmonia judgment tasks to typed specialists; never performs external effects.",
         instruction=(
             "Delegate exactly once to the specialist named in the user's task instruction. Use "
-            "ryan_strategist for strategy, sophia_analyst for transcript analysis, "
-            "flo_draft_workflow for the ordered draft-edit-plan workflow, maya_presenter "
+            "nimi_analyst for evidence analysis, ryan_strategist for strategy and content plans, "
+            "flo_content_engine for Temi planning plus the bounded Noni-Dara revision loop, maya_presenter "
             "for a reference-only A2UI surface plan, and nova_liaison for free-form operator "
             "questions. Never answer the task yourself and never call "
             "publishing or approval systems."
@@ -404,6 +415,11 @@ def _validated_state(state: dict[str, Any], key: str, schema: type[T]) -> T:
             raise AgentProtocolError(f"invalid agent output for {key}: {exc}") from exc
 
 
+def _deterministic_action_plan(reviewed: DraftSet) -> ActionPlan:
+    """Create proposals from exact reviewed text; models never choose effect payloads."""
+    return ActionPlan(actions=[{"type": "publish_x_post", "text": draft.text} for draft in reviewed.drafts])
+
+
 def _validate_run_output(
     specialist: str, payload: BaseModel, state: dict[str, Any],
 ) -> None:
@@ -415,7 +431,7 @@ def _validate_run_output(
         if not isinstance(answer, str) or not answer.strip():
             raise AgentProtocolError("liaison returned no answer text")
         return
-    if specialist == "sophia_analyst":
+    if specialist == "nimi_analyst":
         result = _validated_state(state, "analysis_result", AnalysisResult)
         analyst_input = AnalystInput.model_validate(payload)
         valid_visual_ids = {
@@ -442,14 +458,28 @@ def _validate_run_output(
         _validate_strategy_result(StrategistInput.model_validate(payload), result)
         return
     try:
+        editorial_plan = _validated_state(state, "editorial_plan", EditorialPlan)
         copywriter = _validated_state(state, "copywriter_drafts", DraftSet)
         reviewed = _validated_state(state, "reviewed_drafts", DraftSet)
-        plan = _validated_state(state, "action_plan", ActionPlan)
+        plan = _deterministic_action_plan(reviewed)
         draft_input = DraftWorkflowInput.model_validate(payload)
+        valid_source_refs = {
+            item.id
+            for item in [*draft_input.analysis.moments, *draft_input.analysis.angles]
+        }
+        invalid_source_refs = {
+            item.sourceRef for item in editorial_plan.items
+            if item.sourceRef not in valid_source_refs
+        }
+        if invalid_source_refs:
+            raise AgentProtocolError(
+                f"unknown editorial sourceRef: {sorted(invalid_source_refs)}"
+            )
         validate_draft_references(copywriter, draft_input.analysis)
         validate_draft_references(reviewed, draft_input.analysis)
         DraftWorkflowResult(
-            copywriter_drafts=copywriter, reviewed_drafts=reviewed, action_plan=plan,
+            editorial_plan=editorial_plan, copywriter_drafts=copywriter,
+            reviewed_drafts=reviewed, action_plan=plan,
         )
     except AgentProtocolError:
         raise
@@ -581,10 +611,10 @@ async def analyze_with_team(
             "prior_learnings": _merge_memory(input.prior_learnings, facts),
         })
     if mock_ai_enabled():
-        print("[MOCK-AI] coordinator -> sophia_analyst", flush=True)
+        print("[MOCK-AI] coordinator -> nimi_analyst", flush=True)
         raw = mock_analyze(input.title, input.channel, input.transcript, input.prior_learnings)
         return AnalysisResult.model_validate({k: v for k, v in raw.items() if k != "mock"})
-    state = await _run_coordinator("sophia_analyst", input, invocation=invocation)
+    state = await _run_coordinator("nimi_analyst", input, invocation=invocation)
     return _validated_state(state, "analysis_result", AnalysisResult)
 
 
@@ -592,8 +622,8 @@ def _validate_strategy_result(
     input: StrategistInput,
     result: StrategistResult,
 ) -> StrategistResult:
-    if input.task == "brief" and result.analysis is None:
-        raise AgentProtocolError("strategist brief task must return analysis")
+    if input.task == "brief" and (result.analysis is None or result.strategy is None):
+        raise AgentProtocolError("strategist brief task must return analysis and strategy")
     if input.task != "brief" and not result.ideas:
         raise AgentProtocolError(f"strategist {input.task} task must return ideas")
     return result
@@ -653,7 +683,9 @@ async def strategize_with_team(
         print("[MOCK-AI] coordinator -> ryan_strategist", flush=True)
         if input.task == "brief":
             raw = mock_ideate(input.brief, input.prior_learnings)
-            result = {"analysis": {k: v for k, v in raw.items() if k != "mock"}}
+            analysis = {k: v for k, v in raw.items() if k != "mock"}
+            refs = [item["id"] for item in analysis.get("moments", [])[:3]] or [item["id"] for item in analysis.get("angles", [])[:3]]
+            result = {"analysis": analysis, "strategy": {"objective": "Turn grounded startup lessons into useful social content", "audience": "startup operators and founders", "pillars": ["product lessons", "operational proof"], "cadence": "publish only operator-approved calendar items", "kpis": ["verified engagement", "approved-output yield"], "briefs": [{"title": "Grounded startup lesson", "objective": "Teach one defensible lesson", "sourceRefs": refs}]}}
         elif input.task == "trend_scan":
             result = mock_propose_ideas(input.signals)
         elif input.task == "calendar_gap":
@@ -678,31 +710,36 @@ async def draft_with_team(
             "brand_context": _merge_memory(input.brand_context, facts),
         })
     if mock_ai_enabled():
-        print("[MOCK-AI] coordinator -> nimi_copywriter", flush=True)
+        source = input.analysis.moments[0].id if input.analysis.moments else input.analysis.angles[0].id
+        editorial_plan = EditorialPlan.model_validate({
+            "strategySummary": input.analysis.summary,
+            "items": [{"id": "calendar-1", "platform": "x", "objective": "Share one grounded startup insight", "sourceRef": source, "format": "text_post", "priority": 1}],
+        })
+        print("[MOCK-AI] coordinator -> temi_editorial_planner", flush=True)
+        print("[MOCK-AI] coordinator -> noni_copywriter", flush=True)
         copywriter = DraftSet.model_validate({"drafts": mock_drafts(
             input.title, input.analysis.model_dump(mode="json"),
         )})
         validate_draft_references(copywriter, input.analysis)
         print("[MOCK-AI] coordinator -> dara_editor", flush=True)
         reviewed = DraftSet.model_validate(copywriter.model_dump(mode="json"))
-        print("[MOCK-AI] coordinator -> temi_planner", flush=True)
-        raw_plan = mock_plan_actions(reviewed.model_dump(mode="json")["drafts"])
-        plan = ActionPlan.model_validate({
-            "actions": [a for a in raw_plan["actions"] if a.get("type") == "publish_x_post"],
-        })
+        plan = _deterministic_action_plan(reviewed)
         return DraftWorkflowResult(
-            copywriter_drafts=copywriter, reviewed_drafts=reviewed, action_plan=plan,
+            editorial_plan=editorial_plan, copywriter_drafts=copywriter,
+            reviewed_drafts=reviewed, action_plan=plan,
         )
 
-    state = await _run_coordinator("flo_draft_workflow", input, invocation=invocation)
+    state = await _run_coordinator("flo_content_engine", input, invocation=invocation)
+    editorial_plan = _validated_state(state, "editorial_plan", EditorialPlan)
     copywriter = _validated_state(state, "copywriter_drafts", DraftSet)
     reviewed = _validated_state(state, "reviewed_drafts", DraftSet)
-    plan = _validated_state(state, "action_plan", ActionPlan)
+    plan = _deterministic_action_plan(reviewed)
     try:
         validate_draft_references(copywriter, input.analysis)
         validate_draft_references(reviewed, input.analysis)
         return DraftWorkflowResult(
-            copywriter_drafts=copywriter, reviewed_drafts=reviewed, action_plan=plan,
+            editorial_plan=editorial_plan, copywriter_drafts=copywriter,
+            reviewed_drafts=reviewed, action_plan=plan,
         )
     except (ValidationError, ValueError) as exc:
         raise AgentProtocolError(f"invalid draft workflow result: {exc}") from exc

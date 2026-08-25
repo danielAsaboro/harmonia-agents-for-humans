@@ -141,22 +141,22 @@ def _copywriter() -> RoleModelConfig:
     provider = os.environ.get("COPYWRITER_PROVIDER", "vertex_endpoint")
     if provider == "gemini":
         return RoleModelConfig(
-            role="nimi_copywriter",
+            role="noni_copywriter",
             provider="gemini",
             model_id=os.environ.get("COPYWRITER_MODEL_ID", "gemini-3.5-flash"),
             max_output_tokens=2048,
             generation=_policy(0.8),
-            eligible_tasks=("draft_x",),
+            eligible_tasks=("draft_or_revise_x",),
         )
     if provider != "vertex_endpoint":
         raise ValueError("COPYWRITER_PROVIDER must be gemini or vertex_endpoint")
     return RoleModelConfig(
-        role="nimi_copywriter",
+        role="noni_copywriter",
         provider="vertex_endpoint",
         model_id=os.environ.get("COPYWRITER_MODEL_ID", "gemma-3-12b-it"),
         max_output_tokens=2048,
         generation=_policy(0.8),
-        eligible_tasks=("draft_x",),
+        eligible_tasks=("draft_or_revise_x",),
         reservation_usd=os.environ.get("GEMMA_MAX_COST_USD", "0.100000"),
         endpoint=os.environ.get("GEMMA_VERTEX_ENDPOINT") or None,
     )
@@ -173,7 +173,7 @@ def load_role_model_catalog() -> RoleModelCatalog:
             ("brief", "trend_scan", "calendar_gap", "recycle"),
         ),
         analyst=_gemini(
-            "sophia_analyst", "ANALYST_MODEL_ID", "gemini-3.5-flash", 2048, 0.2,
+            "nimi_analyst", "ANALYST_MODEL_ID", "gemini-3.5-flash", 2048, 0.2,
             ("analyze_media", "analyze_transcript"),
         ),
         copywriter=_copywriter(),
@@ -182,8 +182,8 @@ def load_role_model_catalog() -> RoleModelCatalog:
             ("review_drafts",),
         ),
         planner=_gemini(
-            "temi_planner", "PLANNER_MODEL_ID", "gemini-3.5-flash-lite", 1024, 0.1,
-            ("plan_publish_proposals",),
+            "temi_editorial_planner", "PLANNER_MODEL_ID", "gemini-3.5-flash-lite", 1024, 0.1,
+            ("plan_editorial_calendar",),
         ),
         presenter=_gemini(
             "maya_presenter", "PRESENTER_MODEL_ID", "gemini-3.5-flash", 2048, 0.2,

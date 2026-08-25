@@ -21,7 +21,7 @@ NOW = datetime(2026, 8, 26, tzinfo=timezone.utc)
 def candidate(**updates):
     values = {
         "candidate_id": "cand-1",
-        "role": "sophia_analyst",
+        "role": "nimi_analyst",
         "current_model": "gemini-3.5-flash",
         "proposed_model": "gemini-3.5-pro",
         "eval_run_id": "eval-real-1",
@@ -46,7 +46,7 @@ def test_promotion_requires_independent_approved_review_and_preserves_chain(tmp_
     ))
 
     state = load_ledger(ledger)
-    assert state.active_models == {"sophia_analyst": "gemini-3.5-pro"}
+    assert state.active_models == {"nimi_analyst": "gemini-3.5-pro"}
     assert len(state.records) == 3
     assert state.records[1].previous_digest == state.records[0].digest
     assert state.records[2].previous_digest == state.records[1].digest
@@ -90,7 +90,7 @@ def test_rollback_restores_exact_previous_model_and_requires_reason(tmp_path):
     ))
 
     assert load_ledger(ledger).active_models == {
-        "sophia_analyst": "gemini-3.5-flash",
+        "nimi_analyst": "gemini-3.5-flash",
     }
 
 
@@ -104,7 +104,7 @@ def test_tampered_ledger_is_rejected(tmp_path):
 
 def test_candidate_is_derived_from_the_selected_verified_comparison_record():
     selected = RoleEvaluationRecord(
-        role="sophia_analyst", model_id="gemini-3.5-pro", eval_run_id="eval-real-1",
+        role="nimi_analyst", model_id="gemini-3.5-pro", eval_run_id="eval-real-1",
         evidence_digest="a" * 64, usage_evidence_digest="b" * 64,
         cases=({"case_id": "grounding", "passed": True, "latency_ms": 20},),
         usage_records=({
@@ -115,7 +115,7 @@ def test_candidate_is_derived_from_the_selected_verified_comparison_record():
         minimum_pass_rate=Decimal("0.95"),
     )
     comparison = RoleComparison(
-        role="sophia_analyst", minimum_pass_rate=Decimal("0.95"),
+        role="nimi_analyst", minimum_pass_rate=Decimal("0.95"),
         pricing_version="pricing-v1", policy_version="policy-v1",
         selected_model="gemini-3.5-pro", eligible=(selected,), rejected=(),
     )

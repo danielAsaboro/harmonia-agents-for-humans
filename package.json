@@ -12,8 +12,7 @@
     "verify:evidence": "tsx scripts/verify-vertical-slice-evidence.ts",
     "replay:record": "tsx scripts/record-authenticated-run.ts",
     "security:sbom": "npm sbom --sbom-format cyclonedx --package-lock-only --omit=dev",
-    "seed": "node scripts/seed-demo.mjs",
-    "migrate:legacy": "node scripts/migrate-legacy-workspace.mjs"
+    "seed": "node scripts/seed-demo.mjs"
   },
   "dependencies": {
     "@a2ui/react": "0.10.2",

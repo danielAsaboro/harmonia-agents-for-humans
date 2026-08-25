@@ -262,7 +262,7 @@ def adk_contract_metric(
         try:
             kind = spec["kind"]
             response_text = _agent_output_text(actual, {
-                "drafts": "nimi_copywriter",
+                "drafts": "noni_copywriter",
                 "editor": "dara_editor",
             }.get(kind))
             payload = json.loads(response_text)
@@ -278,7 +278,7 @@ def adk_contract_metric(
                     analysis=AnalysisResult.model_validate(spec["analysis"]),
                 )
             elif kind == "editor":
-                original_payload = json.loads(_agent_output_text(actual, "nimi_copywriter"))
+                original_payload = json.loads(_agent_output_text(actual, "noni_copywriter"))
                 result = evaluate_editor(
                     originals=DraftSet.model_validate(original_payload),
                     reviewed=payload,

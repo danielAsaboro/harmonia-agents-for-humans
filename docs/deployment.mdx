@@ -75,11 +75,10 @@ Set the returned full `AGENT_ENGINE_RESOURCE` and `MEMORY_BANK_RESOURCE` (they m
 
 `REGION` is the deployment's residency boundary. Setup verifies the Firestore database and Agent Engine staging bucket location and applies a Pub/Sub message-storage policy with in-transit enforcement. Deployment rejects Agent Engine, Memory Bank, Gemma, or Veo resources outside that region. Lyria uses a global endpoint, so generative media fails closed unless `ALLOW_GLOBAL_LYRIA=true` records an approved policy exception. This is a technical location control, not a claim of regulatory certification.
 
-The deployed worker does not depend on process-resident scheduler or proactive supervisors. Cloud Scheduler drives the durable tick, and Firestore workspace leases plus stage/effect claims make concurrent delivery safe. Keep `HARMONIA_ENABLE_RESIDENT_LOOPS` disabled outside development.
+The deployed worker does not contain process-resident scheduler, polling, or proactive supervisors. Cloud Scheduler drives the durable tick, and Firestore workspace leases plus stage/effect claims make concurrent delivery safe.
 
 Enable Google as the Identity Platform provider and register the deployed web origin and redirect domain. Pass the registered web application's public Identity Platform configuration to `infra/deploy.sh`. A user's first Google sign-in creates the owner workspace automatically.
 
-For pre-SaaS records, run `LEGACY_OWNER_UID=<google-user-uid> npm run migrate:legacy`. The migration copies root collections, nested job records, and artifact bytes into the owner's workspace without deleting the recoverable source records.
 
 ## Health and observability
 

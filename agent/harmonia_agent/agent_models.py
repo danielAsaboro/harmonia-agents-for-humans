@@ -114,12 +114,28 @@ class StrategistInput(StrictModel):
 class StrategistResult(StrictModel):
     analysis: AnalysisResult | None = None
     ideas: list[Idea] = Field(default_factory=list, max_length=6)
+    strategy: "ContentStrategy | None" = None
 
     @model_validator(mode="after")
     def require_one_result(self) -> "StrategistResult":
-        if self.analysis is None and not self.ideas:
-            raise ValueError("strategist must return analysis or ideas")
+        if self.analysis is None and not self.ideas and self.strategy is None:
+            raise ValueError("strategist must return analysis, strategy, or ideas")
         return self
+
+
+class ContentBrief(StrictModel):
+    title: str = Field(min_length=1, max_length=300)
+    objective: str = Field(min_length=1, max_length=600)
+    sourceRefs: list[str] = Field(min_length=1, max_length=12)
+
+
+class ContentStrategy(StrictModel):
+    objective: str = Field(min_length=1, max_length=600)
+    audience: str = Field(min_length=1, max_length=300)
+    pillars: list[str] = Field(min_length=1, max_length=8)
+    cadence: str = Field(min_length=1, max_length=200)
+    kpis: list[str] = Field(min_length=1, max_length=8)
+    briefs: list[ContentBrief] = Field(min_length=1, max_length=10)
 
 
 class Draft(StrictModel):
@@ -138,6 +154,21 @@ class DraftWorkflowInput(StrictModel):
     title: str = Field(min_length=1)
     analysis: AnalysisResult
     brand_context: str = Field(default="", max_length=4_000)
+    strategy: ContentStrategy | None = None
+
+
+class EditorialCalendarItem(StrictModel):
+    id: str = Field(min_length=1, max_length=100)
+    platform: Literal["x"]
+    objective: str = Field(min_length=1, max_length=300)
+    sourceRef: str = Field(min_length=1, max_length=100)
+    format: Literal["text_post"] = "text_post"
+    priority: int = Field(default=1, ge=1, le=5)
+
+
+class EditorialPlan(StrictModel):
+    strategySummary: str = Field(min_length=1, max_length=1000)
+    items: list[EditorialCalendarItem] = Field(min_length=1, max_length=10)
 
 
 class PublishAction(StrictModel):
@@ -150,6 +181,7 @@ class ActionPlan(StrictModel):
 
 
 class DraftWorkflowResult(StrictModel):
+    editorial_plan: EditorialPlan
     copywriter_drafts: DraftSet
     reviewed_drafts: DraftSet
     action_plan: ActionPlan

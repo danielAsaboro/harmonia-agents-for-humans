@@ -46,12 +46,12 @@ description: "Every environment variable Harmonia reads, with defaults and requi
 | `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` | yes in cloud | `false` | Disable ADK legacy content-bearing span attributes |
 | `COORDINATOR_MODEL_ID` | no | `gemini-3.5-flash-lite` | Low-cost coordinator routing model |
 | `STRATEGIST_MODEL_ID` | no | `gemini-3.5-flash` | Ryan's synthesis model |
-| `ANALYST_MODEL_ID` | no | `gemini-3.5-flash` | Sophia's multimodal video/audio/text model |
-| `COPYWRITER_MODEL_ID` | no | `gemma-3-12b-it` | Nimi's open-model endpoint label |
+| `ANALYST_MODEL_ID` | no | `gemini-3.5-flash` | Nimi's multimodal video/audio/text model |
+| `COPYWRITER_MODEL_ID` | no | `gemma-3-12b-it` | Noni's open-model endpoint label |
 | `EDITOR_MODEL_ID` | no | `gemini-3.5-flash` | Dara's constraint-preserving editor model |
-| `PLANNER_MODEL_ID` | no | `gemini-3.5-flash-lite` | Temi's narrow structured-planning model |
+| `PLANNER_MODEL_ID` | no | `gemini-3.5-flash-lite` | Temi's typed editorial-planning model |
 | `PRESENTER_MODEL_ID` | no | `gemini-3.5-flash` | Maya's reference-only A2UI composition model |
-| `GEMMA_VERTEX_ENDPOINT` | real drafting | — | Full Vertex endpoint resource backing Nimi; no fallback when absent |
+| `GEMMA_VERTEX_ENDPOINT` | real drafting | — | Full Vertex endpoint resource backing Noni; no fallback when absent |
 | `GEMMA_MAX_COST_USD` | no | `0.100000` | Maximum allocation reserved for one Gemma endpoint request |
 | `AGENT_ENGINE_RESOURCE` | yes | — | Full `projects/.../locations/.../reasoningEngines/...` resource; Agent Engine is the only runtime |
 | `MEMORY_BANK_ENABLED` | managed deploy | `true` | Exact-scope Memory Bank retrieval and eligible-fact generation; cloud deploy fixes this to `true` |
@@ -73,7 +73,6 @@ Telemetry contains identifiers, stage and role names, model names, usage units, 
 | `HARMONIA_DEV_AUTH_BYPASS=1` | Development only: the login button creates a deterministic emulator-backed local session without initializing Firebase. Refused when `NODE_ENV=production`. |
 | `HARMONIA_MOCK_AI=1` | Deterministic offline fixtures for all Gemini calls + signal fetching. Unset = real model calls. |
 | `HARMONIA_MOCK_X=1` | Deterministic X publish/verify/metrics payloads. Unset = real X calls using the current workspace connection. |
-| `HARMONIA_ENABLE_RESIDENT_LOOPS=1` | Development-only opt-in for the legacy scheduler, proactive scan, and Telegram long-poll threads. Disabled by default; these threads are not a durable production scheduler. |
 
 Both flags are dev-only conveniences; production deployments run with them unset, and every mock path logs `[MOCK-AI]` / `[MOCK-X]` so it can never pass as a real call.
 

@@ -57,15 +57,15 @@ function validBundle() {
         traceId: workflowTraceId,
       },
       {
-        role: "sophia_analyst", model: "gemini-3.5-flash",
+        role: "nimi_analyst", model: "gemini-3.5-flash",
         provider: "gemini", policyVersion: "gear-2026-08-24",
-        usageRecordId: "usage-analyst", operationId: "job-1:understand:0:sophia_analyst",
+        usageRecordId: "usage-analyst", operationId: "job-1:understand:0:nimi_analyst",
         traceId: workflowTraceId,
       },
     ],
     approval: {
       approvalId: "approval-1", actionId: "action-1", decision: "approved",
-      actorType: "human_operator", decidedAt: "2026-08-24T12:10:00.000Z", traceId: approvalTraceId,
+      actorType: "firebase_operator", decidedAt: "2026-08-24T12:10:00.000Z", traceId: approvalTraceId,
     },
     claim: {
       claimId: digest, actionId: "action-1", idempotencyKey: digest,
@@ -94,7 +94,7 @@ function validBundle() {
       pricingVersion: "2026-08-23", currency: "USD",
       records: [
         { usageRecordId: "usage-coordinator", operationId: "job-1:understand:0:harmonia_coordinator", estimatedUsd: "0.010000", observedUsd: "0.009000" },
-        { usageRecordId: "usage-analyst", operationId: "job-1:understand:0:sophia_analyst", estimatedUsd: "0.020000", observedUsd: "0.018000" },
+        { usageRecordId: "usage-analyst", operationId: "job-1:understand:0:nimi_analyst", estimatedUsd: "0.020000", observedUsd: "0.018000" },
       ],
       totalEstimatedUsd: "0.030000", totalObservedUsd: "0.027000",
     },

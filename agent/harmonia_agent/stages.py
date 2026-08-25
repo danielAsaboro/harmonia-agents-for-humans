@@ -273,7 +273,10 @@ async def run_understand(job_id: str) -> None:
         ), invocation=invocation)
         if strategy.analysis is None:
             raise AgentProtocolError("strategist brief task returned no analysis")
+        if strategy.strategy is None:
+            raise AgentProtocolError("strategist brief task returned no content strategy")
         result = strategy.analysis.model_dump(mode="json")
+        content_strategy = strategy.strategy.model_dump(mode="json") if strategy.strategy else None
     else:
         transcript = "\n".join(
             f"[{int(s['startSec'])}s] {s['text']}" for s in job["transcriptSegments"]
@@ -296,11 +299,20 @@ async def run_understand(job_id: str) -> None:
             prior_learnings=prior,
             media_evidence=media_evidence,
         ), invocation=invocation)).model_dump(mode="json")
+        strategy = await strategize_with_team(StrategistInput(
+            task="brief",
+            brief=json.dumps({"sourceAnalysis": result, "operatorContext": prior})[:20_000],
+            prior_learnings=prior,
+        ), invocation=invocation)
+        if strategy.strategy is None:
+            raise AgentProtocolError("strategist returned no content strategy")
+        content_strategy = strategy.strategy.model_dump(mode="json")
     web_post("/api/internal/analysis", {
         "jobId": job_id, "stage": "understand",
         "moments": result.get("moments", [])[:12],
         "angles": result.get("angles", [])[:12],
         "summary": result.get("summary", ""),
+        "strategy": content_strategy,
         "modelUsed": content.model_used(),
     })
 
@@ -323,6 +335,7 @@ async def run_draft(job_id: str) -> None:
         logger.info("draft workflow has no brand goals or engagement context yet")
     package = await draft_with_team(DraftWorkflowInput(
         title=job["ingestedTitle"], analysis=analysis, brand_context=brand_context,
+        strategy=job.get("contentStrategy"),
     ), invocation=InvocationContext(
         job_id=job_id,
         workspace_id=job["workspaceId"],

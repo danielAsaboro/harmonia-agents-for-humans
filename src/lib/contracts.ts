@@ -136,6 +136,12 @@ export const analysisSubmissionSchema = z.object({
   moments: z.array(momentSchema).max(12).default([]),
   angles: z.array(angleSchema).max(12).default([]),
   summary: z.string().min(1),
+  strategy: z.object({
+    objective: z.string().min(1).max(600), audience: z.string().min(1).max(300),
+    pillars: z.array(z.string().min(1).max(300)).min(1).max(8), cadence: z.string().min(1).max(200),
+    kpis: z.array(z.string().min(1).max(300)).min(1).max(8),
+    briefs: z.array(z.object({ title: z.string().min(1).max(300), objective: z.string().min(1).max(600), sourceRefs: z.array(z.string().min(1)).min(1).max(12) }).strict()).min(1).max(10),
+  }).strict(),
   modelUsed: z.string().min(1),
 });
 

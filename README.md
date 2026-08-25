@@ -22,8 +22,8 @@ ingest → transcribe → understand → draft → awaiting_approval → publish
 
 - **Ingest**: YouTube metadata via oEmbed / YouTube Data API; audio pulled with yt-dlp.
 - **Transcribe**: Gemini 3.5 Flash transcribes the audio into timed segments.
-- **Understand**: Sophia uses Gemini multimodal video plus the transcript to identify clip-worthy spoken and visual moments, trend angles, and meme angles.
-- **Draft**: Nimi drafts with Gemma 3 on a configured Vertex endpoint, Dara reviews with Gemini, and Temi plans publish proposals with Flash-Lite; deterministic contracts validate every handoff.
+- **Understand**: Nimi uses Gemini multimodal video plus the transcript to identify clip-worthy spoken and visual moments, trend angles, and meme angles; Ryan turns evidence into strategy and content plans.
+- **Plan and draft**: Temi converts strategy into typed editorial calendar items, then Noni writes and Dara reviews in a bounded two-pass ADK loop. Deterministic code derives effect proposals from the reviewed text.
 - **Awaiting approval**: publishing is proposed as discrete actions. The model cannot self-authorize.
 - **Publish**: approved actions execute idempotently (stable idempotency keys from `jobId + actionId + contentHash`); X posts go through the official X API v2, while separately approved Veo/Lyria actions create internal media assets.
 - **Verify**: published state is confirmed by fresh independent API reads — never because a model said so.
@@ -90,7 +90,7 @@ flowchart LR
 | Concern | Where | Interface |
 |---|---|---|
 | Ingestion | `agent/harmonia_agent/youtube.py` | metadata fetch + bounded audio download |
-| Transcription / understanding / drafting | `agent/harmonia_agent/content.py`, `agents.py`, `gemma_model.py` | Gemini transcription, multimodal Sophia, Gemma Nimi, Gemini review/planning |
+| Transcription / understanding / drafting | `agent/harmonia_agent/content.py`, `agents.py`, `gemma_model.py` | Gemini transcription, multimodal Nimi, Ryan strategy, Temi planning, Gemma Noni, and Dara review |
 | Intent parsing (chat + Telegram) | web `src/lib/chatIntent.ts` | Gemini structured output: `{intent, youtubeUrl?, jobId?}` |
 | Generative interface composition | ADK `maya_presenter` + web `src/lib/a2ui/` | reference-only `SurfacePlan`; server hydration from authenticated Firestore records |
 | Approval gate | web `src/lib/policy.ts`, `src/lib/decisions.ts` | deterministic risk rules; single decision writer shared by REST, chat, and Telegram |

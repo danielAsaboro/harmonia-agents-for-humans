@@ -33,7 +33,7 @@ class _RemoteAgent:
     async def async_stream_query(self, **kwargs):
         self.queries.append(kwargs)
         yield {
-            "author": "sophia_analyst",
+            "author": "nimi_analyst",
             "actions": {"state_delta": {
                 "analysis_result": {
                     "summary": "Managed analysis",
@@ -77,10 +77,10 @@ def test_agent_engine_runtime_seeds_a_deterministic_persistent_session_and_colle
     )
 
     state = asyncio.run(runtime.invoke(
-        specialist="sophia_analyst",
+        specialist="nimi_analyst",
         payload={"title": "Demo", "transcript": "proof"},
         user_id="job-123",
-        session_key="job-123:understand:0:sophia_analyst",
+        session_key="job-123:understand:0:nimi_analyst",
     ))
 
     assert state["analysis_result"]["summary"] == "Managed analysis"
@@ -90,7 +90,7 @@ def test_agent_engine_runtime_seeds_a_deterministic_persistent_session_and_colle
         "state": {
             "title": "Demo",
             "transcript": "proof",
-            "requested_specialist": "sophia_analyst",
+            "requested_specialist": "nimi_analyst",
         },
     }]
     assert remote.created[0]["session_id"].startswith("harmonia-")
@@ -101,8 +101,8 @@ def test_agent_engine_runtime_seeds_a_deterministic_persistent_session_and_colle
 def test_runtime_resumes_the_same_managed_session_after_process_restart():
     remote = _RemoteAgent()
     kwargs = dict(
-        specialist="sophia_analyst", payload={"title": "Demo", "transcript": "proof"},
-        user_id="job-123", session_key="job-123:understand:0:sophia_analyst",
+        specialist="nimi_analyst", payload={"title": "Demo", "transcript": "proof"},
+        user_id="job-123", session_key="job-123:understand:0:nimi_analyst",
     )
     first = AgentEngineTeamRuntime(
         resource_name="projects/p/locations/us-central1/reasoningEngines/42", client=_Client(remote),
@@ -138,7 +138,7 @@ def test_runtime_never_mutates_the_caller_payload_or_retrieved_session_state():
         client=_Client(ReadOnlySessionRemote()),
     )
     asyncio.run(runtime.invoke(
-        specialist="sophia_analyst", payload=payload, user_id="job-123", session_key="op-1",
+        specialist="nimi_analyst", payload=payload, user_id="job-123", session_key="op-1",
     ))
     assert payload == original
 
@@ -155,7 +155,7 @@ def test_agent_engine_runtime_rejects_events_without_state_and_does_not_fallback
 
     with pytest.raises(AgentEngineProtocolError, match="state delta"):
         asyncio.run(runtime.invoke(
-            specialist="sophia_analyst",
+            specialist="nimi_analyst",
             payload={"title": "Demo", "transcript": "proof"},
             user_id="job-123",
             session_key="op-1",
@@ -171,7 +171,7 @@ def test_agent_engine_deployment_wraps_the_existing_root_hierarchy():
 
     assert app.agent.name == "harmonia_coordinator"
     assert [agent.name for agent in app.agent.sub_agents] == [
-        "ryan_strategist", "sophia_analyst", "maya_presenter", "nova_liaison",
+        "ryan_strategist", "nimi_analyst", "maya_presenter", "nova_liaison",
     ]
 
 

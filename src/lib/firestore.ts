@@ -533,9 +533,7 @@ export function connectionRef(platform: string) {
 export async function getConnection(platform: string): Promise<ConnectionDoc | null> {
   const snap = await connectionRef(platform).get();
   if (!snap.exists) return null;
-  const data = snap.data() as Partial<StoredConnectionDoc> & { accessToken?: string };
-  if (data.accessToken) throw new Error("legacy plaintext connection requires migration");
-  return decodeConnection(data as StoredConnectionDoc);
+  return decodeConnection(snap.data() as StoredConnectionDoc);
 }
 
 export async function saveConnection(conn: ConnectionDoc): Promise<void> {
@@ -553,9 +551,8 @@ export async function claimConnectionTokenRefresh(platform: string): Promise<Con
   return db().runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists) throw new Error(`${platform} connection not found`);
-    const stored = snap.data() as Partial<StoredConnectionDoc> & { accessToken?: string };
-    if (stored.accessToken) throw new Error("legacy plaintext connection requires migration");
-    const connection = decodeConnection(stored as StoredConnectionDoc);
+    const stored = snap.data() as StoredConnectionDoc;
+    const connection = decodeConnection(stored);
     const claimId = newId();
     const decision = decideConnectionRefresh({
       expiresAt: connection.expiresAt,
@@ -622,9 +619,7 @@ export async function deleteConnection(platform: string): Promise<void> {
 export async function listConnections(): Promise<ConnectionDoc[]> {
   const snaps = await tenantCollection(CONNECTIONS).get();
   return snaps.docs.map((doc) => {
-    const data = doc.data() as Partial<StoredConnectionDoc> & { accessToken?: string };
-    if (data.accessToken) throw new Error("legacy plaintext connection requires migration");
-    return decodeConnection(data as StoredConnectionDoc);
+    return decodeConnection(doc.data() as StoredConnectionDoc);
   });
 }
 
@@ -789,9 +784,8 @@ export async function finalizeTelegramDecisionNonce(
 export async function getTelegramConnection(): Promise<TelegramConnectionDoc | null> {
   const snap = await tenantCollection(CONFIG).doc("telegram").get();
   if (!snap.exists) return null;
-  const stored = snap.data() as Partial<StoredTelegramConnectionDoc> & { botToken?: string };
-  if (stored.botToken) throw new Error("legacy plaintext Telegram token requires migration");
-  const { botTokenEnvelope, ...metadata } = stored as StoredTelegramConnectionDoc;
+  const stored = snap.data() as StoredTelegramConnectionDoc;
+  const { botTokenEnvelope, ...metadata } = stored;
   return {
     ...metadata,
     botToken: decryptSecret(
@@ -1430,11 +1424,13 @@ export async function saveAnalysis(
   moments: Moment[],
   angles: Angle[],
   summary: string,
+  strategy: { objective: string; audience: string; pillars: string[]; cadence: string; kpis: string[]; briefs: Array<{ title: string; objective: string; sourceRefs: string[] }> },
 ) {
   await jobRef(jobId).update({
     moments,
     angles,
     summary,
+    contentStrategy: strategy,
     updatedAt: new Date().toISOString(),
   });
 }
@@ -1508,14 +1504,13 @@ export async function recordApproval(
   });
 }
 
-export async function listApprovalDecisions(jobId: string): Promise<Array<Omit<ApprovalDecision, "actorUserId" | "authenticationId">>> {
+export async function listApprovalDecisions(jobId: string): Promise<Array<Omit<ApprovalDecision, "authenticationId">>> {
   const snaps = await jobRef(jobId).collection(APPROVAL_DECISIONS).orderBy("decidedAt", "asc").get();
   return snaps.docs.map((doc) => {
     const decision = { ...(doc.data() as ApprovalDecision) } as Partial<ApprovalDecision>;
-    delete decision.actorUserId;
     delete decision.authenticationId;
     return decision;
-  }) as Array<Omit<ApprovalDecision, "actorUserId" | "authenticationId">>;
+  }) as Array<Omit<ApprovalDecision, "authenticationId">>;
 }
 
 export async function markActionExecuted(

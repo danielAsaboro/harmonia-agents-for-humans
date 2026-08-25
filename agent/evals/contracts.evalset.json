@@ -5,13 +5,13 @@
   "eval_cases": [
     {
       "evalId": "route-analyst",
-      "fixture": "public:route:sophia_analyst",
+      "fixture": "public:route:nimi_analyst",
       "sessionInput": {
         "appName": "harmonia",
         "userId": "public-eval-user",
         "sessionId": "public-route-analyst",
         "state": {
-          "requested_specialist": "sophia_analyst",
+          "requested_specialist": "nimi_analyst",
           "title": "synthetic demo",
           "channel": "public channel",
           "transcript": "[0s] public synthetic source [2s] bounded proof"
@@ -19,10 +19,10 @@
       },
       "conversation": [{
         "invocationId": "route-analyst-1",
-        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to sophia_analyst exactly once. Use the typed payload already present in managed session state."}]},
+        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to nimi_analyst exactly once. Use the typed payload already present in managed session state."}]},
         "finalResponse": {"role": "model", "parts": [{"text": "{\"summary\":\"Public synthetic source.\",\"moments\":[],\"angles\":[]}"}]},
         "intermediateData": {
-          "toolUses": [{"name": "transfer_to_agent", "args": {"agent_name": "sophia_analyst"}}]
+          "toolUses": [{"name": "transfer_to_agent", "args": {"agent_name": "nimi_analyst"}}]
         },
         "rubrics": [{
           "rubricId": "harmonia_contract",
@@ -38,7 +38,7 @@
         "userId": "public-eval-user",
         "sessionId": "public-planner",
         "state": {
-          "requested_specialist": "flo_draft_workflow",
+          "requested_specialist": "flo_content_engine",
           "title": "synthetic demo",
           "analysis": {"summary": "synthetic demo", "moments": [], "angles": []},
           "brand_context": "synthetic demo",
@@ -47,10 +47,10 @@
       },
       "conversation": [{
         "invocationId": "planner-authority-1",
-        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to flo_draft_workflow exactly once. Use the typed payload already present in managed session state."}]},
+        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to flo_content_engine exactly once. Use the typed payload already present in managed session state."}]},
         "finalResponse": {"role": "model", "parts": [{"text": "{\"actions\":[{\"type\":\"publish_x_post\",\"text\":\"Reviewed synthetic draft\"}]}"}]},
         "intermediateData": {
-          "toolUses": [{"name": "flo_draft_workflow", "args": {"title": "synthetic demo", "brand_context": "synthetic demo", "analysis": {"summary": "synthetic demo", "moments": [], "angles": []}}}]
+          "toolUses": [{"name": "flo_content_engine", "args": {"title": "synthetic demo", "brand_context": "synthetic demo", "analysis": {"summary": "synthetic demo", "moments": [], "angles": []}}}]
         },
         "rubrics": [{
           "rubricId": "harmonia_contract",
@@ -89,18 +89,18 @@
       "sessionInput": {
         "appName": "harmonia", "userId": "public-eval-user", "sessionId": "public-copywriter",
         "state": {
-          "requested_specialist": "flo_draft_workflow", "title": "synthetic demo",
+          "requested_specialist": "flo_content_engine", "title": "synthetic demo",
           "brand_context": "synthetic demo",
           "analysis": {"summary": "synthetic demo", "moments": [{"id": "m1", "title": "proof", "startSec": 0, "endSec": 2, "hook": "proof", "quote": "bounded proof"}], "angles": []}
         }
       },
       "conversation": [{
         "invocationId": "copywriter-references-1",
-        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to flo_draft_workflow exactly once for the public copywriter contract."}]},
+        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to flo_content_engine exactly once for the public copywriter contract."}]},
         "finalResponse": {"role": "model", "parts": [{"text": "{\"actions\":[{\"type\":\"publish_x_post\",\"text\":\"Reviewed synthetic draft\"}]}"}]},
         "intermediateData": {
-          "toolUses": [{"name": "flo_draft_workflow", "args": {"title": "synthetic demo", "brand_context": "synthetic demo", "analysis": {"summary": "synthetic demo", "moments": [{"id": "m1", "title": "proof", "startSec": 0, "endSec": 2, "hook": "proof", "quote": "bounded proof"}], "angles": []}}}],
-          "intermediateResponses": [["nimi_copywriter", [{"text": "{\"drafts\":[{\"id\":\"d1\",\"platform\":\"x\",\"momentId\":\"m1\",\"text\":\"Reviewed synthetic draft\"}]}"}]]]
+          "toolUses": [{"name": "flo_content_engine", "args": {"title": "synthetic demo", "brand_context": "synthetic demo", "analysis": {"summary": "synthetic demo", "moments": [{"id": "m1", "title": "proof", "startSec": 0, "endSec": 2, "hook": "proof", "quote": "bounded proof"}], "angles": []}}}],
+          "intermediateResponses": [["noni_copywriter", [{"text": "{\"drafts\":[{\"id\":\"d1\",\"platform\":\"x\",\"momentId\":\"m1\",\"text\":\"Reviewed synthetic draft\"}]}"}]]]
         },
         "rubrics": [{
           "rubricId": "harmonia_contract",
@@ -114,19 +114,19 @@
       "sessionInput": {
         "appName": "harmonia", "userId": "public-eval-user", "sessionId": "public-editor",
         "state": {
-          "requested_specialist": "flo_draft_workflow", "title": "synthetic demo",
+          "requested_specialist": "flo_content_engine", "title": "synthetic demo",
           "brand_context": "synthetic demo",
           "analysis": {"summary": "synthetic demo", "moments": [{"id": "m1", "title": "proof", "startSec": 0, "endSec": 2, "hook": "proof", "quote": "bounded proof"}], "angles": []}
         }
       },
       "conversation": [{
         "invocationId": "editor-preservation-1",
-        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to flo_draft_workflow exactly once for the public editor contract."}]},
+        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to flo_content_engine exactly once for the public editor contract."}]},
         "finalResponse": {"role": "model", "parts": [{"text": "{\"actions\":[{\"type\":\"publish_x_post\",\"text\":\"Edited synthetic draft\"}]}"}]},
         "intermediateData": {
-          "toolUses": [{"name": "flo_draft_workflow", "args": {"title": "synthetic demo", "brand_context": "synthetic demo", "analysis": {"summary": "synthetic demo", "moments": [{"id": "m1", "title": "proof", "startSec": 0, "endSec": 2, "hook": "proof", "quote": "bounded proof"}], "angles": []}}}],
+          "toolUses": [{"name": "flo_content_engine", "args": {"title": "synthetic demo", "brand_context": "synthetic demo", "analysis": {"summary": "synthetic demo", "moments": [{"id": "m1", "title": "proof", "startSec": 0, "endSec": 2, "hook": "proof", "quote": "bounded proof"}], "angles": []}}}],
           "intermediateResponses": [
-            ["nimi_copywriter", [{"text": "{\"drafts\":[{\"id\":\"d1\",\"platform\":\"x\",\"momentId\":\"m1\",\"text\":\"Original synthetic draft\"}]}"}]],
+            ["noni_copywriter", [{"text": "{\"drafts\":[{\"id\":\"d1\",\"platform\":\"x\",\"momentId\":\"m1\",\"text\":\"Original synthetic draft\"}]}"}]],
             ["dara_editor", [{"text": "{\"drafts\":[{\"id\":\"d1\",\"platform\":\"x\",\"momentId\":\"m1\",\"text\":\"Edited synthetic draft\"}]}"}]]
           ]
         },

@@ -20,7 +20,7 @@ def record(
     rate = Decimal(pass_rate)
     case_count = max(10, 10 ** max(0, -rate.as_tuple().exponent))
     return RoleEvaluationRecord(
-        role="sophia_analyst",
+        role="nimi_analyst",
         model_id=model,
         eval_run_id=f"run-{model}",
         evidence_digest="a" * 64,
@@ -110,13 +110,13 @@ def test_loader_verifies_artifact_usage_and_catalog_linkage(tmp_path, monkeypatc
     artifact = tmp_path / "eval.json"
     usage = tmp_path / "usage.json"
     artifact.write_text(json.dumps({
-        "runId": "run-1", "role": "sophia_analyst", "modelId": "candidate-model",
+        "runId": "run-1", "role": "nimi_analyst", "modelId": "candidate-model",
         "policyVersion": "gear-2026-08-24", "pricingVersion": "2026-08-23",
         "minimumPassRate": "0.95", "usageRecordIds": ["usage-1"],
         "cases": [{"caseId": "grounding", "passed": True, "latencyMs": 250}],
     }, sort_keys=True))
     usage.write_text(json.dumps([{
-        "id": "usage-1", "role": "sophia_analyst", "model": "candidate-model",
+        "id": "usage-1", "role": "nimi_analyst", "model": "candidate-model",
         "estimatedCostUsd": "0.012000", "pricingVersion": "2026-08-23",
         "modelPolicy": load_role_model_catalog().analyst.policy_snapshot(),
     }], sort_keys=True))

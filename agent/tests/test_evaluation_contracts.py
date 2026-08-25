@@ -51,7 +51,7 @@ def test_planner_evaluation_rejects_authority_and_rewritten_text():
 
 def test_trajectory_requires_exact_specialist_route():
     result = validate_specialist_trajectory(
-        requested="sophia_analyst",
+        requested="nimi_analyst",
         steps=[TrajectoryStep(kind="delegate", name="ryan_strategist")],
     )
 

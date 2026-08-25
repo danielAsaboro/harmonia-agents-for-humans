@@ -22,11 +22,11 @@ Gemini 3.5 Flash returns `{language, segments:[{id,startSec,endSec,text}]}` from
 
 ## understand
 
-For video jobs, Harmonia delegates the formatted transcript to Sophia (`sophia_analyst`) for clip-worthy moments (timestamps + hook + exact quote), trend angles, and meme angles. For concept jobs created from an operator brief or an approved proposal, it delegates to Ryan (`ryan_strategist`), who produces key points with zero timestamps instead — there is no media timeline.
+For video jobs, Harmonia delegates the formatted transcript to Nimi (`nimi_analyst`) for clip-worthy moments (timestamps + hook + exact quote), trend angles, and meme angles. Ryan (`ryan_strategist`) turns grounded evidence or an operator brief into strategy and content-plan direction; brief-only concepts use zero timestamps because there is no media timeline.
 
 ## draft
 
-The coordinator invokes Flo (`flo_draft_workflow`), a fixed ADK workflow: Nimi (`nimi_copywriter`) → Dara (`dara_editor`) → Temi (`temi_planner`). Nimi drafts against the analysis JSON, Dara performs exactly one brand/source editing pass, and Temi may propose `publish_x_post` actions only from the reviewed text. Deterministic stage code adds the content pack, meme image generations, captioned vertical clips, and stitched highlight reel.
+The coordinator invokes Flo (`flo_content_engine`), a fixed ADK workflow: Temi (`temi_editorial_planner`) creates typed editorial calendar items, then a bounded `LoopAgent` runs Noni (`noni_copywriter`) → Dara (`dara_editor`) for at most two passes. Deterministic stage code derives `publish_x_post` proposals from exact reviewed text and adds the content pack, meme image generations, captioned vertical clips, and stitched highlight reel.
 
 Every action lands with `requiresApproval`, risk level, and its own idempotency key material.
 

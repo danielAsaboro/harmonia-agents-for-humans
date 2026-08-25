@@ -62,13 +62,13 @@ def test_adk_custom_metric_executes_reference_preservation_contracts(
     eval_set = load_eval_set(Path("evals/contracts.evalset.json"))
     expected = next(case for case in eval_set.eval_cases if case.eval_id == eval_id).conversation
     author = {
-        "copywriter-references": "nimi_copywriter",
+        "copywriter-references": "noni_copywriter",
         "editor-preservation": "dara_editor",
     }[eval_id]
     responses = [(author, [types.Part(text=invalid_output)])]
     if eval_id == "editor-preservation":
         responses.insert(0, (
-            "nimi_copywriter",
+            "noni_copywriter",
             [types.Part(text=(
                 '{"drafts":[{"id":"d1","platform":"x","momentId":"m1",'
                 '"text":"Original synthetic draft"}]}'
@@ -95,7 +95,7 @@ def test_adk_custom_metric_fails_closed_when_author_output_is_missing(eval_id):
     responses = []
     if eval_id == "editor-preservation":
         responses = [(
-            "nimi_copywriter",
+            "noni_copywriter",
             [types.Part(text=(
                 '{"drafts":[{"id":"d1","platform":"x","momentId":"m1",'
                 '"text":"Original synthetic draft"}]}'
@@ -151,7 +151,7 @@ def test_public_evalset_rejects_unlisted_fixture_and_short_freeform_prompt(tmp_p
         "eval_set_id": "bad",
         "eval_cases": [{
             "evalId": "route-analyst",
-            "fixture": "public:route:sophia_analyst",
+            "fixture": "public:route:nimi_analyst",
             "conversation": [{
                 "userContent": {"parts": [{"text": "A short but unreviewed source excerpt."}]},
             }],

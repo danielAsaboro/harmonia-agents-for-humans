@@ -7,7 +7,7 @@ import asyncio
 import pytest
 from pydantic import ValidationError
 
-from google.adk.agents import SequentialAgent
+from google.adk.agents import LoopAgent, SequentialAgent
 from google.adk.models._capabilities import LlmCapabilities
 from google.adk.models.base_llm import BaseLlm
 from google.adk.models.llm_response import LlmResponse
@@ -22,6 +22,7 @@ from harmonia_agent.agent_models import (
     DraftSet,
     DraftWorkflowInput,
     DraftWorkflowResult,
+    EditorialPlan,
     LiaisonInput,
     MediaEvidence,
     PublishAction,
@@ -64,7 +65,7 @@ class ScriptedDelegationModel(BaseLlm):
             if part.function_response
         ]
         if llm_request.config.response_schema is not None:
-            self.calls.append("sophia_analyst")
+            self.calls.append("nimi_analyst")
             self.media_uris.extend(
                 part.file_data.file_uri
                 for content in llm_request.contents
@@ -79,7 +80,7 @@ class ScriptedDelegationModel(BaseLlm):
             self.calls.append("coordinator")
             yield LlmResponse(content=types.Content(role="model", parts=[types.Part(
                 function_call=types.FunctionCall(
-                    name="sophia_analyst",
+                    name="nimi_analyst",
                     args={
                         "title": "Demo", "channel": "Harmonia",
                         "transcript": "[0s] hello [30s] proof", "prior_learnings": "",
@@ -108,11 +109,11 @@ class ScriptedDraftModel(BaseLlm):
         ]
         if llm_request.config.response_schema is not None:
             response_schema = str(llm_request.config.response_schema)
-            if "actions" in response_schema or "publish_x_post" in instructions:
-                self.calls.append("temi_planner")
-                text = '{"actions":[{"type":"publish_x_post","text":"Reviewed"}]}'
+            if "strategySummary" in response_schema or "editorial plan" in instructions:
+                self.calls.append("temi_editorial_planner")
+                text = '{"strategySummary":"Activation lessons","items":[{"id":"c1","platform":"x","objective":"Teach activation speed","sourceRef":"m1","format":"text_post","priority":1}]}'
             elif "Write up to 10" in instructions:
-                self.calls.append("nimi_copywriter")
+                self.calls.append("noni_copywriter")
                 text = '{"drafts":[{"id":"d1","platform":"x","momentId":"m1","text":"Original"}]}'
             else:
                 self.calls.append("dara_editor")
@@ -123,7 +124,7 @@ class ScriptedDraftModel(BaseLlm):
             self.calls.append("coordinator")
             yield LlmResponse(content=types.Content(role="model", parts=[types.Part(
                 function_call=types.FunctionCall(
-                    name="flo_draft_workflow",
+                    name="flo_content_engine",
                     args={
                         "title": "Demo",
                         "analysis": _analysis().model_dump(mode="json"),
@@ -150,18 +151,26 @@ def _analysis() -> AnalysisResult:
     })
 
 
+def _editorial_plan() -> EditorialPlan:
+    return EditorialPlan(strategySummary="Activation lessons", items=[{
+        "id": "c1", "platform": "x", "objective": "Teach activation speed",
+        "sourceRef": "m1", "format": "text_post", "priority": 1,
+    }])
+
+
 class ManagedRuntime:
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
     async def invoke(self, **kwargs):
         self.calls.append(kwargs)
-        if kwargs["specialist"] == "sophia_analyst":
+        if kwargs["specialist"] == "nimi_analyst":
             return {"analysis_result": {
                 **_analysis().model_dump(mode="json"),
                 "summary": "Delegated analysis",
             }}
         return {
+            "editorial_plan": {"strategySummary": "Activation lessons", "items": [{"id": "c1", "platform": "x", "objective": "Teach activation speed", "sourceRef": "m1", "format": "text_post", "priority": 1}]},
             "copywriter_drafts": {"drafts": [
                 {"id": "d1", "platform": "x", "momentId": "m1", "text": "Original"},
             ]},
@@ -180,23 +189,22 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
     assert root.name == "harmonia_coordinator"
     assert [(a.name, a.mode) for a in root.sub_agents] == [
         ("ryan_strategist", "single_turn"),
-        ("sophia_analyst", "single_turn"),
+        ("nimi_analyst", "single_turn"),
         ("maya_presenter", "single_turn"),
         ("nova_liaison", "chat"),
     ]
     workflow_tools = [
         t for t in root.tools
-        if isinstance(t, AgentTool) and t.name == "flo_draft_workflow"
+        if isinstance(t, AgentTool) and t.name == "flo_content_engine"
     ]
     assert len(workflow_tools) == 1
     workflow = workflow_tools[0].agent
     assert isinstance(workflow, SequentialAgent)
-    assert [a.name for a in workflow.sub_agents] == [
-        "nimi_copywriter", "dara_editor", "temi_planner",
-    ]
-    assert [a.output_key for a in workflow.sub_agents] == [
-        "copywriter_drafts", "reviewed_drafts", "action_plan",
-    ]
+    assert [a.name for a in workflow.sub_agents] == ["temi_editorial_planner", "noni_dara_revision_loop"]
+    loop = workflow.sub_agents[1]
+    assert isinstance(loop, LoopAgent)
+    assert loop.max_iterations == 2
+    assert [a.name for a in loop.sub_agents] == ["noni_copywriter", "dara_editor"]
 
 
 def test_team_assigns_the_configured_model_to_each_role():
@@ -218,10 +226,9 @@ def test_team_assigns_the_configured_model_to_each_role():
     assert [agent.model.model for agent in root.sub_agents] == [
         "strategist-fake", "analyst-fake", "presenter-fake", "liaison-fake",
     ]
-    workflow = next(tool.agent for tool in root.tools if tool.name == "flo_draft_workflow")
-    assert [agent.model.model for agent in workflow.sub_agents] == [
-        "gemma-fake", "editor-fake", "planner-fake",
-    ]
+    workflow = next(tool.agent for tool in root.tools if tool.name == "flo_content_engine")
+    assert workflow.sub_agents[0].model.model == "planner-fake"
+    assert [agent.model.model for agent in workflow.sub_agents[1].sub_agents] == ["gemma-fake", "editor-fake"]
 
 
 def test_team_applies_each_roles_generation_and_safety_policy(monkeypatch):
@@ -235,12 +242,13 @@ def test_team_applies_each_roles_generation_and_safety_policy(monkeypatch):
     assert root.generate_content_config.max_output_tokens == 1024
     assert len(root.generate_content_config.safety_settings) == 4
 
-    analyst = next(agent for agent in root.sub_agents if agent.name == "sophia_analyst")
+    analyst = next(agent for agent in root.sub_agents if agent.name == "nimi_analyst")
     assert analyst.generate_content_config.temperature == 0.2
     assert analyst.generate_content_config.max_output_tokens == 2048
 
-    workflow = next(tool.agent for tool in root.tools if tool.name == "flo_draft_workflow")
-    copywriter, _, planner = workflow.sub_agents
+    workflow = next(tool.agent for tool in root.tools if tool.name == "flo_content_engine")
+    planner, revision_loop = workflow.sub_agents
+    copywriter, _ = revision_loop.sub_agents
     assert copywriter.generate_content_config.temperature == 0.8
     assert copywriter.generate_content_config.max_output_tokens == 2048
     assert planner.generate_content_config.temperature == 0.1
@@ -263,13 +271,13 @@ def test_agent_reservations_record_exact_model_policy(monkeypatch):
     )
 
     reservations = _reservation_payloads(
-        "sophia_analyst",
+        "nimi_analyst",
         AnalystInput(title="Synthetic", transcript="[0s] public evidence"),
         invocation,
         _resolve_role_models(),
     )
 
-    analyst = next(item for item in reservations if item["role"] == "sophia_analyst")
+    analyst = next(item for item in reservations if item["role"] == "nimi_analyst")
     assert analyst["modelPolicy"] == {
         "policyVersion": "gear-2026-08-24",
         "pricingVersion": "2026-08-23",
@@ -288,7 +296,7 @@ def test_coordinator_really_delegates_and_forwards_specialist_state():
     runtime = ManagedRuntime()
     with tenant_scope("workspace-test", "brand-test"):
         state = asyncio.run(_run_coordinator(
-            "sophia_analyst",
+            "nimi_analyst",
             AnalystInput(title="Demo", channel="Harmonia", transcript="[0s] hello [30s] proof"),
             model="gemini-test",
             team_runtime=runtime,
@@ -296,7 +304,7 @@ def test_coordinator_really_delegates_and_forwards_specialist_state():
 
     result = _validated_state(state, "analysis_result", AnalysisResult)
     assert result.summary == "Delegated analysis"
-    assert runtime.calls[0]["specialist"] == "sophia_analyst"
+    assert runtime.calls[0]["specialist"] == "nimi_analyst"
     assert runtime.calls[0]["user_id"] == "workspace-test:system:proactive"
 
 
@@ -306,7 +314,7 @@ def test_analyst_receives_source_video_as_a_real_multimodal_part():
 
     with tenant_scope("workspace-test", "brand-test"):
         asyncio.run(_run_coordinator(
-            "sophia_analyst",
+            "nimi_analyst",
             AnalystInput(
                 title="Demo",
                 channel="Harmonia",
@@ -329,16 +337,17 @@ def test_draft_agent_tool_forwards_all_sequential_state_to_coordinator():
     input = DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="voice: direct")
     with tenant_scope("workspace-test", "brand-test"):
         state = asyncio.run(_run_coordinator(
-            "flo_draft_workflow", input, model="gemini-test", team_runtime=runtime,
+            "flo_content_engine", input, model="gemini-test", team_runtime=runtime,
         ))
 
     package = DraftWorkflowResult(
+        editorial_plan=_validated_state(state, "editorial_plan", EditorialPlan),
         copywriter_drafts=_validated_state(state, "copywriter_drafts", DraftSet),
         reviewed_drafts=_validated_state(state, "reviewed_drafts", DraftSet),
-        action_plan=_validated_state(state, "action_plan", ActionPlan),
+        action_plan=ActionPlan(actions=[PublishAction(text="Reviewed")]),
     )
     assert package.reviewed_drafts.drafts[0].text == "Reviewed"
-    assert runtime.calls[0]["specialist"] == "flo_draft_workflow"
+    assert runtime.calls[0]["specialist"] == "flo_content_engine"
 
 
 def test_missing_agent_state_is_a_permanent_protocol_failure():
@@ -384,6 +393,7 @@ def test_draft_workflow_result_requires_editor_to_preserve_identity_and_referenc
 
     with pytest.raises(ValidationError, match="preserve draft id"):
         DraftWorkflowResult(
+            editorial_plan=_editorial_plan(),
             copywriter_drafts=original,
             reviewed_drafts=DraftSet(drafts=[Draft(
                 id="changed", platform="x", momentId="m1", text="Revised draft",
@@ -393,6 +403,7 @@ def test_draft_workflow_result_requires_editor_to_preserve_identity_and_referenc
 
     with pytest.raises(ValidationError, match="preserve source references"):
         DraftWorkflowResult(
+            editorial_plan=_editorial_plan(),
             copywriter_drafts=original,
             reviewed_drafts=DraftSet(drafts=[Draft(
                 id="d1", platform="x", angleId="a1", text="Revised draft",
@@ -407,10 +418,21 @@ def test_draft_workflow_result_limits_actions_to_reviewed_drafts():
 
     with pytest.raises(ValidationError, match="reviewed draft text"):
         DraftWorkflowResult(
+            editorial_plan=_editorial_plan(),
             copywriter_drafts=original,
             reviewed_drafts=reviewed,
             action_plan=ActionPlan(actions=[PublishAction(text="Original")]),
         )
+
+
+def test_content_engine_rejects_editorial_plan_with_unknown_source_reference():
+    payload = DraftWorkflowInput(title="Demo", analysis=_analysis())
+    invalid = {
+        "editorial_plan": {"strategySummary": "Bad", "items": [{"id": "c1", "platform": "x", "objective": "Invent", "sourceRef": "missing", "format": "text_post", "priority": 1}]},
+        "copywriter_drafts": {"drafts": []}, "reviewed_drafts": {"drafts": []},
+    }
+    with pytest.raises(AgentProtocolError, match="unknown editorial sourceRef"):
+        _validate_run_output("flo_content_engine", payload, invalid)
 
 
 def test_mock_team_routes_all_roles_and_returns_validated_shapes(monkeypatch, capsys):
@@ -434,7 +456,7 @@ def test_mock_team_routes_all_roles_and_returns_validated_shapes(monkeypatch, ca
     }
     trace = capsys.readouterr().out
     for role in (
-        "sophia_analyst", "ryan_strategist", "nimi_copywriter",
-        "dara_editor", "temi_planner",
+        "nimi_analyst", "ryan_strategist", "noni_copywriter",
+        "dara_editor", "temi_editorial_planner",
     ):
         assert f"[MOCK-AI] coordinator -> {role}" in trace

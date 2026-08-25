@@ -56,7 +56,7 @@ def test_endpoint_usage_records_elapsed_seconds_without_fake_token_pricing():
             workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
             job_id="j1", stage="draft", operation_id="j1:draft:0",
         ),
-        role="nimi_copywriter",
+        role="noni_copywriter",
         model="gemma-3-12b-it",
         elapsed_seconds=1.2,
         estimated_cost_usd="0.100000",

@@ -51,6 +51,7 @@ export interface Job {
   ingestedChannel?: string;
   ingestedDurationSec?: number;
   mediaDigest?: string;
+  contentStrategy?: { objective: string; audience: string; pillars: string[]; cadence: string; kpis: string[]; briefs: Array<{ title: string; objective: string; sourceRefs: string[] }> };
   videoId?: string;
   budget?: JobBudget;
   failure?: {
@@ -159,12 +160,10 @@ export interface ApprovalDecision {
   actionId: string;
   decision: "approved" | "rejected";
   payloadDigest: string;
-  actorType: "firebase_operator" | "telegram_operator" | "human_operator";
+  actorType: "firebase_operator" | "telegram_operator";
   actorSubjectId?: string;
   authenticationId?: string;
   channel?: "dashboard" | "telegram";
-  /** Legacy records only; new decisions never write this field. */
-  actorUserId?: string;
   operationId: string;
   traceId: string;
   decidedAt: string;

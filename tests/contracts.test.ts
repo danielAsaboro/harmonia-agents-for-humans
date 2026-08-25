@@ -50,6 +50,7 @@ describe("internal contracts", () => {
         visualEvidenceIds: ["f1"],
       }],
       angles: [],
+      strategy: { objective: "Teach the launch lesson", audience: "startup operators", pillars: ["product proof"], cadence: "one approved post", kpis: ["verified engagement"], briefs: [{ title: "Dashboard reveal", objective: "Show the state change", sourceRefs: ["m1"] }] },
       modelUsed: "gemini-3.5-flash",
     });
 

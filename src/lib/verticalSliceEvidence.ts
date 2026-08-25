@@ -69,7 +69,7 @@ const approvalSchema = z.object({
   approvalId: z.string().min(1),
   actionId: z.string().min(1),
   decision: z.literal("approved"),
-  actorType: z.literal("human_operator"),
+  actorType: z.enum(["firebase_operator", "telegram_operator"]),
   decidedAt: timestamp,
   traceId,
 }).strict();

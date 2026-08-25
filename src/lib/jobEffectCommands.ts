@@ -4,7 +4,7 @@ import { getJob, listApprovalDecisions } from "./firestore";
 import { actionPayloadDigest, contentHash } from "./idempotency";
 import type { ApprovalDecision, Job, PlannedAction } from "./types";
 
-type ReadableApproval = Omit<ApprovalDecision, "actorUserId" | "authenticationId">;
+type ReadableApproval = Omit<ApprovalDecision, "authenticationId">;
 
 export function buildJobActionCommand(
   job: Job,
@@ -21,7 +21,6 @@ export function buildJobActionCommand(
     if (approval.actionId !== action.id || approval.jobId !== job.id || approval.payloadDigest !== currentActionDigest) {
       throw new Error("approval payload changed");
     }
-    if (approval.actorType === "human_operator") throw new Error("legacy approval cannot authorize a new command");
   } else if (action.approvalState !== "not_required") {
     throw new Error("autonomous action policy state is invalid");
   }

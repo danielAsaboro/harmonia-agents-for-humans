@@ -99,7 +99,7 @@ export function createEffectCommand(input: EffectCommandInput): EffectCommand {
     payload: structuredClone(input.payload),
     payloadDigest,
     authorization: structuredClone(input.authorization),
-    executeAfter: input.executeAfter,
+    ...(input.executeAfter ? { executeAfter: input.executeAfter } : {}),
     state: "pending",
     createdAt: now,
     updatedAt: now,

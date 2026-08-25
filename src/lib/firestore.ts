@@ -24,7 +24,7 @@ import type {
 } from "./types";
 import { applyFinalizedUsage, applyReleasedReservation, applyReservation, canReserve, exceedsApprovalThreshold } from "./costs";
 import { markReservationFinalized, markReservationReleased, markReservationUncertain, type CostReservationState } from "./costReservations";
-import { getConfig } from "./config";
+import { parseBudgetConfig } from "./config";
 import { actionPayloadDigest, newId } from "./idempotency";
 import type { ApprovalActor } from "./decisions";
 import {
@@ -114,7 +114,7 @@ function tenantCollection(name: string) {
 }
 
 function initialJobBudget(): JobBudget {
-  const config = getConfig();
+  const config = parseBudgetConfig(process.env);
   return {
     estimatedUsd: "0.00",
     observedUsd: "0.00",
@@ -1234,7 +1234,7 @@ export async function reserveJobBudget(
       estimatedUsd: "0.00",
       observedUsd: "0.00",
       reservedUsd: "0.00",
-      limitUsd: getConfig().DEFAULT_WORKSPACE_BUDGET_USD,
+      limitUsd: parseBudgetConfig(process.env).DEFAULT_WORKSPACE_BUDGET_USD,
       approvalThresholdUsd: budget.approvalThresholdUsd,
     };
     const accepted = !exceedsApprovalThreshold(budget, input.estimatedCostUsd)

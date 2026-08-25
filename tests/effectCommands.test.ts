@@ -69,4 +69,14 @@ describe("immutable effect commands", () => {
     expect(decideTerminalOutcome([{ state: "failed" }])).toBe("failed");
     expect(decideTerminalOutcome([{ state: "applied" }])).toBe("succeeded");
   });
+
+  it("omits optional scheduling fields instead of serializing Firestore-invalid undefined", () => {
+    const { executeAfter: _executeAfter, ...withoutSchedule } = input();
+    const digest = effectCommandDigest(withoutSchedule);
+    const command = createEffectCommand({
+      ...withoutSchedule,
+      authorization: { kind: "approval", approvalId: "approval-1", approvedPayloadDigest: digest },
+    });
+    expect(Object.hasOwn(command, "executeAfter")).toBe(false);
+  });
 });

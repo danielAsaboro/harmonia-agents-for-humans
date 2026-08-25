@@ -354,6 +354,7 @@ export interface ContentItem {
   status: ContentItemStatus;
   publishMode: PublishMode;
   scheduledFor?: string;
+  effectCommandId?: string;
   revisions?: ContentItemRevision[];
   /** Rendered media attached to this post (image/clip action ids on the parent job). */
   assetActionIds?: string[];

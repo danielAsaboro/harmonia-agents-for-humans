@@ -3,12 +3,12 @@ import {
   getConnection,
   getContentItem,
   listContentItems,
-  updateContentItem,
-  deleteFirestoreField,
 } from "@/lib/firestore";
 import { operatorTenantHandler } from "@/lib/auth";
 import { validateDraftText } from "@/lib/policy";
 import { markCalendarSyncStale } from "@/lib/calendarSyncState";
+import { applyScheduledContentMutation } from "@/lib/scheduledEffects";
+import { currentTenant } from "@/lib/tenancy";
 
 /** All items for the calendar / trays. */
 async function get(_req: Request) {
@@ -75,7 +75,7 @@ async function patch(req: Request) {
 
   if (patch.scheduledFor !== undefined) {
     if (patch.scheduledFor === null) {
-      updates.scheduledFor = deleteFirestoreField();
+      updates.scheduledFor = null;
       updates.status = "draft";
     } else {
       updates.scheduledFor = patch.scheduledFor;
@@ -85,7 +85,7 @@ async function patch(req: Request) {
 
   if (patch.status === "cancelled") {
     updates.status = "cancelled";
-    updates.scheduledFor = deleteFirestoreField();
+    updates.scheduledFor = null;
   } else if (patch.status === "draft" && !("scheduledFor" in updates)) {
     updates.status = "draft";
   } else if (patch.status === "scheduled") {
@@ -99,8 +99,8 @@ async function patch(req: Request) {
   const clean = Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined));
   const next = markCalendarSyncStale(item, clean as Partial<typeof item>);
   if (next.googleCalendarSync !== item.googleCalendarSync) clean.googleCalendarSync = next.googleCalendarSync;
-  await updateContentItem(id, clean);
-  return Response.json({ ok: true, item: await getContentItem(id) });
+  const result = await applyScheduledContentMutation(id, clean as Partial<typeof item> & { scheduledFor?: string | null }, currentTenant());
+  return Response.json({ ok: true, item: result.item });
 }
 
 export const GET = operatorTenantHandler(get);

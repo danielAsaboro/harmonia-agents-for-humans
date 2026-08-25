@@ -6,7 +6,7 @@ import {
   updateContentItem,
   deleteFirestoreField,
 } from "@/lib/firestore";
-import { tenantHandler } from "@/lib/auth";
+import { operatorTenantHandler } from "@/lib/auth";
 import { validateDraftText } from "@/lib/policy";
 import { markCalendarSyncStale } from "@/lib/calendarSyncState";
 
@@ -103,5 +103,5 @@ async function patch(req: Request) {
   return Response.json({ ok: true, item: await getContentItem(id) });
 }
 
-export const GET = tenantHandler(get);
-export const PATCH = tenantHandler(patch);
+export const GET = operatorTenantHandler(get);
+export const PATCH = operatorTenantHandler(patch);

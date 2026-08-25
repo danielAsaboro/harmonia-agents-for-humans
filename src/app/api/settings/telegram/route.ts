@@ -4,7 +4,7 @@ import {
   getTelegramConnection,
   saveTelegramConnection,
 } from "@/lib/firestore";
-import { tenantHandler } from "@/lib/auth";
+import { administratorTenantHandler } from "@/lib/auth";
 
 const schema = z.object({
   botToken: z.string().min(20).max(256),
@@ -32,6 +32,6 @@ async function del(_req: Request) {
   return Response.json({ ok: true });
 }
 
-export const GET = tenantHandler(get);
-export const PUT = tenantHandler(put);
-export const DELETE = tenantHandler(del);
+export const GET = administratorTenantHandler(get);
+export const PUT = administratorTenantHandler(put);
+export const DELETE = administratorTenantHandler(del);

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { tenantHandler } from "@/lib/auth";
+import { operatorTenantHandler } from "@/lib/auth";
 import { handleChat, type ChatResponse } from "@/lib/chatHandler";
 import { requireReadyAttachments } from "@/lib/chatAttachments";
 import { appendChatRunEvent, createChatRun, type UnsequencedChatStreamEvent } from "@/lib/chatRuns";
@@ -115,4 +115,4 @@ async function post(req: Request): Promise<Response> {
   });
 }
 
-export const POST = tenantHandler(post);
+export const POST = operatorTenantHandler(post);

@@ -1,5 +1,5 @@
 import { appendEvent, createJob, listJobs, saveIngestMeta } from "@/lib/firestore";
-import { tenantHandler } from "@/lib/auth";
+import { operatorTenantHandler } from "@/lib/auth";
 import { publishStage } from "@/lib/pubsub";
 import { currentTenant } from "@/lib/tenancy";
 import { parseYouTubeUrl } from "@/lib/youtubeUrl";
@@ -72,5 +72,5 @@ async function post(req: Request) {
   );
 }
 
-export const GET = tenantHandler(get);
-export const POST = tenantHandler(post);
+export const GET = operatorTenantHandler(get);
+export const POST = operatorTenantHandler(post);

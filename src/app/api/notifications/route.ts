@@ -1,5 +1,5 @@
 import { listNotifications, markAllNotificationsRead, markNotificationRead } from "@/lib/firestore";
-import { tenantHandler } from "@/lib/auth";
+import { operatorTenantHandler } from "@/lib/auth";
 
 async function get(_req: Request) {
   const notifications = await listNotifications();
@@ -20,5 +20,5 @@ async function post(req: Request) {
   return Response.json({ error: "expected {action:'read',id} or {action:'read-all'}" }, { status: 400 });
 }
 
-export const GET = tenantHandler(get);
-export const POST = tenantHandler(post);
+export const GET = operatorTenantHandler(get);
+export const POST = operatorTenantHandler(post);

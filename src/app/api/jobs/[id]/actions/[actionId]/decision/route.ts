@@ -1,11 +1,10 @@
 import { z } from "zod";
 import { resolveDecision } from "@/lib/decisions";
-import { tenantHandler } from "@/lib/auth";
+import { operatorTenantHandler } from "@/lib/auth";
 
 const decisionSchema = z.object({
   decision: z.enum(["approved", "rejected"]),
-  actor: z.enum(["system", "agent", "operator"]).default("operator"),
-});
+}).strict();
 
 async function post(
   req: Request,
@@ -21,9 +20,9 @@ async function post(
     id,
     actionId,
     parsed.data.decision,
-    parsed.data.actor,
+    "operator",
   );
   return Response.json(outcome);
 }
 
-export const POST = tenantHandler(post);
+export const POST = operatorTenantHandler(post);

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { appendEvent, getJob, setStage } from "@/lib/firestore";
-import { tenantHandler } from "@/lib/auth";
+import { administratorTenantHandler } from "@/lib/auth";
 import { publishStage } from "@/lib/pubsub";
 import { isKnownStage } from "@/lib/stages";
 import { currentTenant } from "@/lib/tenancy";
@@ -46,4 +46,4 @@ async function post(
   return Response.json({ ok: true, retriedFrom: failedStage });
 }
 
-export const POST = tenantHandler(post);
+export const POST = administratorTenantHandler(post);

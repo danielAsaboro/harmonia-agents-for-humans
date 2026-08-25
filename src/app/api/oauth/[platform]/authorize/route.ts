@@ -1,6 +1,6 @@
 import { db } from "@/lib/firestore";
 import { getPlatform, pkcePair, randomState } from "@/lib/oauth";
-import { tenantHandler } from "@/lib/auth";
+import { administratorTenantHandler } from "@/lib/auth";
 import { platformStatus } from "@/lib/platforms";
 import { currentTenant } from "@/lib/tenancy";
 
@@ -66,4 +66,4 @@ async function get(
   return new Response(null, { status: 302, headers: { location: url.toString() } });
 }
 
-export const GET = tenantHandler(get);
+export const GET = administratorTenantHandler(get);

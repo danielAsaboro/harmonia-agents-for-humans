@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createNotification, getContentItem, updateContentItem } from "@/lib/firestore";
-import { tenantHandler } from "@/lib/auth";
+import { operatorTenantHandler } from "@/lib/auth";
 
 /** Final human approval for approval-mode scheduled items. */
 async function post(
@@ -39,4 +39,4 @@ async function post(
   return Response.json({ ok: true, status: "publishing" });
 }
 
-export const POST = tenantHandler(post);
+export const POST = operatorTenantHandler(post);

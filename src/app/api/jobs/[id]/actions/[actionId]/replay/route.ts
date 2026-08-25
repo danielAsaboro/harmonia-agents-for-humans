@@ -1,4 +1,4 @@
-import { tenantHandler } from "@/lib/auth";
+import { administratorTenantHandler } from "@/lib/auth";
 import { requestReplayProof } from "@/lib/replay";
 
 async function post(
@@ -15,4 +15,4 @@ async function post(
   }
 }
 
-export const POST = tenantHandler(post);
+export const POST = administratorTenantHandler(post);

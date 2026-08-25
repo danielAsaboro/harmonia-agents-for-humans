@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { tenantHandler } from "@/lib/auth";
+import { operatorTenantHandler } from "@/lib/auth";
 import { decidePendingOperation } from "@/lib/pendingOperations";
 
 const decisionSchema = z.object({ decision: z.enum(["approved", "rejected"]) }).strict();
@@ -18,4 +18,4 @@ async function post(req: Request, { params }: { params: Promise<{ id: string }> 
   }
 }
 
-export const POST = tenantHandler(post);
+export const POST = operatorTenantHandler(post);

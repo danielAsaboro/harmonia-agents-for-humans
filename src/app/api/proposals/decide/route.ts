@@ -6,7 +6,7 @@ import {
   getProposal,
   saveIngestMeta,
 } from "@/lib/firestore";
-import { tenantHandler } from "@/lib/auth";
+import { operatorTenantHandler } from "@/lib/auth";
 import { publishStage } from "@/lib/pubsub";
 import { currentTenant } from "@/lib/tenancy";
 
@@ -55,4 +55,4 @@ async function post(req: Request) {
   });
 }
 
-export const POST = tenantHandler(post);
+export const POST = operatorTenantHandler(post);

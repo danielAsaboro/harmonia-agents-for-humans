@@ -1,9 +1,8 @@
 import { createHash } from "node:crypto";
 import { adminAuth } from "./firebaseAdmin";
 import { db } from "./firestore";
-import { requireWorkspaceRole, runWithTenant, type TenantContext } from "./tenancy";
-import { isInternalAuthorized, withInternalTenant } from "./internalAuth";
-import { firebasePrincipal } from "./authority";
+import { currentTenant, requireWorkspaceRole, runWithTenant, type TenantContext } from "./tenancy";
+import { AuthorityError, firebasePrincipal, requireWorkspaceAdministrator } from "./authority";
 
 export const SESSION_COOKIE = "harmonia_session";
 // Firebase session cookies permit a maximum lifetime of 14 days. The client
@@ -148,6 +147,9 @@ export class AuthError extends Error {
 
 export function authErrorResponse(error: unknown): Response {
   if (error instanceof AuthError) return Response.json({ error: error.message }, { status: error.status });
+  if (error instanceof AuthorityError) {
+    return Response.json({ error: error.message, code: error.code }, { status: error.status });
+  }
   throw error;
 }
 
@@ -156,14 +158,21 @@ export function tenantHandler<Args extends unknown[]>(
 ): (req: Request, ...args: Args) => Promise<Response> {
   return async (req, ...args) => {
     try {
-      if (isInternalAuthorized(req)) {
-        return await withInternalTenant(req, () => handler(req, ...args));
-      }
       return await withTenant(req, () => handler(req, ...args));
     } catch (error) {
       return authErrorResponse(error);
     }
   };
+}
+
+/** Browser-session-only boundary for workspace control-plane mutations. */
+export function administratorTenantHandler<Args extends unknown[]>(
+  handler: (req: Request, ...args: Args) => Promise<Response>,
+): (req: Request, ...args: Args) => Promise<Response> {
+  return operatorTenantHandler(async (req, ...args) => {
+    requireWorkspaceAdministrator(currentTenant());
+    return handler(req, ...args);
+  });
 }
 
 /** Browser-session-only tenant boundary for explicit operator effects. */

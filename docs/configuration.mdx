@@ -108,6 +108,20 @@ derives cost from linked immutable usage records, and carries the private eval o
 a role's catalog default only after a recorded comparison uses the same policy and pricing versions.
 Mock or scripted runs never count as model-promotion evidence.
 
+Promotion is not an edit to a prompt or an automatic model decision. The private operator workflow
+uses `harmonia_agent.model_governance` to append four hash-chained records: a candidate derived with
+`candidate_from_comparison`, an independent human review, a promotion, and—when needed—an exact
+rollback to the candidate's recorded previous model. A proposer cannot approve their own candidate;
+an unreviewed, rejected, stale, or already-promoted candidate cannot activate. The append operation
+uses an exclusive lock plus `fsync`, and every read verifies sequence and the full digest chain.
+
+The ledger must live under the private evidence root, be access-controlled with the originating ADK
+and usage exports, and be captured with the deployment revision. Promotion records do not mutate
+source code, prompts, or deployed configuration by themselves: an administrator applies the reviewed
+model ID through the documented role environment variable and records that deployment separately.
+Rollback likewise restores the exact recorded previous model and requires a non-empty incident reason.
+This is governed adaptation, not autonomous self-modifying code.
+
 The manifest is a private operator evidence ledger, not a cryptographic signature service. Its
 digests detect mutation relative to the recorded ledger; they do not make a newly fabricated
 artifact truthful. Keep the manifest write path access-controlled, retain the originating ADK run

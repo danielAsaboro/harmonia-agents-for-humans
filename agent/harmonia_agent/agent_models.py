@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Literal
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class StrictModel(BaseModel):
@@ -265,19 +267,200 @@ class DraftWorkflowInput(StrictModel):
     strategy: ContentStrategy
 
 
-class EditorialCalendarItem(StrictModel):
+def _validate_utc_timestamp(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() != timezone.utc.utcoffset(value):
+        raise ValueError("timestamp must be UTC")
+    return value
+
+
+def _validate_iana_timezone(value: str) -> str:
+    try:
+        ZoneInfo(value)
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError("timezone must be a valid IANA timezone") from exc
+    return value
+
+
+class StrategyApprovalRecord(StrictModel):
+    decision: Literal["approved"]
+    payloadDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    revision: int = Field(ge=1, le=2)
+    actorSubjectId: str = Field(min_length=1, max_length=200)
+    decidedAt: datetime
+    expiresAt: datetime
+    feedback: str | None = Field(default=None, max_length=2_000)
+
+    @field_validator("decidedAt", "expiresAt")
+    @classmethod
+    def validate_utc_timestamp(cls, value: datetime) -> datetime:
+        return _validate_utc_timestamp(value)
+
+
+class ChannelCapability(StrictModel):
+    channel: str = Field(min_length=1, max_length=100)
+    formats: list[str] = Field(min_length=1, max_length=8)
+
+
+class EditorialCommitment(StrictModel):
     id: str = Field(min_length=1, max_length=100)
-    platform: Literal["x"]
-    objective: str = Field(min_length=1, max_length=300)
+    channel: str = Field(min_length=1, max_length=100)
+    publicationWindowStartAt: datetime
+    publicationWindowEndAt: datetime
+
+    @field_validator("publicationWindowStartAt", "publicationWindowEndAt")
+    @classmethod
+    def validate_utc_timestamp(cls, value: datetime) -> datetime:
+        return _validate_utc_timestamp(value)
+
+    @model_validator(mode="after")
+    def validate_window(self) -> "EditorialCommitment":
+        if self.publicationWindowStartAt >= self.publicationWindowEndAt:
+            raise ValueError("publication window must increase")
+        return self
+
+
+class ProductionCapacity(StrictModel):
+    maxItems: int = Field(ge=1, le=48)
+    maxItemsPerWeek: int = Field(ge=1, le=12)
+
+
+class CadenceConstraints(StrictModel):
+    minimumHoursBetweenItems: int = Field(ge=0, le=168)
+    maxItemsPerChannelPerWeek: int = Field(ge=1, le=12)
+
+
+class PostingWindowObservation(StrictModel):
+    id: str = Field(min_length=1, max_length=100)
+    channel: str = Field(min_length=1, max_length=100)
+    format: str = Field(min_length=1, max_length=100)
+    observedAt: datetime
+    evidenceRefs: list[str] = Field(min_length=1, max_length=12)
+
+    @field_validator("observedAt")
+    @classmethod
+    def validate_utc_timestamp(cls, value: datetime) -> datetime:
+        return _validate_utc_timestamp(value)
+
+
+class EditorialPlannerInput(StrictModel):
+    strategy: ContentStrategy
+    strategyDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    strategyVersion: int = Field(ge=1, le=2)
+    strategyApproval: StrategyApprovalRecord
+    analysis: AnalysisResult
+    horizonStartAt: datetime
+    horizonEndAt: datetime
+    timezone: str = Field(min_length=1, max_length=100)
+    channelCapabilities: list[ChannelCapability] = Field(min_length=1, max_length=8)
+    existingCommitments: list[EditorialCommitment] = Field(default_factory=list, max_length=48)
+    productionCapacity: ProductionCapacity
+    cadenceConstraints: CadenceConstraints
+    postingWindowObservations: list[PostingWindowObservation] = Field(default_factory=list, max_length=24)
+    revision: int = Field(ge=1, le=2)
+    replanningFeedback: str | None = Field(default=None, max_length=2_000)
+
+    @field_validator("horizonStartAt", "horizonEndAt")
+    @classmethod
+    def validate_utc_timestamp(cls, value: datetime) -> datetime:
+        return _validate_utc_timestamp(value)
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str) -> str:
+        return _validate_iana_timezone(value)
+
+    @model_validator(mode="after")
+    def validate_horizon(self) -> "EditorialPlannerInput":
+        if self.horizonStartAt >= self.horizonEndAt:
+            raise ValueError("editorial horizon must increase")
+        return self
+
+
+class EditorialPlanItem(StrictModel):
+    id: str = Field(min_length=1, max_length=100)
     briefId: str = Field(min_length=1, max_length=100)
-    sourceRef: str = Field(min_length=1, max_length=100)
-    format: Literal["text_post"] = "text_post"
-    priority: int = Field(default=1, ge=1, le=5)
+    campaignTheme: str = Field(min_length=1, max_length=200)
+    contentPillar: str = Field(min_length=1, max_length=200)
+    objective: str = Field(min_length=1, max_length=600)
+    audienceId: str = Field(min_length=1, max_length=100)
+    funnelStage: Literal["awareness", "consideration", "conversion", "retention", "advocacy"]
+    intendedConversion: str = Field(min_length=1, max_length=300)
+    ctaIntent: str = Field(min_length=1, max_length=300)
+    kpi: str = Field(min_length=1, max_length=200)
+    channel: str = Field(min_length=1, max_length=100)
+    format: str = Field(min_length=1, max_length=100)
+    evidenceRefs: list[str] = Field(min_length=1, max_length=12)
+    publicationWindowStartAt: datetime
+    publicationWindowEndAt: datetime
+    productionDeadlineAt: datetime
+    priority: int = Field(ge=1, le=5)
+    selectionScore: float = Field(ge=0, le=1)
+    dependencies: list[str] = Field(default_factory=list, max_length=8)
+    productionStatus: Literal["planned"]
+    constraints: list[str] = Field(default_factory=list, max_length=12)
+    requiredAssets: list[str] = Field(default_factory=list, max_length=12)
+    planningRationale: str = Field(min_length=1, max_length=600)
+    selectionRationale: str = Field(min_length=1, max_length=600)
+    confidence: Literal["low", "medium", "high"]
+
+    @field_validator("publicationWindowStartAt", "publicationWindowEndAt", "productionDeadlineAt")
+    @classmethod
+    def validate_utc_timestamp(cls, value: datetime) -> datetime:
+        return _validate_utc_timestamp(value)
+
+    @model_validator(mode="after")
+    def validate_timing(self) -> "EditorialPlanItem":
+        if self.publicationWindowStartAt >= self.publicationWindowEndAt:
+            raise ValueError("publication window must increase")
+        if self.productionDeadlineAt > self.publicationWindowStartAt:
+            raise ValueError("production deadline must be before the publication window")
+        return self
 
 
 class EditorialPlan(StrictModel):
-    strategySummary: str = Field(min_length=1, max_length=1000)
-    items: list[EditorialCalendarItem] = Field(min_length=1, max_length=10)
+    planId: str = Field(min_length=1, max_length=100)
+    version: int = Field(ge=1, le=2)
+    approvedStrategyDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    horizonStartAt: datetime
+    horizonEndAt: datetime
+    timezone: str = Field(min_length=1, max_length=100)
+    summary: str = Field(min_length=1, max_length=1_000)
+    sequencingRationale: str = Field(min_length=1, max_length=1_000)
+    cadenceRationale: str = Field(min_length=1, max_length=1_000)
+    assumptions: list[str] = Field(default_factory=list, max_length=12)
+    confidence: Literal["low", "medium", "high"]
+    items: list[EditorialPlanItem] = Field(min_length=1, max_length=48)
+    selectedNextItemId: str = Field(min_length=1, max_length=100)
+
+    @field_validator("horizonStartAt", "horizonEndAt")
+    @classmethod
+    def validate_utc_timestamp(cls, value: datetime) -> datetime:
+        return _validate_utc_timestamp(value)
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str) -> str:
+        return _validate_iana_timezone(value)
+
+    @model_validator(mode="after")
+    def validate_horizon_and_selection(self) -> "EditorialPlan":
+        if self.horizonStartAt >= self.horizonEndAt:
+            raise ValueError("editorial horizon must increase")
+        selected = [item for item in self.items if item.id == self.selectedNextItemId]
+        if len(selected) != 1:
+            raise ValueError("selectedNextItemId must identify exactly one plan item")
+        return self
+
+
+class ProductionDraftInput(StrictModel):
+    planId: str = Field(min_length=1, max_length=100)
+    strategyDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    editorialItem: EditorialPlanItem
+    brief: ContentBrief
+    referencedMoments: list[Moment] = Field(default_factory=list, max_length=12)
+    referencedAngles: list[Angle] = Field(default_factory=list, max_length=12)
+    brandContext: str = Field(min_length=1, max_length=4_000)
+    constraints: list[str] = Field(default_factory=list, max_length=24)
 
 
 class PublishAction(StrictModel):

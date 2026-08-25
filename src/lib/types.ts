@@ -69,6 +69,79 @@ export interface StrategyApproval {
   actorSubjectId: string; decidedAt: string; expiresAt: string; feedback?: string;
 }
 
+export interface EditorialPlannerInput {
+  strategy: ContentStrategy;
+  strategyDigest: string;
+  strategyVersion: number;
+  strategyApproval: StrategyApproval & { decision: "approved" };
+  analysis: { summary: string; moments: Moment[]; angles: Angle[] };
+  horizonStartAt: string;
+  horizonEndAt: string;
+  timezone: string;
+  channelCapabilities: Array<{ channel: string; formats: string[] }>;
+  existingCommitments: Array<{ id: string; channel: string; publicationWindowStartAt: string; publicationWindowEndAt: string }>;
+  productionCapacity: { maxItems: number; maxItemsPerWeek: number };
+  cadenceConstraints: { minimumHoursBetweenItems: number; maxItemsPerChannelPerWeek: number };
+  postingWindowObservations: Array<{ id: string; channel: string; format: string; observedAt: string; evidenceRefs: string[] }>;
+  revision: number;
+  replanningFeedback?: string;
+}
+
+export interface EditorialPlanItem {
+  id: string;
+  briefId: string;
+  campaignTheme: string;
+  contentPillar: string;
+  objective: string;
+  audienceId: string;
+  funnelStage: StrategyContext["funnelStage"];
+  intendedConversion: string;
+  ctaIntent: string;
+  kpi: string;
+  channel: string;
+  format: string;
+  evidenceRefs: string[];
+  publicationWindowStartAt: string;
+  publicationWindowEndAt: string;
+  productionDeadlineAt: string;
+  priority: number;
+  selectionScore: number;
+  dependencies: string[];
+  productionStatus: "planned";
+  constraints: string[];
+  requiredAssets: string[];
+  planningRationale: string;
+  selectionRationale: string;
+  confidence: "low" | "medium" | "high";
+}
+
+export interface EditorialPlan {
+  planId: string;
+  version: number;
+  approvedStrategyDigest: string;
+  horizonStartAt: string;
+  horizonEndAt: string;
+  timezone: string;
+  summary: string;
+  sequencingRationale: string;
+  cadenceRationale: string;
+  assumptions: string[];
+  confidence: "low" | "medium" | "high";
+  items: EditorialPlanItem[];
+  selectedNextItemId: string;
+}
+
+export interface ProductionDraftInput {
+  planId: string;
+  strategyDigest: string;
+  editorialItem: EditorialPlanItem;
+  brief: ContentStrategy["briefs"][number];
+  referencedMoments: Moment[];
+  referencedAngles: Angle[];
+  brandContext: string;
+  constraints: string[];
+}
+
 export interface StrategyInvocationContext {
   revision: number; sourceIds: string[]; operatorContextIds: string[];
   performance: Array<{ id: string; firestoreEvidenceRef: string }>;

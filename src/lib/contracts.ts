@@ -168,6 +168,136 @@ export const contentStrategySchema = z.object({
   confidence: z.enum(["low", "medium", "high"]),
 }).strict();
 
+const utcTimestampSchema = z.string().datetime({ offset: true }).refine(
+  (value) => /(?:Z|[+-]00:00)$/.test(value),
+  "timestamp must be UTC",
+);
+
+const ianaTimezoneSchema = z.string().min(1).max(100).superRefine((value, ctx) => {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+  } catch {
+    ctx.addIssue({ code: "custom", message: "timezone must be a valid IANA timezone" });
+  }
+});
+
+const strategyApprovalRecordSchema = z.object({
+  decision: z.literal("approved"),
+  payloadDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  revision: z.number().int().min(1).max(2),
+  actorSubjectId: z.string().min(1).max(200),
+  decidedAt: utcTimestampSchema,
+  expiresAt: utcTimestampSchema,
+  feedback: z.string().max(2000).optional(),
+}).strict();
+
+const channelCapabilitySchema = z.object({
+  channel: z.string().min(1).max(100),
+  formats: z.array(z.string().min(1).max(100)).min(1).max(8),
+}).strict();
+
+const editorialCommitmentSchema = z.object({
+  id: z.string().min(1).max(100),
+  channel: z.string().min(1).max(100),
+  publicationWindowStartAt: utcTimestampSchema,
+  publicationWindowEndAt: utcTimestampSchema,
+}).strict().refine(
+  (commitment) => commitment.publicationWindowStartAt < commitment.publicationWindowEndAt,
+  "publication window must increase",
+);
+
+const productionCapacitySchema = z.object({
+  maxItems: z.number().int().min(1).max(48),
+  maxItemsPerWeek: z.number().int().min(1).max(12),
+}).strict();
+
+const cadenceConstraintsSchema = z.object({
+  minimumHoursBetweenItems: z.number().int().min(0).max(168),
+  maxItemsPerChannelPerWeek: z.number().int().min(1).max(12),
+}).strict();
+
+const postingWindowObservationSchema = z.object({
+  id: z.string().min(1).max(100),
+  channel: z.string().min(1).max(100),
+  format: z.string().min(1).max(100),
+  observedAt: utcTimestampSchema,
+  evidenceRefs,
+}).strict();
+
+const strictMomentSchema = z.object({
+  id: z.string().min(1), title: z.string().min(1), startSec: z.number().nonnegative(), endSec: z.number().nonnegative(),
+  hook: z.string().min(1), quote: z.string().min(1), visualHook: z.string().max(500).optional(),
+  cropSuitability: z.enum(["poor", "fair", "good", "excellent"]).optional(), captionSafeRegion: z.string().max(200).optional(),
+  visualEvidenceIds: z.array(z.string().min(1)).max(12).default([]),
+}).strict();
+
+const strictAngleSchema = z.object({
+  id: z.string().min(1), kind: z.enum(["trend", "meme"]), title: z.string().min(1), rationale: z.string().min(1),
+}).strict();
+
+const analysisResultSchema = z.object({
+  summary: z.string().min(1), moments: z.array(strictMomentSchema).max(12).default([]), angles: z.array(strictAngleSchema).max(12).default([]),
+}).strict();
+
+export const editorialPlannerInputSchema = z.object({
+  strategy: contentStrategySchema,
+  strategyDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  strategyVersion: z.number().int().min(1).max(2),
+  strategyApproval: strategyApprovalRecordSchema,
+  analysis: analysisResultSchema,
+  horizonStartAt: utcTimestampSchema,
+  horizonEndAt: utcTimestampSchema,
+  timezone: ianaTimezoneSchema,
+  channelCapabilities: z.array(channelCapabilitySchema).min(1).max(8),
+  existingCommitments: z.array(editorialCommitmentSchema).max(48).default([]),
+  productionCapacity: productionCapacitySchema,
+  cadenceConstraints: cadenceConstraintsSchema,
+  postingWindowObservations: z.array(postingWindowObservationSchema).max(24).default([]),
+  revision: z.number().int().min(1).max(2),
+  replanningFeedback: z.string().max(2000).optional(),
+}).strict().refine(
+  (input) => input.horizonStartAt < input.horizonEndAt,
+  "editorial horizon must increase",
+);
+
+export const editorialPlanItemSchema = z.object({
+  id: z.string().min(1).max(100), briefId: z.string().min(1).max(100),
+  campaignTheme: z.string().min(1).max(200), contentPillar: z.string().min(1).max(200), objective: z.string().min(1).max(600),
+  audienceId: z.string().min(1).max(100), funnelStage, intendedConversion: z.string().min(1).max(300), ctaIntent: z.string().min(1).max(300), kpi: z.string().min(1).max(200),
+  channel: z.string().min(1).max(100), format: z.string().min(1).max(100), evidenceRefs,
+  publicationWindowStartAt: utcTimestampSchema, publicationWindowEndAt: utcTimestampSchema, productionDeadlineAt: utcTimestampSchema,
+  priority: z.number().int().min(1).max(5), selectionScore: z.number().min(0).max(1), dependencies: z.array(z.string().min(1).max(100)).max(8).default([]),
+  productionStatus: z.literal("planned"), constraints: z.array(z.string().min(1).max(300)).max(12).default([]), requiredAssets: z.array(z.string().min(1).max(300)).max(12).default([]),
+  planningRationale: z.string().min(1).max(600), selectionRationale: z.string().min(1).max(600), confidence: z.enum(["low", "medium", "high"]),
+}).strict().refine(
+  (item) => item.publicationWindowStartAt < item.publicationWindowEndAt,
+  "publication window must increase",
+).refine(
+  (item) => item.productionDeadlineAt <= item.publicationWindowStartAt,
+  "production deadline must be before the publication window",
+);
+
+export const editorialPlanSchema = z.object({
+  planId: z.string().min(1).max(100), version: z.number().int().min(1).max(2), approvedStrategyDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  horizonStartAt: utcTimestampSchema, horizonEndAt: utcTimestampSchema, timezone: ianaTimezoneSchema,
+  summary: z.string().min(1).max(1000), sequencingRationale: z.string().min(1).max(1000), cadenceRationale: z.string().min(1).max(1000),
+  assumptions: z.array(z.string().min(1).max(500)).max(12).default([]), confidence: z.enum(["low", "medium", "high"]),
+  items: z.array(editorialPlanItemSchema).min(1).max(48), selectedNextItemId: z.string().min(1).max(100),
+}).strict().refine(
+  (plan) => plan.horizonStartAt < plan.horizonEndAt,
+  "editorial horizon must increase",
+).refine(
+  (plan) => plan.items.filter((item) => item.id === plan.selectedNextItemId).length === 1,
+  "selectedNextItemId must identify exactly one plan item",
+);
+
+export const productionDraftInputSchema = z.object({
+  planId: z.string().min(1).max(100), strategyDigest: z.string().regex(/^[0-9a-f]{64}$/), editorialItem: editorialPlanItemSchema,
+  brief: contentStrategySchema.shape.briefs.element,
+  referencedMoments: z.array(strictMomentSchema).max(12).default([]), referencedAngles: z.array(strictAngleSchema).max(12).default([]),
+  brandContext: z.string().min(1).max(4000), constraints: z.array(z.string().min(1).max(300)).max(24).default([]),
+}).strict();
+
 export const strategySubmissionSchema = z.object({
   jobId: z.string().min(1), stage: z.literal("strategize"), revision: z.number().int().min(1).max(2),
   strategy: contentStrategySchema, modelUsed: z.string().min(1),

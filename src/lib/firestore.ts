@@ -39,6 +39,7 @@ import { decideEffectClaim, decideEffectFinalization } from "./effectClaims";
 import { decideTelegramNonceClaim, telegramDigest, type TelegramWebhookRoute } from "./telegramWebhook";
 import { connectionEnvelopeKey, decryptSecret, encryptSecret, type SecretEnvelope } from "./secretEnvelope";
 import { claimStageExecution as decideStageClaim, finalizeStageExecution, type StageExecution, type StageClaimResult } from "./stageExecutions";
+import { decideConnectionRefresh, type ConnectionRefreshState } from "./connectionRefresh";
 
 let client: Firestore | null = null;
 
@@ -284,6 +285,7 @@ export interface ConnectionDoc {
 type StoredConnectionDoc = Omit<ConnectionDoc, "accessToken" | "refreshToken"> & {
   accessTokenEnvelope: SecretEnvelope;
   refreshTokenEnvelope?: SecretEnvelope;
+  tokenRefresh?: ConnectionRefreshState;
 };
 
 function connectionAad(platform: string): string {
@@ -292,13 +294,26 @@ function connectionAad(platform: string): string {
 
 function decodeConnection(stored: StoredConnectionDoc): ConnectionDoc {
   const key = connectionEnvelopeKey();
-  const { accessTokenEnvelope, refreshTokenEnvelope, ...metadata } = stored;
+  const { accessTokenEnvelope, refreshTokenEnvelope, tokenRefresh: _tokenRefresh, ...metadata } = stored;
   return {
     ...metadata,
     accessToken: decryptSecret(accessTokenEnvelope, key, `${connectionAad(stored.platform)}:access`),
     refreshToken: refreshTokenEnvelope
       ? decryptSecret(refreshTokenEnvelope, key, `${connectionAad(stored.platform)}:refresh`)
       : undefined,
+  };
+}
+
+function encodeConnection(connection: ConnectionDoc, tokenRefresh?: ConnectionRefreshState): StoredConnectionDoc {
+  const key = connectionEnvelopeKey();
+  const { accessToken, refreshToken, ...metadata } = connection;
+  return {
+    ...metadata,
+    accessTokenEnvelope: encryptSecret(accessToken, key, `${connectionAad(connection.platform)}:access`),
+    refreshTokenEnvelope: refreshToken
+      ? encryptSecret(refreshToken, key, `${connectionAad(connection.platform)}:refresh`)
+      : undefined,
+    ...(tokenRefresh ? { tokenRefresh } : {}),
   };
 }
 
@@ -354,16 +369,80 @@ export async function getConnection(platform: string): Promise<ConnectionDoc | n
 }
 
 export async function saveConnection(conn: ConnectionDoc): Promise<void> {
-  const key = connectionEnvelopeKey();
-  const { accessToken, refreshToken, ...metadata } = conn;
-  const stored: StoredConnectionDoc = {
-    ...metadata,
-    accessTokenEnvelope: encryptSecret(accessToken, key, `${connectionAad(conn.platform)}:access`),
-    refreshTokenEnvelope: refreshToken
-      ? encryptSecret(refreshToken, key, `${connectionAad(conn.platform)}:refresh`)
-      : undefined,
-  };
-  await connectionRef(conn.platform).set(stored);
+  await connectionRef(conn.platform).set(encodeConnection(conn));
+}
+
+export type ConnectionRefreshClaim =
+  | { outcome: "fresh"; connection: ConnectionDoc }
+  | { outcome: "refresh"; claimId: string; connection: ConnectionDoc }
+  | { outcome: "in_progress" }
+  | { outcome: "uncertain" };
+
+export async function claimConnectionTokenRefresh(platform: string): Promise<ConnectionRefreshClaim> {
+  const ref = connectionRef(platform);
+  return db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error(`${platform} connection not found`);
+    const stored = snap.data() as Partial<StoredConnectionDoc> & { accessToken?: string };
+    if (stored.accessToken) throw new Error("legacy plaintext connection requires migration");
+    const connection = decodeConnection(stored as StoredConnectionDoc);
+    const claimId = newId();
+    const decision = decideConnectionRefresh({
+      expiresAt: connection.expiresAt,
+      now: new Date().toISOString(),
+      refreshSkewMs: 60_000,
+      state: stored.tokenRefresh,
+      claimId,
+    });
+    if (decision.outcome === "fresh") return { outcome: "fresh", connection };
+    if (decision.outcome === "in_progress") return { outcome: "in_progress" };
+    if (decision.outcome === "uncertain") {
+      if (stored.tokenRefresh?.status === "claimed") tx.set(ref, { tokenRefresh: decision.state }, { merge: true });
+      return { outcome: "uncertain" };
+    }
+    if (!connection.refreshToken) throw new Error(`${platform} authorization expired; reconnect it`);
+    tx.set(ref, { tokenRefresh: decision.state }, { merge: true });
+    return { outcome: "refresh", claimId, connection };
+  });
+}
+
+export async function completeConnectionTokenRefresh(
+  platform: string,
+  claimId: string,
+  connection: ConnectionDoc,
+): Promise<void> {
+  const ref = connectionRef(platform);
+  await db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error(`${platform} connection not found`);
+    const stored = snap.data() as StoredConnectionDoc;
+    if (stored.tokenRefresh?.status !== "claimed" || stored.tokenRefresh.claimId !== claimId) {
+      throw new Error("connection refresh claim was lost");
+    }
+    tx.set(ref, encodeConnection(connection));
+  });
+}
+
+export async function markConnectionTokenRefreshUncertain(
+  platform: string,
+  claimId: string,
+  reason: string,
+): Promise<void> {
+  const ref = connectionRef(platform);
+  await db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const stored = snap.data() as StoredConnectionDoc;
+    if (stored.tokenRefresh?.status !== "claimed" || stored.tokenRefresh.claimId !== claimId) return;
+    tx.set(ref, {
+      tokenRefresh: {
+        ...stored.tokenRefresh,
+        status: "uncertain",
+        uncertainAt: new Date().toISOString(),
+        reason,
+      } satisfies ConnectionRefreshState,
+    }, { merge: true });
+  });
 }
 
 export async function deleteConnection(platform: string): Promise<void> {

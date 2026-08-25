@@ -111,6 +111,48 @@ def test_transcription_reserves_before_provider_and_reports_tokens(monkeypatch):
     assert reports[0]["outputUnits"] == 30
 
 
+def test_transcription_releases_when_client_fails_before_dispatch(monkeypatch):
+    resolutions: list[dict] = []
+    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
+    monkeypatch.setattr(content, "_client", lambda: (_ for _ in ()).throw(RuntimeError("client unavailable")))
+
+    with pytest.raises(RuntimeError):
+        content.transcribe_audio(
+            b"audio", "audio/mp4",
+            invocation=InvocationContext(
+                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
+                job_id="job-1", stage="transcribe", operation_id="job-1:transcribe:0",
+            ),
+            budget_reserver=lambda _item: None,
+            budget_resolver=resolutions.append,
+        )
+
+    assert resolutions[0]["outcome"] == "not_invoked"
+
+
+def test_transcription_quarantines_timeout_after_dispatch(monkeypatch):
+    resolutions: list[dict] = []
+
+    class Models:
+        def generate_content(self, **_kwargs):
+            raise TimeoutError("timeout")
+
+    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
+    monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=Models()))
+    with pytest.raises(TimeoutError):
+        content.transcribe_audio(
+            b"audio", "audio/mp4",
+            invocation=InvocationContext(
+                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
+                job_id="job-1", stage="transcribe", operation_id="job-1:transcribe:0",
+            ),
+            budget_reserver=lambda _item: None,
+            budget_resolver=resolutions.append,
+        )
+
+    assert resolutions[0]["outcome"] == "uncertain"
+
+
 def test_image_generation_uses_explicit_maximum_cost_reservation(monkeypatch):
     reservations: list[dict] = []
     reports: list[dict] = []

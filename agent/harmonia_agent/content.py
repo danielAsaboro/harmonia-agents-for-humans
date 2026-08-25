@@ -49,6 +49,7 @@ def transcribe_audio(
     *,
     invocation: InvocationContext | None = None,
     budget_reserver: Callable[[dict[str, object]], None] = reserve_budget,
+    budget_resolver: Callable[[dict[str, object]], None] = resolve_budget_reservation,
     usage_reporter: Callable[[dict[str, object]], None] = report_usage,
 ) -> dict:
     if mock_ai_enabled():
@@ -72,47 +73,61 @@ def transcribe_audio(
         )),
         "pricingVersion": PRICING_VERSION,
     })
-    client = _client()
-    with tracer().start_as_current_span("harmonia.model.generate") as span:
-        span.set_attributes(safe_attributes({
-            "job.id": invocation.job_id,
-            "stage": invocation.stage,
-            "agent": role,
-            "model": MODEL,
-        }))
-        res = client.models.generate_content(
-            model=MODEL,
-            contents=[
-                {"role": "user", "parts": [
-                    {"inlineData": {
-                        "mimeType": mime_type,
-                        "data": __import__("base64").b64encode(audio).decode(),
-                    }},
-                    {"text": (
-                        "Transcribe this audio. Return JSON: "
-                        "{language, segments:[{id,startSec,endSec,text}]}. "
-                        "startSec/endSec are numbers."
-                    )},
-                ]},
-            ],
-        )
-        result = _parse_json(res.text)
-        accumulator = UsageAccumulator(
-            job_id=invocation.job_id,
-            operation_id=operation_id,
-            stage=invocation.stage,
-            role=role,
-            model=MODEL,
-        )
-        accumulator.observe_event(res)
-        record = accumulator.finalize(trace_id=current_trace_id())
-        span.set_attributes(safe_attributes({
-            "input.units": record.input_units,
-            "output.units": record.output_units,
-            "cost.estimated_usd": record.estimated_cost_usd,
-        }))
-        usage_reporter(record.to_wire())
-        return result
+    dispatched = False
+    try:
+        client = _client()
+        with tracer().start_as_current_span("harmonia.model.generate") as span:
+            span.set_attributes(safe_attributes({
+                "job.id": invocation.job_id,
+                "stage": invocation.stage,
+                "agent": role,
+                "model": MODEL,
+            }))
+            dispatched = True
+            res = client.models.generate_content(
+                model=MODEL,
+                contents=[
+                    {"role": "user", "parts": [
+                        {"inlineData": {
+                            "mimeType": mime_type,
+                            "data": __import__("base64").b64encode(audio).decode(),
+                        }},
+                        {"text": (
+                            "Transcribe this audio. Return JSON: "
+                            "{language, segments:[{id,startSec,endSec,text}]}. "
+                            "startSec/endSec are numbers."
+                        )},
+                    ]},
+                ],
+            )
+            result = _parse_json(res.text)
+            accumulator = UsageAccumulator(
+                job_id=invocation.job_id,
+                operation_id=operation_id,
+                stage=invocation.stage,
+                role=role,
+                model=MODEL,
+            )
+            accumulator.observe_event(res)
+            record = accumulator.finalize(trace_id=current_trace_id())
+            span.set_attributes(safe_attributes({
+                "input.units": record.input_units,
+                "output.units": record.output_units,
+                "cost.estimated_usd": record.estimated_cost_usd,
+            }))
+            usage_reporter(record.to_wire())
+            return result
+    except Exception:  # noqa: BLE001 - preserve the original provider failure
+        budget_resolver({
+            "jobId": invocation.job_id,
+            "operationId": operation_id,
+            "outcome": "uncertain" if dispatched else "not_invoked",
+            "reason": (
+                "transcription failed after provider dispatch"
+                if dispatched else "transcription failed before provider dispatch"
+            ),
+        })
+        raise
 
 
 class ImageGenError(RuntimeError):

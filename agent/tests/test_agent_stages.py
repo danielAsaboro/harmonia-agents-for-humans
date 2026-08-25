@@ -247,7 +247,8 @@ def test_publish_uses_immutable_command_payload_not_mutable_job_action(monkeypat
     monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
     monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [command])
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
-    monkeypatch.setattr(stages, "production_adapters", lambda: {"publish_x_post": lambda payload: posted.append(payload["text"]) or {"outcome": "applied", "detail": {"id": "post-1"}}})
+    monkeypatch.setattr(stages, "get_connection", lambda _platform: {"accessToken": "fresh"})
+    monkeypatch.setattr(stages, "production_adapters", lambda _token: {"publish_x_post": lambda payload: posted.append(payload["text"]) or {"outcome": "applied", "detail": {"id": "post-1"}}})
     monkeypatch.setattr("harmonia_agent.web_client.claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1})
     monkeypatch.setattr("harmonia_agent.web_client.post", lambda path, payload: receipts.append((path, payload)))
     monkeypatch.setattr(stages, "web_post", lambda _path, _payload: None)
@@ -259,6 +260,27 @@ def test_publish_uses_immutable_command_payload_not_mutable_job_action(monkeypat
     receipt = next(payload for path, payload in receipts if path == "/api/internal/receipt")
     assert receipt["commandId"] == command["id"]
     assert receipt["idempotencyKey"] == command["payloadDigest"]
+
+
+def test_x_connection_is_refreshed_before_the_effect_claim(monkeypatch):
+    order = []
+    job = {"stage": "publish", "actions": []}
+    command = _effect_command({"id": "a1", "type": "publish_x_post", "payload": {"text": "Approved copy"}})
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [command])
+    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
+    monkeypatch.setattr(stages, "get_connection", lambda _platform: order.append("connection") or {"accessToken": "fresh"})
+    monkeypatch.setattr(stages, "production_adapters", lambda token: {
+        "publish_x_post": lambda _payload: order.append(f"provider:{token}") or {"outcome": "applied", "detail": {"id": "post-1"}},
+    })
+    monkeypatch.setattr("harmonia_agent.web_client.claim_effect", lambda _payload: order.append("claim") or {"outcome": "execute", "attempt": 1})
+    monkeypatch.setattr("harmonia_agent.web_client.post", lambda _path, _payload: None)
+    monkeypatch.setattr(stages, "web_post", lambda _path, _payload: None)
+    monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
+
+    asyncio.run(stages.run_publish("job-1"))
+
+    assert order[:3] == ["connection", "claim", "provider:fresh"]
 
 def test_uploaded_media_is_materialized_for_clip_rendering(monkeypatch, tmp_path):
     monkeypatch.setattr(stages, "get_chat_attachment", lambda _id: (b"video", "video/mp4", "demo.mp4"))

@@ -19,15 +19,13 @@ class ExecutionResult:
     receipt_id: str | None = None
 
 
-def x_publish_adapter(payload: dict[str, Any]) -> dict[str, Any]:
+def x_publish_adapter(payload: dict[str, Any], bearer_token: str | None = None) -> dict[str, Any]:
     from . import x_client
-    from .web_client import get_connection
 
     text = payload.get("text")
     if not isinstance(text, str) or not text:
         raise ValueError("X effect command has no text")
-    connection = get_connection("x")
-    posted = x_client.publish_post(text, connection.get("accessToken"))
+    posted = x_client.publish_post(text, bearer_token)
     return {
         "outcome": "applied",
         "artifact": {
@@ -39,8 +37,8 @@ def x_publish_adapter(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def production_adapters() -> dict[str, Adapter]:
-    return {"publish_x_post": x_publish_adapter}
+def production_adapters(x_access_token: str) -> dict[str, Adapter]:
+    return {"publish_x_post": lambda payload: x_publish_adapter(payload, x_access_token)}
 
 
 def execute_effect_command(

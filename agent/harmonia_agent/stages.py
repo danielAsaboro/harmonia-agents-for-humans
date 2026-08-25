@@ -436,7 +436,11 @@ async def run_publish(job_id: str) -> None:
         }
         key = command["payloadDigest"]
         if action["type"] == "publish_x_post":
-            result = execute_effect_command(command, adapters=production_adapters())
+            connection = get_connection("x")
+            result = execute_effect_command(
+                command,
+                adapters=production_adapters(str(connection.get("accessToken") or "")),
+            )
             if result.outcome == "in_progress":
                 raise EffectClaimInProgress("another worker currently owns this effect")
             if result.outcome == "uncertain":

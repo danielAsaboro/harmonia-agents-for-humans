@@ -17,7 +17,7 @@ for svc in run.googleapis.com firestore.googleapis.com pubsub.googleapis.com \
            cloudresourcemanager.googleapis.com \
            aiplatform.googleapis.com cloudtrace.googleapis.com \
            telemetry.googleapis.com monitoring.googleapis.com logging.googleapis.com \
-           storage.googleapis.com identitytoolkit.googleapis.com; do
+           storage.googleapis.com identitytoolkit.googleapis.com cloudscheduler.googleapis.com; do
   gcloud services enable "$svc" --project "${PROJECT_ID}"
 done
 
@@ -68,7 +68,7 @@ for topic in harmonia-stages harmonia-stages-dlq; do
 done
 
 echo "-- Service accounts"
-for sa in harmonia-web harmonia-agent harmonia-pubsub-push; do
+for sa in harmonia-web harmonia-agent harmonia-pubsub-push harmonia-scheduler; do
   gcloud iam service-accounts create "$sa" --project "${PROJECT_ID}" \
     --display-name "Harmonia ${sa}" 2>/dev/null || echo "sa $sa exists"
 done
@@ -195,6 +195,7 @@ Setup complete.
   Web SA:       harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com
   Agent SA:     harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com
   Push SA:      harmonia-pubsub-push@${PROJECT_ID}.iam.gserviceaccount.com
+  Scheduler SA: harmonia-scheduler@${PROJECT_ID}.iam.gserviceaccount.com
   Assets:       ${ASSET_BUCKET}
 
 Next: ./infra/deploy.sh   (deploys both Cloud Run services and wires the push subscription)

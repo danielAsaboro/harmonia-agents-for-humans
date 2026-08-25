@@ -196,6 +196,13 @@ Trace attributes are metadata-only. Harmonia disables both current and legacy AD
 
 Every executable action derives a deterministic idempotency key from `(jobId, actionId, payload)` hashed with SHA-256. After durable approval, the publish stage atomically claims that key in Firestore before calling any provider or writing an artifact. Exactly one live claim may return `execute`; concurrent delivery returns `in_progress`, and a finalized claim returns `already_applied` with the original receipt identity without repeating the effect. An expired unresolved claim returns `uncertain` and requires operator reconciliation instead of an unsafe automatic retry. Receipt finalization atomically links the claim, immutable receipt, and action state. Only the explicit operator replay-proof route persists a replay observation.
 
+Cloud Scheduler invokes the private worker's `/durable/tick` endpoint once per minute with an OIDC
+service account that has only Cloud Run invocation authority. A Firestore transaction grants one
+55-second workspace lease per minute. The tick runs scheduled-effect dispatch, proactive checks, and
+retention as isolated arms: one failure is recorded in the response and cannot suppress the others.
+Scheduled effects still enter the immutable command/effect-claim boundary. Resident Python threads
+remain development-only and disabled in deployed revisions.
+
 ### Independent verification
 
 Verification never trusts the executor. Published posts are re-fetched from the X API by id; exported packs are compared by digest; rendered assets are re-read from the asset store and compared byte-digests. Results land as immutable verification records on the job.

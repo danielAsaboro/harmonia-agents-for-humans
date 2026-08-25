@@ -41,6 +41,11 @@ real clean scan before presenting uploaded-media operation as production evidenc
 
 Create one runtime service account for each Cloud Run service. Both receive `roles/cloudtrace.agent`; preserve the existing least-privilege data, messaging, and asset permissions. The web identity can sign only as itself for short-lived upload/download URLs. The Pub/Sub service agent receives token-creator authority only on that web identity so the private worker push subscription can authenticate with OIDC.
 
+Setup also creates `harmonia-scheduler`. Deployment grants it `roles/run.invoker` only on the private
+agent service and converges the `harmonia-durable-autonomy` Cloud Scheduler job to an every-minute
+OIDC POST. Do not enable the legacy resident loops in Cloud Run; scheduled publishing, proactive
+checks, and retention are driven by this durable external tick and protected by workspace leases.
+
 ## Deploying
 
 Both services containerize from the repo root:

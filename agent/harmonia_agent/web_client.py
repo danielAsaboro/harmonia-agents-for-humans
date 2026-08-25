@@ -192,6 +192,24 @@ def put_state(key: str, last_run_at: str) -> None:
         raise WebApiError(f"put_state failed: {res.status_code} {res.text}", res.status_code)
 
 
+def claim_tick(key: str, claim_id: str, lease_seconds: int = 55) -> bool:
+    with _client() as c:
+        res = c.post("/api/internal/agent-state", json={
+            "key": key, "claimId": claim_id, "leaseSeconds": lease_seconds,
+        })
+    if res.status_code != 200:
+        raise WebApiError(f"tick claim failed: {res.status_code} {res.text}", res.status_code)
+    return bool(res.json().get("claimed"))
+
+
+def run_retention_tick(limit: int = 20) -> list[str]:
+    with _client() as c:
+        res = c.post("/api/internal/retention", json={"limit": limit})
+    if res.status_code != 200:
+        raise WebApiError(f"retention tick failed: {res.status_code} {res.text}", res.status_code)
+    return [str(value) for value in res.json().get("erasedJobIds") or []]
+
+
 def post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     with _client() as c:
         res = c.post(path, json=payload)

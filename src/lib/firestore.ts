@@ -42,6 +42,7 @@ import { claimStageExecution as decideStageClaim, finalizeStageExecution, type S
 import { decideConnectionRefresh, type ConnectionRefreshState } from "./connectionRefresh";
 import { deleteArtifactUri, deleteWorkspaceArtifactUri } from "./storage";
 import { deletionTombstone, retentionDeadline, type DeletionPlan, type WorkspaceDeletionPlan } from "./lifecycle";
+import { decideTickClaim, type TickClaimState } from "./tickClaims";
 
 let client: Firestore | null = null;
 
@@ -267,6 +268,30 @@ export async function setAgentState(key: string, patch: Partial<AgentStateDoc>):
   await tenantCollection(AGENT_STATE)
     .doc(key)
     .set({ ...patch, updatedAt: new Date().toISOString() }, { merge: true });
+}
+
+export async function claimAgentTick(
+  key: string,
+  claimId: string,
+  leaseSeconds: number,
+  now = new Date(),
+): Promise<boolean> {
+  const ref = tenantCollection(AGENT_STATE).doc(key);
+  return db().runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref);
+    const current = snapshot.exists && snapshot.get("claimId") ? {
+      claimId: String(snapshot.get("claimId")),
+      claimedAt: String(snapshot.get("claimedAt")),
+      leaseUntil: String(snapshot.get("leaseUntil")),
+    } satisfies TickClaimState : null;
+    const decision = decideTickClaim(current, claimId, leaseSeconds, now);
+    if (!decision.claimed) return false;
+    tx.set(ref, {
+      ...decision.state,
+      updatedAt: now.toISOString(),
+    }, { merge: true });
+    return true;
+  });
 }
 
 export interface ConnectionDoc {

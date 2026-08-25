@@ -26,6 +26,7 @@ from .stages import HANDLERS, dispatch
 from .telemetry import configure_telemetry, extract_context
 from .tenant_context import tenant_scope
 from .resident_loops import resident_loops_enabled
+from .durable_tick import run_durable_tick
 
 configure_telemetry()
 
@@ -82,6 +83,28 @@ async def healthz() -> dict[str, Any]:
         "project": settings().gcp_project,
         "model": settings().model_id,
         "stages": sorted(HANDLERS.keys()),
+    }
+
+
+@app.post("/durable/tick")
+async def durable_tick() -> dict[str, Any]:
+    from datetime import datetime, timezone
+    from . import proactive, scheduler
+    from .web_client import claim_tick, get_workspaces, run_retention_tick
+
+    workspaces = await asyncio.to_thread(get_workspaces)
+    claim_id = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+    return {
+        "ok": True,
+        "claimId": claim_id,
+        "workspaces": await run_durable_tick(
+            workspaces,
+            claim_id,
+            claim=claim_tick,
+            scheduled=scheduler.tick_current_tenant,
+            proactive=proactive.tick,
+            retention=run_retention_tick,
+        ),
     }
 
 

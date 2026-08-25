@@ -151,6 +151,11 @@ gcloud run services add-iam-policy-binding harmonia-agent \
 
 gcloud run services add-iam-policy-binding harmonia-agent \
   --region "${REGION}" --project "${PROJECT_ID}" \
+  --member "serviceAccount:harmonia-scheduler@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role roles/run.invoker >/dev/null
+
+gcloud run services add-iam-policy-binding harmonia-agent \
+  --region "${REGION}" --project "${PROJECT_ID}" \
   --member "serviceAccount:harmonia-pubsub-push@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role roles/run.invoker >/dev/null
 
@@ -188,6 +193,24 @@ fi
 gcloud pubsub subscriptions add-iam-policy-binding harmonia-stages-agent-push \
   --member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
   --role roles/pubsub.subscriber --project "${PROJECT_ID}" >/dev/null
+
+echo "== Wiring durable autonomy tick =="
+SCHEDULER_ARGS=(
+  --location "${REGION}"
+  --schedule "* * * * *"
+  --time-zone "Etc/UTC"
+  --uri "${AGENT_URL}/durable/tick"
+  --http-method POST
+  --oidc-service-account-email "harmonia-scheduler@${PROJECT_ID}.iam.gserviceaccount.com"
+  --oidc-token-audience "${AGENT_URL}"
+  --attempt-deadline 300s
+  --project "${PROJECT_ID}"
+)
+if gcloud scheduler jobs describe harmonia-durable-autonomy --location "${REGION}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud scheduler jobs update http harmonia-durable-autonomy "${SCHEDULER_ARGS[@]}"
+else
+  gcloud scheduler jobs create http harmonia-durable-autonomy "${SCHEDULER_ARGS[@]}"
+fi
 
 echo
 echo "Deployed. Dashboard: ${WEB_URL}"

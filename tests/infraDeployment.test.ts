@@ -35,6 +35,8 @@ exit 0
       REGION: "us-central1",
       GOOGLE_CLIENT_ID: "calendar-client-id",
       GOOGLE_CLIENT_SECRET: "calendar-client-secret",
+      MALWARE_SCANNER_URL: "https://malware-scanner.example.run.app/scan",
+      MALWARE_SCANNER_TOKEN: "scanner-token",
     },
     log: () => readFileSync(logPath, "utf8"),
   };
@@ -135,5 +137,24 @@ describe("Google Cloud deployment automation", () => {
     expect(fake.log()).toContain("GCS_BUCKET=project-eabd3654-89fd-476d-b23-harmonia-assets");
     expect(fake.log()).toContain("storage buckets update gs://project-eabd3654-89fd-476d-b23-harmonia-assets");
     expect(fake.log()).toContain("--cors-file=");
+  });
+
+  it("converges an OIDC-authenticated durable autonomy scheduler", () => {
+    const fake = fakeGcloudEnvironment();
+    execFileSync("bash", ["infra/deploy.sh"], {
+      cwd: repoRoot,
+      env: {
+        ...fake.env,
+        FIREBASE_API_KEY: "firebase-api-key",
+        FIREBASE_APP_ID: "firebase-app-id",
+        GEMMA_VERTEX_ENDPOINT: "projects/p/locations/us-central1/endpoints/1",
+        AGENT_ENGINE_RESOURCE: "projects/p/locations/us-central1/reasoningEngines/2",
+      },
+    });
+    const log = fake.log();
+    expect(log).toContain("scheduler jobs update http harmonia-durable-autonomy");
+    expect(log).toContain("--uri https://harmonia-agent.example.run.app/durable/tick");
+    expect(log).toContain("--oidc-service-account-email harmonia-scheduler@");
+    expect(log).toContain("serviceAccount:harmonia-scheduler@");
   });
 });

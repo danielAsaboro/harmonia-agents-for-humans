@@ -1,7 +1,8 @@
 """Scheduler dispatcher: wakes immutable effect commands when they come due.
 
-Runs as a background thread inside the FastAPI worker. Every 60s it asks the
-web service for due/publishing items; auto-mode items publish immediately
+Production calls ``tick_current_tenant`` from the OIDC Cloud Scheduler endpoint.
+The optional development background loop asks the web service every 60s for
+due/publishing items; auto-mode items publish immediately
 (scheduling was the approval), and publishing items are retries of approved
 final-review items. Outcomes report back through the internal API, which
 records receipts-style state and fires notifications.
@@ -43,6 +44,10 @@ async def _tick() -> None:
     for workspace in get_workspaces():
         with tenant_scope(workspace["workspaceId"], workspace["brandId"]):
             await _tenant_tick()
+
+
+async def tick_current_tenant() -> None:
+    await _tenant_tick()
 
 
 def _run_loop() -> None:

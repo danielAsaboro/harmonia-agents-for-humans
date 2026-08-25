@@ -25,6 +25,18 @@ def _analysis() -> dict:
     }
 
 
+def _effect_command(action: dict) -> dict:
+    return {
+        "id": f"command-{action['id']}",
+        "jobId": "job-1",
+        "actionId": action["id"],
+        "actionType": action["type"],
+        "payload": action["payload"],
+        "payloadDigest": "b" * 64,
+        "state": "pending",
+    }
+
+
 def test_understand_brief_routes_through_strategist_without_schema_changes(monkeypatch):
     requests = []
     posts = []
@@ -175,6 +187,7 @@ def test_content_pack_receipt_carries_the_applied_artifact_digest(monkeypatch):
         }],
     }
     monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(job["actions"][0])])
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
     monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
     monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1})
@@ -200,6 +213,7 @@ def test_publish_never_enters_effect_adapter_without_execute_claim(monkeypatch):
         }],
     }
     monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(job["actions"][0])])
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
     monkeypatch.setattr(stages.content, "build_content_pack", lambda *_args: calls.append("effect") or "pack")
     monkeypatch.setattr(stages, "web_post", lambda path, payload: calls.append(path))
@@ -218,6 +232,33 @@ def test_publish_never_enters_effect_adapter_without_execute_claim(monkeypatch):
         asyncio.run(stages.run_publish("job-1"))
     assert "effect" not in calls
 
+
+def test_publish_uses_immutable_command_payload_not_mutable_job_action(monkeypatch):
+    posted = []
+    receipts = []
+    job = {
+        "stage": "publish", "actions": [{
+            "id": "a1", "type": "publish_x_post", "state": "planned",
+            "requiresApproval": True, "approvalState": "approved",
+            "payload": {"text": "MUTATED AFTER APPROVAL"},
+        }],
+    }
+    command = _effect_command({"id": "a1", "type": "publish_x_post", "payload": {"text": "Approved copy"}})
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [command])
+    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
+    monkeypatch.setattr(stages, "get_connection", lambda _platform: {"accessToken": "test-token"})
+    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1})
+    monkeypatch.setattr(stages.x_client, "publish_post", lambda text, _token: posted.append(text) or {"id": "post-1", "url": "https://x.test/post-1"})
+    monkeypatch.setattr(stages, "web_post", lambda path, payload: receipts.append((path, payload)))
+    monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
+
+    asyncio.run(stages.run_publish("job-1"))
+
+    assert posted == ["Approved copy"]
+    receipt = next(payload for path, payload in receipts if path == "/api/internal/receipt")
+    assert receipt["commandId"] == command["id"]
+    assert receipt["idempotencyKey"] == command["payloadDigest"]
 
 def test_uploaded_media_is_materialized_for_clip_rendering(monkeypatch, tmp_path):
     monkeypatch.setattr(stages, "get_chat_attachment", lambda _id: (b"video", "video/mp4", "demo.mp4"))

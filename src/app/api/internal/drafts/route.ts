@@ -13,6 +13,7 @@ import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { applyPolicy, validateDraftText } from "@/lib/policy";
 import { publishStage } from "@/lib/pubsub";
 import { currentTenant } from "@/lib/tenancy";
+import { materializeExecutableJobCommands } from "@/lib/jobEffectCommands";
 
 export async function POST(req: Request) {
   if (!isInternalAuthorized(req)) return unauthorized();
@@ -76,6 +77,7 @@ export async function POST(req: Request) {
       return Response.json({ ok: true, awaitingApproval: true });
     }
     if (autoRun.length > 0) {
+      await materializeExecutableJobCommands(job.id);
       await setStage(job.id, "publish");
       await appendEvent(job.id, "draft", `${autoRun.length} safe action(s) dispatched`, "agent");
       await publishStage(currentTenant(), job.id, "publish");

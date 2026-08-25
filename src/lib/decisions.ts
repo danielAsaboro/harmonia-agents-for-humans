@@ -10,6 +10,7 @@ import { requireContentOperator } from "@/lib/authority";
 import { actionPayloadDigest } from "@/lib/idempotency";
 import { currentTenant, type TenantContext } from "@/lib/tenancy";
 import type { PlannedAction } from "@/lib/types";
+import { materializeExecutableJobCommands } from "@/lib/jobEffectCommands";
 
 export interface ApprovalActor {
   actorType: "firebase_operator" | "telegram_operator";
@@ -88,6 +89,7 @@ export async function resolveDecision(
   }
 
   if (executable.length > 0) {
+    await materializeExecutableJobCommands(jobId);
     await setStage(jobId, "publish");
     const pubsubMessageId = await publishStage(currentTenant(), jobId, "publish");
     await appendEvent(jobId, "draft", `${executable.length} approved action(s) dispatched to publishing`, "system", { pubsubMessageId });

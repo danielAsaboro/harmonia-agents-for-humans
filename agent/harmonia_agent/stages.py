@@ -58,6 +58,7 @@ from .web_client import (
     claim_effect,
     get_asset,
     get_connection,
+    get_effect_commands,
     get_insights,
     get_job,
     get_media_operation,
@@ -414,22 +415,27 @@ def _receipts_for_job(job_id: str) -> list[dict[str, Any]]:
 
 async def run_publish(job_id: str) -> None:
     job = get_job(job_id)
-    executable = [
-        a for a in job.get("actions", [])
-        if a.get("state") == "planned"
-        and (not a.get("requiresApproval") or a.get("approvalState") == "approved")
+    commands = [
+        command for command in get_effect_commands(job_id)
+        if command.get("state") in ("pending", "claimed")
     ]
     done_keys = {
         r["idempotencyKey"] for r in _receipts_for_job(job_id)
         if r["outcome"] in ("applied", "already_applied")
     }
 
-    for action in executable:
-        key = _idempotency_key(job_id, action)
+    for command in commands:
+        action = {
+            "id": command["actionId"],
+            "type": command["actionType"],
+            "payload": command["payload"],
+        }
+        key = command["payloadDigest"]
         trace_id = current_trace_id()
         operation_id = f"{job_id}:publish:{action['id']}:{trace_id}"
         claim_token = uuid.uuid4().hex
         claim_result = claim_effect({
+            "commandId": command["id"],
             "jobId": job_id, "actionId": action["id"], "actionType": action["type"],
             "idempotencyKey": key, "operationId": operation_id,
             "traceId": trace_id, "claimToken": claim_token,
@@ -554,6 +560,7 @@ async def run_publish(job_id: str) -> None:
                             "note": "persisted provider operation and asset already exist",
                         })
                         web_post("/api/internal/receipt", {
+                            "commandId": command["id"],
                             "jobId": job_id, "actionId": action["id"],
                             "actionType": action["type"], "idempotencyKey": key,
                             "operationId": operation_id,
@@ -670,6 +677,7 @@ async def run_publish(job_id: str) -> None:
             outcome, detail["error"] = "failed", str(exc)
 
         web_post("/api/internal/receipt", {
+            "commandId": command["id"],
             "jobId": job_id, "actionId": action["id"], "actionType": action["type"],
             "idempotencyKey": key,
             "operationId": operation_id,

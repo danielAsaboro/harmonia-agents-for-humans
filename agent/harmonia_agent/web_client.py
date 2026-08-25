@@ -84,6 +84,14 @@ def get_job(job_id: str) -> dict[str, Any]:
     return res.json()["job"]
 
 
+def get_effect_commands(job_id: str) -> list[dict[str, Any]]:
+    with _client() as c:
+        res = c.get(f"/api/internal/job/{job_id}/commands")
+    if res.status_code != 200:
+        raise WebApiError(f"effect command feed failed: {res.status_code} {res.text}", res.status_code)
+    return list(res.json().get("commands") or [])
+
+
 def get_asset(job_id: str, action_id: str) -> dict[str, Any] | None:
     """Independent re-read of a stored asset for verification."""
     with _client() as c:

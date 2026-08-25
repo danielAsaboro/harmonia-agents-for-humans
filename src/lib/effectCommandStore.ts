@@ -79,6 +79,11 @@ export async function listDueCommands(now = new Date()): Promise<EffectCommand[]
     .sort((a, b) => Date.parse(a.executeAfter ?? a.createdAt) - Date.parse(b.executeAfter ?? b.createdAt));
 }
 
+export async function listCommandsForJob(jobId: string): Promise<EffectCommand[]> {
+  const snaps = await commands().where("jobId", "==", jobId).get();
+  return snaps.docs.map((doc) => doc.data() as EffectCommand).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
 export async function claimCommandEffect(
   commandId: string,
   owner: Pick<EffectClaimInput, "claimToken" | "operationId" | "traceId">,

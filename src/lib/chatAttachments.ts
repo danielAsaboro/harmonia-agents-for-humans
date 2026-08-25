@@ -3,6 +3,7 @@ import { Storage } from "@google-cloud/storage";
 import { db } from "./firestore";
 import { newId } from "./idempotency";
 import { getArtifact, putArtifact } from "./storage";
+import { scanAttachmentBytes, type MalwareScanResult } from "./malwareScan";
 import {
   assertResourceWorkspace,
   currentTenant,
@@ -12,7 +13,7 @@ import {
 } from "./tenancy";
 
 export type AttachmentCategory = "image" | "video" | "audio" | "document";
-export type AttachmentState = "pending" | "uploading" | "ready" | "failed";
+export type AttachmentState = "pending" | "uploading" | "quarantined" | "scanning" | "ready" | "rejected" | "failed";
 
 const MIME_CATEGORY: Record<string, AttachmentCategory> = {
   "image/jpeg": "image",
@@ -62,6 +63,7 @@ export interface ChatAttachment extends ValidAttachmentInput {
   createdAt: string;
   updatedAt: string;
   error?: string;
+  malwareScan?: MalwareScanResult & { scannedAt: string };
 }
 
 export function validateAttachmentInput(input: AttachmentInput): ValidAttachmentInput {
@@ -208,10 +210,32 @@ export async function storeLocalAttachment(id: string, bytes: Uint8Array, mime: 
     throw new Error("uploaded bytes do not match attachment metadata");
   }
   assertAttachmentContent(bytes, attachment.mime);
-  await putArtifact(`chat_attachment_${id}`, bytes, mime);
-  const ready = { ...attachment, state: "ready" as const, updatedAt: new Date().toISOString() };
-  await saveChatAttachment(ready);
-  return ready;
+  await collection().doc(id).set({ state: "scanning", updatedAt: new Date().toISOString() }, { merge: true });
+  try {
+    const scan = await scanAttachmentBytes(bytes, mime);
+    if (scan.verdict === "infected") {
+      await collection().doc(id).set({
+        state: "rejected", error: "malware detected", malwareScan: { ...scan, scannedAt: new Date().toISOString() },
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+      throw new Error("attachment rejected by malware scanner");
+    }
+    await putArtifact(`chat_attachment_${id}`, bytes, mime);
+    const ready = {
+      ...attachment, state: "ready" as const,
+      malwareScan: { ...scan, scannedAt: new Date().toISOString() },
+      updatedAt: new Date().toISOString(),
+    };
+    await saveChatAttachment(ready);
+    return ready;
+  } catch (error) {
+    if ((await getChatAttachment(id))?.state !== "rejected") {
+      await collection().doc(id).set({
+        state: "quarantined", error: "malware scan unavailable", updatedAt: new Date().toISOString(),
+      }, { merge: true });
+    }
+    throw error;
+  }
 }
 
 export async function completeAttachmentUpload(id: string): Promise<ChatAttachment> {
@@ -220,21 +244,47 @@ export async function completeAttachmentUpload(id: string): Promise<ChatAttachme
   if (attachment.state === "ready") return attachment;
   const bucketName = process.env.GCS_BUCKET;
   if (!bucketName) throw new Error("local upload has not completed");
-  const [metadata] = await new Storage().bucket(bucketName).file(attachment.objectName).getMetadata();
+  const file = new Storage().bucket(bucketName).file(attachment.objectName);
+  const [metadata] = await file.getMetadata();
   if (!metadataMatchesAttachment(attachment, metadata)) {
     await collection().doc(id).set({ state: "failed", error: "cloud object metadata mismatch", updatedAt: new Date().toISOString() }, { merge: true });
+    await file.delete({ ignoreNotFound: true });
     throw new Error("cloud object metadata mismatch");
   }
-  const [bytes] = await new Storage().bucket(bucketName).file(attachment.objectName).download();
+  const [bytes] = await file.download();
   try {
     assertAttachmentContent(bytes, attachment.mime);
   } catch (error) {
     await collection().doc(id).set({ state: "failed", error: "cloud object content mismatch", updatedAt: new Date().toISOString() }, { merge: true });
+    await file.delete({ ignoreNotFound: true });
     throw error;
   }
-  const ready = { ...attachment, state: "ready" as const, updatedAt: new Date().toISOString() };
-  await saveChatAttachment(ready);
-  return ready;
+  await collection().doc(id).set({ state: "scanning", updatedAt: new Date().toISOString() }, { merge: true });
+  try {
+    const scan = await scanAttachmentBytes(bytes, attachment.mime);
+    if (scan.verdict === "infected") {
+      await file.delete({ ignoreNotFound: true });
+      await collection().doc(id).set({
+        state: "rejected", error: "malware detected", malwareScan: { ...scan, scannedAt: new Date().toISOString() },
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+      throw new Error("attachment rejected by malware scanner");
+    }
+    const ready = {
+      ...attachment, state: "ready" as const,
+      malwareScan: { ...scan, scannedAt: new Date().toISOString() },
+      updatedAt: new Date().toISOString(),
+    };
+    await saveChatAttachment(ready);
+    return ready;
+  } catch (error) {
+    if ((await getChatAttachment(id))?.state !== "rejected") {
+      await collection().doc(id).set({
+        state: "quarantined", error: "malware scan unavailable", updatedAt: new Date().toISOString(),
+      }, { merge: true });
+    }
+    throw error;
+  }
 }
 
 export async function getAttachmentDelivery(id: string): Promise<{ redirect?: string; bytes?: Buffer; mime: string }> {

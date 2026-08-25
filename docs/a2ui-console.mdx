@@ -37,7 +37,7 @@ This is durable transport streaming. It does not claim direct provider-token str
 
 ## Upload boundary
 
-Cloud uploads use a tenant-scoped resumable Cloud Storage URL. The server independently verifies object size and content type before an attachment becomes usable. Local development follows the same attachment state machine with the local artifact store.
+Cloud uploads use a tenant-scoped resumable Cloud Storage URL. The server downloads the completed object, verifies size, declared type, and magic bytes, then keeps it quarantined until the configured private malware scanner returns a complete clean verdict for every byte. Infected objects and content mismatches are deleted; scanner outages remain quarantined and unavailable. Local development follows the same fail-closed scanner boundary with the local artifact store.
 
 | Upload | Current behavior |
 |---|---|
@@ -48,4 +48,3 @@ Cloud uploads use a tenant-scoped resumable Cloud Storage URL. The server indepe
 <Warning>Generated approval detail is presentation only. The unchanged server-protected approval dock validates persisted `jobId + actionId` and remains the sole dashboard decision control.</Warning>
 
 See [Operator Interfaces](/interfaces) for surface behavior and [Approvals & Audit](/approval-and-audit) for authority.
-

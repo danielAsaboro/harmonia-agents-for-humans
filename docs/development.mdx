@@ -62,7 +62,7 @@ Worker tests set safe dummy credentials via `agent/tests/conftest.py`; mock-mode
 | `POST /api/chat` | Chat surface (`{message, surface}`) |
 | `POST /api/chat/stream` | Durable Console stream (`{message, surface, attachmentIds}`), NDJSON response |
 | `POST /api/chat/attachments/session` | Create a validated resumable upload session |
-| `POST /api/chat/attachments/{id}/complete` | Verify uploaded object metadata and mark it ready |
+| `POST /api/chat/attachments/{id}/complete` | Verify bytes, quarantine, scan, and mark ready only on a clean verdict |
 | `GET /api/chat/runs/{id}/events?after=N` | Replay persisted stream events after sequence `N` |
 | `GET /api/internal/insights` | Engagement insights fed into ideation |
 

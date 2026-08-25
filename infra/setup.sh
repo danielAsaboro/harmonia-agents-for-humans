@@ -156,6 +156,12 @@ if [[ -n "${GOOGLE_CLIENT_ID:-}" || -n "${GOOGLE_CLIENT_SECRET:-}" ]]; then
 else
   echo "  Google OAuth credentials not provided; Calendar and YouTube OAuth will remain unavailable."
 fi
+if [[ -n "${MALWARE_SCANNER_TOKEN:-}" ]]; then
+  printf '%s' "${MALWARE_SCANNER_TOKEN}" | gcloud secrets create malware-scanner-token --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
+    || printf '%s' "${MALWARE_SCANNER_TOKEN}" | gcloud secrets versions add malware-scanner-token --data-file=- --project "${PROJECT_ID}"
+else
+  echo "  MALWARE_SCANNER_TOKEN not provided; production deployment will refuse upload enablement."
+fi
 INTERNAL_TOKEN="$(openssl rand -hex 32)"
 printf '%s' "${INTERNAL_TOKEN}" | gcloud secrets create internal-api-token --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
   || echo "internal-api-token secret already exists (not rotated)"
@@ -174,6 +180,9 @@ for secret in google-oauth-client-id google-oauth-client-secret; do
     --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
     --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
 done
+gcloud secrets add-iam-policy-binding malware-scanner-token \
+  --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
 gcloud secrets add-iam-policy-binding youtube-api-key \
   --member "serviceAccount:harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true

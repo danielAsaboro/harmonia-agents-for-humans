@@ -17,7 +17,7 @@ flowchart TB
         API[REST + chat API routes]
         STREAM[Durable NDJSON chat runs<br/>validated host events]
         A2UI[Harmonia A2UI catalog<br/>official React renderer]
-        UPLOAD[Resumable upload broker<br/>metadata verification]
+        UPLOAD[Resumable upload broker<br/>magic-byte verification + quarantine]
         CHAT[Chat intent parser<br/>Gemini structured output]
         DEC[Decision engine<br/>policy + approval gates]
         CALSYNC[Operator-only Calendar sync<br/>deterministic IDs + read-back]
@@ -100,7 +100,7 @@ The dashboard Console is a long-conversation editorial studio, not a stacked car
 
 `POST /api/chat/stream` creates a tenant-scoped Firestore run and emits schema-validated NDJSON records with monotonic sequence numbers. Each record is persisted before delivery and can be replayed from `GET /api/chat/runs/{id}/events?after={sequence}`. Activity and tool state arrive while the request is executing; the compatibility chat handler currently returns its Gemini answer as one result, which the stream then delivers in bounded deltas. This is transport streaming, not a claim that provider tokens are streamed directly.
 
-The composer creates an authenticated upload session before any bytes move. In cloud deployments the browser sends bytes directly to a tenant-scoped Cloud Storage resumable-upload URL; the server independently verifies object size and content type before the attachment becomes usable. Local development uses the same attachment state machine with the local artifact store. Uploaded video and audio can seed the existing ingest/transcribe/analyze pipeline. Uploading alone creates no job; the accompanying prompt still has to select the existing `create_job` intent. Image and document uploads are currently retained and rendered as conversation context, not silently treated as implemented analysis capabilities.
+The composer creates an authenticated upload session before any bytes move. In cloud deployments the browser sends bytes directly to a tenant-scoped Cloud Storage resumable-upload URL. The server independently verifies size, type, and magic bytes, then requires a complete clean verdict from the configured private malware scanner before marking the attachment ready. Mismatches and infected objects are deleted; unavailable or malformed scan results remain quarantined. Local development uses the same fail-closed boundary. Uploaded video and audio can seed the existing ingest/transcribe/analyze pipeline. Uploading alone creates no job; the accompanying prompt still has to select the existing `create_job` intent. Image and document uploads are currently retained and rendered as conversation context, not silently treated as implemented analysis capabilities.
 
 The UI exposes only concise activity and reasoning summaries derived from validated application state. It never requests, stores, or renders hidden model chain-of-thought. Existing job actions continue through the same action-specific approval receipts and decision engine. The generic confirmation record is a typed, expiring, replay-resistant host contract for future registered tools; recording approval is not itself tool execution.
 

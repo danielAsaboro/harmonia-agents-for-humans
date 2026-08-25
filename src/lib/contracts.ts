@@ -173,6 +173,8 @@ const utcTimestampSchema = z.string().datetime({ offset: true }).refine(
   "timestamp must be UTC",
 );
 
+const instant = (value: string) => Date.parse(value);
+
 const ianaTimezoneSchema = z.string().min(1).max(100).superRefine((value, ctx) => {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: value });
@@ -202,7 +204,7 @@ const editorialCommitmentSchema = z.object({
   publicationWindowStartAt: utcTimestampSchema,
   publicationWindowEndAt: utcTimestampSchema,
 }).strict().refine(
-  (commitment) => commitment.publicationWindowStartAt < commitment.publicationWindowEndAt,
+  (commitment) => instant(commitment.publicationWindowStartAt) < instant(commitment.publicationWindowEndAt),
   "publication window must increase",
 );
 
@@ -256,7 +258,7 @@ export const editorialPlannerInputSchema = z.object({
   revision: z.number().int().min(1).max(2),
   replanningFeedback: z.string().max(2000).optional(),
 }).strict().refine(
-  (input) => input.horizonStartAt < input.horizonEndAt,
+  (input) => instant(input.horizonStartAt) < instant(input.horizonEndAt),
   "editorial horizon must increase",
 );
 
@@ -270,10 +272,10 @@ export const editorialPlanItemSchema = z.object({
   productionStatus: z.literal("planned"), constraints: z.array(z.string().min(1).max(300)).max(12).default([]), requiredAssets: z.array(z.string().min(1).max(300)).max(12).default([]),
   planningRationale: z.string().min(1).max(600), selectionRationale: z.string().min(1).max(600), confidence: z.enum(["low", "medium", "high"]),
 }).strict().refine(
-  (item) => item.publicationWindowStartAt < item.publicationWindowEndAt,
+  (item) => instant(item.publicationWindowStartAt) < instant(item.publicationWindowEndAt),
   "publication window must increase",
 ).refine(
-  (item) => item.productionDeadlineAt <= item.publicationWindowStartAt,
+  (item) => instant(item.productionDeadlineAt) <= instant(item.publicationWindowStartAt),
   "production deadline must be before the publication window",
 );
 
@@ -284,7 +286,7 @@ export const editorialPlanSchema = z.object({
   assumptions: z.array(z.string().min(1).max(500)).max(12).default([]), confidence: z.enum(["low", "medium", "high"]),
   items: z.array(editorialPlanItemSchema).min(1).max(48), selectedNextItemId: z.string().min(1).max(100),
 }).strict().refine(
-  (plan) => plan.horizonStartAt < plan.horizonEndAt,
+  (plan) => instant(plan.horizonStartAt) < instant(plan.horizonEndAt),
   "editorial horizon must increase",
 ).refine(
   (plan) => plan.items.filter((item) => item.id === plan.selectedNextItemId).length === 1,

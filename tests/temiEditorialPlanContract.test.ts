@@ -103,4 +103,37 @@ describe("Temi editorial-plan contract parity", () => {
     effect.publishPayload = { type: "publish_x_post" };
     expect(productionDraftInputSchema.safeParse(effect).success).toBe(false);
   });
+
+  it("rejects the same empty and overlong new list entries as Python", () => {
+    const invalidCases: Array<[unknown, unknown]> = [
+      [editorialPlannerInputSchema, { ...structuredClone(plannerInput), channelCapabilities: [{ channel: "x", formats: [""] }] }],
+      [editorialPlannerInputSchema, { ...structuredClone(plannerInput), postingWindowObservations: [{ ...plannerInput.postingWindowObservations[0], evidenceRefs: ["x".repeat(101)] }] }],
+      [editorialPlanSchema, { ...structuredClone(plan), items: [{ ...item, evidenceRefs: [""] }] }],
+      [editorialPlanSchema, { ...structuredClone(plan), items: [{ ...item, dependencies: ["x".repeat(101)] }] }],
+      [editorialPlanSchema, { ...structuredClone(plan), items: [{ ...item, constraints: ["x".repeat(301)] }] }],
+      [editorialPlanSchema, { ...structuredClone(plan), items: [{ ...item, requiredAssets: [""] }] }],
+      [editorialPlanSchema, { ...structuredClone(plan), assumptions: ["x".repeat(501)] }],
+      [productionDraftInputSchema, { ...structuredClone(productionInput), constraints: [""] }],
+    ];
+    for (const [schema, payload] of invalidCases) {
+      expect((schema as { safeParse: (value: unknown) => { success: boolean } }).safeParse(payload).success).toBe(false);
+    }
+  });
+
+  it("compares UTC instants rather than their Z or +00:00 spelling", () => {
+    const equalHorizon = structuredClone(plannerInput);
+    equalHorizon.horizonStartAt = "2026-08-31T00:00:00+00:00";
+    equalHorizon.horizonEndAt = "2026-08-31T00:00:00Z";
+    expect(editorialPlannerInputSchema.safeParse(equalHorizon).success).toBe(false);
+
+    const equalWindow = structuredClone(plan);
+    equalWindow.items[0].publicationWindowStartAt = "2026-09-01T16:00:00+00:00";
+    equalWindow.items[0].publicationWindowEndAt = "2026-09-01T16:00:00Z";
+    expect(editorialPlanSchema.safeParse(equalWindow).success).toBe(false);
+
+    const equalDeadline = structuredClone(plan);
+    equalDeadline.items[0].publicationWindowStartAt = "2026-09-01T16:00:00+00:00";
+    equalDeadline.items[0].productionDeadlineAt = "2026-09-01T16:00:00Z";
+    expect(editorialPlanSchema.safeParse(equalDeadline).success).toBe(true);
+  });
 });

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -12,6 +12,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+Identifier = Annotated[str, Field(min_length=1, max_length=100)]
+ConstraintText = Annotated[str, Field(min_length=1, max_length=300)]
+AssumptionText = Annotated[str, Field(min_length=1, max_length=500)]
 
 
 class FrameEvidence(StrictModel):
@@ -298,7 +303,7 @@ class StrategyApprovalRecord(StrictModel):
 
 class ChannelCapability(StrictModel):
     channel: str = Field(min_length=1, max_length=100)
-    formats: list[str] = Field(min_length=1, max_length=8)
+    formats: list[Identifier] = Field(min_length=1, max_length=8)
 
 
 class EditorialCommitment(StrictModel):
@@ -334,7 +339,7 @@ class PostingWindowObservation(StrictModel):
     channel: str = Field(min_length=1, max_length=100)
     format: str = Field(min_length=1, max_length=100)
     observedAt: datetime
-    evidenceRefs: list[str] = Field(min_length=1, max_length=12)
+    evidenceRefs: list[Identifier] = Field(min_length=1, max_length=12)
 
     @field_validator("observedAt")
     @classmethod
@@ -389,16 +394,16 @@ class EditorialPlanItem(StrictModel):
     kpi: str = Field(min_length=1, max_length=200)
     channel: str = Field(min_length=1, max_length=100)
     format: str = Field(min_length=1, max_length=100)
-    evidenceRefs: list[str] = Field(min_length=1, max_length=12)
+    evidenceRefs: list[Identifier] = Field(min_length=1, max_length=12)
     publicationWindowStartAt: datetime
     publicationWindowEndAt: datetime
     productionDeadlineAt: datetime
     priority: int = Field(ge=1, le=5)
     selectionScore: float = Field(ge=0, le=1)
-    dependencies: list[str] = Field(default_factory=list, max_length=8)
+    dependencies: list[Identifier] = Field(default_factory=list, max_length=8)
     productionStatus: Literal["planned"]
-    constraints: list[str] = Field(default_factory=list, max_length=12)
-    requiredAssets: list[str] = Field(default_factory=list, max_length=12)
+    constraints: list[ConstraintText] = Field(default_factory=list, max_length=12)
+    requiredAssets: list[ConstraintText] = Field(default_factory=list, max_length=12)
     planningRationale: str = Field(min_length=1, max_length=600)
     selectionRationale: str = Field(min_length=1, max_length=600)
     confidence: Literal["low", "medium", "high"]
@@ -427,7 +432,7 @@ class EditorialPlan(StrictModel):
     summary: str = Field(min_length=1, max_length=1_000)
     sequencingRationale: str = Field(min_length=1, max_length=1_000)
     cadenceRationale: str = Field(min_length=1, max_length=1_000)
-    assumptions: list[str] = Field(default_factory=list, max_length=12)
+    assumptions: list[AssumptionText] = Field(default_factory=list, max_length=12)
     confidence: Literal["low", "medium", "high"]
     items: list[EditorialPlanItem] = Field(min_length=1, max_length=48)
     selectedNextItemId: str = Field(min_length=1, max_length=100)
@@ -460,7 +465,7 @@ class ProductionDraftInput(StrictModel):
     referencedMoments: list[Moment] = Field(default_factory=list, max_length=12)
     referencedAngles: list[Angle] = Field(default_factory=list, max_length=12)
     brandContext: str = Field(min_length=1, max_length=4_000)
-    constraints: list[str] = Field(default_factory=list, max_length=24)
+    constraints: list[ConstraintText] = Field(default_factory=list, max_length=24)
 
 
 class PublishAction(StrictModel):

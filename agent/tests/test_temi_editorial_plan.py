@@ -153,3 +153,50 @@ def test_temi_contracts_require_utc_horizon_boundaries_and_an_iana_timezone():
     invalid["timezone"] = "not/a-timezone"
     with pytest.raises(ValidationError, match="IANA"):
         EditorialPlan.model_validate(invalid)
+
+
+@pytest.mark.parametrize(("factory", "path", "value"), [
+    (planner_input, ("channelCapabilities", 0, "formats", 0), ""),
+    (planner_input, ("channelCapabilities", 0, "formats", 0), "x" * 101),
+    (planner_input, ("postingWindowObservations", 0, "evidenceRefs", 0), ""),
+    (planner_input, ("postingWindowObservations", 0, "evidenceRefs", 0), "x" * 101),
+    (plan, ("items", 0, "evidenceRefs", 0), ""),
+    (plan, ("items", 0, "evidenceRefs", 0), "x" * 101),
+    (plan, ("items", 0, "dependencies"), ["x" * 101]),
+    (plan, ("items", 0, "constraints", 0), ""),
+    (plan, ("items", 0, "constraints", 0), "x" * 301),
+    (plan, ("items", 0, "requiredAssets", 0), ""),
+    (plan, ("items", 0, "requiredAssets", 0), "x" * 301),
+    (plan, ("assumptions", 0), ""),
+    (plan, ("assumptions", 0), "x" * 501),
+    (production_input, ("constraints", 0), ""),
+    (production_input, ("constraints", 0), "x" * 301),
+])
+def test_python_rejects_the_same_new_list_item_boundaries_as_zod(factory, path, value):
+    invalid = factory()
+    target = invalid
+    for segment in path[:-1]:
+        target = target[segment]
+    target[path[-1]] = value
+    model = EditorialPlannerInput if factory is planner_input else EditorialPlan if factory is plan else ProductionDraftInput
+    with pytest.raises(ValidationError):
+        model.model_validate(invalid)
+
+
+def test_temporal_ordering_compares_equal_utc_instants_not_timestamp_spelling():
+    invalid_input = planner_input()
+    invalid_input["horizonStartAt"] = "2026-08-31T00:00:00+00:00"
+    invalid_input["horizonEndAt"] = "2026-08-31T00:00:00Z"
+    with pytest.raises(ValidationError, match="horizon"):
+        EditorialPlannerInput.model_validate(invalid_input)
+
+    invalid_plan = plan()
+    invalid_plan["items"][0]["publicationWindowStartAt"] = "2026-09-01T16:00:00+00:00"
+    invalid_plan["items"][0]["publicationWindowEndAt"] = "2026-09-01T16:00:00Z"
+    with pytest.raises(ValidationError, match="publication window"):
+        EditorialPlan.model_validate(invalid_plan)
+
+    equal_deadline = plan()
+    equal_deadline["items"][0]["publicationWindowStartAt"] = "2026-09-01T16:00:00+00:00"
+    equal_deadline["items"][0]["productionDeadlineAt"] = "2026-09-01T16:00:00Z"
+    assert EditorialPlan.model_validate(equal_deadline).items[0].productionDeadlineAt == EditorialPlan.model_validate(equal_deadline).items[0].publicationWindowStartAt

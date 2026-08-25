@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { resolveDecision } from "@/lib/decisions";
 import { requestAgentAnswer } from "@/lib/agentAskClient";
 import { answerFromContext, fetchContextRecord, isValidContext, mockContextAnswer } from "@/lib/contextAnswer";
 import { isMockAi } from "@/lib/chatIntent";
@@ -19,6 +18,7 @@ import { parseYouTubeUrl } from "@/lib/youtubeUrl";
 import type { PlannedAction, PostDraft, Stage } from "@/lib/types";
 import { requireReadyAttachments, type ChatAttachment } from "@/lib/chatAttachments";
 import { actionPayloadDigest } from "@/lib/idempotency";
+import { createPendingOperation, type PendingOperation } from "@/lib/pendingOperations";
 
 const chatSchema = z.object({
   message: z.string().min(1).max(2000),
@@ -74,7 +74,7 @@ export interface ChatResponse {
   /** Media produced by the referenced job, so conversations render richly. */
   assets?: ChatAsset[];
   attachments?: ChatAttachmentSummary[];
-  outcome?: Awaited<ReturnType<typeof resolveDecision>>;
+  confirmation?: { operationId: string; payloadDigest: string };
   jobId?: string;
   /** Durable stream run linked to a persisted assistant message. */
   chatRunId?: string;
@@ -82,6 +82,7 @@ export interface ChatResponse {
 
 type FullJob = Awaited<ReturnType<typeof getJob>>;
 type AnyJob = FullJob | Awaited<ReturnType<typeof createJob>>;
+type ApprovalJob = Pick<FullJob, "id" | "stage" | "status" | "ingestedTitle" | "failure" | "actions">;
 
 function toCard(job: AnyJob): JobCard {
   return {
@@ -107,6 +108,48 @@ function summarizeActions(actions: PlannedAction[]): PendingActionSummary[] {
     risk: a.risk,
     payloadDigest: actionPayloadDigest(a),
   }));
+}
+
+export async function buildApprovalConfirmation(
+  job: ApprovalJob,
+  surface: "dashboard" | "telegram",
+  createOperation: typeof createPendingOperation = createPendingOperation,
+): Promise<ChatResponse> {
+  const pending = pendingOf(job as FullJob);
+  if (pending.length === 0) {
+    return {
+      intent: "approve",
+      reply: `Job ${job.id} has no pending approvals (stage: ${job.stage}).`,
+      jobId: job.id,
+      job: toCard(job as FullJob),
+    };
+  }
+  if (surface === "telegram") {
+    return {
+      intent: "approve",
+      reply: `Job ${job.id} has ${pending.length} pending action(s). Use the verified inline confirmation:`,
+      jobId: job.id,
+      job: toCard(job as FullJob),
+      pendingActions: summarizeActions(pending),
+    };
+  }
+  const target = pending[0];
+  const payloadDigest = actionPayloadDigest(target);
+  const operation = await createOperation({
+    handler: "decide_job_action",
+    title: `Decide: ${target.title}`,
+    description: target.description,
+    risk: target.risk === "high" ? "high" : target.risk === "low" ? "low" : "material",
+    arguments: { jobId: job.id, actionId: target.id, payloadDigest },
+  }) as Pick<PendingOperation, "id">;
+  return {
+    intent: "approve",
+    reply: `Review '${target.title}' for job ${job.id}, then use the explicit confirmation control.`,
+    jobId: job.id,
+    job: toCard(job as FullJob),
+    pendingActions: summarizeActions(pending),
+    confirmation: { operationId: operation.id, payloadDigest },
+  };
 }
 
 async function assetsOf(jobId: string) {
@@ -364,42 +407,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
         }
       }
 
-      const pending = pendingOf(job);
-      if (pending.length === 0) {
-        return { payload: {
-          intent: intent.intent,
-          reply: `Job ${job.id} has no pending approvals (stage: ${job.stage}).`,
-          jobId: job.id,
-          job: toCard(job),
-        } satisfies ChatResponse };
-      }
-
-      // Telegram surface: approvals must come through an explicit inline-button
-      // callback, so never execute directly from the parsed message.
-      if (surface === "telegram") {
-        return { payload: {
-          intent: intent.intent,
-          reply: `Job ${job.id} has ${pending.length} pending action(s). Confirm below:`,
-          jobId: job.id,
-          job: toCard(job),
-          pendingActions: summarizeActions(pending),
-        } satisfies ChatResponse };
-      }
-
-      const target = pending[0];
-      const outcome = await resolveDecision(job.id, target.id, "approved", actionPayloadDigest(target));
-      const note = outcome.triggered
-        ? ` Approved. Publishing dispatched (${outcome.triggered}).`
-        : outcome.remainingApprovals
-          ? ` Approved. ${outcome.remainingApprovals} approval(s) still pending.`
-          : "";
-      return { payload: {
-        intent: intent.intent,
-        reply: `Approved '${target.title}' for job ${job.id}.${note}`,
-        jobId: job.id,
-        job: toCard(await getJob(job.id)),
-        outcome,
-      } satisfies ChatResponse };
+      return { payload: await buildApprovalConfirmation(job, surface) };
     }
 
     default: {

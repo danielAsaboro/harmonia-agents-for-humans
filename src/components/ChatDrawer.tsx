@@ -81,11 +81,13 @@ export default function ChatDrawer({ onJobCreated }: { onJobCreated?: (id: strin
     if (open) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, open]);
 
-  async function decide(jobId: string, actionId: string, payloadDigest: string, decision: "approved" | "rejected") {
-    await apiFetch(`/api/jobs/${jobId}/actions/${actionId}/decision`, {
+  async function decide(jobId: string, actionId: string, payloadDigest: string, decision: "approved" | "rejected", operationId?: string) {
+    await apiFetch(operationId
+      ? `/api/chat/operations/${operationId}/decision`
+      : `/api/jobs/${jobId}/actions/${actionId}/decision`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ decision, payloadDigest }),
+      body: JSON.stringify(operationId ? { decision } : { decision, payloadDigest }),
     });
     setMessages((m) => [
       ...m,
@@ -188,7 +190,13 @@ export default function ChatDrawer({ onJobCreated }: { onJobCreated?: (id: strin
                         description={`${a.type} · action ${a.id}`}
                         risk={a.risk === "high" ? "high" : a.risk === "low" ? "low" : "material"}
                         state="pending"
-                        onDecision={(decision) => decide(m.data!.job!.id, a.id, a.payloadDigest, decision)}
+                        onDecision={(decision) => decide(
+                          m.data!.job!.id,
+                          a.id,
+                          a.payloadDigest,
+                          decision,
+                          m.data!.pendingActions?.[0]?.id === a.id ? m.data!.confirmation?.operationId : undefined,
+                        )}
                       />
                     ))}
                   </div>

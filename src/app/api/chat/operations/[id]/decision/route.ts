@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { operatorTenantHandler } from "@/lib/auth";
 import { decidePendingOperation } from "@/lib/pendingOperations";
+import { resolveDecision } from "@/lib/decisions";
 
 const decisionSchema = z.object({ decision: z.enum(["approved", "rejected"]) }).strict();
 
@@ -10,7 +11,13 @@ async function post(req: Request, { params }: { params: Promise<{ id: string }> 
   if (!parsed.success) return Response.json({ error: "invalid operation decision" }, { status: 400 });
   try {
     const operation = await decidePendingOperation(id, parsed.data.decision);
-    return Response.json({ operation });
+    if (operation.handler !== "decide_job_action") return Response.json({ operation });
+    const { jobId, actionId, payloadDigest } = operation.arguments;
+    if (typeof jobId !== "string" || typeof actionId !== "string" || typeof payloadDigest !== "string") {
+      throw new Error("operation is not payload-bound");
+    }
+    const outcome = await resolveDecision(jobId, actionId, parsed.data.decision, payloadDigest);
+    return Response.json({ operation, outcome });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const status = message.includes("not found") ? 404 : message.includes("expired") || message.includes("already") ? 409 : 400;

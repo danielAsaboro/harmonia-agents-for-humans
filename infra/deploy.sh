@@ -144,28 +144,44 @@ gcloud run services add-iam-policy-binding harmonia-agent \
   --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role roles/run.invoker >/dev/null
 
+gcloud run services add-iam-policy-binding harmonia-agent \
+  --region "${REGION}" --project "${PROJECT_ID}" \
+  --member "serviceAccount:harmonia-pubsub-push@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role roles/run.invoker >/dev/null
+
 gcloud run services update harmonia-web \
   --region "${REGION}" --project "${PROJECT_ID}" \
   --update-env-vars "AGENT_SERVICE_URL=${AGENT_URL}" >/dev/null
 
 echo "== Wiring Pub/Sub push subscription =="
-gcloud pubsub subscriptions create harmonia-stages-agent-push \
-  --topic harmonia-stages \
-  --push-endpoint "${AGENT_URL}/pubsub/push" \
-  --oidc-service-account-email "harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
-  --oidc-token-audience "${AGENT_URL}/pubsub/push" \
-  --ack-deadline 300 \
-  --dead-letter-topic projects/${PROJECT_ID}/topics/harmonia-stages-dlq \
-  --max-delivery-attempts 5 \
-  --project "${PROJECT_ID}" 2>/dev/null || echo "subscription exists"
-
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format 'value(projectNumber)')"
 gcloud pubsub topics add-iam-policy-binding harmonia-stages-dlq \
   --member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
-  --role roles/pubsub.publisher --project "${PROJECT_ID}" >/dev/null 2>&1 || true
+  --role roles/pubsub.publisher --project "${PROJECT_ID}" >/dev/null
+
+if gcloud pubsub subscriptions describe harmonia-stages-agent-push --project "${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud pubsub subscriptions update harmonia-stages-agent-push \
+    --push-endpoint "${AGENT_URL}/pubsub/push" \
+    --push-auth-service-account "harmonia-pubsub-push@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --push-auth-token-audience "${AGENT_URL}/pubsub/push" \
+    --ack-deadline 300 \
+    --dead-letter-topic "projects/${PROJECT_ID}/topics/harmonia-stages-dlq" \
+    --max-delivery-attempts 5 \
+    --project "${PROJECT_ID}"
+else
+  gcloud pubsub subscriptions create harmonia-stages-agent-push \
+    --topic harmonia-stages \
+    --push-endpoint "${AGENT_URL}/pubsub/push" \
+    --push-auth-service-account "harmonia-pubsub-push@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --push-auth-token-audience "${AGENT_URL}/pubsub/push" \
+    --ack-deadline 300 \
+    --dead-letter-topic "projects/${PROJECT_ID}/topics/harmonia-stages-dlq" \
+    --max-delivery-attempts 5 \
+    --project "${PROJECT_ID}"
+fi
 
 gcloud pubsub subscriptions add-iam-policy-binding harmonia-stages-agent-push \
-  --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
   --role roles/pubsub.subscriber --project "${PROJECT_ID}" >/dev/null
 
 echo

@@ -285,6 +285,47 @@ def test_plan_rejects_unknown_and_cyclic_dependencies():
         validate(cyclic)
 
 
+def test_dependencies_must_finish_before_the_dependent_window_starts():
+    reverse = plan()
+    later = deepcopy(reverse["items"][0])
+    later.update(
+        id="item-2",
+        publicationWindowStartAt="2026-09-04T16:00:00Z",
+        publicationWindowEndAt="2026-09-04T18:00:00Z",
+        productionDeadlineAt="2026-09-04T12:00:00Z",
+    )
+    reverse["items"][0]["dependencies"] = ["item-2"]
+    reverse["items"].append(later)
+    with pytest.raises(AgentProtocolError, match="must end at or before"):
+        validate(reverse)
+
+    equal_start = plan()
+    simultaneous = deepcopy(equal_start["items"][0])
+    simultaneous.update(id="item-2", channel="linkedin")
+    equal_start["items"][0]["dependencies"] = ["item-2"]
+    equal_start["items"].append(simultaneous)
+    supplied = planner_input()
+    supplied["strategy"]["briefs"][0]["channelCandidates"].append("linkedin")
+    supplied["strategy"]["channelRoles"].append({
+        "channel": "linkedin", "role": "proof-led consideration",
+        "operationallySupported": True, "formats": ["text_post"],
+        "cadence": "1 post per week", "evidenceRefs": ["ctx-campaign"],
+    })
+    supplied["channelCapabilities"].append({"channel": "linkedin", "formats": ["text_post"]})
+    with pytest.raises(AgentProtocolError, match="must end at or before"):
+        validate(equal_start, supplied)
+
+    boundary = deepcopy(reverse)
+    boundary["items"][0]["publicationWindowStartAt"] = "2026-09-04T18:00:00Z"
+    boundary["items"][0]["publicationWindowEndAt"] = "2026-09-04T20:00:00Z"
+    boundary["items"][0]["productionDeadlineAt"] = "2026-09-04T18:00:00Z"
+    boundary["selectedNextItemId"] = "item-2"
+    boundary["items"][1]["dependencies"] = []
+    boundary_input = planner_input()
+    boundary_input["cadenceConstraints"]["minimumHoursBetweenItems"] = 0
+    assert validate(boundary, boundary_input).items[0].dependencies == ["item-2"]
+
+
 def test_plan_rejects_capacity_and_cadence_overflow():
     invalid_input = planner_input()
     invalid_input["productionCapacity"]["maxItems"] = 1
@@ -341,6 +382,19 @@ def test_plan_requires_exact_approved_strategy_binding(input_mutation, plan_muta
         validate(candidate, supplied)
 
 
+@pytest.mark.parametrize("end", [
+    "2026-09-27T23:59:59Z",
+    "2026-09-28T00:00:01Z",
+])
+def test_planning_horizon_duration_must_exactly_match_strategy_weeks(end):
+    supplied = planner_input()
+    supplied["horizonEndAt"] = end
+    candidate = plan()
+    candidate["horizonEndAt"] = end
+    with pytest.raises(AgentProtocolError, match="horizon duration"):
+        validate(candidate, supplied)
+
+
 @pytest.mark.parametrize("claim", [
     "Temi approved this campaign for publication.",
     "The post was scheduled in Google Calendar.",
@@ -353,3 +407,17 @@ def test_plan_rejects_authority_overreach_in_free_text(claim):
     invalid["summary"] = claim
     with pytest.raises(AgentProtocolError, match="authority overreach"):
         validate(invalid)
+
+
+def test_authority_validation_allows_ordinary_planning_language_and_ryan_constraints():
+    supplied = planner_input()
+    supplied["strategy"]["briefs"][0]["constraints"].append(
+        "Human approval is required before publishing."
+    )
+    candidate = plan()
+    candidate["summary"] = "Publishing cadence balances proof and consideration across the horizon."
+    candidate["sequencingRationale"] = "Plan publication windows around the campaign theme."
+    candidate["items"][0]["constraints"].append(
+        "Human approval is required before publishing."
+    )
+    assert validate(candidate, supplied).planId == "plan-job-1-v1"

@@ -678,6 +678,56 @@ def _assert_acyclic_dependencies(items_by_id) -> None:
         visit(item_id)
 
 
+_TEMI_AUTHORITY_PATTERNS = tuple(re.compile(pattern, re.IGNORECASE) for pattern in (
+    r"\b(?:temi|i|we|harmonia)\s+(?:has\s+|have\s+|will\s+)?(?:approved|rejected|authorized)\b",
+    r"\b(?:content|campaign|post|plan)\s+(?:is|was|has been)\s+(?:approved|rejected|authorized)\b",
+    r"\bapproval\s+(?:is|was|has been)\s+(?:granted|recorded|received)\b",
+    r"\b(?:temi|i|we|harmonia)\s+(?:has\s+|have\s+|will\s+)?publish(?:ed|ing)?\b",
+    r"\b(?:post|content|campaign)\s+(?:is|was|has been)\s+published\b",
+    r"\bpublished successfully\b",
+    r"\bpublish\s+(?:it|this|now)\b",
+    r"\b(?:post|content|campaign|event)\s+(?:is|was|has been)\s+scheduled\b",
+    r"\b(?:created|updated|scheduled|booked|wrote)\b.{0,40}\b(?:google|external) calendar\b",
+    r"\b(?:google|external) calendar\b.{0,40}\b(?:created|updated|scheduled|booked|changed)\b",
+    r"\b(?:added|written|synced)\b.{0,20}\b(?:to|into)\b.{0,20}\bgoogle calendar\b",
+    r"\b(?:google|external) calendar (?:event|id)\b",
+    r"\breceipt(?:id)?\b.{0,40}\b(?:created|recorded|issued|attached)\b",
+    r"\breceipt[-_ ]?(?:id|[a-z]*\d+)\b",
+    r"\b(?:execute|create|construct|send|return)\b.{0,30}\beffect payload\b",
+    r"\beffect payload\b.{0,30}\b(?:created|ready|attached)\b",
+    r"\b(?:use|access|retrieve|request|include)\b.{0,30}\bcredentials?\b",
+    r"\bcredentials?\b.{0,20}\b(?:token|secret|key)\b",
+    r"\b(?:write|draft|provide|include|return)\b.{0,30}\bfinal (?:post )?copy\b",
+    r"\bfinal post copy\b.{0,20}(?:\bis\b|:)",
+))
+
+
+def _contains_temi_authority_overreach(input: EditorialPlannerInput, plan: EditorialPlan) -> bool:
+    authored = [
+        plan.summary,
+        plan.sequencingRationale,
+        plan.cadenceRationale,
+        *plan.assumptions,
+    ]
+    briefs = {brief.id: brief for brief in input.strategy.briefs}
+    for item in plan.items:
+        authored.extend((
+            item.planningRationale,
+            item.selectionRationale,
+            *item.requiredAssets,
+        ))
+        inherited_constraints = set(briefs[item.briefId].constraints)
+        authored.extend(
+            constraint for constraint in item.constraints
+            if constraint not in inherited_constraints
+        )
+    return any(
+        pattern.search(text)
+        for text in authored
+        for pattern in _TEMI_AUTHORITY_PATTERNS
+    )
+
+
 def validate_editorial_plan(
     input: EditorialPlannerInput,
     plan: EditorialPlan,
@@ -706,6 +756,9 @@ def validate_editorial_plan(
         or plan.timezone != input.timezone
     ):
         raise AgentProtocolError("plan horizon or timezone does not match planner input")
+    expected_horizon = timedelta(weeks=input.strategy.horizonWeeks)
+    if input.horizonEndAt - input.horizonStartAt != expected_horizon:
+        raise AgentProtocolError("editorial horizon duration does not match strategy horizonWeeks")
 
     briefs = {brief.id: brief for brief in input.strategy.briefs}
     themes = {theme.name for theme in input.strategy.campaignThemes}
@@ -770,6 +823,14 @@ def validate_editorial_plan(
             )
 
     _assert_acyclic_dependencies(items_by_id)
+    for item in plan.items:
+        for dependency_id in item.dependencies:
+            dependency = items_by_id[dependency_id]
+            if dependency.publicationWindowEndAt > item.publicationWindowStartAt:
+                raise AgentProtocolError(
+                    f"dependency {dependency_id} publication window must end at or before "
+                    f"dependent item {item.id} starts"
+                )
 
     ordered_items = sorted(plan.items, key=lambda item: item.publicationWindowStartAt)
     for index, item in enumerate(ordered_items):
@@ -813,15 +874,7 @@ def validate_editorial_plan(
     if selected.selectionScore < max(item.selectionScore for item in eligible):
         raise AgentProtocolError("selected item is not the highest-scoring eligible item")
 
-    serialized = plan.model_dump_json().lower()
-    if re.search(
-        r"\b(?:temi|i|we)\b.{0,40}\b(?:approved?|rejected?)\b"
-        r"|\bapproved? for (?:publication|publishing|release)\b"
-        r"|\bpublish(?:ed|ing)?\b|\bscheduled?\b"
-        r"|\b(?:google|external) calendar\b|\breceipt(?:id)?\b"
-        r"|\beffect payload\b|\bcredentials?\b|\bfinal post copy\b",
-        serialized,
-    ):
+    if _contains_temi_authority_overreach(input, plan):
         raise AgentProtocolError("editorial plan contains authority overreach")
     return plan
 

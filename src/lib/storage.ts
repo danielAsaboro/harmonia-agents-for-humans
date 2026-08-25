@@ -2,7 +2,7 @@
  * Binary artifact storage. Cloud: GCS bucket (GCS_BUCKET). Local dev: files
  * under .data/artifacts/. Firestore keeps only metadata; bytes live here.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { getConfig } from "./config";
 import { currentTenant } from "./tenancy";
@@ -51,4 +51,56 @@ export async function getArtifact(key: string): Promise<Buffer | null> {
   const p = localPath(key);
   if (!existsSync(p)) return null;
   return readFileSync(p);
+}
+
+export async function deleteArtifactUri(uri: string): Promise<void> {
+  const tenant = currentTenant();
+  if (uri.startsWith("gs://")) {
+    const parsed = new URL(uri);
+    const configuredBucket = process.env.GCS_BUCKET;
+    const objectName = parsed.pathname.replace(/^\//, "");
+    const allowed = [
+      `artifacts/${tenant.workspaceId}/${tenant.brandId}/`,
+      `chat-attachments/${tenant.workspaceId}/${tenant.brandId}/`,
+    ];
+    if (!configuredBucket || parsed.hostname !== configuredBucket || !allowed.some((prefix) => objectName.startsWith(prefix))) {
+      throw new Error("artifact URI is outside the current tenant storage scope");
+    }
+    const { Storage } = await import("@google-cloud/storage");
+    await new Storage({ projectId: getConfig().GOOGLE_CLOUD_PROJECT })
+      .bucket(configuredBucket).file(objectName).delete({ ignoreNotFound: true });
+    return;
+  }
+  if (uri.startsWith("file://artifacts/")) {
+    const key = uri.slice("file://artifacts/".length);
+    const target = localPath(key);
+    if (existsSync(target)) unlinkSync(target);
+    return;
+  }
+  if (uri.startsWith("file://chat-attachments/")) {
+    const id = uri.slice("file://chat-attachments/".length);
+    const target = localPath(`chat_attachment_${id}`);
+    if (existsSync(target)) unlinkSync(target);
+    return;
+  }
+  throw new Error("unsupported artifact URI");
+}
+
+export async function deleteWorkspaceArtifactUri(uri: string, workspaceId: string): Promise<void> {
+  const tenant = currentTenant();
+  if (tenant.workspaceId !== workspaceId) throw new Error("workspace artifact scope mismatch");
+  if (!uri.startsWith("gs://")) return deleteArtifactUri(uri);
+  const parsed = new URL(uri);
+  const configuredBucket = process.env.GCS_BUCKET;
+  const objectName = parsed.pathname.replace(/^\//, "");
+  const allowed = [
+    `artifacts/${workspaceId}/`,
+    `chat-attachments/${workspaceId}/`,
+  ];
+  if (!configuredBucket || parsed.hostname !== configuredBucket || !allowed.some((prefix) => objectName.startsWith(prefix))) {
+    throw new Error("artifact URI is outside the current workspace storage scope");
+  }
+  const { Storage } = await import("@google-cloud/storage");
+  await new Storage({ projectId: getConfig().GOOGLE_CLOUD_PROJECT })
+    .bucket(configuredBucket).file(objectName).delete({ ignoreNotFound: true });
 }

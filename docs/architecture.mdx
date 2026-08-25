@@ -160,7 +160,7 @@ Harmonia does not claim a general-purpose enterprise compliance certification. I
 - The deployment selects one `REGION` and rejects mismatched Agent Engine, Memory Bank, Gemma, Veo, Firestore, or storage locations. Pub/Sub persistence and in-transit processing are restricted to that region. Because Lyria uses a global endpoint, generative media fails closed unless an operator explicitly acknowledges an approved global-processing policy exception.
 - Memory Bank accepts only typed eligible facts. Raw sources, creative text, failures, and unverified claims cannot be written by the normal learn path.
 
-Data retention periods, legal holds, customer-managed encryption, workspace export/deletion, organization-policy integration, and formal regulatory certification remain deployment-specific work. They must not be implied by the controls above.
+Terminal job retention, per-job holds, administrator-confirmed job erasure, owner-confirmed workspace erasure, binary artifact cleanup, and metadata-only deletion tombstones are implemented. Tenant-wide export, customer-managed encryption, organization-policy integration, and formal regulatory certification remain deployment-specific work and must not be implied by these controls.
 
 ### SaaS identity and tenant isolation
 

@@ -40,6 +40,8 @@ import { decideTelegramNonceClaim, telegramDigest, type TelegramWebhookRoute } f
 import { connectionEnvelopeKey, decryptSecret, encryptSecret, type SecretEnvelope } from "./secretEnvelope";
 import { claimStageExecution as decideStageClaim, finalizeStageExecution, type StageExecution, type StageClaimResult } from "./stageExecutions";
 import { decideConnectionRefresh, type ConnectionRefreshState } from "./connectionRefresh";
+import { deleteArtifactUri, deleteWorkspaceArtifactUri } from "./storage";
+import { deletionTombstone, retentionDeadline, type DeletionPlan, type WorkspaceDeletionPlan } from "./lifecycle";
 
 let client: Firestore | null = null;
 
@@ -97,6 +99,7 @@ const COST_RESERVATIONS = "cost_reservations";
 const USAGE_RECORDS = "usage_records";
 const MEDIA_OPERATIONS = "media_operations";
 const STAGE_EXECUTIONS = "stage_executions";
+const DELETION_TOMBSTONES = "deletion_tombstones";
 
 function tenantCollection(name: string) {
   return db().collection(tenantCollectionPath(currentTenant(), name));
@@ -755,6 +758,9 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,
     status: data.status,
+    terminalOutcome: data.terminalOutcome,
+    retentionDeleteAfter: data.retentionDeleteAfter,
+    retentionHold: data.retentionHold,
     stage: data.stage,
     config: data.config,
     failure: data.failure,
@@ -774,6 +780,122 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
     packet: data.packet,
     budget: data.budget ?? initialJobBudget(),
   };
+}
+
+export async function eraseJobData(plan: DeletionPlan, actorSubjectId: string): Promise<void> {
+  const tenant = currentTenant();
+  if (plan.workspaceId !== tenant.workspaceId || plan.brandId !== tenant.brandId) {
+    throw new Error("deletion plan is outside the current tenant scope");
+  }
+  const job = await getJob(plan.jobId);
+  const contentItems = await tenantCollection(CONTENT_ITEMS).where("jobId", "==", plan.jobId).get();
+  const liveItem = contentItems.docs.find((doc) =>
+    ["scheduled", "awaiting_final_review", "publishing"].includes(String(doc.get("status"))),
+  );
+  if (liveItem) throw new Error("job has a content item with pending external work");
+
+  const tombstoneRef = tenantCollection(DELETION_TOMBSTONES).doc(plan.jobId);
+  await tombstoneRef.set({
+    ...deletionTombstone(plan, actorSubjectId),
+    state: "erasing",
+  });
+
+  const assets = await listAssets(plan.jobId);
+  for (const asset of assets) await deleteArtifactUri(asset.storageUri);
+
+  const attachmentId = job.config.mediaAttachmentId;
+  if (attachmentId) {
+    const attachmentRef = tenantCollection("chat_attachments").doc(attachmentId);
+    const attachment = await attachmentRef.get();
+    if (attachment.exists) {
+      const uri = String(attachment.get("storageUri") ?? "");
+      if (uri) await deleteArtifactUri(uri);
+      await attachmentRef.delete();
+    }
+  }
+
+  const denormalized = await Promise.all([
+    tenantCollection(ASSETS).where("jobId", "==", plan.jobId).get(),
+    tenantCollection(EVENT_LOG).where("jobId", "==", plan.jobId).get(),
+    tenantCollection(PROPOSALS).where("jobId", "==", plan.jobId).get(),
+    tenantCollection(NOTIFICATIONS).where("refId", "==", plan.jobId).get(),
+  ]);
+  await Promise.all(denormalized.flatMap((snapshot) => snapshot.docs.map((doc) => doc.ref.delete())));
+  await Promise.all(contentItems.docs.map((doc) => doc.ref.delete()));
+  await db().recursiveDelete(jobRef(plan.jobId));
+  await tombstoneRef.set({ state: "erased", completedAt: new Date().toISOString() }, { merge: true });
+}
+
+export async function eraseDueJobs(now = new Date(), limit = 20): Promise<string[]> {
+  const snapshots = await tenantCollection(JOBS)
+    .where("retentionDeleteAfter", "<=", now.toISOString())
+    .limit(Math.max(1, Math.min(limit, 100)))
+    .get();
+  const erased: string[] = [];
+  for (const snapshot of snapshots.docs) {
+    const job = requireJobDoc(snapshot);
+    if (job.retentionHold || !["complete", "failed"].includes(job.status)) continue;
+    await eraseJobData({
+      jobId: job.id,
+      workspaceId: job.workspaceId,
+      brandId: job.brandId,
+      reason: "retention period elapsed",
+      requestedAt: now.toISOString(),
+    }, "retention-service");
+    erased.push(job.id);
+  }
+  return erased;
+}
+
+export async function eraseWorkspaceData(
+  plan: WorkspaceDeletionPlan,
+  actorSubjectId: string,
+): Promise<void> {
+  const tenant = currentTenant();
+  if (plan.workspaceId !== tenant.workspaceId) throw new Error("workspace deletion plan is out of scope");
+  if (tenant.principal.workspaceRole !== "owner") throw new Error("workspace owner role required");
+
+  const [jobs, contentItems, assets, attachments, telegram] = await Promise.all([
+    tenantCollection(JOBS).get(),
+    tenantCollection(CONTENT_ITEMS).get(),
+    tenantCollection(ASSETS).get(),
+    tenantCollection("chat_attachments").get(),
+    tenantCollection(CONFIG).doc("telegram").get(),
+  ]);
+  if (jobs.docs.some((doc) => {
+    const value = doc.data() as JobDoc;
+    return value.retentionHold || !["complete", "failed"].includes(value.status);
+  })) {
+    throw new Error("workspace contains active jobs or retention holds");
+  }
+  if (contentItems.docs.some((doc) =>
+    ["scheduled", "awaiting_final_review", "publishing"].includes(String(doc.get("status"))),
+  )) {
+    throw new Error("workspace contains pending external work");
+  }
+
+  const tombstoneRef = db().collection("workspace_deletion_tombstones").doc(plan.workspaceId);
+  await tombstoneRef.set({
+    workspaceId: plan.workspaceId,
+    reason: plan.reason,
+    requestedAt: plan.requestedAt,
+    deletedBySubjectId: actorSubjectId,
+    state: "erasing",
+  });
+  for (const doc of [...assets.docs, ...attachments.docs]) {
+    const uri = String(doc.get("storageUri") ?? "");
+    if (uri) await deleteWorkspaceArtifactUri(uri, plan.workspaceId);
+  }
+  const routeTokenDigest = telegram.get("routeTokenDigest") as string | undefined;
+  if (routeTokenDigest) {
+    await db().collection(TELEGRAM_WEBHOOK_ROUTES).doc(routeTokenDigest).delete();
+  }
+  await db().recursiveDelete(db().collection("workspaces").doc(plan.workspaceId));
+  await tombstoneRef.set({
+    state: "erased",
+    completedAt: new Date().toISOString(),
+    contentErased: true,
+  }, { merge: true });
 }
 
 export async function createJob(
@@ -1355,6 +1477,7 @@ export async function saveLearnings(
     status: "complete",
     stage: "complete",
     terminalOutcome,
+    retentionDeleteAfter: retentionDeadline(),
     updatedAt: new Date().toISOString(),
   });
 }
@@ -1411,6 +1534,7 @@ export async function markFailed(
       at: new Date().toISOString(),
     },
     updatedAt: new Date().toISOString(),
+    ...(!failure.retryable ? { retentionDeleteAfter: retentionDeadline() } : {}),
   });
 }
 

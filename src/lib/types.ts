@@ -43,6 +43,8 @@ export interface Job {
   updatedAt: string;
   status: JobStatus;
   terminalOutcome?: "succeeded" | "partial" | "failed" | "unresolved";
+  retentionDeleteAfter?: string;
+  retentionHold?: boolean;
   stage: Stage;
   config: JobConfig;
   ingestedTitle?: string;

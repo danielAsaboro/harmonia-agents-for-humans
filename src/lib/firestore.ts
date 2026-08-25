@@ -1,4 +1,5 @@
 import { Firestore, FieldValue } from "@google-cloud/firestore";
+import { createHash } from "node:crypto";
 import type {
   EvidencePacket,
   Engagement,
@@ -37,6 +38,7 @@ import { currentTraceId } from "./telemetry";
 import { decideEffectClaim, decideEffectFinalization } from "./effectClaims";
 import { decideTelegramNonceClaim, telegramDigest, type TelegramWebhookRoute } from "./telegramWebhook";
 import { connectionEnvelopeKey, decryptSecret, encryptSecret, type SecretEnvelope } from "./secretEnvelope";
+import { claimStageExecution as decideStageClaim, finalizeStageExecution, type StageExecution, type StageClaimResult } from "./stageExecutions";
 
 let client: Firestore | null = null;
 
@@ -93,6 +95,7 @@ const PROPOSALS = "proposals";
 const COST_RESERVATIONS = "cost_reservations";
 const USAGE_RECORDS = "usage_records";
 const MEDIA_OPERATIONS = "media_operations";
+const STAGE_EXECUTIONS = "stage_executions";
 
 function tenantCollection(name: string) {
   return db().collection(tenantCollectionPath(currentTenant(), name));
@@ -739,6 +742,62 @@ export async function setStage(
     stage,
     status,
     updatedAt: new Date().toISOString(),
+  });
+}
+
+function stageClaimDigest(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+export async function claimJobStageExecution(input: {
+  jobId: string;
+  stage: string;
+  ownerId: string;
+  claimToken: string;
+}): Promise<StageClaimResult> {
+  const ref = jobRef(input.jobId);
+  const executionRef = ref.collection(STAGE_EXECUTIONS).doc(input.stage);
+  return db().runTransaction(async (tx) => {
+    const [jobSnap, executionSnap] = await Promise.all([tx.get(ref), tx.get(executionRef)]);
+    const job = requireJobDoc(jobSnap);
+    const existing = executionSnap.exists ? executionSnap.data() as StageExecution : null;
+    if (!existing && job.stage !== input.stage) throw new Error(`job stage is '${job.stage}', not '${input.stage}'`);
+    const now = new Date();
+    const result = decideStageClaim(existing, {
+      jobId: input.jobId,
+      stage: input.stage,
+      ownerId: input.ownerId,
+      claimTokenDigest: stageClaimDigest(input.claimToken),
+      now: now.toISOString(),
+      leaseExpiresAt: new Date(now.getTime() + 5 * 60 * 1000).toISOString(),
+    });
+    if (!existing) tx.create(executionRef, result.execution);
+    else if (result.execution !== existing) tx.set(executionRef, result.execution);
+    return result;
+  });
+}
+
+export async function finalizeJobStageExecution(input: {
+  jobId: string;
+  stage: string;
+  claimToken: string;
+  outcome: "applied" | "failed" | "uncertain";
+  failureReason?: string;
+}): Promise<StageExecution> {
+  const ref = jobRef(input.jobId).collection(STAGE_EXECUTIONS).doc(input.stage);
+  return db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error("stage execution claim not found");
+    const current = snap.data() as StageExecution;
+    const finalized = finalizeStageExecution(
+      current,
+      stageClaimDigest(input.claimToken),
+      input.outcome,
+      new Date().toISOString(),
+      input.failureReason,
+    );
+    tx.set(ref, finalized);
+    return finalized;
   });
 }
 

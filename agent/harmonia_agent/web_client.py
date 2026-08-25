@@ -208,6 +208,19 @@ def claim_effect(payload: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def claim_stage_execution(payload: dict[str, Any]) -> dict[str, Any]:
+    result = post("/api/internal/stage-execution/claim", payload)
+    if result.get("outcome") not in {
+        "execute", "in_progress", "already_applied", "failed", "uncertain",
+    }:
+        raise WebApiError("stage execution claim returned an invalid outcome")
+    return result
+
+
+def finalize_stage_execution(payload: dict[str, Any]) -> None:
+    post("/api/internal/stage-execution/finalize", payload)
+
+
 def reserve_budget(payload: dict[str, object]) -> None:
     with _client() as c:
         res = c.post("/api/internal/budget/reserve", json=payload)

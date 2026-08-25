@@ -7,6 +7,8 @@ import {
   failureSubmissionSchema,
   ingestSubmissionSchema,
   receiptSubmissionSchema,
+  stageExecutionClaimSchema,
+  stageExecutionFinalizeSchema,
   usageRecordSchema,
   verificationSubmissionSchema,
 } from "@/lib/contracts";
@@ -131,6 +133,18 @@ describe("internal contracts", () => {
     expect(budgetReservationResolutionSchema.safeParse({
       jobId: "j1", operationId: "j1:draft:nimi:0", outcome: "released",
       reason: "ambiguous",
+    }).success).toBe(false);
+  });
+
+  it("requires opaque tokens and bounded outcomes for stage execution leases", () => {
+    expect(stageExecutionClaimSchema.safeParse({
+      jobId: "j1", stage: "draft", ownerId: "worker-1", claimToken: "s".repeat(32),
+    }).success).toBe(true);
+    expect(stageExecutionFinalizeSchema.safeParse({
+      jobId: "j1", stage: "draft", claimToken: "s".repeat(32), outcome: "applied",
+    }).success).toBe(true);
+    expect(stageExecutionFinalizeSchema.safeParse({
+      jobId: "j1", stage: "draft", claimToken: "short", outcome: "retry",
     }).success).toBe(false);
   });
 

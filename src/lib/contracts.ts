@@ -33,6 +33,21 @@ export const budgetReservationResolutionSchema = z.object({
   reason: z.string().min(10).max(500),
 }).strict();
 
+export const stageExecutionClaimSchema = z.object({
+  jobId: z.string().min(1),
+  stage: z.string().min(1),
+  ownerId: z.string().min(1).max(200),
+  claimToken: z.string().min(32).max(256),
+}).strict();
+
+export const stageExecutionFinalizeSchema = z.object({
+  jobId: z.string().min(1),
+  stage: z.string().min(1),
+  claimToken: z.string().min(32).max(256),
+  outcome: z.enum(["applied", "failed", "uncertain"]),
+  failureReason: z.string().min(1).max(500).optional(),
+}).strict();
+
 export const usageRecordSchema = z.object({
   id: z.string().min(1),
   jobId: z.string().min(1),

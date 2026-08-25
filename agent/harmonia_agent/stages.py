@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import uuid
+import secrets
 from pathlib import Path
 import asyncio
 from datetime import datetime, timezone
@@ -57,6 +58,8 @@ from .web_client import (
     EffectClaimUncertain,
     WebApiError,
     claim_effect,
+    claim_stage_execution,
+    finalize_stage_execution,
     get_asset,
     get_connection,
     get_effect_commands,
@@ -867,8 +870,24 @@ async def dispatch(job_id: str, stage: str, *, attempt: int = 0) -> bool:
             span.set_status(Status(StatusCode.ERROR, envelope.code))
             web_post("/api/internal/failure", _failure_payload(job_id, envelope))
             return True
+        claim_token = secrets.token_urlsafe(32)
+        claim = claim_stage_execution({
+            "jobId": job_id,
+            "stage": stage,
+            "ownerId": f"worker:{os.getpid()}",
+            "claimToken": claim_token,
+        })
+        if claim["outcome"] != "execute":
+            span.set_attributes(safe_attributes({"stage.claim_outcome": claim["outcome"]}))
+            return True
         try:
             await handler(job_id)
+            finalize_stage_execution({
+                "jobId": job_id,
+                "stage": stage,
+                "claimToken": claim_token,
+                "outcome": "applied",
+            })
             return True
         except Exception as exc:  # noqa: BLE001 - classified then reported
             envelope = normalize_failure(
@@ -892,4 +911,14 @@ async def dispatch(job_id: str, stage: str, *, attempt: int = 0) -> bool:
                 web_post("/api/internal/failure", _failure_payload(job_id, envelope))
             except Exception:  # noqa: BLE001
                 logger.exception("failure reporting also failed")
-            return not envelope.retryable
+            try:
+                finalize_stage_execution({
+                    "jobId": job_id,
+                    "stage": stage,
+                    "claimToken": claim_token,
+                    "outcome": "failed" if not envelope.retryable else "uncertain",
+                    "failureReason": envelope.code,
+                })
+            except Exception:  # noqa: BLE001
+                logger.exception("stage claim finalization also failed")
+            return True

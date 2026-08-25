@@ -19,7 +19,7 @@ export class ReplayDispatcher {
     let previousOffset = 0;
     for (const event of this.eventsAfter(this.lastSequence)) {
       while (this.status === "paused") await delay(10);
-      if (this.status === "stopped") return;
+      if ((this.status as PlaybackStatus) === "stopped") return;
       if (!options.immediate) await delay(Math.max(0, event.offsetMs - previousOffset) / this.speed);
       this.emit(event); this.lastSequence = event.sequence; previousOffset = event.offsetMs;
     }

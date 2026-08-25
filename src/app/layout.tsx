@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ReplayModeBanner } from "@/components/ReplayModeBanner";
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"),
@@ -26,9 +27,14 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const replayBundleId = process.env.HARMONIA_REPLAY_BUNDLE_ID;
+  const replayCapturedAt = process.env.HARMONIA_REPLAY_CAPTURED_AT;
   return (
     <html lang="en" className="h-full antialiased">
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {replayBundleId && replayCapturedAt ? <ReplayModeBanner bundleId={replayBundleId} capturedAt={replayCapturedAt} /> : null}
+        {children}
+      </body>
     </html>
   );
 }

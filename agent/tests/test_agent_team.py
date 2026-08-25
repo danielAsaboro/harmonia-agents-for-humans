@@ -23,6 +23,7 @@ from harmonia_agent.agent_models import (
     DraftWorkflowInput,
     DraftWorkflowResult,
     EditorialPlan,
+    EditorialPlannerInput,
     LiaisonInput,
     MediaEvidence,
     PublishAction,
@@ -40,6 +41,7 @@ from harmonia_agent.agents import (
     analyze_with_team,
     build_agent_team,
     draft_with_team,
+    plan_with_team,
     strategize_with_team,
     RoleModelInstances,
 )
@@ -48,6 +50,8 @@ from harmonia_agent.tenant_context import tenant_scope
 from harmonia_agent.generation_policy import safety_settings
 from harmonia_agent.usage import InvocationContext
 from tests.test_ryan_strategy import strategy as _content_strategy
+from tests.test_temi_editorial_plan import plan as _temi_plan
+from tests.test_temi_editorial_plan import planner_input as _planner_input
 
 
 class ScriptedDelegationModel(BaseLlm):
@@ -153,10 +157,7 @@ def _analysis() -> AnalysisResult:
 
 
 def _editorial_plan() -> EditorialPlan:
-    return EditorialPlan(strategySummary="Activation lessons", items=[{
-        "id": "c1", "briefId": "brief-1", "platform": "x", "objective": "Teach activation speed",
-        "sourceRef": "m1", "format": "text_post", "priority": 1,
-    }])
+    return EditorialPlan.model_validate(_temi_plan())
 
 
 class ManagedRuntime:
@@ -170,8 +171,9 @@ class ManagedRuntime:
                 **_analysis().model_dump(mode="json"),
                 "summary": "Delegated analysis",
             }}
+        if kwargs["specialist"] == "temi_editorial_planner":
+            return {"editorial_plan": _temi_plan()}
         return {
-            "editorial_plan": {"strategySummary": "Activation lessons", "items": [{"id": "c1", "briefId": "brief-1", "platform": "x", "objective": "Teach activation speed", "sourceRef": "m1", "format": "text_post", "priority": 1}]},
             "copywriter_drafts": {"drafts": [
                 {"id": "d1", "platform": "x", "momentId": "m1", "text": "Original"},
             ]},
@@ -191,6 +193,7 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
     assert [(a.name, a.mode) for a in root.sub_agents] == [
         ("ryan_strategist", "single_turn"),
         ("nimi_analyst", "single_turn"),
+        ("temi_editorial_planner", "single_turn"),
         ("maya_presenter", "single_turn"),
         ("nova_liaison", "chat"),
     ]
@@ -201,8 +204,8 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
     assert len(workflow_tools) == 1
     workflow = workflow_tools[0].agent
     assert isinstance(workflow, SequentialAgent)
-    assert [a.name for a in workflow.sub_agents] == ["temi_editorial_planner", "noni_dara_revision_loop"]
-    loop = workflow.sub_agents[1]
+    assert [a.name for a in workflow.sub_agents] == ["noni_dara_revision_loop"]
+    loop = workflow.sub_agents[0]
     assert isinstance(loop, LoopAgent)
     assert loop.max_iterations == 2
     assert [a.name for a in loop.sub_agents] == ["noni_copywriter", "dara_editor"]
@@ -225,11 +228,10 @@ def test_team_assigns_the_configured_model_to_each_role():
 
     assert root.model.model == "coordinator-fake"
     assert [agent.model.model for agent in root.sub_agents] == [
-        "strategist-fake", "analyst-fake", "presenter-fake", "liaison-fake",
+        "strategist-fake", "analyst-fake", "planner-fake", "presenter-fake", "liaison-fake",
     ]
     workflow = next(tool.agent for tool in root.tools if tool.name == "flo_content_engine")
-    assert workflow.sub_agents[0].model.model == "planner-fake"
-    assert [agent.model.model for agent in workflow.sub_agents[1].sub_agents] == ["gemma-fake", "editor-fake"]
+    assert [agent.model.model for agent in workflow.sub_agents[0].sub_agents] == ["gemma-fake", "editor-fake"]
 
 
 def test_team_applies_each_roles_generation_and_safety_policy(monkeypatch):
@@ -247,8 +249,9 @@ def test_team_applies_each_roles_generation_and_safety_policy(monkeypatch):
     assert analyst.generate_content_config.temperature == 0.2
     assert analyst.generate_content_config.max_output_tokens == 2048
 
+    planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
     workflow = next(tool.agent for tool in root.tools if tool.name == "flo_content_engine")
-    planner, revision_loop = workflow.sub_agents
+    revision_loop = workflow.sub_agents[0]
     copywriter, _ = revision_loop.sub_agents
     assert copywriter.generate_content_config.temperature == 0.8
     assert copywriter.generate_content_config.max_output_tokens == 2048
@@ -341,14 +344,30 @@ def test_draft_agent_tool_forwards_all_sequential_state_to_coordinator():
             "flo_content_engine", input, model="gemini-test", team_runtime=runtime,
         ))
 
-    package = DraftWorkflowResult(
-        editorial_plan=_validated_state(state, "editorial_plan", EditorialPlan),
-        copywriter_drafts=_validated_state(state, "copywriter_drafts", DraftSet),
-        reviewed_drafts=_validated_state(state, "reviewed_drafts", DraftSet),
-        action_plan=ActionPlan(actions=[PublishAction(text="Reviewed")]),
-    )
-    assert package.reviewed_drafts.drafts[0].text == "Reviewed"
+    assert _validated_state(state, "reviewed_drafts", DraftSet).drafts[0].text == "Reviewed"
     assert runtime.calls[0]["specialist"] == "flo_content_engine"
+
+
+def test_temi_runs_as_a_distinct_tool_free_typed_specialist():
+    root = build_agent_team()
+    planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
+
+    assert planner.input_schema is EditorialPlannerInput
+    assert planner.output_schema is EditorialPlan
+    assert planner.tools == []
+    assert "write final post" in " ".join(planner.instruction.split())
+
+
+def test_temi_delegation_validates_the_returned_plan():
+    runtime = ManagedRuntime()
+    supplied = EditorialPlannerInput.model_validate(_planner_input())
+    with tenant_scope("workspace-test", "brand-test"):
+        state = asyncio.run(_run_coordinator(
+            "temi_editorial_planner", supplied, model="gemini-test", team_runtime=runtime,
+        ))
+
+    assert _validated_state(state, "editorial_plan", EditorialPlan).planId == "plan-job-1-v1"
+    assert runtime.calls[0]["specialist"] == "temi_editorial_planner"
 
 
 def test_missing_agent_state_is_a_permanent_protocol_failure():
@@ -411,14 +430,14 @@ def test_draft_workflow_result_limits_actions_to_reviewed_drafts():
         )
 
 
-def test_content_engine_rejects_editorial_plan_with_unknown_source_reference():
-    payload = DraftWorkflowInput(title="Demo", analysis=_analysis(), strategy=_content_strategy())
-    invalid = {
-        "editorial_plan": {"strategySummary": "Bad", "items": [{"id": "c1", "briefId": "brief-1", "platform": "x", "objective": "Invent", "sourceRef": "missing", "format": "text_post", "priority": 1}]},
-        "copywriter_drafts": {"drafts": []}, "reviewed_drafts": {"drafts": []},
-    }
-    with pytest.raises(AgentProtocolError, match="unknown editorial sourceRef"):
-        _validate_run_output("flo_content_engine", payload, invalid)
+def test_temi_run_output_rejects_an_unknown_brief():
+    supplied = EditorialPlannerInput.model_validate(_planner_input())
+    invalid = _temi_plan()
+    invalid["items"][0]["briefId"] = "brief-invented"
+    with pytest.raises(AgentProtocolError, match="unknown brief"):
+        _validate_run_output(
+            "temi_editorial_planner", supplied, {"editorial_plan": invalid},
+        )
 
 
 def test_mock_team_routes_all_roles_and_returns_validated_shapes(monkeypatch, capsys):
@@ -426,18 +445,8 @@ def test_mock_team_routes_all_roles_and_returns_validated_shapes(monkeypatch, ca
     analysis = asyncio.run(analyze_with_team(AnalystInput(
         title="Demo", channel="Harmonia", transcript="[0s] hello [30s] proof",
     )))
-    package = asyncio.run(draft_with_team(DraftWorkflowInput(
-        title="Demo", analysis=analysis, brand_context="voice: direct", strategy=_content_strategy(),
-    )))
-
     assert analysis.summary
-    assert package.reviewed_drafts.drafts
-    assert {a.text for a in package.action_plan.actions} <= {
-        d.text for d in package.reviewed_drafts.drafts
-    }
+    with pytest.raises(RuntimeError, match="no mock editorial-plan path"):
+        asyncio.run(plan_with_team(EditorialPlannerInput.model_validate(_planner_input())))
     trace = capsys.readouterr().out
-    for role in (
-        "nimi_analyst", "noni_copywriter",
-        "dara_editor", "temi_editorial_planner",
-    ):
-        assert f"[MOCK-AI] coordinator -> {role}" in trace
+    assert "[MOCK-AI] coordinator -> nimi_analyst" in trace

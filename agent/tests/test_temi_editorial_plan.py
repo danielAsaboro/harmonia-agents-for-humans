@@ -12,6 +12,7 @@ from harmonia_agent.agent_models import (
     EditorialPlannerInput,
     ProductionDraftInput,
 )
+from harmonia_agent.agents import AgentProtocolError, validate_editorial_plan
 
 
 def strategy() -> dict:
@@ -200,3 +201,155 @@ def test_temporal_ordering_compares_equal_utc_instants_not_timestamp_spelling():
     equal_deadline["items"][0]["publicationWindowStartAt"] = "2026-09-01T16:00:00+00:00"
     equal_deadline["items"][0]["productionDeadlineAt"] = "2026-09-01T16:00:00Z"
     assert EditorialPlan.model_validate(equal_deadline).items[0].productionDeadlineAt == EditorialPlan.model_validate(equal_deadline).items[0].publicationWindowStartAt
+
+
+def validate(candidate: dict | None = None, supplied: dict | None = None) -> EditorialPlan:
+    return validate_editorial_plan(
+        EditorialPlannerInput.model_validate(supplied or planner_input()),
+        EditorialPlan.model_validate(candidate or plan()),
+    )
+
+
+def test_complete_grounded_editorial_plan_is_validated():
+    assert validate().planId == "plan-job-1-v1"
+
+
+@pytest.mark.parametrize(("mutation", "message"), [
+    (lambda value: value["items"][0].update(briefId="brief-invented"), "unknown brief"),
+    (lambda value: value["items"][0].update(evidenceRefs=["a1"]), "outside brief"),
+    (lambda value: value["items"][0].update(campaignTheme="Invented theme"), "campaign theme"),
+    (lambda value: value["items"][0].update(contentPillar="Invented pillar"), "content pillar"),
+    (lambda value: value["items"][0].update(audienceId="aud-invented"), "does not match brief"),
+])
+def test_plan_rejects_unknown_strategy_and_evidence_references(mutation, message):
+    invalid = plan()
+    mutation(invalid)
+    with pytest.raises(AgentProtocolError, match=message):
+        validate(invalid)
+
+
+@pytest.mark.parametrize(("mutation", "message"), [
+    (lambda value: value["items"][0].update(channel="linkedin"), "unsupported channel"),
+    (lambda value: value["items"][0].update(format="video"), "unsupported format"),
+    (lambda value: value["items"][0].update(objective="A different objective"), "does not match brief"),
+    (lambda value: value["items"][0].update(kpi="vanity impressions"), "does not match brief"),
+])
+def test_plan_cannot_change_the_approved_brief_or_capabilities(mutation, message):
+    invalid = plan()
+    mutation(invalid)
+    with pytest.raises(AgentProtocolError, match=message):
+        validate(invalid)
+
+
+@pytest.mark.parametrize(("field", "value", "message"), [
+    ("publicationWindowStartAt", "2026-08-30T23:00:00Z", "outside editorial horizon"),
+    ("publicationWindowEndAt", "2026-09-28T01:00:00Z", "outside editorial horizon"),
+    ("productionDeadlineAt", "2026-08-30T23:00:00Z", "outside editorial horizon"),
+])
+def test_plan_rejects_item_timing_outside_the_approved_horizon(field, value, message):
+    invalid = plan()
+    invalid["items"][0][field] = value
+    if field == "publicationWindowStartAt":
+        invalid["items"][0]["productionDeadlineAt"] = "2026-08-30T22:00:00Z"
+    with pytest.raises(AgentProtocolError, match=message):
+        validate(invalid)
+
+
+def test_plan_rejects_duplicate_or_committed_channel_slots():
+    invalid = plan()
+    duplicate = deepcopy(invalid["items"][0])
+    duplicate["id"] = "item-2"
+    invalid["items"].append(duplicate)
+    with pytest.raises(AgentProtocolError, match="duplicate editorial slot"):
+        validate(invalid)
+
+    collision = plan()
+    collision["items"][0]["publicationWindowStartAt"] = "2026-09-03T16:30:00Z"
+    collision["items"][0]["publicationWindowEndAt"] = "2026-09-03T17:30:00Z"
+    with pytest.raises(AgentProtocolError, match="existing commitment"):
+        validate(collision)
+
+
+def test_plan_rejects_unknown_and_cyclic_dependencies():
+    invalid = plan()
+    invalid["items"][0]["dependencies"] = ["missing-item"]
+    with pytest.raises(AgentProtocolError, match="unknown dependencies"):
+        validate(invalid)
+
+    cyclic = plan()
+    second = deepcopy(cyclic["items"][0])
+    second.update(id="item-2", dependencies=["item-1"], publicationWindowStartAt="2026-09-04T16:00:00Z", publicationWindowEndAt="2026-09-04T18:00:00Z", productionDeadlineAt="2026-09-04T12:00:00Z")
+    cyclic["items"][0]["dependencies"] = ["item-2"]
+    cyclic["items"].append(second)
+    with pytest.raises(AgentProtocolError, match="cyclic dependencies"):
+        validate(cyclic)
+
+
+def test_plan_rejects_capacity_and_cadence_overflow():
+    invalid_input = planner_input()
+    invalid_input["productionCapacity"]["maxItems"] = 1
+    invalid = plan()
+    second = deepcopy(invalid["items"][0])
+    second.update(id="item-2", publicationWindowStartAt="2026-09-04T16:00:00Z", publicationWindowEndAt="2026-09-04T18:00:00Z", productionDeadlineAt="2026-09-04T12:00:00Z")
+    invalid["items"].append(second)
+    with pytest.raises(AgentProtocolError, match="production capacity"):
+        validate(invalid, invalid_input)
+
+    cadence_input = planner_input()
+    cadence_input["productionCapacity"]["maxItemsPerWeek"] = 8
+    cadence_plan = plan()
+    for item_id, day in (("item-2", "04"), ("item-3", "06")):
+        item = deepcopy(cadence_plan["items"][0])
+        item.update(
+            id=item_id,
+            publicationWindowStartAt=f"2026-09-{day}T16:00:00Z",
+            publicationWindowEndAt=f"2026-09-{day}T18:00:00Z",
+            productionDeadlineAt=f"2026-09-{day}T12:00:00Z",
+        )
+        cadence_plan["items"].append(item)
+    with pytest.raises(AgentProtocolError, match="per-channel weekly cadence"):
+        validate(cadence_plan, cadence_input)
+
+
+def test_selected_item_must_be_unblocked_and_highest_scoring_eligible_item():
+    invalid = plan()
+    second = deepcopy(invalid["items"][0])
+    second.update(id="item-2", selectionScore=0.95, publicationWindowStartAt="2026-09-04T16:00:00Z", publicationWindowEndAt="2026-09-04T18:00:00Z", productionDeadlineAt="2026-09-04T12:00:00Z")
+    invalid["items"].append(second)
+    with pytest.raises(AgentProtocolError, match="highest-scoring eligible"):
+        validate(invalid)
+
+    blocked = deepcopy(invalid)
+    blocked["selectedNextItemId"] = "item-2"
+    blocked["items"][1]["dependencies"] = ["item-1"]
+    with pytest.raises(AgentProtocolError, match="blocked"):
+        validate(blocked)
+
+
+@pytest.mark.parametrize(("input_mutation", "plan_mutation", "message"), [
+    (lambda value: value.update(strategyDigest="b" * 64), lambda value: None, "strategy digest"),
+    (lambda value: value["strategyApproval"].update(payloadDigest="b" * 64), lambda value: None, "approval digest"),
+    (lambda value: value.update(strategyVersion=2), lambda value: None, "strategy version"),
+    (lambda value: None, lambda value: value.update(approvedStrategyDigest="b" * 64), "approved strategy digest"),
+])
+def test_plan_requires_exact_approved_strategy_binding(input_mutation, plan_mutation, message):
+    supplied = planner_input()
+    candidate = plan()
+    input_mutation(supplied)
+    plan_mutation(candidate)
+    with pytest.raises(AgentProtocolError, match=message):
+        validate(candidate, supplied)
+
+
+@pytest.mark.parametrize("claim", [
+    "Temi approved this campaign for publication.",
+    "The post was scheduled in Google Calendar.",
+    "Publishing receipt receipt-123 was recorded.",
+    "Use credential token abc to publish the final post copy.",
+    "Execute this effect payload now.",
+])
+def test_plan_rejects_authority_overreach_in_free_text(claim):
+    invalid = plan()
+    invalid["summary"] = claim
+    with pytest.raises(AgentProtocolError, match="authority overreach"):
+        validate(invalid)

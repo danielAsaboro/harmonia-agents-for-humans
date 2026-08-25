@@ -6,6 +6,7 @@ import os
 import asyncio
 import logging
 import re
+from datetime import timedelta
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
@@ -24,6 +25,7 @@ from .agent_models import (
     DraftWorkflowInput,
     DraftWorkflowResult,
     EditorialPlan,
+    EditorialPlannerInput,
     LiaisonInput,
     StrategistInput,
     StrategistResult,
@@ -45,6 +47,7 @@ from .memory_bank import MemoryBank, MemoryScope, VertexMemoryBank, format_memor
 from .memory_bank import MemoryFact as RetrievedMemoryFact
 from .agent_models import MemoryFact as StrategyMemoryFact
 from .ryan_prompt import RYAN_STRATEGIST_INSTRUCTION
+from .temi_prompt import TEMI_EDITORIAL_PLANNER_INSTRUCTION
 from .telemetry import current_trace_id, safe_attributes, tracer
 from .team_runtime import AgentEngineTeamRuntime, TeamRuntime
 from .tenant_context import current_tenant
@@ -64,9 +67,8 @@ T = TypeVar("T", bound=BaseModel)
 _SPECIALIST_ROLES = {
     "nimi_analyst": ("harmonia_coordinator", "nimi_analyst"),
     "ryan_strategist": ("harmonia_coordinator", "ryan_strategist"),
-    "flo_content_engine": (
-        "harmonia_coordinator", "temi_editorial_planner", "noni_copywriter", "dara_editor",
-    ),
+    "temi_editorial_planner": ("harmonia_coordinator", "temi_editorial_planner"),
+    "flo_content_engine": ("harmonia_coordinator", "noni_copywriter", "dara_editor"),
     "maya_presenter": ("harmonia_coordinator", "maya_presenter"),
     "nova_liaison": ("harmonia_coordinator", "nova_liaison"),
 }
@@ -330,17 +332,12 @@ def build_agent_team(
         model=resolved.planner,
         generate_content_config=generation_config(resolved.config_for("temi_editorial_planner")),
         name="temi_editorial_planner",
-        description="Converts Ryan's strategy evidence into an executable editorial calendar plan.",
-        instruction=(
-            "Create an editorial plan from Ryan's approved strategy, analysis, and brand context. For each item, "
-            "choose one supplied strategy briefId, one evidence ID from that brief as sourceRef, and only a channel "
-            "whose strategy channel role has operationallySupported=true. For the current implementation use X as platform, "
-            "text_post as format, and a priority from 1 to 5. Do not write copy, approve, schedule "
-            "externally, or publish. Return only the EditorialPlan JSON contract."
-        ),
-        input_schema=DraftWorkflowInput,
+        description="Operationalizes one approved Ryan strategy as a bounded editorial plan.",
+        instruction=TEMI_EDITORIAL_PLANNER_INSTRUCTION,
+        input_schema=EditorialPlannerInput,
         output_schema=EditorialPlan,
         output_key="editorial_plan",
+        mode="single_turn",
     )
     revision_loop = LoopAgent(
         name="noni_dara_revision_loop",
@@ -350,8 +347,8 @@ def build_agent_team(
     )
     draft_workflow = SequentialAgent(
         name="flo_content_engine",
-        description="Turns strategy evidence into an editorial plan and bounded reviewed content.",
-        sub_agents=[planner, revision_loop],
+        description="Runs the bounded Noni-Dara production revision loop.",
+        sub_agents=[revision_loop],
     )
     from .skills_runtime import build_insight_skillset
 
@@ -385,12 +382,13 @@ def build_agent_team(
         instruction=(
             "Delegate exactly once to the specialist named in the user's task instruction. Use "
             "nimi_analyst for evidence analysis, ryan_strategist for strategy and content plans, "
-            "flo_content_engine for Temi planning plus the bounded Noni-Dara revision loop, maya_presenter "
+            "temi_editorial_planner for approved-strategy editorial planning, flo_content_engine "
+            "for the bounded Noni-Dara revision loop, maya_presenter "
             "for a reference-only A2UI surface plan, and nova_liaison for free-form operator "
             "questions. Never answer the task yourself and never call "
             "publishing or approval systems."
         ),
-        sub_agents=[strategist, analyst, presenter, liaison],
+        sub_agents=[strategist, analyst, planner, presenter, liaison],
         tools=[AgentTool(draft_workflow)],
     )
 
@@ -452,40 +450,17 @@ def _validate_run_output(
         result = _validated_state(state, "strategist_result", StrategistResult)
         _validate_strategy_result(StrategistInput.model_validate(payload), result)
         return
+    if specialist == "temi_editorial_planner":
+        planner_input = EditorialPlannerInput.model_validate(payload)
+        plan = _validated_state(state, "editorial_plan", EditorialPlan)
+        validate_editorial_plan(planner_input, plan)
+        return
     try:
-        editorial_plan = _validated_state(state, "editorial_plan", EditorialPlan)
         copywriter = _validated_state(state, "copywriter_drafts", DraftSet)
         reviewed = _validated_state(state, "reviewed_drafts", DraftSet)
-        plan = _deterministic_action_plan(reviewed)
         draft_input = DraftWorkflowInput.model_validate(payload)
-        valid_source_refs = {
-            item.id
-            for item in [*draft_input.analysis.moments, *draft_input.analysis.angles]
-        }
-        invalid_source_refs = {
-            item.sourceRef for item in editorial_plan.items
-            if item.sourceRef not in valid_source_refs
-        }
-        if invalid_source_refs:
-            raise AgentProtocolError(
-                f"unknown editorial sourceRef: {sorted(invalid_source_refs)}"
-            )
-        briefs = {item.id: item for item in draft_input.strategy.briefs}
-        supported = {item.channel for item in draft_input.strategy.channelRoles if item.operationallySupported}
-        for item in editorial_plan.items:
-            brief = briefs.get(item.briefId)
-            if brief is None:
-                raise AgentProtocolError(f"unknown editorial briefId: {item.briefId}")
-            if item.sourceRef not in brief.evidenceRefs:
-                raise AgentProtocolError(f"editorial sourceRef is outside brief {item.briefId}")
-            if item.platform not in supported or item.platform not in brief.channelCandidates:
-                raise AgentProtocolError(f"unsupported editorial channel: {item.platform}")
         validate_draft_references(copywriter, draft_input.analysis)
         validate_draft_references(reviewed, draft_input.analysis)
-        DraftWorkflowResult(
-            editorial_plan=editorial_plan, copywriter_drafts=copywriter,
-            reviewed_drafts=reviewed, action_plan=plan,
-        )
     except AgentProtocolError:
         raise
     except (ValidationError, ValueError, TypeError) as exc:
@@ -680,6 +655,177 @@ def _validate_strategy_result(input: StrategistInput, result: StrategistResult) 
     return result
 
 
+def _windows_overlap(start_a, end_a, start_b, end_b) -> bool:
+    return start_a < end_b and start_b < end_a
+
+
+def _assert_acyclic_dependencies(items_by_id) -> None:
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(item_id: str) -> None:
+        if item_id in visiting:
+            raise AgentProtocolError("editorial plan contains cyclic dependencies")
+        if item_id in visited:
+            return
+        visiting.add(item_id)
+        for dependency in items_by_id[item_id].dependencies:
+            visit(dependency)
+        visiting.remove(item_id)
+        visited.add(item_id)
+
+    for item_id in items_by_id:
+        visit(item_id)
+
+
+def validate_editorial_plan(
+    input: EditorialPlannerInput,
+    plan: EditorialPlan,
+) -> EditorialPlan:
+    """Fail closed when Temi exceeds the approved strategy or planning boundary."""
+    input = EditorialPlannerInput.model_validate(input)
+    plan = EditorialPlan.model_validate(plan)
+
+    if input.strategyDigest != input.strategyApproval.payloadDigest:
+        raise AgentProtocolError("strategy approval digest does not match strategy digest")
+    if input.strategyDigest != plan.approvedStrategyDigest:
+        raise AgentProtocolError("approved strategy digest does not match plan")
+    if input.strategyVersion != input.strategy.version:
+        raise AgentProtocolError("strategy version does not match approved strategy")
+    if input.strategyApproval.revision != input.strategyVersion:
+        raise AgentProtocolError("approval revision does not match strategy version")
+    if input.strategyApproval.decidedAt > input.horizonStartAt:
+        raise AgentProtocolError("strategy approval was not decided before the horizon")
+    if input.strategyApproval.expiresAt < input.horizonStartAt:
+        raise AgentProtocolError("strategy approval expired before the horizon")
+    if plan.version != input.revision:
+        raise AgentProtocolError("plan version does not match planning revision")
+    if (
+        plan.horizonStartAt != input.horizonStartAt
+        or plan.horizonEndAt != input.horizonEndAt
+        or plan.timezone != input.timezone
+    ):
+        raise AgentProtocolError("plan horizon or timezone does not match planner input")
+
+    briefs = {brief.id: brief for brief in input.strategy.briefs}
+    themes = {theme.name for theme in input.strategy.campaignThemes}
+    pillars = {pillar.name for pillar in input.strategy.pillars}
+    capabilities = {
+        capability.channel: set(capability.formats)
+        for capability in input.channelCapabilities
+    }
+    supported_roles = {
+        role.channel: set(role.formats)
+        for role in input.strategy.channelRoles
+        if role.operationallySupported
+    }
+    item_ids = [item.id for item in plan.items]
+    if len(item_ids) != len(set(item_ids)):
+        raise AgentProtocolError("editorial item ids must be unique")
+    items_by_id = {item.id: item for item in plan.items}
+
+    if len(plan.items) > input.productionCapacity.maxItems:
+        raise AgentProtocolError("editorial plan exceeds production capacity")
+
+    for item in plan.items:
+        brief = briefs.get(item.briefId)
+        if brief is None:
+            raise AgentProtocolError(f"unknown brief: {item.briefId}")
+        exact_fields = {
+            "objective": brief.objective,
+            "audienceId": brief.audienceId,
+            "funnelStage": brief.funnelStage,
+            "intendedConversion": brief.intendedConversion,
+            "ctaIntent": brief.ctaIntent,
+            "kpi": brief.kpi,
+        }
+        for field_name, expected in exact_fields.items():
+            if getattr(item, field_name) != expected:
+                raise AgentProtocolError(
+                    f"editorial item {field_name} does not match brief {brief.id}"
+                )
+        if set(item.evidenceRefs) != set(brief.evidenceRefs):
+            raise AgentProtocolError(f"editorial evidence is outside brief {brief.id}")
+        if item.campaignTheme not in themes:
+            raise AgentProtocolError(f"unknown campaign theme: {item.campaignTheme}")
+        if item.contentPillar not in pillars:
+            raise AgentProtocolError(f"unknown content pillar: {item.contentPillar}")
+        if item.channel not in brief.channelCandidates or item.channel not in supported_roles:
+            raise AgentProtocolError(f"unsupported channel: {item.channel}")
+        allowed_formats = capabilities.get(item.channel, set()) & supported_roles[item.channel]
+        if item.format not in brief.formatCandidates or item.format not in allowed_formats:
+            raise AgentProtocolError(f"unsupported format: {item.format}")
+        if not set(brief.constraints).issubset(item.constraints):
+            raise AgentProtocolError(f"editorial item omits constraints from brief {brief.id}")
+        if (
+            item.productionDeadlineAt < input.horizonStartAt
+            or item.publicationWindowStartAt < input.horizonStartAt
+            or item.publicationWindowEndAt > input.horizonEndAt
+        ):
+            raise AgentProtocolError(f"editorial item {item.id} is outside editorial horizon")
+        unknown_dependencies = set(item.dependencies) - set(item_ids)
+        if unknown_dependencies:
+            raise AgentProtocolError(
+                f"editorial item {item.id} has unknown dependencies: {sorted(unknown_dependencies)}"
+            )
+
+    _assert_acyclic_dependencies(items_by_id)
+
+    ordered_items = sorted(plan.items, key=lambda item: item.publicationWindowStartAt)
+    for index, item in enumerate(ordered_items):
+        for other in ordered_items[index + 1:]:
+            if item.channel != other.channel:
+                continue
+            if _windows_overlap(
+                item.publicationWindowStartAt, item.publicationWindowEndAt,
+                other.publicationWindowStartAt, other.publicationWindowEndAt,
+            ):
+                raise AgentProtocolError("duplicate editorial slot on the same channel")
+            gap = other.publicationWindowStartAt - item.publicationWindowStartAt
+            if gap < timedelta(hours=input.cadenceConstraints.minimumHoursBetweenItems):
+                raise AgentProtocolError("editorial plan violates minimum channel cadence")
+        for commitment in input.existingCommitments:
+            if item.channel == commitment.channel and _windows_overlap(
+                item.publicationWindowStartAt, item.publicationWindowEndAt,
+                commitment.publicationWindowStartAt, commitment.publicationWindowEndAt,
+            ):
+                raise AgentProtocolError("editorial slot collides with an existing commitment")
+
+    weekly_total: dict[int, int] = {}
+    weekly_channel: dict[tuple[int, str], int] = {}
+    for item in plan.items:
+        week = (item.publicationWindowStartAt - input.horizonStartAt).days // 7
+        weekly_total[week] = weekly_total.get(week, 0) + 1
+        channel_key = (week, item.channel)
+        weekly_channel[channel_key] = weekly_channel.get(channel_key, 0) + 1
+    if any(count > input.productionCapacity.maxItemsPerWeek for count in weekly_total.values()):
+        raise AgentProtocolError("editorial plan exceeds weekly production capacity")
+    if any(
+        count > input.cadenceConstraints.maxItemsPerChannelPerWeek
+        for count in weekly_channel.values()
+    ):
+        raise AgentProtocolError("editorial plan exceeds per-channel weekly cadence")
+
+    selected = items_by_id[plan.selectedNextItemId]
+    if selected.dependencies:
+        raise AgentProtocolError("selected editorial item is blocked by dependencies")
+    eligible = [item for item in plan.items if not item.dependencies]
+    if selected.selectionScore < max(item.selectionScore for item in eligible):
+        raise AgentProtocolError("selected item is not the highest-scoring eligible item")
+
+    serialized = plan.model_dump_json().lower()
+    if re.search(
+        r"\b(?:temi|i|we)\b.{0,40}\b(?:approved?|rejected?)\b"
+        r"|\bapproved? for (?:publication|publishing|release)\b"
+        r"|\bpublish(?:ed|ing)?\b|\bscheduled?\b"
+        r"|\b(?:google|external) calendar\b|\breceipt(?:id)?\b"
+        r"|\beffect payload\b|\bcredentials?\b|\bfinal post copy\b",
+        serialized,
+    ):
+        raise AgentProtocolError("editorial plan contains authority overreach")
+    return plan
+
+
 def configured_memory(
     invocation: InvocationContext | None,
 ) -> tuple[MemoryBank, MemoryScope] | None:
@@ -756,6 +902,18 @@ async def strategize_with_team(
     state = await _run_coordinator("ryan_strategist", input, invocation=invocation)
     result = _validated_state(state, "strategist_result", StrategistResult)
     return _validate_strategy_result(input, result)
+
+
+async def plan_with_team(
+    input: EditorialPlannerInput, *, invocation: InvocationContext | None = None,
+) -> EditorialPlan:
+    """Run Temi and fail closed against the approved planning boundary."""
+    input = EditorialPlannerInput.model_validate(input)
+    if mock_ai_enabled():
+        raise RuntimeError("Temi has no mock editorial-plan path; inject a TeamRuntime in tests")
+    state = await _run_coordinator("temi_editorial_planner", input, invocation=invocation)
+    plan = _validated_state(state, "editorial_plan", EditorialPlan)
+    return validate_editorial_plan(input, plan)
 
 
 async def draft_with_team(

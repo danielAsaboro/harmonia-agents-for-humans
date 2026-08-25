@@ -92,6 +92,22 @@ def get_effect_commands(job_id: str) -> list[dict[str, Any]]:
     return list(res.json().get("commands") or [])
 
 
+def get_effect_command(command_id: str) -> dict[str, Any]:
+    with _client() as c:
+        res = c.get(f"/api/internal/effect-command/{command_id}")
+    if res.status_code != 200:
+        raise WebApiError(f"effect command unavailable: {res.status_code} {res.text}", res.status_code)
+    return dict(res.json()["command"])
+
+
+def get_due_effect_command_ids() -> list[str]:
+    with _client() as c:
+        res = c.get("/api/internal/items")
+    if res.status_code != 200:
+        raise WebApiError(f"scheduler command feed failed: {res.status_code} {res.text}", res.status_code)
+    return [str(value) for value in res.json().get("commandIds") or []]
+
+
 def get_asset(job_id: str, action_id: str) -> dict[str, Any] | None:
     """Independent re-read of a stored asset for verification."""
     with _client() as c:

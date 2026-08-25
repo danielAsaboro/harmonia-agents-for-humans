@@ -1,4 +1,4 @@
-"""Scheduler dispatcher: publishes content items when they come due.
+"""Scheduler dispatcher: wakes immutable effect commands when they come due.
 
 Runs as a background thread inside the FastAPI worker. Every 60s it asks the
 web service for due/publishing items; auto-mode items publish immediately
@@ -6,7 +6,7 @@ web service for due/publishing items; auto-mode items publish immediately
 final-review items. Outcomes report back through the internal API, which
 records receipts-style state and fires notifications.
 
-Only official platform APIs are used (X today via x_client). A platform that
+Only official platform APIs are used through the shared effect executor. A platform that
 is not connected fails visibly — never silently skipped.
 """
 
@@ -17,11 +17,8 @@ import logging
 import threading
 import time
 
-import httpx
-
-from . import x_client
-from .config import settings
-from .web_client import WebApiError, get_connection, get_workspaces
+from .effect_executor import execute_effect_command, production_adapters
+from .web_client import get_due_effect_command_ids, get_effect_command, get_workspaces
 from .tenant_context import tenant_scope
 
 logger = logging.getLogger("harmonia.scheduler")
@@ -29,59 +26,17 @@ logger = logging.getLogger("harmonia.scheduler")
 POLL_SECONDS = 60
 
 
-def _publish_to_platform(platform: str, text: str) -> dict:
-    if platform == "x":
-        connection = get_connection("x")
-        return x_client.publish_post(text, connection.get("accessToken"))
-    raise RuntimeError(f"platform '{platform}' has no publish adapter yet")
-
-
 async def _tenant_tick() -> None:
-    cfg = settings()
-    async with httpx.AsyncClient(
-        base_url=cfg.web_internal_url,
-        headers={"Authorization": f"Bearer {cfg.internal_api_token}"},
-        timeout=30,
-    ) as client:
-        res = await client.get("/api/internal/items")
-        if res.status_code != 200:
-            logger.warning("scheduler feed failed: %s", res.status_code)
-            return
-        feed = res.json()
-        jobs = [
-            *({"id": i["id"], "text": i["text"], "platforms": i["platforms"]} for i in feed.get("due", [])),
-            *({"id": i["id"], "text": i["text"], "platforms": i["platforms"]} for i in feed.get("publishing", [])),
-        ]
-
-    for job in jobs:
-        outcome_status, post_id, post_url, failure = "published", None, None, None
+    for command_id in get_due_effect_command_ids():
         try:
-            for platform in job["platforms"]:
-                posted = _publish_to_platform(platform, job["text"])
-                post_id, post_url = posted["id"], posted["url"]
-                break  # single-platform posting for now; fan-out lands per platform adapter
+            command = get_effect_command(command_id)
+            result = execute_effect_command(command, adapters=production_adapters())
+            if result.outcome in {"in_progress", "already_applied"}:
+                logger.info("scheduled command %s: %s", command_id, result.outcome)
+            elif result.outcome == "uncertain":
+                logger.error("scheduled command %s has an uncertain prior outcome", command_id)
         except Exception as exc:  # noqa: BLE001 - failures must be visible, not crash the loop
-            outcome_status = "failed"
-            failure = f"{type(exc).__name__}: {exc}"
-            logger.error("item %s publish failed: %s", job["id"], failure)
-
-        try:
-            async with httpx.AsyncClient(
-                base_url=cfg.web_internal_url,
-                headers={"Authorization": f"Bearer {cfg.internal_api_token}"},
-                timeout=30,
-            ) as client:
-                await client.post(
-                    "/api/internal/items",
-                    json={
-                        "id": job["id"],
-                        "status": outcome_status,
-                        **({"publishedPostId": post_id, "publishedUrl": post_url} if post_id else {}),
-                        **({"failureReason": failure} if failure else {}),
-                    },
-                )
-        except WebApiError as exc:
-            logger.error("item %s result reporting failed: %s", job["id"], exc)
+            logger.error("scheduled command %s failed: %s: %s", command_id, type(exc).__name__, exc)
 
 
 async def _tick() -> None:

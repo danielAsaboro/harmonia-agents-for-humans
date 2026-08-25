@@ -51,6 +51,7 @@ from .failures import FailureCategory, FailureEnvelope, normalize_failure
 from .team_runtime import AgentEngineProtocolError, AgentEngineProviderError
 from .telemetry import current_trace_id, inject_context, safe_attributes, tracer
 from .usage import InvocationContext, media_usage_record
+from .effect_executor import execute_effect_command, production_adapters
 from .web_client import (
     EffectClaimInProgress,
     EffectClaimUncertain,
@@ -431,6 +432,13 @@ async def run_publish(job_id: str) -> None:
             "payload": command["payload"],
         }
         key = command["payloadDigest"]
+        if action["type"] == "publish_x_post":
+            result = execute_effect_command(command, adapters=production_adapters())
+            if result.outcome == "in_progress":
+                raise EffectClaimInProgress("another worker currently owns this effect")
+            if result.outcome == "uncertain":
+                raise EffectClaimUncertain("a prior effect attempt has no final receipt")
+            continue
         trace_id = current_trace_id()
         operation_id = f"{job_id}:publish:{action['id']}:{trace_id}"
         claim_token = uuid.uuid4().hex
@@ -449,22 +457,7 @@ async def run_publish(job_id: str) -> None:
         detail: dict[str, Any] = {"idempotencyKey": key}
         outcome, artifact = "failed", None
         try:
-            if action["type"] == "publish_x_post":
-                if key in done_keys:
-                    outcome, detail["note"] = "already_applied", "receipt exists; skipped"
-                else:
-                    connection = get_connection("x")
-                    posted = x_client.publish_post(
-                        action["payload"]["text"], connection.get("accessToken"),
-                    )
-                    outcome = "applied"
-                    digest = hashlib.sha256(action["payload"]["text"].encode()).hexdigest()
-                    artifact = {
-                        "kind": "x_api", "url": posted["url"],
-                        "fetchedAt": _now(), "digest": digest,
-                    }
-                    detail.update(posted)
-            elif action["type"] == "export_content_pack":
+            if action["type"] == "export_content_pack":
                 pack = content.build_content_pack(
                     job.get("ingestedTitle", ""),
                     job["config"].get("youtubeUrl") or "operator brief",

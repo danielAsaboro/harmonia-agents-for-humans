@@ -71,6 +71,7 @@ Telemetry contains identifiers, stage and role names, model names, usage units, 
 | `HARMONIA_DEV_AUTH_BYPASS=1` | Development only: the login button creates a deterministic emulator-backed local session without initializing Firebase. Refused when `NODE_ENV=production`. |
 | `HARMONIA_MOCK_AI=1` | Deterministic offline fixtures for all Gemini calls + signal fetching. Unset = real model calls. |
 | `HARMONIA_MOCK_X=1` | Deterministic X publish/verify/metrics payloads. Unset = real X calls using the current workspace connection. |
+| `HARMONIA_ENABLE_RESIDENT_LOOPS=1` | Development-only opt-in for the legacy scheduler, proactive scan, and Telegram long-poll threads. Disabled by default; these threads are not a durable production scheduler. |
 
 Both flags are dev-only conveniences; production deployments run with them unset, and every mock path logs `[MOCK-AI]` / `[MOCK-X]` so it can never pass as a real call.
 

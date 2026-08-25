@@ -1,8 +1,8 @@
 # Harmonia
 
-**Harmonia is an asynchronous social media content agent for startups.** Give it a YouTube video — a founder interview, a product walkthrough, a podcast appearance — and it runs a full content-engine workflow: ingest, transcribe with Gemini, understand what is clip-worthy (moments, trend angles, meme angles), draft platform-native posts, then **stop and wait for explicit human approval** before anything leaves the building. Approved actions execute through official platform APIs with idempotent audit receipts, and published state is independently re-verified afterwards.
+**Harmonia is an asynchronous social media content agent for startups.** Give it an authorized YouTube video or upload and it creates a durable content job: ingest, transcribe, understand clip-worthy moments, draft platform-native posts, authorize exact effects, execute through idempotent commands, and record verification evidence. Consequential effects require either an exact human approval or an operator-created durable mandate whose evaluated payload is bound into the command.
 
-Operators drive Harmonia from three equivalent surfaces: the web dashboard, a conversational chat drawer (`/api/chat`), and a Telegram bot. Every surface shares one intent grammar and one approval gate; no side-effecting action happens without an approval receipt.
+The dashboard and authenticated web chat are active operator surfaces. Telegram has a verified webhook/nonce approval boundary in code, but live message ingestion and webhook configuration are not yet production-verified; do not present Telegram as an equivalent working surface until that evidence exists.
 
 ## Why Harmonia is an agent—and where it deliberately is not
 
@@ -44,7 +44,7 @@ flowchart LR
 
     subgraph "Cloud Run — harmonia-agent (Python ADK worker)"
         PUSH["Pub/Sub push receiver"]
-        TG["Telegram long-poll worker"]
+        TG["Telegram webhook boundary<br/>not live-verified"]
         STAGES[ingest · transcribe · understand ·<br/>draft · publish · verify handlers]
         RUNTIME[Vertex AI Agent Engine<br/>managed runtime only]
         MAYA["Maya presentation specialist<br/>reference-only SurfacePlan"]
@@ -149,9 +149,9 @@ The full Console additionally uses a durable `POST /api/chat/stream` NDJSON tran
 
 Generated approval detail never owns authorization controls. The existing server-protected approval dock remains authoritative and validates the persisted `jobId + actionId` before making a decision request. Raw hidden chain-of-thought is never requested or displayed.
 
-### Telegram bot
+### Telegram integration status
 
-Connect a bot and one allowed chat from workspace Settings. The worker discovers workspace connections independently and the bot can access only that workspace. Messages go through the same `/api/chat` grammar; **approvals require tapping an inline button**, which triggers the same decision endpoint the dashboard uses.
+The repository contains an allow-listed, secret-verified webhook callback path with one-time approval nonces. The older long-poll message path no longer has browser authority and is not a production chat surface. Live webhook setup, message submission, and approval evidence remain intentionally unverified in this repository.
 
 Run tests:
 

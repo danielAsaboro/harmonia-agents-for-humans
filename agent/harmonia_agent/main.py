@@ -25,6 +25,7 @@ from .ask_api import router as ask_router
 from .stages import HANDLERS, dispatch
 from .telemetry import configure_telemetry, extract_context
 from .tenant_context import tenant_scope
+from .resident_loops import resident_loops_enabled
 
 configure_telemetry()
 
@@ -64,9 +65,13 @@ def _start_proactive_agent() -> None:
     proactive.start_background()
 
 
-_start_telegram_if_configured()
-_start_scheduler()
-_start_proactive_agent()
+if resident_loops_enabled(os.environ):
+    logger.warning("development-only resident loops are enabled")
+    _start_telegram_if_configured()
+    _start_scheduler()
+    _start_proactive_agent()
+else:
+    logger.info("resident loops disabled; durable external triggers are required")
 
 
 @app.get("/healthz")

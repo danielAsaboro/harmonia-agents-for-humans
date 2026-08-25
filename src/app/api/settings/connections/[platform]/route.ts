@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { deleteConnection, saveConnection } from "@/lib/firestore";
-import { tenantHandler } from "@/lib/auth";
+import { administratorTenantHandler } from "@/lib/auth";
 import { getPlatform } from "@/lib/oauth";
 
 const manualTokenSchema = z.object({
@@ -54,5 +54,5 @@ async function del(
   return Response.json({ ok: true });
 }
 
-export const PUT = tenantHandler(put);
-export const DELETE = tenantHandler(del);
+export const PUT = administratorTenantHandler(put);
+export const DELETE = administratorTenantHandler(del);

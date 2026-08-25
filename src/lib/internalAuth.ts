@@ -1,5 +1,7 @@
 import { getConfig } from "./config";
 import { runWithTenant, type TenantContext } from "./tenancy";
+import { randomUUID } from "node:crypto";
+import { servicePrincipal } from "./authority";
 
 export function isInternalAuthorized(req: Request): boolean {
   const header = req.headers.get("authorization") ?? "";
@@ -25,7 +27,8 @@ export function internalTenantContext(req: Request): TenantContext {
   const workspaceId = req.headers.get("x-workspace-id") ?? "";
   const brandId = req.headers.get("x-brand-id") ?? "";
   if (!workspaceId || !brandId) throw new Error("internal tenant headers required");
-  return { userId: "harmonia-worker", workspaceId, brandId, role: "service" };
+  const authenticationId = `service_${randomUUID().replaceAll("-", "")}`;
+  return { workspaceId, brandId, principal: servicePrincipal(authenticationId) };
 }
 
 export function withInternalTenant<T>(req: Request, work: () => T): T {

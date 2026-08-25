@@ -1,4 +1,13 @@
+from pathlib import Path
+
 from harmonia_agent.telegram_bot import is_chat_allowed, parse_callback_data
+
+
+def test_worker_has_no_operator_decision_authority():
+    source = (Path(__file__).parents[1] / "harmonia_agent" / "telegram_bot.py").read_text()
+    web_client = (Path(__file__).parents[1] / "harmonia_agent" / "web_client.py").read_text()
+    assert "decide(" not in source
+    assert "def decide(" not in web_client
 
 
 def test_parse_callback_data_valid():

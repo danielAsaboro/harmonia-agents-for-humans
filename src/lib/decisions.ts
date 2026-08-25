@@ -3,10 +3,37 @@ import {
   getJob,
   markActionExecuted,
   recordApproval,
-  setStage,
+  transitionStageWithOutbox,
 } from "@/lib/firestore";
-import { publishStage } from "@/lib/pubsub";
-import { currentTenant } from "@/lib/tenancy";
+import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";
+import { requireContentOperator } from "@/lib/authority";
+import { actionPayloadDigest } from "@/lib/idempotency";
+import { currentTenant, type TenantContext } from "@/lib/tenancy";
+import type { PlannedAction } from "@/lib/types";
+import { materializeExecutableJobCommands } from "@/lib/jobEffectCommands";
+
+export interface ApprovalActor {
+  actorType: "firebase_operator" | "telegram_operator";
+  actorSubjectId: string;
+  authenticationId: string;
+  channel: "dashboard" | "telegram";
+}
+
+export function approvalActor(context: TenantContext): ApprovalActor {
+  const principal = requireContentOperator(context);
+  return {
+    actorType: principal.kind === "firebase_user" ? "firebase_operator" : "telegram_operator",
+    actorSubjectId: principal.subjectId,
+    authenticationId: principal.authenticationId,
+    channel: principal.kind === "firebase_user" ? "dashboard" : "telegram",
+  };
+}
+
+export function assertApprovalPayload(action: PlannedAction, expectedPayloadDigest: string): string {
+  const actual = actionPayloadDigest(action);
+  if (actual !== expectedPayloadDigest) throw new Error("approval payload changed");
+  return actual;
+}
 
 export interface DecisionOutcome {
   ok: boolean;
@@ -24,16 +51,19 @@ export async function resolveDecision(
   jobId: string,
   actionId: string,
   decision: "approved" | "rejected",
-  actor: "system" | "agent" | "operator",
+  expectedPayloadDigest: string,
 ): Promise<DecisionOutcome> {
-  if (actor !== "operator") throw new Error("only a human operator may record an approval decision");
+  const actor = approvalActor(currentTenant());
   const jobBefore = await getJob(jobId);
-  const action = await recordApproval(jobId, actionId, decision, currentTenant().userId);
+  const actionBefore = jobBefore.actions.find((candidate) => candidate.id === actionId);
+  if (!actionBefore) throw new Error(`action ${actionId} not found on job ${jobId}`);
+  assertApprovalPayload(actionBefore, expectedPayloadDigest);
+  const action = await recordApproval(jobId, actionId, decision, expectedPayloadDigest, actor);
   await appendEvent(
     jobId,
     jobBefore.stage,
     `${decision} action '${action.title}' (${action.type})`,
-    actor,
+    "operator",
   );
 
   const job = await getJob(jobId);
@@ -59,14 +89,13 @@ export async function resolveDecision(
   }
 
   if (executable.length > 0) {
-    await setStage(jobId, "publish");
-    const pubsubMessageId = await publishStage(currentTenant(), jobId, "publish");
-    await appendEvent(jobId, "draft", `${executable.length} approved action(s) dispatched to publishing`, "system", { pubsubMessageId });
+    await materializeExecutableJobCommands(jobId);
+    const outboxId = await transitionStageWithOutbox(jobId, "awaiting_approval", "publish", `${executable.length} approved action(s) dispatched to publishing`);
+    try { await dispatchStageOutboxRecord(outboxId); } catch { /* durable tick retries */ }
     return { ok: true, triggered: "publish" };
   }
 
-  await setStage(jobId, "verify");
-  const pubsubMessageId = await publishStage(currentTenant(), jobId, "verify");
-  await appendEvent(jobId, "awaiting_approval", "no executable actions; proceeding to verification of existing evidence", "system", { pubsubMessageId });
+  const outboxId = await transitionStageWithOutbox(jobId, "awaiting_approval", "verify", "no executable actions; proceeding to verification of existing evidence");
+  try { await dispatchStageOutboxRecord(outboxId); } catch { /* durable tick retries */ }
   return { ok: true, triggered: "verify" };
 }

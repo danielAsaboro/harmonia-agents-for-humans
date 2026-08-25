@@ -8,8 +8,8 @@ Harmonia separates model context from operational truth. A model may receive a b
 | Store | Scope | Lifetime | Writers | Readers | Retention | Source of truth |
 |---|---|---|---|---|---|---|
 | Invocation state | one managed cognition call | until the call ends | web/worker seeds validated JSON; ADK `output_key` and event `state_delta` add handoffs | coordinator and selected specialists | discarded after validation | no; typed transport only |
-| Managed ADK session | namespaced `{workspace}:{user}:{job}` | one Agent Engine invocation | Agent Engine event lifecycle only | managed runner during that invocation | explicitly deleted after the result or failure | no; never workflow authority |
-| Firestore job | workspace + brand + job | workflow plus deployment retention policy | authenticated web internal routes and deterministic state machine | dashboard, worker, chat, evidence collector | deployment-controlled; no prompt-window dependency | **yes** for stage, status, artifacts, budget, and failure |
+| Managed ADK session | hashed workspace/user/job/operation/specialist | restart-resumable cognitive operation | Agent Engine event lifecycle only | managed runner for that operation | provider/deployment session lifecycle; job erasure remains Firestore/storage scoped | no; never workflow authority |
+| Firestore job | workspace + brand + job | workflow plus explicit retention policy | authenticated web internal routes and deterministic state machine | dashboard, worker, chat, evidence collector | terminal jobs receive a 90-day deletion deadline; holds block erasure | **yes** for stage, status, artifacts, budget, and failure |
 | Approval decisions | workspace + job + action | durable audit record | authenticated decision engine after explicit operator input | publish stage, UI, evidence collector | retained with the job/audit record | **yes** for human authority |
 | Receipts and verification | workspace + job + action/idempotency key | durable and replay-relevant | deterministic executor writes receipt; independent verifier writes verification | worker, UI, monitoring, evidence collector | retained through judging and deployment audit policy | **yes** for effects and observed outcome |
 | Usage and reservations | workspace + job + operation | durable, immutable after finalization | budget service and provider usage normalizer | dispatcher, monitoring, evidence verifier | deployment accounting policy | **yes** for authorized/observed cost |
@@ -20,8 +20,28 @@ Harmonia separates model context from operational truth. A model may receive a b
 
 ## Write rules
 
-- Retrieved session objects are read-only. Harmonia copies serializable input into a new seed object, consumes only event `state_delta`, validates required output keys, and deletes the ephemeral session.
+- Retrieved session objects are read-only. Harmonia copies serializable input into a new seed object only on deterministic session creation, consumes only event `state_delta`, and validates required output keys. Firestore—not the managed session—governs recovery and authority.
 - Firestore mutations go through authenticated typed routes and deterministic transitions. Models cannot write approval, receipt, verification, credentials, or budget authority.
 - Chat summaries contain counts, time boundaries, and durable job/run identifiers only. They never contain transcripts, drafts, approval decisions, credentials, or generated claims.
 - Memory facts carry workspace, brand, job, evidence kind, and durable record ID. Cross-scope or legacy untyped memories fail visibly instead of entering prompts.
 - Retryable failures remain visible with a typed category/code and stop after the central attempt limit. A completed external effect remains governed by its receipt and verification even if later memory or reporting work fails.
+
+## Erasure lifecycle
+
+Terminal success and permanent failure set `retentionDeleteAfter` to 90 days. The authenticated
+internal retention tick deletes due jobs in bounded batches. An administrator may request earlier
+erasure through `DELETE /api/jobs/{jobId}`, but must submit the exact job ID plus a reason. Active
+jobs, retention holds, and jobs with scheduled, awaiting-review, or publishing content items fail
+closed.
+
+Erasure first writes a resumable tombstone, then removes tenant-scoped GCS/local objects, the source
+upload, asset metadata, denormalized event/notification/proposal records, derived content items, and
+the job document with every Firestore subcollection. The final tombstone contains IDs, actor, reason,
+timestamps, and `contentErased: true`; it contains no transcript, prompt, draft, media, credential, or
+effect payload. Storage deletion validates the configured bucket and exact workspace/brand prefix.
+
+Workspace owners can erase an entire workspace only with the literal confirmation `DELETE
+{workspaceId}` and a reason. The operation refuses active jobs, retention holds, and pending external
+work, removes all workspace-scoped storage objects and the Telegram webhook route, recursively erases
+the workspace document, and leaves only a top-level metadata tombstone. `npm run security:sbom`
+produces a CycloneDX 1.5 production SBOM from the committed lockfile, independent of checkout layout.

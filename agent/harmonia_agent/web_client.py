@@ -84,6 +84,30 @@ def get_job(job_id: str) -> dict[str, Any]:
     return res.json()["job"]
 
 
+def get_effect_commands(job_id: str) -> list[dict[str, Any]]:
+    with _client() as c:
+        res = c.get(f"/api/internal/job/{job_id}/commands")
+    if res.status_code != 200:
+        raise WebApiError(f"effect command feed failed: {res.status_code} {res.text}", res.status_code)
+    return list(res.json().get("commands") or [])
+
+
+def get_effect_command(command_id: str) -> dict[str, Any]:
+    with _client() as c:
+        res = c.get(f"/api/internal/effect-command/{command_id}")
+    if res.status_code != 200:
+        raise WebApiError(f"effect command unavailable: {res.status_code} {res.text}", res.status_code)
+    return dict(res.json()["command"])
+
+
+def get_due_effect_command_ids() -> list[str]:
+    with _client() as c:
+        res = c.get("/api/internal/items")
+    if res.status_code != 200:
+        raise WebApiError(f"scheduler command feed failed: {res.status_code} {res.text}", res.status_code)
+    return [str(value) for value in res.json().get("commandIds") or []]
+
+
 def get_asset(job_id: str, action_id: str) -> dict[str, Any] | None:
     """Independent re-read of a stored asset for verification."""
     with _client() as c:
@@ -168,6 +192,32 @@ def put_state(key: str, last_run_at: str) -> None:
         raise WebApiError(f"put_state failed: {res.status_code} {res.text}", res.status_code)
 
 
+def claim_tick(key: str, claim_id: str, lease_seconds: int = 55) -> bool:
+    with _client() as c:
+        res = c.post("/api/internal/agent-state", json={
+            "key": key, "claimId": claim_id, "leaseSeconds": lease_seconds,
+        })
+    if res.status_code != 200:
+        raise WebApiError(f"tick claim failed: {res.status_code} {res.text}", res.status_code)
+    return bool(res.json().get("claimed"))
+
+
+def run_retention_tick(limit: int = 20) -> list[str]:
+    with _client() as c:
+        res = c.post("/api/internal/retention", json={"limit": limit})
+    if res.status_code != 200:
+        raise WebApiError(f"retention tick failed: {res.status_code} {res.text}", res.status_code)
+    return [str(value) for value in res.json().get("erasedJobIds") or []]
+
+
+def run_stage_outbox_tick(limit: int = 20) -> list[dict[str, Any]]:
+    with _client() as c:
+        res = c.post("/api/internal/stage-outbox", json={"limit": limit})
+    if res.status_code != 200:
+        raise WebApiError(f"stage outbox tick failed: {res.status_code} {res.text}", res.status_code)
+    return list(res.json().get("results") or [])
+
+
 def post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     with _client() as c:
         res = c.post(path, json=payload)
@@ -184,12 +234,35 @@ def claim_effect(payload: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def claim_stage_execution(payload: dict[str, Any]) -> dict[str, Any]:
+    result = post("/api/internal/stage-execution/claim", payload)
+    if result.get("outcome") not in {
+        "execute", "in_progress", "already_applied", "failed", "uncertain",
+    }:
+        raise WebApiError("stage execution claim returned an invalid outcome")
+    return result
+
+
+def finalize_stage_execution(payload: dict[str, Any]) -> None:
+    post("/api/internal/stage-execution/finalize", payload)
+
+
 def reserve_budget(payload: dict[str, object]) -> None:
     with _client() as c:
         res = c.post("/api/internal/budget/reserve", json=payload)
     if res.status_code >= 300:
         raise WebApiError(
             f"budget reservation failed: {res.status_code} {res.text}", res.status_code
+        )
+
+
+def resolve_budget_reservation(payload: dict[str, object]) -> None:
+    with _client() as c:
+        res = c.post("/api/internal/budget/resolve", json=payload)
+    if res.status_code >= 300:
+        raise WebApiError(
+            f"budget reservation resolution failed: {res.status_code} {res.text}",
+            res.status_code,
         )
 
 
@@ -205,17 +278,4 @@ def chat(message: str, surface: str = "telegram") -> dict[str, Any]:
         res = c.post("/api/chat", json={"message": message, "surface": surface})
     if res.status_code >= 300:
         raise WebApiError(f"chat failed: {res.status_code} {res.text}", res.status_code)
-    return res.json()
-
-
-def decide(job_id: str, action_id: str, decision: str) -> dict[str, Any]:
-    with _client() as c:
-        res = c.post(
-            f"/api/jobs/{job_id}/actions/{action_id}/decision",
-            json={"decision": decision, "actor": "operator"},
-        )
-    if res.status_code >= 300:
-        raise WebApiError(
-            f"decision failed: {res.status_code} {res.text}", res.status_code
-        )
     return res.json()

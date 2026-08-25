@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Image from "next/image";
 
 export type ElementStatus = "pending" | "active" | "complete" | "failed";
 
@@ -80,7 +81,7 @@ export interface AttachmentView {
   filename: string;
   mime: string;
   sizeBytes: number;
-  state: "uploading" | "ready" | "failed";
+  state: "uploading" | "quarantined" | "scanning" | "ready" | "rejected" | "failed";
   previewUrl?: string;
 }
 
@@ -90,7 +91,7 @@ export function AttachmentCard({ attachment, onRemove }: { attachment: Attachmen
   const isAudio = attachment.mime.startsWith("audio/");
   return (
     <div className="relative overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
-      {attachment.previewUrl && isImage && <img src={attachment.previewUrl} alt={attachment.filename} className="h-28 w-full object-cover" />}
+      {attachment.previewUrl && isImage && <Image unoptimized width={640} height={280} src={attachment.previewUrl} alt={attachment.filename} className="h-28 w-full object-cover" />}
       {attachment.previewUrl && isVideo && <video src={attachment.previewUrl} controls className="h-32 w-full bg-black object-contain" />}
       {attachment.previewUrl && isAudio && <audio src={attachment.previewUrl} controls className="w-full p-2" />}
       <div className="flex items-center gap-2 p-2 text-xs">

@@ -1,14 +1,16 @@
 import { appendEvent, createJob, listJobs, saveIngestMeta } from "@/lib/firestore";
-import { tenantHandler } from "@/lib/auth";
-import { publishStage } from "@/lib/pubsub";
+import { operatorTenantHandler } from "@/lib/auth";
+import { queueStageTrigger } from "@/lib/stageTrigger";
 import { currentTenant } from "@/lib/tenancy";
 import { parseYouTubeUrl } from "@/lib/youtubeUrl";
+import { sourceRightsAuthorization } from "@/lib/sourceRights";
 import { z } from "zod";
 
 const createJobSchema = z.object({
   youtubeUrl: z.string().url().optional(),
   brief: z.string().min(20).max(5000).optional(),
   platforms: z.array(z.enum(["x"])).default(["x"]),
+  rightsAttested: z.boolean().default(false),
 });
 
 async function get(_req: Request) {
@@ -35,18 +37,19 @@ async function post(req: Request) {
       { status: 400 },
     );
   }
-  const { youtubeUrl, brief, platforms } = parsed.data;
+  const { youtubeUrl, brief, platforms, rightsAttested } = parsed.data;
   if (youtubeUrl) {
+    if (!rightsAttested) return Response.json({ error: "source-rights attestation required" }, { status: 400 });
     const videoId = parseYouTubeUrl(youtubeUrl);
     if (!videoId) {
       return Response.json({ error: "invalid YouTube URL" }, { status: 400 });
     }
     const job = await createJob(
-      { youtubeUrl, platforms },
+      { youtubeUrl, platforms, sourceRights: sourceRightsAuthorization(currentTenant(), "youtube") },
       "ingest",
     );
     await appendEvent(job.id, "queued", `job created for video ${videoId}`, "operator");
-    await publishStage(currentTenant(), job.id, "ingest");
+    await queueStageTrigger(job.id, "ingest");
     return Response.json({ jobId: job.id }, { status: 201 });
   }
 
@@ -62,7 +65,7 @@ async function post(req: Request) {
       durationSec: 0,
     });
     await appendEvent(job.id, "understand", "concept job created from operator brief", "operator");
-    await publishStage(currentTenant(), job.id, "understand");
+    await queueStageTrigger(job.id, "understand");
     return Response.json({ jobId: job.id }, { status: 201 });
   }
 
@@ -72,5 +75,5 @@ async function post(req: Request) {
   );
 }
 
-export const GET = tenantHandler(get);
-export const POST = tenantHandler(post);
+export const GET = operatorTenantHandler(get);
+export const POST = operatorTenantHandler(post);

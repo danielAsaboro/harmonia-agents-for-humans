@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   applyFinalizedUsage,
+  applyReleasedReservation,
   applyReservation,
   aggregateModelUsage,
   canReserve,
+  exceedsApprovalThreshold,
   summarizeUsage,
 } from "@/lib/costs";
 import type { JobBudget } from "@/lib/types";
@@ -21,6 +23,11 @@ describe("job budgets", () => {
     expect(canReserve(budget, "0.11")).toBe(false);
   });
 
+  it("requires separate authorization above the configured cost threshold", () => {
+    expect(exceedsApprovalThreshold(budget, "0.20")).toBe(false);
+    expect(exceedsApprovalThreshold(budget, "0.200001")).toBe(true);
+  });
+
   it("reserves and finalizes usage without binary rounding drift", () => {
     const reserved = applyReservation(
       { ...budget, observedUsd: "0.00", reservedUsd: "0.00", estimatedUsd: "0.00" },
@@ -30,6 +37,25 @@ describe("job budgets", () => {
 
     const finalized = applyFinalizedUsage(reserved, "0.11", "0.105001");
     expect(finalized).toMatchObject({ reservedUsd: "0.00", observedUsd: "0.105001" });
+  });
+
+  it("releases an unused reservation without recording spend", () => {
+    const reserved = applyReservation(
+      { ...budget, observedUsd: "0.00", reservedUsd: "0.00", estimatedUsd: "0.00" },
+      "0.11",
+    );
+
+    expect(applyReleasedReservation(reserved, "0.11")).toMatchObject({
+      estimatedUsd: "0.11",
+      reservedUsd: "0.00",
+      observedUsd: "0.00",
+    });
+  });
+
+  it("refuses to release more than remains reserved", () => {
+    expect(() => applyReleasedReservation(budget, "0.11")).toThrow(
+      "release exceeds reserved job amount",
+    );
   });
 
   it("aggregates decimal strings by model", () => {

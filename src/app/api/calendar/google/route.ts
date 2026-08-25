@@ -1,25 +1,12 @@
 import { z } from "zod";
 import { operatorTenantHandler } from "@/lib/auth";
-import { claimCalendarProvisioning, completeCalendarProvisioning, getConnection, getContentItem, markCalendarProvisioningUncertain, saveCalendarSyncIfUnchanged, saveConnection, updateContentItem } from "@/lib/firestore";
+import { claimCalendarProvisioning, completeCalendarProvisioning, getConnection, getContentItem, markCalendarProvisioningUncertain, saveCalendarSyncIfUnchanged, updateContentItem } from "@/lib/firestore";
 import { currentTenant } from "@/lib/tenancy";
-import { getPlatform, refreshAccessToken } from "@/lib/oauth";
+import { validPlatformConnection } from "@/lib/validConnection";
 import { calendarSyncFailure } from "@/lib/calendarSyncState";
 import { ensureHarmoniaCalendar, executeCalendarMutation, GoogleCalendarApi } from "@/lib/googleCalendar";
 
 const requestSchema = z.object({ itemId: z.string().min(1), operation: z.enum(["sync", "remove"]) });
-
-async function validConnection() {
-  const connection = await getConnection("google-calendar");
-  if (!connection) throw new Error("Google Calendar is not connected");
-  if (!connection.expiresAt || Date.parse(connection.expiresAt) > Date.now() + 60_000) return connection;
-  if (!connection.refreshToken) throw new Error("Google Calendar authorization expired; reconnect it");
-  const def = getPlatform("google-calendar");
-  if (!def) throw new Error("Google Calendar OAuth is not configured");
-  const tokens = await refreshAccessToken(def, connection.refreshToken);
-  const refreshed = { ...connection, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken ?? connection.refreshToken, expiresAt: tokens.expiresInSeconds ? new Date(Date.now() + tokens.expiresInSeconds * 1000).toISOString() : connection.expiresAt };
-  await saveConnection(refreshed);
-  return refreshed;
-}
 
 async function get() {
   const connection = await getConnection("google-calendar");
@@ -43,7 +30,7 @@ async function post(req: Request) {
   }
   const now = new Date().toISOString();
   try {
-    const connection = await validConnection();
+    const connection = await validPlatformConnection("google-calendar");
     const gateway = new GoogleCalendarApi(connection.accessToken);
     let calendar;
     if (connection.calendarId) {

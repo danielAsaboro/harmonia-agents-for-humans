@@ -172,7 +172,9 @@ export default function ChatConsole() {
   async function decide(jobId: string, actionId: string, decision: "approved" | "rejected") {
     setBusy(true);
     try {
-      const response = await apiFetch(`/api/jobs/${jobId}/actions/${actionId}/decision`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision }) });
+      const payloadDigest = detail?.job.actions.find((action) => action.id === actionId)?.payloadDigest;
+      if (!payloadDigest) throw new Error("Approval payload digest is unavailable; refresh the job before deciding.");
+      const response = await apiFetch(`/api/jobs/${jobId}/actions/${actionId}/decision`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision, payloadDigest }) });
       if (!response.ok) throw new Error(`Decision failed (${response.status})`);
       setMessages((current) => [...current, { id: `decision-${Date.now()}`, role: "assistant", text: `${decision === "approved" ? "Approved" : "Rejected"} action ${actionId} on job ${jobId}.`, surface: "dashboard", at: new Date().toISOString() }]);
       await openJob(jobId);

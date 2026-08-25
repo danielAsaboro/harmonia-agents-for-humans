@@ -2,10 +2,15 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { claimEffect, db, finalizeEffectReceipt, getEffectClaim, getJob, listReceipts } from "@/lib/firestore";
 import { runWithTenant } from "@/lib/tenancy";
+import { servicePrincipal } from "@/lib/authority";
 import type { EffectClaimInput, PlannedAction, Receipt } from "@/lib/types";
 
 const emulator = process.env.FIRESTORE_EMULATOR_HOST;
-const scope = { workspaceId: "claim-test", brandId: "brand-test", userId: "service-test", role: "service" as const };
+const scope = {
+  workspaceId: "claim-test",
+  brandId: "brand-test",
+  principal: servicePrincipal("test-auth"),
+};
 const jobId = `claim-${Date.now()}`;
 const action: PlannedAction = {
   id: "action-1", jobId, type: "export_content_pack", title: "Export", description: "",

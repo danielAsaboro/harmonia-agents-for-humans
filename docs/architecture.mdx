@@ -21,13 +21,14 @@ flowchart TB
         API[REST + chat API routes]
         STREAM[Durable NDJSON chat runs<br/>validated host events]
         A2UI[Harmonia A2UI catalog<br/>official React renderer]
-        UPLOAD[Resumable upload broker<br/>metadata verification]
+        UPLOAD[Resumable upload broker<br/>magic-byte verification + quarantine]
         CHAT[Chat intent parser<br/>Gemini structured output]
         DEC[Decision engine<br/>policy + approval gates]
         CALSYNC[Operator-only Calendar sync<br/>deterministic IDs + read-back]
         FS[(Firestore<br/>workspaces/{workspaceId}/...)]
         LEDGER[(Budget reservations<br/>+ immutable usage records)]
         PS[Pub/Sub topics]
+        OUTBOX[(Stage outbox<br/>pending + claimed triggers)]
         STOR[Asset store<br/>.data/artifacts or GCS]
     end
 
@@ -37,6 +38,7 @@ flowchart TB
         CONTENT[Direct media operations<br/>transcription + image generation]
         PROACT[Proactive agent<br/>trend scan + engagement watch]
         SCHED[Scheduler dispatcher<br/>due content items]
+        TICK[Durable tick<br/>isolated recovery arms]
         X[X API v2 client]
         FFMPEG[ffmpeg skills<br/>clips, reels, images]
     end
@@ -66,7 +68,8 @@ flowchart TB
     UI --> CALSYNC --> GCAL
     CALSYNC --> FS
     API --> LEDGER
-    API --> PS
+    API -- transaction: state + trigger --> OUTBOX
+    OUTBOX -- claimed publication --> PS
     PS --> PULL
     PULL --> CONTENT --> YT
     PULL --> RUNTIME --> COORD
@@ -83,6 +86,9 @@ flowchart TB
     PROACT --> HN
     PROACT --> COORD
     SCHED --> X
+    TICK --> OUTBOX
+    TICK --> SCHED
+    TICK --> PROACT
     CONTENT --> FS
     YT --> SPECIALISTS
     X --> FS
@@ -104,7 +110,7 @@ The dashboard Console is a long-conversation editorial studio, not a stacked car
 
 `POST /api/chat/stream` creates a tenant-scoped Firestore run and emits schema-validated NDJSON records with monotonic sequence numbers. Each record is persisted before delivery and can be replayed from `GET /api/chat/runs/{id}/events?after={sequence}`. Activity and tool state arrive while the request is executing; the compatibility chat handler currently returns its Gemini answer as one result, which the stream then delivers in bounded deltas. This is transport streaming, not a claim that provider tokens are streamed directly.
 
-The composer creates an authenticated upload session before any bytes move. In cloud deployments the browser sends bytes directly to a tenant-scoped Cloud Storage resumable-upload URL; the server independently verifies object size and content type before the attachment becomes usable. Local development uses the same attachment state machine with the local artifact store. Uploaded video and audio can seed the existing ingest/transcribe/analyze pipeline. Uploading alone creates no job; the accompanying prompt still has to select the existing `create_job` intent. Image and document uploads are currently retained and rendered as conversation context, not silently treated as implemented analysis capabilities.
+The composer creates an authenticated upload session before any bytes move. In cloud deployments the browser sends bytes directly to a tenant-scoped Cloud Storage resumable-upload URL. The server independently verifies size, type, and magic bytes, then requires a complete clean verdict from the configured private malware scanner before marking the attachment ready. Mismatches and infected objects are deleted; unavailable or malformed scan results remain quarantined. Local development uses the same fail-closed boundary. Uploaded video and audio can seed the existing ingest/transcribe/analyze pipeline. Uploading alone creates no job; the accompanying prompt still has to select the existing `create_job` intent. Image and document uploads are currently retained and rendered as conversation context, not silently treated as implemented analysis capabilities.
 
 The UI exposes only concise activity and reasoning summaries derived from validated application state. It never requests, stores, or renders hidden model chain-of-thought. Existing job actions continue through the same action-specific approval receipts and decision engine. The generic confirmation record is a typed, expiring, replay-resistant host contract for future registered tools; recording approval is not itself tool execution.
 
@@ -146,11 +152,11 @@ No agent has publishing, approval, credential, or destructive tools. Temi can pr
 
 ### Managed runtime and persistent memory
 
-Agent Engine is the only cognitive execution runtime. The worker creates one managed session, seeds the typed job snapshot, streams state deltas, validates the required output keys, and deletes the session. `AGENT_ENGINE_RESOURCE` is mandatory at worker startup. There is no in-process ADK execution branch and no runtime fallback.
+Agent Engine is the only cognitive execution runtime. For each cognitive operation the worker derives a stable hashed session ID, retrieves or creates that session, seeds the typed job snapshot only on creation, streams state deltas, and validates the required output keys. This permits process-restart continuation without making session state workflow authority. `AGENT_ENGINE_RESOURCE` is mandatory at worker startup. There is no in-process ADK execution branch and no runtime fallback.
 
 Memory Bank is mandatory in the managed deployment. Every retrieval and generation uses the exact `{workspace_id, brand_id}` values persisted on the job. Up to five facts are retrieved before analysis, strategy, or drafting. Writes are restricted to typed operator decisions and independently verified outcomes with durable Firestore evidence references; a learn-stage aggregate is not eligible until its own durable record exists. Raw source material, transcripts, prompts, drafts, errors, and unverified claims are ineligible. See the [state ownership matrix](./state-ownership.mdx) for every store's scope and authority.
 
-This separation is what lets a workflow remain safe across weeks. Firestore—not an agent's prompt window—retains the current stage, delivery history, approvals, operation identifiers, receipts, and verification results. Pub/Sub can redeliver work after a process restart without duplicating an external effect. A later Agent Engine invocation gets a fresh ephemeral session, reconstructs the typed job snapshot from Firestore, and retrieves only eligible facts from the same workspace-and-brand Memory Bank scope. The system therefore resumes durable work without turning raw customer history into unconstrained model context.
+This separation is what makes the workflow architecture capable of spanning weeks; no elapsed-weeks run is claimed without evidence. Firestore—not an agent's prompt window—retains the current stage, delivery history, approvals, operation identifiers, receipts, and verification results. Pub/Sub can redeliver work after a process restart without duplicating an external effect. A restarted cognitive operation retrieves its deterministic managed session, while a new operation seeds a distinct session from Firestore and may request only eligible facts from the same workspace-and-brand Memory Bank scope. Authenticated cross-job Memory Bank retrieval remains an explicit cloud-evidence gate.
 
 ### Production-data and sovereignty boundary
 
@@ -164,7 +170,7 @@ Harmonia does not claim a general-purpose enterprise compliance certification. I
 - The deployment selects one `REGION` and rejects mismatched Agent Engine, Memory Bank, Gemma, Veo, Firestore, or storage locations. Pub/Sub persistence and in-transit processing are restricted to that region. Because Lyria uses a global endpoint, generative media fails closed unless an operator explicitly acknowledges an approved global-processing policy exception.
 - Memory Bank accepts only typed eligible facts. Raw sources, creative text, failures, and unverified claims cannot be written by the normal learn path.
 
-Data retention periods, legal holds, customer-managed encryption, workspace export/deletion, organization-policy integration, and formal regulatory certification remain deployment-specific work. They must not be implied by the controls above.
+Terminal job retention, per-job holds, administrator-confirmed job erasure, owner-confirmed workspace erasure, binary artifact cleanup, and metadata-only deletion tombstones are implemented. Tenant-wide export, customer-managed encryption, organization-policy integration, and formal regulatory certification remain deployment-specific work and must not be implied by these controls.
 
 ### SaaS identity and tenant isolation
 
@@ -182,7 +188,7 @@ Google Calendar is deliberately adjacent to, rather than inside, the worker acti
 
 ### Async by Pub/Sub, state in Firestore
 
-Each stage transition is persisted first, then a stage trigger is published. The worker consumes stages through a push subscription on Cloud Run or an identical pull loop locally against the emulators. Jobs carry their full state (`transcriptSegments`, `moments`, `angles`, `drafts`, `actions`), so any stage can resume after a crash.
+Each stage transition and its deterministic pending outbox record are committed in one Firestore transaction. Publication then claims that record before sending the Pub/Sub trigger; the durable tick retries pending or expired claims. A crash can therefore cause a harmless duplicate trigger, but cannot leave a persisted stage without a recoverable trigger. The worker consumes stages through a push subscription on Cloud Run or an identical pull loop locally against the emulators. Jobs carry their full state (`transcriptSegments`, `moments`, `angles`, `drafts`, `actions`), so any stage can resume after a crash.
 
 The coordinator is the cognitive dispatcher, not the durable workflow engine. Pub/Sub owns asynchronous delivery and retry; Firestore owns resumable stage state, approvals, reservations, usage, provider-operation IDs, receipts, and verification evidence. Agent Engine hosts cognitive turns; it does not replace the durable stage machine.
 
@@ -199,6 +205,13 @@ Trace attributes are metadata-only. Harmonia disables both current and legacy AD
 ### Idempotent external effects
 
 Every executable action derives a deterministic idempotency key from `(jobId, actionId, payload)` hashed with SHA-256. After durable approval, the publish stage atomically claims that key in Firestore before calling any provider or writing an artifact. Exactly one live claim may return `execute`; concurrent delivery returns `in_progress`, and a finalized claim returns `already_applied` with the original receipt identity without repeating the effect. An expired unresolved claim returns `uncertain` and requires operator reconciliation instead of an unsafe automatic retry. Receipt finalization atomically links the claim, immutable receipt, and action state. Only the explicit operator replay-proof route persists a replay observation.
+
+The deployment script converges a Cloud Scheduler job that invokes the private worker's `/durable/tick` endpoint once per minute with an OIDC
+service account that has only Cloud Run invocation authority. A Firestore transaction grants one
+55-second workspace lease per minute. The tick runs stage-outbox recovery, scheduled-effect dispatch, proactive checks, and
+retention as isolated arms: one failure is recorded in the response and cannot suppress the others.
+Scheduled effects still enter the immutable command/effect-claim boundary. Resident Python threads
+remain development-only and are disabled by the full-deployment configuration. The web-only preview observed on 2026-08-26 has no deployed worker or Scheduler job and is not runtime proof of this topology.
 
 ### Independent verification
 

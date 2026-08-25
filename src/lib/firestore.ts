@@ -1,4 +1,5 @@
 import { Firestore, FieldValue } from "@google-cloud/firestore";
+import { createHash } from "node:crypto";
 import type {
   EvidencePacket,
   Engagement,
@@ -21,17 +22,33 @@ import type {
   EffectClaimInput,
   EffectClaimOutcome,
 } from "./types";
-import { applyFinalizedUsage, applyReservation, canReserve } from "./costs";
-import { getConfig } from "./config";
-import { newId } from "./idempotency";
+import { applyFinalizedUsage, applyReleasedReservation, applyReservation, canReserve, exceedsApprovalThreshold } from "./costs";
+import { markReservationFinalized, markReservationReleased, markReservationUncertain, type CostReservationState } from "./costReservations";
+import { parseBudgetConfig } from "./config";
+import { actionPayloadDigest, newId } from "./idempotency";
+import type { ApprovalActor } from "./decisions";
 import {
   assertResourceWorkspace,
   currentTenant,
   tenantCollectionPath,
+  tenantSubjectId,
 } from "./tenancy";
 import { chatScopeKey, retentionPlan, type ChatSurface } from "./chatHistory";
 import { currentTraceId } from "./telemetry";
 import { decideEffectClaim, decideEffectFinalization } from "./effectClaims";
+import { decideTelegramNonceClaim, telegramDigest, type TelegramWebhookRoute } from "./telegramWebhook";
+import { connectionEnvelopeKey, decryptSecret, encryptSecret, type SecretEnvelope } from "./secretEnvelope";
+import { claimStageExecution as decideStageClaim, finalizeStageExecution, type StageExecution, type StageClaimResult } from "./stageExecutions";
+import { decideConnectionRefresh, type ConnectionRefreshState } from "./connectionRefresh";
+import { deleteArtifactUri, deleteWorkspaceArtifactUri } from "./storage";
+import { deletionTombstone, retentionDeadline, type DeletionPlan, type WorkspaceDeletionPlan } from "./lifecycle";
+import { decideTickClaim, type TickClaimState } from "./tickClaims";
+import {
+  decideStageOutboxClaim,
+  finalizeStageOutbox,
+  releaseStageOutboxClaim,
+  type StageOutboxRecord,
+} from "./stageOutbox";
 
 let client: Firestore | null = null;
 
@@ -88,13 +105,16 @@ const PROPOSALS = "proposals";
 const COST_RESERVATIONS = "cost_reservations";
 const USAGE_RECORDS = "usage_records";
 const MEDIA_OPERATIONS = "media_operations";
+const STAGE_EXECUTIONS = "stage_executions";
+const DELETION_TOMBSTONES = "deletion_tombstones";
+const STAGE_OUTBOX = "stage_outbox";
 
 function tenantCollection(name: string) {
   return db().collection(tenantCollectionPath(currentTenant(), name));
 }
 
 function initialJobBudget(): JobBudget {
-  const config = getConfig();
+  const config = parseBudgetConfig(process.env);
   return {
     estimatedUsd: "0.00",
     observedUsd: "0.00",
@@ -102,6 +122,141 @@ function initialJobBudget(): JobBudget {
     limitUsd: config.DEFAULT_JOB_BUDGET_USD,
     approvalThresholdUsd: config.DEFAULT_JOB_APPROVAL_THRESHOLD_USD,
   };
+}
+
+function stageOutboxId(jobId: string, stage: Stage, attempt: number): string {
+  return createHash("sha256").update(`${jobId}:${stage}:${attempt}`).digest("hex");
+}
+
+function stageOutboxRef(id: string) {
+  return tenantCollection(STAGE_OUTBOX).doc(id);
+}
+
+export async function enqueueStageTrigger(
+  jobId: string,
+  stage: Stage,
+  attempt = 0,
+  metadata: { completedStage?: Stage; note?: string } = {},
+): Promise<string> {
+  const id = stageOutboxId(jobId, stage, attempt);
+  const ref = stageOutboxRef(id);
+  const tenant = currentTenant();
+  await db().runTransaction(async (tx) => {
+    const [jobSnapshot, existing] = await Promise.all([tx.get(jobRef(jobId)), tx.get(ref)]);
+    const job = requireJobDoc(jobSnapshot);
+    if (job.stage !== stage) throw new Error(`cannot enqueue stage '${stage}' while job is '${job.stage}'`);
+    if (existing.exists) return;
+    tx.create(ref, {
+      id, workspaceId: tenant.workspaceId, brandId: tenant.brandId,
+      jobId, stage, attempt, ...metadata,
+      state: "pending", createdAt: new Date().toISOString(),
+    } satisfies StageOutboxRecord);
+  });
+  return id;
+}
+
+export async function transitionStageWithOutbox(
+  jobId: string,
+  completedStage: Stage,
+  nextStage: Stage,
+  note: string,
+): Promise<string> {
+  const id = stageOutboxId(jobId, nextStage, 0);
+  const ref = stageOutboxRef(id);
+  const tenant = currentTenant();
+  await db().runTransaction(async (tx) => {
+    const [jobSnapshot, existing] = await Promise.all([tx.get(jobRef(jobId)), tx.get(ref)]);
+    const job = requireJobDoc(jobSnapshot);
+    if (job.stage === nextStage && existing.exists) return;
+    if (job.stage !== completedStage) {
+      throw new Error(`cannot complete stage '${completedStage}' while job is '${job.stage}'`);
+    }
+    tx.update(jobRef(jobId), {
+      stage: nextStage,
+      status: "running",
+      updatedAt: new Date().toISOString(),
+    });
+    tx.create(ref, {
+      id, workspaceId: tenant.workspaceId, brandId: tenant.brandId,
+      jobId, stage: nextStage, attempt: 0, completedStage, note,
+      state: "pending", createdAt: new Date().toISOString(),
+    } satisfies StageOutboxRecord);
+  });
+  return id;
+}
+
+export async function listDispatchableStageOutbox(limit = 20): Promise<StageOutboxRecord[]> {
+  const tenant = currentTenant();
+  const snapshot = await tenantCollection(STAGE_OUTBOX)
+    .where("state", "in", ["pending", "claimed"])
+    .limit(100)
+    .get();
+  return snapshot.docs
+    .map((doc) => doc.data() as StageOutboxRecord)
+    .filter((record) => record.workspaceId === tenant.workspaceId && record.brandId === tenant.brandId)
+    .slice(0, Math.max(1, Math.min(limit, 100)));
+}
+
+export async function claimStageOutbox(
+  id: string,
+  claimTokenDigest: string,
+  now = new Date(),
+): Promise<ReturnType<typeof decideStageOutboxClaim>> {
+  const ref = stageOutboxRef(id);
+  return db().runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (!snapshot.exists) throw new Error("stage outbox record not found");
+    const record = snapshot.data() as StageOutboxRecord;
+    assertResourceWorkspace(currentTenant(), record);
+    const decision = decideStageOutboxClaim(record, claimTokenDigest, now);
+    if (decision.outcome === "publish") tx.set(ref, decision.record);
+    return decision;
+  });
+}
+
+export async function releaseStageOutbox(
+  id: string,
+  claimTokenDigest: string,
+): Promise<void> {
+  const ref = stageOutboxRef(id);
+  await db().runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (!snapshot.exists) return;
+    const record = snapshot.data() as StageOutboxRecord;
+    assertResourceWorkspace(currentTenant(), record);
+    tx.set(ref, releaseStageOutboxClaim(record, claimTokenDigest));
+  });
+}
+
+export async function finalizeStageOutboxPublish(
+  id: string,
+  claimTokenDigest: string,
+  pubsubMessageId: string,
+  now = new Date(),
+): Promise<void> {
+  const ref = stageOutboxRef(id);
+  await db().runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (!snapshot.exists) throw new Error("stage outbox record not found");
+    const current = snapshot.data() as StageOutboxRecord;
+    assertResourceWorkspace(currentTenant(), current);
+    const finalized = finalizeStageOutbox(current, claimTokenDigest, pubsubMessageId, now);
+    tx.set(ref, finalized);
+    if (current.completedStage && current.note) {
+      const event = {
+        jobId: current.jobId,
+        at: FieldValue.serverTimestamp(),
+        stage: current.completedStage,
+        message: current.note,
+        actor: "system" as const,
+        operationId: `${current.jobId}:${current.completedStage}:${id}`,
+        traceId: currentTraceId(),
+        pubsubMessageId,
+      };
+      tx.set(jobRef(current.jobId).collection(EVENTS).doc(`outbox-${id}`), event);
+      tx.set(tenantCollection(EVENT_LOG).doc(`outbox-${id}`), event);
+    }
+  });
 }
 
 // ---------- content items ----------
@@ -257,6 +412,30 @@ export async function setAgentState(key: string, patch: Partial<AgentStateDoc>):
     .set({ ...patch, updatedAt: new Date().toISOString() }, { merge: true });
 }
 
+export async function claimAgentTick(
+  key: string,
+  claimId: string,
+  leaseSeconds: number,
+  now = new Date(),
+): Promise<boolean> {
+  const ref = tenantCollection(AGENT_STATE).doc(key);
+  return db().runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref);
+    const current = snapshot.exists && snapshot.get("claimId") ? {
+      claimId: String(snapshot.get("claimId")),
+      claimedAt: String(snapshot.get("claimedAt")),
+      leaseUntil: String(snapshot.get("leaseUntil")),
+    } satisfies TickClaimState : null;
+    const decision = decideTickClaim(current, claimId, leaseSeconds, now);
+    if (!decision.claimed) return false;
+    tx.set(ref, {
+      ...decision.state,
+      updatedAt: now.toISOString(),
+    }, { merge: true });
+    return true;
+  });
+}
+
 export interface ConnectionDoc {
   platform: string;
   mode: "oauth" | "manual" | "env";
@@ -271,6 +450,41 @@ export interface ConnectionDoc {
   calendarTitle?: string;
   calendarProvisionedAt?: string;
   calendarProvisioning?: { status: "claimed" | "uncertain"; claimId: string; at: string };
+}
+
+type StoredConnectionDoc = Omit<ConnectionDoc, "accessToken" | "refreshToken"> & {
+  accessTokenEnvelope: SecretEnvelope;
+  refreshTokenEnvelope?: SecretEnvelope;
+  tokenRefresh?: ConnectionRefreshState;
+};
+
+function connectionAad(platform: string): string {
+  return `${currentTenant().workspaceId}:${platform}`;
+}
+
+function decodeConnection(stored: StoredConnectionDoc): ConnectionDoc {
+  const key = connectionEnvelopeKey();
+  const { accessTokenEnvelope, refreshTokenEnvelope, tokenRefresh: _tokenRefresh, ...metadata } = stored;
+  return {
+    ...metadata,
+    accessToken: decryptSecret(accessTokenEnvelope, key, `${connectionAad(stored.platform)}:access`),
+    refreshToken: refreshTokenEnvelope
+      ? decryptSecret(refreshTokenEnvelope, key, `${connectionAad(stored.platform)}:refresh`)
+      : undefined,
+  };
+}
+
+function encodeConnection(connection: ConnectionDoc, tokenRefresh?: ConnectionRefreshState): StoredConnectionDoc {
+  const key = connectionEnvelopeKey();
+  const { accessToken, refreshToken, ...metadata } = connection;
+  return {
+    ...metadata,
+    accessTokenEnvelope: encryptSecret(accessToken, key, `${connectionAad(connection.platform)}:access`),
+    refreshTokenEnvelope: refreshToken
+      ? encryptSecret(refreshToken, key, `${connectionAad(connection.platform)}:refresh`)
+      : undefined,
+    ...(tokenRefresh ? { tokenRefresh } : {}),
+  };
 }
 
 export async function claimCalendarProvisioning(): Promise<{ calendarId?: string; claimId?: string }> {
@@ -319,11 +533,86 @@ export function connectionRef(platform: string) {
 export async function getConnection(platform: string): Promise<ConnectionDoc | null> {
   const snap = await connectionRef(platform).get();
   if (!snap.exists) return null;
-  return snap.data() as ConnectionDoc;
+  const data = snap.data() as Partial<StoredConnectionDoc> & { accessToken?: string };
+  if (data.accessToken) throw new Error("legacy plaintext connection requires migration");
+  return decodeConnection(data as StoredConnectionDoc);
 }
 
 export async function saveConnection(conn: ConnectionDoc): Promise<void> {
-  await connectionRef(conn.platform).set(conn);
+  await connectionRef(conn.platform).set(encodeConnection(conn));
+}
+
+export type ConnectionRefreshClaim =
+  | { outcome: "fresh"; connection: ConnectionDoc }
+  | { outcome: "refresh"; claimId: string; connection: ConnectionDoc }
+  | { outcome: "in_progress" }
+  | { outcome: "uncertain" };
+
+export async function claimConnectionTokenRefresh(platform: string): Promise<ConnectionRefreshClaim> {
+  const ref = connectionRef(platform);
+  return db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error(`${platform} connection not found`);
+    const stored = snap.data() as Partial<StoredConnectionDoc> & { accessToken?: string };
+    if (stored.accessToken) throw new Error("legacy plaintext connection requires migration");
+    const connection = decodeConnection(stored as StoredConnectionDoc);
+    const claimId = newId();
+    const decision = decideConnectionRefresh({
+      expiresAt: connection.expiresAt,
+      now: new Date().toISOString(),
+      refreshSkewMs: 60_000,
+      state: stored.tokenRefresh,
+      claimId,
+    });
+    if (decision.outcome === "fresh") return { outcome: "fresh", connection };
+    if (decision.outcome === "in_progress") return { outcome: "in_progress" };
+    if (decision.outcome === "uncertain") {
+      if (stored.tokenRefresh?.status === "claimed") tx.set(ref, { tokenRefresh: decision.state }, { merge: true });
+      return { outcome: "uncertain" };
+    }
+    if (!connection.refreshToken) throw new Error(`${platform} authorization expired; reconnect it`);
+    tx.set(ref, { tokenRefresh: decision.state }, { merge: true });
+    return { outcome: "refresh", claimId, connection };
+  });
+}
+
+export async function completeConnectionTokenRefresh(
+  platform: string,
+  claimId: string,
+  connection: ConnectionDoc,
+): Promise<void> {
+  const ref = connectionRef(platform);
+  await db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error(`${platform} connection not found`);
+    const stored = snap.data() as StoredConnectionDoc;
+    if (stored.tokenRefresh?.status !== "claimed" || stored.tokenRefresh.claimId !== claimId) {
+      throw new Error("connection refresh claim was lost");
+    }
+    tx.set(ref, encodeConnection(connection));
+  });
+}
+
+export async function markConnectionTokenRefreshUncertain(
+  platform: string,
+  claimId: string,
+  reason: string,
+): Promise<void> {
+  const ref = connectionRef(platform);
+  await db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const stored = snap.data() as StoredConnectionDoc;
+    if (stored.tokenRefresh?.status !== "claimed" || stored.tokenRefresh.claimId !== claimId) return;
+    tx.set(ref, {
+      tokenRefresh: {
+        ...stored.tokenRefresh,
+        status: "uncertain",
+        uncertainAt: new Date().toISOString(),
+        reason,
+      } satisfies ConnectionRefreshState,
+    }, { merge: true });
+  });
 }
 
 export async function deleteConnection(platform: string): Promise<void> {
@@ -332,7 +621,11 @@ export async function deleteConnection(platform: string): Promise<void> {
 
 export async function listConnections(): Promise<ConnectionDoc[]> {
   const snaps = await tenantCollection(CONNECTIONS).get();
-  return snaps.docs.map((d) => d.data() as ConnectionDoc);
+  return snaps.docs.map((doc) => {
+    const data = doc.data() as Partial<StoredConnectionDoc> & { accessToken?: string };
+    if (data.accessToken) throw new Error("legacy plaintext connection requires migration");
+    return decodeConnection(data as StoredConnectionDoc);
+  });
 }
 
 // ---------- operator chat history ----------
@@ -356,8 +649,9 @@ export async function saveChatMessage(
   m: Omit<ChatMessageDoc, "at" | "userId" | "scopeKey"> & { at?: ChatMessageDoc["at"] },
 ): Promise<void> {
   const tenant = currentTenant();
-  const scopeKey = chatScopeKey(tenant.userId, m.surface, m.conversationId);
-  await tenantCollection(CHATS).add({ ...m, userId: tenant.userId, scopeKey, at: FieldValue.serverTimestamp() });
+  const userId = tenantSubjectId(tenant);
+  const scopeKey = chatScopeKey(userId, m.surface, m.conversationId);
+  await tenantCollection(CHATS).add({ ...m, userId, scopeKey, at: FieldValue.serverTimestamp() });
   const scoped = await tenantCollection(CHATS).where("scopeKey", "==", scopeKey).get();
   const retained = scoped.docs.map((doc) => {
     const data = doc.data() as ChatMessageDoc & { at?: { toDate(): Date } | string };
@@ -372,7 +666,7 @@ export async function saveChatMessage(
   const batch = db().batch();
   for (const id of plan.deleteIds) batch.delete(tenantCollection(CHATS).doc(id));
   batch.create(tenantCollection(CHAT_SUMMARIES).doc(newId()), {
-    userId: tenant.userId,
+    userId,
     surface: m.surface,
     conversationId: m.conversationId,
     scopeKey,
@@ -388,7 +682,7 @@ export async function listChatMessages(
   conversationId = "primary",
 ): Promise<Array<{ id: string; surface: string; role: string; text: string; data?: Record<string, unknown>; at: string | null }>> {
   const tenant = currentTenant();
-  const scopeKey = chatScopeKey(tenant.userId, surface, conversationId);
+  const scopeKey = chatScopeKey(tenantSubjectId(tenant), surface, conversationId);
   const snaps = await tenantCollection(CHATS)
     .where("scopeKey", "==", scopeKey)
     .get();
@@ -429,19 +723,119 @@ export interface TelegramConnectionDoc {
   botToken: string;
   chatId: string;
   connectedAt: string;
+  routeTokenDigest: string;
+  webhookSecretDigest: string;
+  chatIdDigest: string;
+}
+
+type StoredTelegramConnectionDoc = Omit<TelegramConnectionDoc, "botToken"> & { botTokenEnvelope: SecretEnvelope };
+
+export interface TelegramDecisionNonceDoc {
+  routeTokenDigest: string;
+  workspaceId: string;
+  brandId: string;
+  jobId: string;
+  actionId: string;
+  payloadDigest: string;
+  decision: "approved" | "rejected";
+  expiresAt: string;
+  state: "pending" | "processing" | "consumed";
+  claimedAt?: string;
+  decisionId?: string;
+}
+
+const TELEGRAM_WEBHOOK_ROUTES = "telegram_webhook_routes";
+const TELEGRAM_DECISION_NONCES = "telegram_decision_nonces";
+
+export async function getTelegramWebhookRoute(routeToken: string): Promise<TelegramWebhookRoute | null> {
+  const routeTokenDigest = telegramDigest(routeToken);
+  const snap = await db().collection(TELEGRAM_WEBHOOK_ROUTES).doc(routeTokenDigest).get();
+  return snap.exists ? (snap.data() as TelegramWebhookRoute) : null;
+}
+
+export async function claimTelegramDecisionNonce(
+  routeToken: string,
+  nonce: string,
+): Promise<{ duplicate: boolean; nonce: TelegramDecisionNonceDoc }> {
+  const routeTokenDigest = telegramDigest(routeToken);
+  const nonceId = telegramDigest(`${routeTokenDigest}:${nonce}`);
+  const ref = db().collection(TELEGRAM_DECISION_NONCES).doc(nonceId);
+  return db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error("Telegram decision nonce not found");
+    const value = snap.data() as TelegramDecisionNonceDoc;
+    if (value.routeTokenDigest !== routeTokenDigest) throw new Error("Telegram decision nonce route mismatch");
+    const decision = decideTelegramNonceClaim(value);
+    if (decision.outcome === "duplicate") return { duplicate: true, nonce: value };
+    const claimed = { ...value, state: "processing" as const, claimedAt: new Date().toISOString() };
+    tx.update(ref, claimed);
+    return { duplicate: false, nonce: claimed };
+  });
+}
+
+export async function finalizeTelegramDecisionNonce(
+  routeToken: string,
+  nonce: string,
+  decisionId: string,
+): Promise<void> {
+  const routeTokenDigest = telegramDigest(routeToken);
+  const nonceId = telegramDigest(`${routeTokenDigest}:${nonce}`);
+  await db().collection(TELEGRAM_DECISION_NONCES).doc(nonceId).update({
+    state: "consumed",
+    decisionId,
+  });
 }
 
 export async function getTelegramConnection(): Promise<TelegramConnectionDoc | null> {
   const snap = await tenantCollection(CONFIG).doc("telegram").get();
-  return snap.exists ? (snap.data() as TelegramConnectionDoc) : null;
+  if (!snap.exists) return null;
+  const stored = snap.data() as Partial<StoredTelegramConnectionDoc> & { botToken?: string };
+  if (stored.botToken) throw new Error("legacy plaintext Telegram token requires migration");
+  const { botTokenEnvelope, ...metadata } = stored as StoredTelegramConnectionDoc;
+  return {
+    ...metadata,
+    botToken: decryptSecret(
+      botTokenEnvelope,
+      connectionEnvelopeKey(),
+      `${currentTenant().workspaceId}:telegram:bot`,
+    ),
+  };
 }
 
 export async function saveTelegramConnection(connection: TelegramConnectionDoc): Promise<void> {
-  await tenantCollection(CONFIG).doc("telegram").set(connection);
+  const tenant = currentTenant();
+  const configRef = tenantCollection(CONFIG).doc("telegram");
+  const routeRef = db().collection(TELEGRAM_WEBHOOK_ROUTES).doc(connection.routeTokenDigest);
+  const { botToken, ...metadata } = connection;
+  const stored: StoredTelegramConnectionDoc = {
+    ...metadata,
+    botTokenEnvelope: encryptSecret(botToken, connectionEnvelopeKey(), `${tenant.workspaceId}:telegram:bot`),
+  };
+  await db().runTransaction(async (tx) => {
+    const existing = await tx.get(configRef);
+    const existingRoute = existing.get("routeTokenDigest") as string | undefined;
+    if (existingRoute && existingRoute !== connection.routeTokenDigest) {
+      tx.delete(db().collection(TELEGRAM_WEBHOOK_ROUTES).doc(existingRoute));
+    }
+    tx.set(configRef, stored);
+    tx.set(routeRef, {
+      routeTokenDigest: connection.routeTokenDigest,
+      webhookSecretDigest: connection.webhookSecretDigest,
+      chatIdDigest: connection.chatIdDigest,
+      workspaceId: tenant.workspaceId,
+      brandId: tenant.brandId,
+    } satisfies TelegramWebhookRoute);
+  });
 }
 
 export async function deleteTelegramConnection(): Promise<void> {
-  await tenantCollection(CONFIG).doc("telegram").delete();
+  const configRef = tenantCollection(CONFIG).doc("telegram");
+  await db().runTransaction(async (tx) => {
+    const existing = await tx.get(configRef);
+    const routeTokenDigest = existing.get("routeTokenDigest") as string | undefined;
+    if (routeTokenDigest) tx.delete(db().collection(TELEGRAM_WEBHOOK_ROUTES).doc(routeTokenDigest));
+    tx.delete(configRef);
+  });
 }
 
 export interface AssetDoc {
@@ -531,6 +925,9 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,
     status: data.status,
+    terminalOutcome: data.terminalOutcome,
+    retentionDeleteAfter: data.retentionDeleteAfter,
+    retentionHold: data.retentionHold,
     stage: data.stage,
     config: data.config,
     failure: data.failure,
@@ -552,6 +949,122 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
   };
 }
 
+export async function eraseJobData(plan: DeletionPlan, actorSubjectId: string): Promise<void> {
+  const tenant = currentTenant();
+  if (plan.workspaceId !== tenant.workspaceId || plan.brandId !== tenant.brandId) {
+    throw new Error("deletion plan is outside the current tenant scope");
+  }
+  const job = await getJob(plan.jobId);
+  const contentItems = await tenantCollection(CONTENT_ITEMS).where("jobId", "==", plan.jobId).get();
+  const liveItem = contentItems.docs.find((doc) =>
+    ["scheduled", "awaiting_final_review", "publishing"].includes(String(doc.get("status"))),
+  );
+  if (liveItem) throw new Error("job has a content item with pending external work");
+
+  const tombstoneRef = tenantCollection(DELETION_TOMBSTONES).doc(plan.jobId);
+  await tombstoneRef.set({
+    ...deletionTombstone(plan, actorSubjectId),
+    state: "erasing",
+  });
+
+  const assets = await listAssets(plan.jobId);
+  for (const asset of assets) await deleteArtifactUri(asset.storageUri);
+
+  const attachmentId = job.config.mediaAttachmentId;
+  if (attachmentId) {
+    const attachmentRef = tenantCollection("chat_attachments").doc(attachmentId);
+    const attachment = await attachmentRef.get();
+    if (attachment.exists) {
+      const uri = String(attachment.get("storageUri") ?? "");
+      if (uri) await deleteArtifactUri(uri);
+      await attachmentRef.delete();
+    }
+  }
+
+  const denormalized = await Promise.all([
+    tenantCollection(ASSETS).where("jobId", "==", plan.jobId).get(),
+    tenantCollection(EVENT_LOG).where("jobId", "==", plan.jobId).get(),
+    tenantCollection(PROPOSALS).where("jobId", "==", plan.jobId).get(),
+    tenantCollection(NOTIFICATIONS).where("refId", "==", plan.jobId).get(),
+  ]);
+  await Promise.all(denormalized.flatMap((snapshot) => snapshot.docs.map((doc) => doc.ref.delete())));
+  await Promise.all(contentItems.docs.map((doc) => doc.ref.delete()));
+  await db().recursiveDelete(jobRef(plan.jobId));
+  await tombstoneRef.set({ state: "erased", completedAt: new Date().toISOString() }, { merge: true });
+}
+
+export async function eraseDueJobs(now = new Date(), limit = 20): Promise<string[]> {
+  const snapshots = await tenantCollection(JOBS)
+    .where("retentionDeleteAfter", "<=", now.toISOString())
+    .limit(Math.max(1, Math.min(limit, 100)))
+    .get();
+  const erased: string[] = [];
+  for (const snapshot of snapshots.docs) {
+    const job = requireJobDoc(snapshot);
+    if (job.retentionHold || !["complete", "failed"].includes(job.status)) continue;
+    await eraseJobData({
+      jobId: job.id,
+      workspaceId: job.workspaceId,
+      brandId: job.brandId,
+      reason: "retention period elapsed",
+      requestedAt: now.toISOString(),
+    }, "retention-service");
+    erased.push(job.id);
+  }
+  return erased;
+}
+
+export async function eraseWorkspaceData(
+  plan: WorkspaceDeletionPlan,
+  actorSubjectId: string,
+): Promise<void> {
+  const tenant = currentTenant();
+  if (plan.workspaceId !== tenant.workspaceId) throw new Error("workspace deletion plan is out of scope");
+  if (tenant.principal.workspaceRole !== "owner") throw new Error("workspace owner role required");
+
+  const [jobs, contentItems, assets, attachments, telegram] = await Promise.all([
+    tenantCollection(JOBS).get(),
+    tenantCollection(CONTENT_ITEMS).get(),
+    tenantCollection(ASSETS).get(),
+    tenantCollection("chat_attachments").get(),
+    tenantCollection(CONFIG).doc("telegram").get(),
+  ]);
+  if (jobs.docs.some((doc) => {
+    const value = doc.data() as JobDoc;
+    return value.retentionHold || !["complete", "failed"].includes(value.status);
+  })) {
+    throw new Error("workspace contains active jobs or retention holds");
+  }
+  if (contentItems.docs.some((doc) =>
+    ["scheduled", "awaiting_final_review", "publishing"].includes(String(doc.get("status"))),
+  )) {
+    throw new Error("workspace contains pending external work");
+  }
+
+  const tombstoneRef = db().collection("workspace_deletion_tombstones").doc(plan.workspaceId);
+  await tombstoneRef.set({
+    workspaceId: plan.workspaceId,
+    reason: plan.reason,
+    requestedAt: plan.requestedAt,
+    deletedBySubjectId: actorSubjectId,
+    state: "erasing",
+  });
+  for (const doc of [...assets.docs, ...attachments.docs]) {
+    const uri = String(doc.get("storageUri") ?? "");
+    if (uri) await deleteWorkspaceArtifactUri(uri, plan.workspaceId);
+  }
+  const routeTokenDigest = telegram.get("routeTokenDigest") as string | undefined;
+  if (routeTokenDigest) {
+    await db().collection(TELEGRAM_WEBHOOK_ROUTES).doc(routeTokenDigest).delete();
+  }
+  await db().recursiveDelete(db().collection("workspaces").doc(plan.workspaceId));
+  await tombstoneRef.set({
+    state: "erased",
+    completedAt: new Date().toISOString(),
+    contentErased: true,
+  }, { merge: true });
+}
+
 export async function createJob(
   config: JobConfig,
   initialStage: Stage,
@@ -563,7 +1076,7 @@ export async function createJob(
   const doc: JobDoc = {
     workspaceId: tenant.workspaceId,
     brandId: tenant.brandId,
-    createdByUserId: tenant.userId,
+    createdByUserId: tenantSubjectId(tenant),
     createdAt: now,
     updatedAt: now,
     status: "running",
@@ -571,8 +1084,38 @@ export async function createJob(
     config: storedConfig,
     budget: initialJobBudget(),
   };
-  await jobRef(id).set(doc);
+  const outboxId = stageOutboxId(id, initialStage, 0);
+  await db().runTransaction(async (tx) => {
+    tx.create(jobRef(id), doc);
+    tx.create(stageOutboxRef(outboxId), {
+      id: outboxId,
+      workspaceId: tenant.workspaceId,
+      brandId: tenant.brandId,
+      jobId: id,
+      stage: initialStage,
+      attempt: 0,
+      state: "pending",
+      createdAt: now,
+    } satisfies StageOutboxRecord);
+  });
   return { id, ...doc };
+}
+
+export async function retryFailedJobWithOutbox(jobId: string, stage: Stage, attempt: number): Promise<string> {
+  const id = stageOutboxId(jobId, stage, attempt);
+  const ref = stageOutboxRef(id);
+  const tenant = currentTenant();
+  await db().runTransaction(async (tx) => {
+    const [jobSnapshot, existing] = await Promise.all([tx.get(jobRef(jobId)), tx.get(ref)]);
+    const job = requireJobDoc(jobSnapshot);
+    if (job.status !== "failed" || job.failure?.stage !== stage) throw new Error("job is not retryable from this stage");
+    tx.update(jobRef(jobId), { stage, status: "running", updatedAt: new Date().toISOString() });
+    if (!existing.exists) tx.create(ref, {
+      id, workspaceId: tenant.workspaceId, brandId: tenant.brandId, jobId, stage, attempt,
+      state: "pending", createdAt: new Date().toISOString(),
+    } satisfies StageOutboxRecord);
+  });
+  return id;
 }
 
 export async function getJob(jobId: string) {
@@ -600,7 +1143,63 @@ export async function setStage(
   });
 }
 
-export interface BudgetReservation {
+function stageClaimDigest(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+export async function claimJobStageExecution(input: {
+  jobId: string;
+  stage: string;
+  ownerId: string;
+  claimToken: string;
+}): Promise<StageClaimResult> {
+  const ref = jobRef(input.jobId);
+  const executionRef = ref.collection(STAGE_EXECUTIONS).doc(input.stage);
+  return db().runTransaction(async (tx) => {
+    const [jobSnap, executionSnap] = await Promise.all([tx.get(ref), tx.get(executionRef)]);
+    const job = requireJobDoc(jobSnap);
+    const existing = executionSnap.exists ? executionSnap.data() as StageExecution : null;
+    if (!existing && job.stage !== input.stage) throw new Error(`job stage is '${job.stage}', not '${input.stage}'`);
+    const now = new Date();
+    const result = decideStageClaim(existing, {
+      jobId: input.jobId,
+      stage: input.stage,
+      ownerId: input.ownerId,
+      claimTokenDigest: stageClaimDigest(input.claimToken),
+      now: now.toISOString(),
+      leaseExpiresAt: new Date(now.getTime() + 5 * 60 * 1000).toISOString(),
+    });
+    if (!existing) tx.create(executionRef, result.execution);
+    else if (result.execution !== existing) tx.set(executionRef, result.execution);
+    return result;
+  });
+}
+
+export async function finalizeJobStageExecution(input: {
+  jobId: string;
+  stage: string;
+  claimToken: string;
+  outcome: "applied" | "failed" | "uncertain";
+  failureReason?: string;
+}): Promise<StageExecution> {
+  const ref = jobRef(input.jobId).collection(STAGE_EXECUTIONS).doc(input.stage);
+  return db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error("stage execution claim not found");
+    const current = snap.data() as StageExecution;
+    const finalized = finalizeStageExecution(
+      current,
+      stageClaimDigest(input.claimToken),
+      input.outcome,
+      new Date().toISOString(),
+      input.failureReason,
+    );
+    tx.set(ref, finalized);
+    return finalized;
+  });
+}
+
+export interface BudgetReservation extends CostReservationState {
   jobId: string;
   operationId: string;
   stage: string;
@@ -610,12 +1209,11 @@ export interface BudgetReservation {
   pricingVersion: string;
   modelPolicy?: import("./types").ModelPolicySnapshot;
   accepted: boolean;
-  finalized: boolean;
   createdAt: string;
 }
 
 export async function reserveJobBudget(
-  input: Omit<BudgetReservation, "accepted" | "finalized" | "createdAt">,
+  input: Omit<BudgetReservation, "accepted" | "createdAt" | keyof CostReservationState>,
 ): Promise<{ reserved: boolean; duplicate: boolean; budget: JobBudget }> {
   const ref = jobRef(input.jobId);
   const reservationRef = ref.collection(COST_RESERVATIONS).doc(input.operationId);
@@ -636,16 +1234,20 @@ export async function reserveJobBudget(
       estimatedUsd: "0.00",
       observedUsd: "0.00",
       reservedUsd: "0.00",
-      limitUsd: getConfig().DEFAULT_WORKSPACE_BUDGET_USD,
+      limitUsd: parseBudgetConfig(process.env).DEFAULT_WORKSPACE_BUDGET_USD,
       approvalThresholdUsd: budget.approvalThresholdUsd,
     };
-    const accepted = canReserve(budget, input.estimatedCostUsd)
+    const accepted = !exceedsApprovalThreshold(budget, input.estimatedCostUsd)
+      && canReserve(budget, input.estimatedCostUsd)
       && canReserve(workspaceBudget, input.estimatedCostUsd);
+    const now = new Date();
     const reservation: BudgetReservation = {
       ...input,
       accepted,
-      finalized: false,
-      createdAt: new Date().toISOString(),
+      state: "reserved",
+      reservedAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 15 * 60 * 1000).toISOString(),
+      createdAt: now.toISOString(),
     };
     tx.set(reservationRef, reservation);
     if (!accepted) return { reserved: false, duplicate: false, budget };
@@ -677,9 +1279,7 @@ export async function finalizeUsageRecord(record: UsageRecord): Promise<{ duplic
     if (!reservationSnap.exists) throw new Error(`missing cost reservation: ${record.operationId}`);
     const reservation = reservationSnap.data() as BudgetReservation;
     if (!reservation.accepted) throw new Error(`cost reservation was rejected: ${record.operationId}`);
-    if (reservation.finalized) {
-      throw new Error(`cost reservation already finalized by another usage record: ${record.operationId}`);
-    }
+    if (reservation.state !== "reserved") throw new Error(`cost reservation is ${reservation.state}: ${record.operationId}`);
 
     const budget = applyFinalizedUsage(
       job.budget ?? initialJobBudget(),
@@ -694,13 +1294,50 @@ export async function finalizeUsageRecord(record: UsageRecord): Promise<{ duplic
       record.observedCostUsd ?? record.estimatedCostUsd,
     );
     tx.set(usageRef, record);
-    tx.update(reservationRef, { finalized: true, finalizedAt: new Date().toISOString() });
+    tx.update(reservationRef, markReservationFinalized(reservation, new Date().toISOString()));
     tx.update(ref, { budget, updatedAt: new Date().toISOString() });
     tx.update(workspaceRef, {
       budget: finalizedWorkspaceBudget,
       updatedAt: new Date().toISOString(),
     });
     return { duplicate: false };
+  });
+}
+
+export async function resolveJobBudgetReservation(input: {
+  jobId: string;
+  operationId: string;
+  outcome: "not_invoked" | "uncertain";
+  reason: string;
+}): Promise<{ duplicate: boolean; state: CostReservationState["state"] }> {
+  const ref = jobRef(input.jobId);
+  const reservationRef = ref.collection(COST_RESERVATIONS).doc(input.operationId);
+  const workspaceRef = db().collection("workspaces").doc(currentTenant().workspaceId);
+  return db().runTransaction(async (tx) => {
+    const [jobSnap, reservationSnap, workspaceSnap] = await Promise.all([
+      tx.get(ref), tx.get(reservationRef), tx.get(workspaceRef),
+    ]);
+    const job = requireJobDoc(jobSnap);
+    if (!reservationSnap.exists) throw new Error(`missing cost reservation: ${input.operationId}`);
+    const reservation = reservationSnap.data() as BudgetReservation;
+    if (!reservation.accepted) throw new Error(`cost reservation was rejected: ${input.operationId}`);
+    if (reservation.state !== "reserved") return { duplicate: true, state: reservation.state };
+
+    const now = new Date().toISOString();
+    if (input.outcome === "uncertain") {
+      const uncertain = markReservationUncertain(reservation, input.reason, now);
+      tx.update(reservationRef, uncertain);
+      return { duplicate: false, state: "uncertain" };
+    }
+
+    if (!workspaceSnap.exists) throw new Error("workspace not found");
+    const workspaceBudget = workspaceSnap.get("budget") as JobBudget;
+    const budget = applyReleasedReservation(job.budget ?? initialJobBudget(), reservation.estimatedCostUsd);
+    const releasedWorkspaceBudget = applyReleasedReservation(workspaceBudget, reservation.estimatedCostUsd);
+    tx.update(reservationRef, { ...markReservationReleased(reservation, now), releaseReason: input.reason });
+    tx.update(ref, { budget, updatedAt: now });
+    tx.update(workspaceRef, { budget: releasedWorkspaceBudget, updatedAt: now });
+    return { duplicate: false, state: "released" };
   });
 }
 
@@ -831,7 +1468,8 @@ export async function recordApproval(
   jobId: string,
   actionId: string,
   decision: "approved" | "rejected",
-  actorUserId: string,
+  expectedPayloadDigest: string,
+  actor: ApprovalActor,
 ): Promise<PlannedAction> {
   return db().runTransaction(async (tx) => {
     const ref = jobRef(jobId);
@@ -839,6 +1477,8 @@ export async function recordApproval(
     const job = requireJobDoc(snap);
     const action = job.actions.find((a) => a.id === actionId);
     if (!action) throw new Error(`action ${actionId} not found on job ${jobId}`);
+    const payloadDigest = actionPayloadDigest(action);
+    if (payloadDigest !== expectedPayloadDigest) throw new Error("approval payload changed");
     if (action.approvalState !== "pending") {
       throw new Error(
         `action ${actionId} approval state is '${action.approvalState}', expected 'pending'`,
@@ -854,8 +1494,8 @@ export async function recordApproval(
       jobId,
       actionId,
       decision,
-      actorType: "human_operator",
-      actorUserId,
+      payloadDigest,
+      ...actor,
       operationId: `${jobId}:approval:${actionId}`,
       traceId,
       decidedAt,
@@ -868,13 +1508,14 @@ export async function recordApproval(
   });
 }
 
-export async function listApprovalDecisions(jobId: string): Promise<Array<Omit<ApprovalDecision, "actorUserId">>> {
+export async function listApprovalDecisions(jobId: string): Promise<Array<Omit<ApprovalDecision, "actorUserId" | "authenticationId">>> {
   const snaps = await jobRef(jobId).collection(APPROVAL_DECISIONS).orderBy("decidedAt", "asc").get();
   return snaps.docs.map((doc) => {
     const decision = { ...(doc.data() as ApprovalDecision) } as Partial<ApprovalDecision>;
     delete decision.actorUserId;
+    delete decision.authenticationId;
     return decision;
-  }) as Array<Omit<ApprovalDecision, "actorUserId">>;
+  }) as Array<Omit<ApprovalDecision, "actorUserId" | "authenticationId">>;
 }
 
 export async function markActionExecuted(
@@ -1025,12 +1666,15 @@ export async function saveLearnings(
   jobId: string,
   engagement: Engagement[],
   learnings: Learnings,
+  terminalOutcome: NonNullable<Job["terminalOutcome"]>,
 ): Promise<void> {
   await jobRef(jobId).update({
     engagement,
     learnings,
     status: "complete",
     stage: "complete",
+    terminalOutcome,
+    retentionDeleteAfter: retentionDeadline(),
     updatedAt: new Date().toISOString(),
   });
 }
@@ -1087,6 +1731,7 @@ export async function markFailed(
       at: new Date().toISOString(),
     },
     updatedAt: new Date().toISOString(),
+    ...(!failure.retryable ? { retentionDeleteAfter: retentionDeadline() } : {}),
   });
 }
 

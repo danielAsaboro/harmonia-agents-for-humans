@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { createNotification, getContentItem, updateContentItem } from "@/lib/firestore";
-import { tenantHandler } from "@/lib/auth";
+import { operatorTenantHandler } from "@/lib/auth";
+import { approveScheduledContent } from "@/lib/scheduledEffects";
+import { currentTenant } from "@/lib/tenancy";
 
 /** Final human approval for approval-mode scheduled items. */
 async function post(
@@ -9,7 +11,7 @@ async function post(
 ) {
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
-  const parsed = z.object({ decision: z.enum(["approved", "rejected"]) }).safeParse(body);
+  const parsed = z.object({ decision: z.enum(["approved", "rejected"]) }).strict().safeParse(body);
   if (!parsed.success) {
     return Response.json({ error: "expected decision approved|rejected" }, { status: 400 });
   }
@@ -34,9 +36,8 @@ async function post(
     return Response.json({ ok: true, status: "cancelled" });
   }
 
-  // Approved: hand to the dispatcher for immediate publishing.
-  await updateContentItem(id, { status: "publishing", publishMode: "auto" });
-  return Response.json({ ok: true, status: "publishing" });
+  const result = await approveScheduledContent(id, currentTenant());
+  return Response.json({ ok: true, status: "publishing", commandId: result.command.id });
 }
 
-export const POST = tenantHandler(post);
+export const POST = operatorTenantHandler(post);

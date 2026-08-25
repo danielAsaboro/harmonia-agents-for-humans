@@ -1,7 +1,7 @@
 import { db } from "./firestore";
 import { newId } from "./idempotency";
 import { parseChatStreamEvent, type ChatStreamEvent } from "./a2ui/contracts";
-import { assertResourceWorkspace, currentTenant, tenantCollectionPath } from "./tenancy";
+import { assertResourceWorkspace, currentTenant, tenantCollectionPath, tenantSubjectId } from "./tenancy";
 
 export type UnsequencedChatStreamEvent = ChatStreamEvent extends infer Event
   ? Event extends { runId: string; sequence: number }
@@ -33,7 +33,7 @@ export async function createChatRun(message: string, attachmentIds: string[]): P
     id: newId(),
     workspaceId: tenant.workspaceId,
     brandId: tenant.brandId,
-    createdByUserId: tenant.userId,
+    createdByUserId: tenantSubjectId(tenant),
     message,
     attachmentIds: [...new Set(attachmentIds)],
     status: "running",

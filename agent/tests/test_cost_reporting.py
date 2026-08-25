@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from harmonia_agent import content
@@ -73,6 +75,62 @@ def test_draft_run_reserves_and_reports_each_participating_role():
     assert next(iter(trace_ids)) != "0" * 32
 
 
+def test_team_releases_prior_reservations_when_reservation_fails_before_dispatch():
+    resolutions: list[dict] = []
+    calls = 0
+
+    def reserve(_payload):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("budget service unavailable")
+
+    with pytest.raises(RuntimeError, match="budget service unavailable"):
+        asyncio.run(_run_coordinator(
+            "flo_draft_workflow",
+            DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="direct"),
+            model=ScriptedDraftModel(model="gemini-3.5-flash"),
+            team_runtime=ManagedRuntime(),
+            invocation=InvocationContext(
+                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
+                job_id="job-1", stage="draft", operation_id="job-1:draft:0",
+            ),
+            budget_reserver=reserve,
+            budget_resolver=resolutions.append,
+        ))
+
+    assert len(resolutions) == 1
+    assert resolutions[0]["operationId"] == "job-1:draft:0:harmonia_coordinator"
+    assert resolutions[0]["outcome"] == "not_invoked"
+
+
+def test_team_quarantines_all_reservations_when_runtime_fails_after_dispatch():
+    class FailingRuntime:
+        async def invoke(self, **_kwargs):
+            raise TimeoutError("managed runtime timeout")
+
+    resolutions: list[dict] = []
+    with pytest.raises(TimeoutError, match="managed runtime timeout"):
+        asyncio.run(_run_coordinator(
+            "sophia_analyst",
+            AnalystInput(title="Demo", transcript="[0s] proof"),
+            model="gemini-3.5-flash",
+            team_runtime=FailingRuntime(),
+            invocation=InvocationContext(
+                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
+                job_id="job-1", stage="understand", operation_id="job-1:understand:0",
+            ),
+            budget_reserver=lambda _payload: None,
+            budget_resolver=resolutions.append,
+        ))
+
+    assert [item["operationId"] for item in resolutions] == [
+        "job-1:understand:0:harmonia_coordinator",
+        "job-1:understand:0:sophia_analyst",
+    ]
+    assert {item["outcome"] for item in resolutions} == {"uncertain"}
+
+
 def test_transcription_reserves_before_provider_and_reports_tokens(monkeypatch):
     order: list[str] = []
     reservations: list[dict] = []
@@ -109,6 +167,48 @@ def test_transcription_reserves_before_provider_and_reports_tokens(monkeypatch):
     assert reports[0]["outputUnits"] == 30
 
 
+def test_transcription_releases_when_client_fails_before_dispatch(monkeypatch):
+    resolutions: list[dict] = []
+    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
+    monkeypatch.setattr(content, "_client", lambda: (_ for _ in ()).throw(RuntimeError("client unavailable")))
+
+    with pytest.raises(RuntimeError):
+        content.transcribe_audio(
+            b"audio", "audio/mp4",
+            invocation=InvocationContext(
+                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
+                job_id="job-1", stage="transcribe", operation_id="job-1:transcribe:0",
+            ),
+            budget_reserver=lambda _item: None,
+            budget_resolver=resolutions.append,
+        )
+
+    assert resolutions[0]["outcome"] == "not_invoked"
+
+
+def test_transcription_quarantines_timeout_after_dispatch(monkeypatch):
+    resolutions: list[dict] = []
+
+    class Models:
+        def generate_content(self, **_kwargs):
+            raise TimeoutError("timeout")
+
+    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
+    monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=Models()))
+    with pytest.raises(TimeoutError):
+        content.transcribe_audio(
+            b"audio", "audio/mp4",
+            invocation=InvocationContext(
+                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
+                job_id="job-1", stage="transcribe", operation_id="job-1:transcribe:0",
+            ),
+            budget_reserver=lambda _item: None,
+            budget_resolver=resolutions.append,
+        )
+
+    assert resolutions[0]["outcome"] == "uncertain"
+
+
 def test_image_generation_uses_explicit_maximum_cost_reservation(monkeypatch):
     reservations: list[dict] = []
     reports: list[dict] = []
@@ -132,6 +232,65 @@ def test_image_generation_uses_explicit_maximum_cost_reservation(monkeypatch):
     assert reservations[0]["estimatedCostUsd"] == "0.500000"
     assert reports[0]["unitType"] == "images"
     assert reports[0]["inputUnits"] == 1
+
+
+def test_image_generation_releases_reservation_when_client_fails_before_dispatch(monkeypatch):
+    resolutions: list[dict] = []
+    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
+    monkeypatch.setattr(content, "_client", lambda: (_ for _ in ()).throw(RuntimeError("client unavailable")))
+
+    with pytest.raises(content.ImageGenError):
+        content.generate_image(
+            "safe visual description",
+            invocation=InvocationContext(
+                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
+                job_id="job-1", stage="publish", operation_id="job-1:publish:act-img",
+            ),
+            budget_reserver=lambda _item: None,
+            budget_resolver=resolutions.append,
+        )
+
+    assert resolutions[0]["outcome"] == "not_invoked"
+
+
+def test_image_generation_marks_reservation_uncertain_after_provider_dispatch(monkeypatch):
+    resolutions: list[dict] = []
+    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
+    models = SimpleNamespace(generate_images=lambda **_kwargs: (_ for _ in ()).throw(TimeoutError("timeout")))
+    monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=models))
+
+    with pytest.raises(content.ImageGenError):
+        content.generate_image(
+            "safe visual description",
+            invocation=InvocationContext(
+                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
+                job_id="job-1", stage="publish", operation_id="job-1:publish:act-img",
+            ),
+            budget_reserver=lambda _item: None,
+            budget_resolver=resolutions.append,
+        )
+
+    assert resolutions[0]["outcome"] == "uncertain"
+
+
+def test_image_generation_marks_empty_provider_response_uncertain(monkeypatch):
+    resolutions: list[dict] = []
+    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
+    models = SimpleNamespace(generate_images=lambda **_kwargs: SimpleNamespace(generated_images=[]))
+    monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=models))
+
+    with pytest.raises(content.ImageGenError):
+        content.generate_image(
+            "safe visual description",
+            invocation=InvocationContext(
+                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
+                job_id="job-1", stage="publish", operation_id="job-1:publish:act-img",
+            ),
+            budget_reserver=lambda _item: None,
+            budget_resolver=resolutions.append,
+        )
+
+    assert resolutions[0]["outcome"] == "uncertain"
 
 
 def test_agent_trace_has_safe_delegation_model_and_validation_spans():

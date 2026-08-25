@@ -25,6 +25,18 @@ def _analysis() -> dict:
     }
 
 
+def _effect_command(action: dict) -> dict:
+    return {
+        "id": f"command-{action['id']}",
+        "jobId": "job-1",
+        "actionId": action["id"],
+        "actionType": action["type"],
+        "payload": action["payload"],
+        "payloadDigest": "b" * 64,
+        "state": "pending",
+    }
+
+
 def test_understand_brief_routes_through_strategist_without_schema_changes(monkeypatch):
     requests = []
     posts = []
@@ -175,6 +187,7 @@ def test_content_pack_receipt_carries_the_applied_artifact_digest(monkeypatch):
         }],
     }
     monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(job["actions"][0])])
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
     monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
     monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1})
@@ -200,6 +213,7 @@ def test_publish_never_enters_effect_adapter_without_execute_claim(monkeypatch):
         }],
     }
     monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(job["actions"][0])])
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
     monkeypatch.setattr(stages.content, "build_content_pack", lambda *_args: calls.append("effect") or "pack")
     monkeypatch.setattr(stages, "web_post", lambda path, payload: calls.append(path))
@@ -218,6 +232,55 @@ def test_publish_never_enters_effect_adapter_without_execute_claim(monkeypatch):
         asyncio.run(stages.run_publish("job-1"))
     assert "effect" not in calls
 
+
+def test_publish_uses_immutable_command_payload_not_mutable_job_action(monkeypatch):
+    posted = []
+    receipts = []
+    job = {
+        "stage": "publish", "actions": [{
+            "id": "a1", "type": "publish_x_post", "state": "planned",
+            "requiresApproval": True, "approvalState": "approved",
+            "payload": {"text": "MUTATED AFTER APPROVAL"},
+        }],
+    }
+    command = _effect_command({"id": "a1", "type": "publish_x_post", "payload": {"text": "Approved copy"}})
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [command])
+    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
+    monkeypatch.setattr(stages, "get_connection", lambda _platform: {"accessToken": "fresh"})
+    monkeypatch.setattr(stages, "production_adapters", lambda _token: {"publish_x_post": lambda payload: posted.append(payload["text"]) or {"outcome": "applied", "detail": {"id": "post-1"}}})
+    monkeypatch.setattr("harmonia_agent.web_client.claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1})
+    monkeypatch.setattr("harmonia_agent.web_client.post", lambda path, payload: receipts.append((path, payload)))
+    monkeypatch.setattr(stages, "web_post", lambda _path, _payload: None)
+    monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
+
+    asyncio.run(stages.run_publish("job-1"))
+
+    assert posted == ["Approved copy"]
+    receipt = next(payload for path, payload in receipts if path == "/api/internal/receipt")
+    assert receipt["commandId"] == command["id"]
+    assert receipt["idempotencyKey"] == command["payloadDigest"]
+
+
+def test_x_connection_is_refreshed_before_the_effect_claim(monkeypatch):
+    order = []
+    job = {"stage": "publish", "actions": []}
+    command = _effect_command({"id": "a1", "type": "publish_x_post", "payload": {"text": "Approved copy"}})
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [command])
+    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
+    monkeypatch.setattr(stages, "get_connection", lambda _platform: order.append("connection") or {"accessToken": "fresh"})
+    monkeypatch.setattr(stages, "production_adapters", lambda token: {
+        "publish_x_post": lambda _payload: order.append(f"provider:{token}") or {"outcome": "applied", "detail": {"id": "post-1"}},
+    })
+    monkeypatch.setattr("harmonia_agent.web_client.claim_effect", lambda _payload: order.append("claim") or {"outcome": "execute", "attempt": 1})
+    monkeypatch.setattr("harmonia_agent.web_client.post", lambda _path, _payload: None)
+    monkeypatch.setattr(stages, "web_post", lambda _path, _payload: None)
+    monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
+
+    asyncio.run(stages.run_publish("job-1"))
+
+    assert order[:3] == ["connection", "claim", "provider:fresh"]
 
 def test_uploaded_media_is_materialized_for_clip_rendering(monkeypatch, tmp_path):
     monkeypatch.setattr(stages, "get_chat_attachment", lambda _id: (b"video", "video/mp4", "demo.mp4"))
@@ -248,3 +311,54 @@ def test_paid_media_actions_are_deterministic_and_reference_reviewed_evidence_on
     assert actions[0]["payload"]["durationSec"] == 4
     assert actions[1]["payload"]["durationSec"] == 30
     assert all("requiresApproval" not in action for action in actions)
+
+
+def test_paid_media_releases_budget_when_state_lookup_fails_before_dispatch(monkeypatch):
+    action = {
+        "id": "veo-1", "type": "generate_veo_broll",
+        "payload": {"prompt": "city", "durationSec": 4, "aspectRatio": "9:16"},
+    }
+    job = {
+        "stage": "publish", "workspaceId": "w1", "brandId": "b1",
+        "createdByUserId": "u1", "actions": [action],
+    }
+    resolutions = []
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(action)])
+    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
+    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1})
+    monkeypatch.setattr(stages, "reserve_budget", lambda _payload: None)
+    monkeypatch.setattr(stages, "get_media_operation", lambda *_args: (_ for _ in ()).throw(RuntimeError("store down")))
+    monkeypatch.setattr(stages, "resolve_budget_reservation", resolutions.append)
+
+    with pytest.raises(RuntimeError, match="store down"):
+        asyncio.run(stages.run_publish("job-1"))
+
+    assert resolutions[0]["outcome"] == "not_invoked"
+
+
+def test_paid_media_quarantines_budget_when_provider_times_out(monkeypatch):
+    action = {
+        "id": "veo-1", "type": "generate_veo_broll",
+        "payload": {"prompt": "city", "durationSec": 4, "aspectRatio": "9:16"},
+    }
+    job = {
+        "stage": "publish", "workspaceId": "w1", "brandId": "b1",
+        "createdByUserId": "u1", "actions": [action],
+    }
+    resolutions = []
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(action)])
+    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
+    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1})
+    monkeypatch.setattr(stages, "reserve_budget", lambda _payload: None)
+    monkeypatch.setattr(stages, "get_media_operation", lambda *_args: None)
+    monkeypatch.setattr(stages, "get_asset", lambda *_args: None)
+    monkeypatch.setattr(stages, "GoogleMediaTransport", lambda **_kwargs: object())
+    monkeypatch.setattr(stages.VeoGenerator, "generate", lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("provider timeout")))
+    monkeypatch.setattr(stages, "resolve_budget_reservation", resolutions.append)
+
+    with pytest.raises(TimeoutError, match="provider timeout"):
+        asyncio.run(stages.run_publish("job-1"))
+
+    assert resolutions[0]["outcome"] == "uncertain"

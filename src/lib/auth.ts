@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { adminAuth } from "./firebaseAdmin";
 import { db } from "./firestore";
-import { requireWorkspaceRole, runWithTenant, type TenantContext } from "./tenancy";
-import { isInternalAuthorized, withInternalTenant } from "./internalAuth";
+import { currentTenant, requireWorkspaceRole, runWithTenant, type TenantContext } from "./tenancy";
+import { AuthorityError, firebasePrincipal, requireWorkspaceAdministrator } from "./authority";
 
 export const SESSION_COOKIE = "harmonia_session";
 // Firebase session cookies permit a maximum lifetime of 14 days. The client
@@ -90,10 +90,13 @@ export async function requireTenantContext(req: Request): Promise<TenantContext>
   if (isDevAuthBypassEnabled() && session === DEV_SESSION_VALUE) {
     const user = await ensurePersonalWorkspace(DEV_USER_ID, "local@harmonia.dev");
     return {
-      userId: DEV_USER_ID,
       workspaceId: user.defaultWorkspaceId,
       brandId: user.defaultBrandId,
-      role: "owner",
+      principal: firebasePrincipal({
+        subjectId: DEV_USER_ID,
+        workspaceRole: "owner",
+        authenticationId: "dev_local_session",
+      }),
     };
   }
   let decoded;
@@ -119,11 +122,15 @@ export async function requireTenantContext(req: Request): Promise<TenantContext>
   } catch {
     throw new AuthError("invalid workspace membership", 403);
   }
+  if (role === "service") throw new AuthError("invalid workspace membership", 403);
   return {
-    userId: decoded.uid,
     workspaceId: user.defaultWorkspaceId,
     brandId: user.defaultBrandId,
-    role,
+    principal: firebasePrincipal({
+      subjectId: decoded.uid,
+      workspaceRole: role,
+      authenticationId: `firebase_${createHash("sha256").update(session).digest("hex").slice(0, 24)}`,
+    }),
   };
 }
 
@@ -140,6 +147,9 @@ export class AuthError extends Error {
 
 export function authErrorResponse(error: unknown): Response {
   if (error instanceof AuthError) return Response.json({ error: error.message }, { status: error.status });
+  if (error instanceof AuthorityError) {
+    return Response.json({ error: error.message, code: error.code }, { status: error.status });
+  }
   throw error;
 }
 
@@ -148,14 +158,21 @@ export function tenantHandler<Args extends unknown[]>(
 ): (req: Request, ...args: Args) => Promise<Response> {
   return async (req, ...args) => {
     try {
-      if (isInternalAuthorized(req)) {
-        return await withInternalTenant(req, () => handler(req, ...args));
-      }
       return await withTenant(req, () => handler(req, ...args));
     } catch (error) {
       return authErrorResponse(error);
     }
   };
+}
+
+/** Browser-session-only boundary for workspace control-plane mutations. */
+export function administratorTenantHandler<Args extends unknown[]>(
+  handler: (req: Request, ...args: Args) => Promise<Response>,
+): (req: Request, ...args: Args) => Promise<Response> {
+  return operatorTenantHandler(async (req, ...args) => {
+    requireWorkspaceAdministrator(currentTenant());
+    return handler(req, ...args);
+  });
 }
 
 /** Browser-session-only tenant boundary for explicit operator effects. */

@@ -9,12 +9,14 @@ import {
   tenantDocumentPath,
   type TenantContext,
 } from "@/lib/tenancy";
+import { firebasePrincipal } from "@/lib/authority";
 
 const tenant: TenantContext = {
-  userId: "user-a",
   workspaceId: "workspace-a",
   brandId: "brand-a",
-  role: "owner",
+  principal: firebasePrincipal({
+    subjectId: "user-a", workspaceRole: "owner", authenticationId: "session-a",
+  }),
 };
 
 describe("workspace isolation", () => {
@@ -37,10 +39,11 @@ describe("workspace isolation", () => {
 
   it("keeps concurrent request contexts isolated", async () => {
     const other: TenantContext = {
-      userId: "user-b",
       workspaceId: "workspace-b",
       brandId: "brand-b",
-      role: "member",
+      principal: firebasePrincipal({
+        subjectId: "user-b", workspaceRole: "member", authenticationId: "session-b",
+      }),
     };
     const [first, second] = await Promise.all([
       runWithTenant(tenant, async () => {

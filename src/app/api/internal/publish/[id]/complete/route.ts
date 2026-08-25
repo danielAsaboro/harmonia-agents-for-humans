@@ -1,7 +1,6 @@
-import { appendEvent, getJob, setStage } from "@/lib/firestore";
+import { getJob, transitionStageWithOutbox } from "@/lib/firestore";
 import { internalTenantHandler } from "@/lib/internalAuth";
-import { publishStage } from "@/lib/pubsub";
-import { currentTenant } from "@/lib/tenancy";
+import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";
 
 /**
  * Completes the act stage when the worker finished executing all approved
@@ -27,9 +26,8 @@ async function post(
       { status: 409 },
     );
   }
-  await setStage(id, "verify");
-  await appendEvent(id, "publish", "action phase complete", "system");
-  await publishStage(currentTenant(), id, "verify");
+  const outboxId = await transitionStageWithOutbox(id, "publish", "verify", "action phase complete");
+  try { await dispatchStageOutboxRecord(outboxId); } catch { /* durable tick retries */ }
   return Response.json({ ok: true });
 }
 

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getGoals, saveGoals } from "@/lib/firestore";
-import { tenantHandler } from "@/lib/auth";
+import { administratorTenantHandler } from "@/lib/auth";
 
 const goalsSchema = z.object({
   weeklyPostTarget: z.number().int().min(1).max(50).optional(),
@@ -26,5 +26,5 @@ async function put(req: Request) {
   return Response.json({ ok: true, goals: merged });
 }
 
-export const GET = tenantHandler(get);
-export const PUT = tenantHandler(put);
+export const GET = administratorTenantHandler(get);
+export const PUT = administratorTenantHandler(put);

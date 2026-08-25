@@ -6,9 +6,8 @@ import {
   getProposal,
   saveIngestMeta,
 } from "@/lib/firestore";
-import { tenantHandler } from "@/lib/auth";
-import { publishStage } from "@/lib/pubsub";
-import { currentTenant } from "@/lib/tenancy";
+import { operatorTenantHandler } from "@/lib/auth";
+import { queueStageTrigger } from "@/lib/stageTrigger";
 
 /**
  * Operator decision on a proactive proposal. Approval composes the proposal's
@@ -45,7 +44,7 @@ async function post(req: Request) {
   await saveIngestMeta(job.id, { videoId: "brief", title, channel: `harmonia (${proposal.source})`, durationSec: 0 });
   await appendEvent(job.id, "understand", `concept job created from approved ${proposal.source} proposal ${proposal.id}`, "operator");
   await decideProposal(id, "approved", { jobId: job.id });
-  await publishStage(currentTenant(), job.id, "understand");
+  await queueStageTrigger(job.id, "understand");
 
   return Response.json({
     ok: true,
@@ -55,4 +54,4 @@ async function post(req: Request) {
   });
 }
 
-export const POST = tenantHandler(post);
+export const POST = operatorTenantHandler(post);

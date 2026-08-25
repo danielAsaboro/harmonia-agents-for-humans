@@ -98,21 +98,54 @@ def test_unknown_exception_is_safe_bounded_dependency_failure():
     assert result.details == {"exceptionType": "RuntimeError"}
 
 
-def test_dispatch_reports_typed_failure_and_nacks_only_within_retry_limit(monkeypatch):
+def test_dispatch_reports_typed_failure_and_quarantines_ambiguous_retry(monkeypatch):
     reports = []
+    finalized = []
 
     async def fail(_job_id):
         raise httpx.ReadTimeout("token=super-secret", request=httpx.Request("GET", "https://provider.example"))
 
     monkeypatch.setitem(stages.HANDLERS, "draft", fail)
     monkeypatch.setattr(stages, "web_post", lambda path, body: reports.append((path, body)))
+    monkeypatch.setattr(stages, "claim_stage_execution", lambda _payload: {"outcome": "execute"})
+    monkeypatch.setattr(stages, "finalize_stage_execution", finalized.append)
 
-    assert asyncio.run(stages.dispatch("job-1", "draft", attempt=0)) is False
+    assert asyncio.run(stages.dispatch("job-1", "draft", attempt=0)) is True
     first = reports[-1][1]
     assert first["category"] == "provider_transient"
     assert first["retryable"] is True
     assert first["operationId"] == "job-1:draft:0"
     assert "super-secret" not in str(first)
+    assert finalized[-1]["outcome"] == "uncertain"
 
     assert asyncio.run(stages.dispatch("job-1", "draft", attempt=2)) is True
     assert reports[-1][1]["retryable"] is False
+    assert finalized[-1]["outcome"] == "failed"
+
+
+def test_dispatch_does_not_enter_handler_without_stage_lease(monkeypatch):
+    entered: list[str] = []
+
+    async def handler(job_id):
+        entered.append(job_id)
+
+    monkeypatch.setitem(stages.HANDLERS, "draft", handler)
+    monkeypatch.setattr(stages, "claim_stage_execution", lambda _payload: {"outcome": "in_progress"})
+
+    assert asyncio.run(stages.dispatch("job-1", "draft", attempt=0)) is True
+    assert entered == []
+
+
+def test_dispatch_finalizes_the_exact_stage_claim(monkeypatch):
+    finalized: list[dict] = []
+
+    async def handler(_job_id):
+        return None
+
+    monkeypatch.setitem(stages.HANDLERS, "draft", handler)
+    monkeypatch.setattr(stages, "claim_stage_execution", lambda _payload: {"outcome": "execute"})
+    monkeypatch.setattr(stages, "finalize_stage_execution", finalized.append)
+
+    assert asyncio.run(stages.dispatch("job-1", "draft", attempt=0)) is True
+    assert finalized[0]["outcome"] == "applied"
+    assert finalized[0]["claimToken"]

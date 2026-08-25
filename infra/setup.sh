@@ -17,7 +17,7 @@ for svc in run.googleapis.com firestore.googleapis.com pubsub.googleapis.com \
            cloudresourcemanager.googleapis.com \
            aiplatform.googleapis.com cloudtrace.googleapis.com \
            telemetry.googleapis.com monitoring.googleapis.com logging.googleapis.com \
-           storage.googleapis.com identitytoolkit.googleapis.com; do
+           storage.googleapis.com identitytoolkit.googleapis.com cloudscheduler.googleapis.com; do
   gcloud services enable "$svc" --project "${PROJECT_ID}"
 done
 
@@ -68,7 +68,7 @@ for topic in harmonia-stages harmonia-stages-dlq; do
 done
 
 echo "-- Service accounts"
-for sa in harmonia-web harmonia-agent; do
+for sa in harmonia-web harmonia-agent harmonia-pubsub-push harmonia-scheduler; do
   gcloud iam service-accounts create "$sa" --project "${PROJECT_ID}" \
     --display-name "Harmonia ${sa}" 2>/dev/null || echo "sa $sa exists"
 done
@@ -92,11 +92,9 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role "projects/${PROJECT_ID}/roles/${FIREBASE_SESSION_ROLE}" >/dev/null
 
-for sa in harmonia-web harmonia-agent; do
-  gcloud storage buckets add-iam-policy-binding "${ASSET_BUCKET}" \
-    --member "serviceAccount:${sa}@${PROJECT_ID}.iam.gserviceaccount.com" \
-    --role roles/storage.objectAdmin --project "${PROJECT_ID}" >/dev/null
-done
+gcloud storage buckets add-iam-policy-binding "${ASSET_BUCKET}" \
+  --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role roles/storage.objectAdmin --project "${PROJECT_ID}" >/dev/null
 
 # Cloud Run metadata credentials sign short-lived upload/download URLs through
 # IAM Credentials. Scope that authority to the web identity signing as itself.
@@ -109,7 +107,7 @@ gcloud iam service-accounts add-iam-policy-binding \
 # push subscription; it receives no general project-level token authority.
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format 'value(projectNumber)')"
 gcloud iam service-accounts add-iam-policy-binding \
-  "harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
+  "harmonia-pubsub-push@${PROJECT_ID}.iam.gserviceaccount.com" \
   --member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
   --role roles/iam.serviceAccountTokenCreator --project "${PROJECT_ID}" >/dev/null
 
@@ -158,6 +156,12 @@ if [[ -n "${GOOGLE_CLIENT_ID:-}" || -n "${GOOGLE_CLIENT_SECRET:-}" ]]; then
 else
   echo "  Google OAuth credentials not provided; Calendar and YouTube OAuth will remain unavailable."
 fi
+if [[ -n "${MALWARE_SCANNER_TOKEN:-}" ]]; then
+  printf '%s' "${MALWARE_SCANNER_TOKEN}" | gcloud secrets create malware-scanner-token --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
+    || printf '%s' "${MALWARE_SCANNER_TOKEN}" | gcloud secrets versions add malware-scanner-token --data-file=- --project "${PROJECT_ID}"
+else
+  echo "  MALWARE_SCANNER_TOKEN not provided; production deployment will refuse upload enablement."
+fi
 INTERNAL_TOKEN="$(openssl rand -hex 32)"
 printf '%s' "${INTERNAL_TOKEN}" | gcloud secrets create internal-api-token --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
   || echo "internal-api-token secret already exists (not rotated)"
@@ -176,6 +180,9 @@ for secret in google-oauth-client-id google-oauth-client-secret; do
     --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
     --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
 done
+gcloud secrets add-iam-policy-binding malware-scanner-token \
+  --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
 gcloud secrets add-iam-policy-binding youtube-api-key \
   --member "serviceAccount:harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
@@ -187,6 +194,8 @@ Setup complete.
   Firestore:    (default) @ ${REGION}
   Web SA:       harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com
   Agent SA:     harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com
+  Push SA:      harmonia-pubsub-push@${PROJECT_ID}.iam.gserviceaccount.com
+  Scheduler SA: harmonia-scheduler@${PROJECT_ID}.iam.gserviceaccount.com
   Assets:       ${ASSET_BUCKET}
 
 Next: ./infra/deploy.sh   (deploys both Cloud Run services and wires the push subscription)

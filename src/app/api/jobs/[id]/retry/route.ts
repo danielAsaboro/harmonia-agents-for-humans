@@ -1,9 +1,8 @@
 import { z } from "zod";
-import { appendEvent, getJob, setStage } from "@/lib/firestore";
-import { tenantHandler } from "@/lib/auth";
-import { publishStage } from "@/lib/pubsub";
+import { appendEvent, getJob, retryFailedJobWithOutbox } from "@/lib/firestore";
+import { administratorTenantHandler } from "@/lib/auth";
+import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";
 import { isKnownStage } from "@/lib/stages";
-import { currentTenant } from "@/lib/tenancy";
 
 const retrySchema = z.object({});
 
@@ -35,15 +34,15 @@ async function post(
     );
   }
 
-  await setStage(id, failedStage);
+  const outboxId = await retryFailedJobWithOutbox(id, failedStage, (job.failure.attempt ?? 0) + 1);
   await appendEvent(
     id,
     failedStage,
     `operator requested retry from stage '${failedStage}'`,
     "operator",
   );
-  await publishStage(currentTenant(), id, failedStage);
+  try { await dispatchStageOutboxRecord(outboxId); } catch { /* durable tick retries */ }
   return Response.json({ ok: true, retriedFrom: failedStage });
 }
 
-export const POST = tenantHandler(post);
+export const POST = administratorTenantHandler(post);

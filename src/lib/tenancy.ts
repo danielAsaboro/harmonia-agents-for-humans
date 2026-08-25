@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { Principal } from "./authority";
 
 const TENANT_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
@@ -11,8 +12,7 @@ export interface TenantScope {
 }
 
 export interface TenantContext extends TenantScope {
-  userId: string;
-  role: WorkspaceRole;
+  principal: Principal;
 }
 
 export interface WorkspaceOwned {
@@ -31,7 +31,8 @@ const tenantStorage = new AsyncLocalStorage<TenantContext>();
 
 export function runWithTenant<T>(context: TenantContext, work: () => T): T {
   validateTenantScope(context);
-  checkedId("userId", context.userId);
+  checkedId("subjectId", context.principal.subjectId);
+  checkedId("authenticationId", context.principal.authenticationId);
   return tenantStorage.run(context, work);
 }
 
@@ -80,8 +81,16 @@ export function assertResourceWorkspace(
 }
 
 export function agentEngineUserId(context: TenantContext, jobId: string): string {
-  checkedId("userId", context.userId);
+  const subjectId = checkedId("subjectId", context.principal.subjectId);
   checkedId("jobId", jobId);
   const scope = validateTenantScope(context);
-  return `${scope.workspaceId}:${context.userId}:${jobId}`;
+  return `${scope.workspaceId}:${subjectId}:${jobId}`;
+}
+
+export function tenantSubjectId(context: TenantContext): string {
+  return context.principal.subjectId;
+}
+
+export function tenantWorkspaceRole(context: TenantContext): WorkspaceRole {
+  return context.principal.workspaceRole;
 }

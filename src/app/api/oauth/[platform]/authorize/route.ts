@@ -1,6 +1,6 @@
 import { db } from "@/lib/firestore";
 import { getPlatform, pkcePair, randomState } from "@/lib/oauth";
-import { tenantHandler } from "@/lib/auth";
+import { administratorTenantHandler } from "@/lib/auth";
 import { platformStatus } from "@/lib/platforms";
 import { currentTenant } from "@/lib/tenancy";
 
@@ -23,6 +23,9 @@ async function get(
   const { platform } = await params;
   const def = getPlatform(platform);
   if (!def) return backToSettings("error", `unknown platform ${platform}`);
+  if (def.productAvailability !== "active") {
+    return backToSettings("error", `${def.label}: credential groundwork only; publishing is not implemented`);
+  }
 
   const status = platformStatus(def);
   if (status.status === "credentials_needed") {
@@ -66,4 +69,4 @@ async function get(
   return new Response(null, { status: 302, headers: { location: url.toString() } });
 }
 
-export const GET = tenantHandler(get);
+export const GET = administratorTenantHandler(get);

@@ -15,6 +15,16 @@ const envSchema = z.object({
   PUBLIC_BASE_URL: z.string().url().optional(),
 });
 
+const budgetEnvSchema = envSchema.pick({
+  DEFAULT_JOB_BUDGET_USD: true,
+  DEFAULT_JOB_APPROVAL_THRESHOLD_USD: true,
+  DEFAULT_WORKSPACE_BUDGET_USD: true,
+});
+
+export function parseBudgetConfig(environment: Record<string, string | undefined>) {
+  return budgetEnvSchema.parse(environment);
+}
+
 export type Config = z.infer<typeof envSchema>;
 
 let cached: Config | null = null;

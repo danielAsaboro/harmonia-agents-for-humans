@@ -1,4 +1,4 @@
-import { tenantHandler } from "@/lib/auth";
+import { operatorTenantHandler } from "@/lib/auth";
 import { getAttachmentDelivery, storeLocalAttachment } from "@/lib/chatAttachments";
 
 async function get(_req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -31,5 +31,5 @@ async function put(req: Request, { params }: { params: Promise<{ id: string }> }
   }
 }
 
-export const GET = tenantHandler(get);
-export const PUT = tenantHandler(put);
+export const GET = operatorTenantHandler(get);
+export const PUT = operatorTenantHandler(put);

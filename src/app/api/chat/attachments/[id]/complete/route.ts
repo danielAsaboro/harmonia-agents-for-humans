@@ -1,4 +1,4 @@
-import { tenantHandler } from "@/lib/auth";
+import { operatorTenantHandler } from "@/lib/auth";
 import { completeAttachmentUpload } from "@/lib/chatAttachments";
 
 async function post(_req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -12,4 +12,4 @@ async function post(_req: Request, { params }: { params: Promise<{ id: string }>
   }
 }
 
-export const POST = tenantHandler(post);
+export const POST = operatorTenantHandler(post);

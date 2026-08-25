@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import uuid
+import secrets
 from pathlib import Path
 import asyncio
 from datetime import datetime, timezone
@@ -51,13 +52,17 @@ from .failures import FailureCategory, FailureEnvelope, normalize_failure
 from .team_runtime import AgentEngineProtocolError, AgentEngineProviderError
 from .telemetry import current_trace_id, inject_context, safe_attributes, tracer
 from .usage import InvocationContext, media_usage_record
+from .effect_executor import execute_effect_command, production_adapters
 from .web_client import (
     EffectClaimInProgress,
     EffectClaimUncertain,
     WebApiError,
     claim_effect,
+    claim_stage_execution,
+    finalize_stage_execution,
     get_asset,
     get_connection,
+    get_effect_commands,
     get_insights,
     get_job,
     get_media_operation,
@@ -65,6 +70,7 @@ from .web_client import (
     post as web_post,
     report_usage,
     reserve_budget,
+    resolve_budget_reservation,
     save_media_operation,
 )
 
@@ -414,22 +420,38 @@ def _receipts_for_job(job_id: str) -> list[dict[str, Any]]:
 
 async def run_publish(job_id: str) -> None:
     job = get_job(job_id)
-    executable = [
-        a for a in job.get("actions", [])
-        if a.get("state") == "planned"
-        and (not a.get("requiresApproval") or a.get("approvalState") == "approved")
+    commands = [
+        command for command in get_effect_commands(job_id)
+        if command.get("state") in ("pending", "claimed")
     ]
     done_keys = {
         r["idempotencyKey"] for r in _receipts_for_job(job_id)
         if r["outcome"] in ("applied", "already_applied")
     }
 
-    for action in executable:
-        key = _idempotency_key(job_id, action)
+    for command in commands:
+        action = {
+            "id": command["actionId"],
+            "type": command["actionType"],
+            "payload": command["payload"],
+        }
+        key = command["payloadDigest"]
+        if action["type"] == "publish_x_post":
+            connection = get_connection("x")
+            result = execute_effect_command(
+                command,
+                adapters=production_adapters(str(connection.get("accessToken") or "")),
+            )
+            if result.outcome == "in_progress":
+                raise EffectClaimInProgress("another worker currently owns this effect")
+            if result.outcome == "uncertain":
+                raise EffectClaimUncertain("a prior effect attempt has no final receipt")
+            continue
         trace_id = current_trace_id()
         operation_id = f"{job_id}:publish:{action['id']}:{trace_id}"
         claim_token = uuid.uuid4().hex
         claim_result = claim_effect({
+            "commandId": command["id"],
             "jobId": job_id, "actionId": action["id"], "actionType": action["type"],
             "idempotencyKey": key, "operationId": operation_id,
             "traceId": trace_id, "claimToken": claim_token,
@@ -442,23 +464,10 @@ async def run_publish(job_id: str) -> None:
             raise EffectClaimUncertain("a prior effect attempt has no final receipt")
         detail: dict[str, Any] = {"idempotencyKey": key}
         outcome, artifact = "failed", None
+        budget_operation_id: str | None = None
+        budget_dispatched = False
         try:
-            if action["type"] == "publish_x_post":
-                if key in done_keys:
-                    outcome, detail["note"] = "already_applied", "receipt exists; skipped"
-                else:
-                    connection = get_connection("x")
-                    posted = x_client.publish_post(
-                        action["payload"]["text"], connection.get("accessToken"),
-                    )
-                    outcome = "applied"
-                    digest = hashlib.sha256(action["payload"]["text"].encode()).hexdigest()
-                    artifact = {
-                        "kind": "x_api", "url": posted["url"],
-                        "fetchedAt": _now(), "digest": digest,
-                    }
-                    detail.update(posted)
-            elif action["type"] == "export_content_pack":
+            if action["type"] == "export_content_pack":
                 pack = content.build_content_pack(
                     job.get("ingestedTitle", ""),
                     job["config"].get("youtubeUrl") or "operator brief",
@@ -529,9 +538,11 @@ async def run_publish(job_id: str) -> None:
                         "estimatedCostUsd": cost,
                         "pricingVersion": "2026-08-23",
                     })
+                    budget_operation_id = invocation.operation_id
                     recorded = get_media_operation(job_id, action["id"])
                     existing_asset = get_asset(job_id, action["id"])
                     if recorded is not None and existing_asset is not None:
+                        budget_dispatched = True
                         report_usage(media_usage_record(
                             invocation=invocation,
                             role=role,
@@ -539,6 +550,7 @@ async def run_publish(job_id: str) -> None:
                             estimated_cost_usd=cost,
                             trace_id=current_trace_id(),
                         ).to_wire())
+                        budget_operation_id = None
                         outcome = "already_applied"
                         digest = str(existing_asset["digest"])
                         artifact = {
@@ -554,6 +566,7 @@ async def run_publish(job_id: str) -> None:
                             "note": "persisted provider operation and asset already exist",
                         })
                         web_post("/api/internal/receipt", {
+                            "commandId": command["id"],
                             "jobId": job_id, "actionId": action["id"],
                             "actionType": action["type"], "idempotencyKey": key,
                             "operationId": operation_id,
@@ -564,7 +577,9 @@ async def run_publish(job_id: str) -> None:
                     transport = GoogleMediaTransport(
                         project=cfg.gcp_project, location=cfg.vertex_media_location,
                     )
+                    budget_dispatched = recorded is not None
                     if action["type"] == "generate_veo_broll":
+                        budget_dispatched = True
                         generated = VeoGenerator(transport=transport).generate(
                             prompt=payload["prompt"],
                             duration_sec=int(payload["durationSec"]),
@@ -575,6 +590,7 @@ async def run_publish(job_id: str) -> None:
                             ),
                         )
                     else:
+                        budget_dispatched = True
                         generated = LyriaGenerator(transport=transport).generate(
                             prompt=payload["prompt"],
                             duration_sec=int(payload["durationSec"]),
@@ -593,6 +609,7 @@ async def run_publish(job_id: str) -> None:
                         estimated_cost_usd=generated.estimated_cost_usd,
                         trace_id=current_trace_id(),
                     ).to_wire())
+                    budget_operation_id = None
                     outcome = "applied"
                     artifact = {
                         "kind": "asset_store",
@@ -668,8 +685,26 @@ async def run_publish(job_id: str) -> None:
                     })
         except (x_client.XError, content.ImageGenError, ClipRenderError) as exc:
             outcome, detail["error"] = "failed", str(exc)
+        except Exception:
+            if budget_operation_id is not None:
+                try:
+                    resolve_budget_reservation({
+                        "jobId": job_id,
+                        "operationId": budget_operation_id,
+                        "outcome": "uncertain" if budget_dispatched else "not_invoked",
+                        "reason": (
+                            "paid media failed after provider dispatch"
+                            if budget_dispatched else "paid media failed before provider dispatch"
+                        ),
+                    })
+                except Exception:  # noqa: BLE001 - preserve the causal provider failure
+                    logger.exception(
+                        "budget resolution failed for operation %s", budget_operation_id,
+                    )
+            raise
 
         web_post("/api/internal/receipt", {
+            "commandId": command["id"],
             "jobId": job_id, "actionId": action["id"], "actionType": action["type"],
             "idempotencyKey": key,
             "operationId": operation_id,
@@ -866,8 +901,24 @@ async def dispatch(job_id: str, stage: str, *, attempt: int = 0) -> bool:
             span.set_status(Status(StatusCode.ERROR, envelope.code))
             web_post("/api/internal/failure", _failure_payload(job_id, envelope))
             return True
+        claim_token = secrets.token_urlsafe(32)
+        claim = claim_stage_execution({
+            "jobId": job_id,
+            "stage": stage,
+            "ownerId": f"worker:{os.getpid()}",
+            "claimToken": claim_token,
+        })
+        if claim["outcome"] != "execute":
+            span.set_attributes(safe_attributes({"stage.claim_outcome": claim["outcome"]}))
+            return True
         try:
             await handler(job_id)
+            finalize_stage_execution({
+                "jobId": job_id,
+                "stage": stage,
+                "claimToken": claim_token,
+                "outcome": "applied",
+            })
             return True
         except Exception as exc:  # noqa: BLE001 - classified then reported
             envelope = normalize_failure(
@@ -891,4 +942,14 @@ async def dispatch(job_id: str, stage: str, *, attempt: int = 0) -> bool:
                 web_post("/api/internal/failure", _failure_payload(job_id, envelope))
             except Exception:  # noqa: BLE001
                 logger.exception("failure reporting also failed")
-            return not envelope.retryable
+            try:
+                finalize_stage_execution({
+                    "jobId": job_id,
+                    "stage": stage,
+                    "claimToken": claim_token,
+                    "outcome": "failed" if not envelope.retryable else "uncertain",
+                    "failureReason": envelope.code,
+                })
+            except Exception:  # noqa: BLE001
+                logger.exception("stage claim finalization also failed")
+            return True

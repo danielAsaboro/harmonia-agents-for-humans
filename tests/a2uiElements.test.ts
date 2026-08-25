@@ -11,6 +11,7 @@ import {
   ApprovalReview,
   DraftComparison,
   MomentExplorer,
+  SurfaceEmpty,
   VerificationReceipt,
 } from "../src/components/a2ui/HarmoniaWorkspaceElements";
 
@@ -56,6 +57,18 @@ describe("Harmonia A2UI elements", () => {
 });
 
 describe("Harmonia generated workspace elements", () => {
+  test("renders hostile generated strings as escaped React text", () => {
+    const hostile = '<img src=x onerror="globalThis.pwned=true"><script>alert(1)</script>';
+    const html = renderToStaticMarkup(createElement(SurfaceEmpty, {
+      title: hostile,
+      message: hostile,
+    }));
+    expect(html).toContain("&lt;img");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("<img src=x");
+  });
+
   test("renders a source-grounded draft comparison", () => {
     const html = renderToStaticMarkup(createElement(DraftComparison, {
       title: "Choose the launch voice",

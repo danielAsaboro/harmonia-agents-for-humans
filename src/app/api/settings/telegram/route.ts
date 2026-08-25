@@ -1,10 +1,12 @@
 import { z } from "zod";
+import { randomBytes } from "node:crypto";
 import {
   deleteTelegramConnection,
   getTelegramConnection,
   saveTelegramConnection,
 } from "@/lib/firestore";
-import { tenantHandler } from "@/lib/auth";
+import { administratorTenantHandler } from "@/lib/auth";
+import { telegramDigest } from "@/lib/telegramWebhook";
 
 const schema = z.object({
   botToken: z.string().min(20).max(256),
@@ -23,8 +25,21 @@ async function get(_req: Request) {
 async function put(req: Request) {
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "invalid Telegram connection" }, { status: 400 });
-  await saveTelegramConnection({ ...parsed.data, connectedAt: new Date().toISOString() });
-  return Response.json({ ok: true });
+  const routeToken = randomBytes(24).toString("base64url");
+  const webhookSecret = randomBytes(32).toString("base64url");
+  await saveTelegramConnection({
+    ...parsed.data,
+    connectedAt: new Date().toISOString(),
+    routeTokenDigest: telegramDigest(routeToken),
+    webhookSecretDigest: telegramDigest(webhookSecret),
+    chatIdDigest: telegramDigest(parsed.data.chatId),
+  });
+  return Response.json({
+    ok: true,
+    webhookPath: `/api/telegram/webhook/${routeToken}`,
+    webhookSecret,
+    configuredWithTelegram: false,
+  });
 }
 
 async function del(_req: Request) {
@@ -32,6 +47,6 @@ async function del(_req: Request) {
   return Response.json({ ok: true });
 }
 
-export const GET = tenantHandler(get);
-export const PUT = tenantHandler(put);
-export const DELETE = tenantHandler(del);
+export const GET = administratorTenantHandler(get);
+export const PUT = administratorTenantHandler(put);
+export const DELETE = administratorTenantHandler(del);

@@ -1,11 +1,11 @@
 ---
 title: "Development"
-description: "Work offline with mock-AI mode, understand the emulator setup, and run the test suites."
+description: "Use explicit test fixtures, local emulators, and verification suites without confusing them with provider evidence."
 ---
 
-## Offline mock modes
+## Explicit test-fixture modes
 
-Harmonia's model and social-effect legs can use explicit dev-only fixtures. Identity still uses Google sign-in and durable workflow state still uses the emulators. With either flag unset, behavior is exactly the real path — fixture code is unreachable.
+Harmonia's model and social-effect legs have explicit development-only fixtures for contract testing. Identity still uses Google sign-in and durable workflow state uses the emulators. With either flag unset, fixture code is unreachable. A fixture run must never be used in a demo, benchmark, provider claim, or authenticated evidence bundle.
 
 ### `HARMONIA_MOCK_AI=1`
 
@@ -22,11 +22,11 @@ Every mock path logs loudly (`[MOCK-AI] ...`) and persisted `modelUsed` labels r
 
 ### `HARMONIA_MOCK_X=1`
 
-Independent flag covering the X API client only. Publishing returns a deterministic id derived from the post text hash (`mock-<sha256[:12]>`), and verification/metrics return small stable payloads. Useful for a fully green end-to-end demo without credentials — or leave it off to exercise honest publish failures.
+Independent flag covering the X API client only. Publishing returns a deterministic id derived from the post text hash (`mock-<sha256[:12]>`), and verification/metrics return small stable payloads. This is useful for development assertions only. Leave it off when testing honest integration failures or collecting real evidence.
 
-### What is never mocked
+### What fixture mode still executes locally
 
-Firestore and Pub/Sub always run as real emulators locally; ffmpeg rendering, the asset store, receipts, and verification are always real. YouTube ingestion (yt-dlp) is real in both modes — it needs network access to YouTube itself.
+Firestore and Pub/Sub run as Google emulators locally; ffmpeg rendering and the local asset store execute real code. Receipts and verification records exercise the real schemas but refer to fixture effects when `HARMONIA_MOCK_X=1`. YouTube ingestion through yt-dlp still uses the network and requires source authorization.
 
 ## Emulator-based workflow
 
@@ -62,7 +62,7 @@ Worker tests set safe dummy credentials via `agent/tests/conftest.py`; mock-mode
 | `POST /api/chat` | Chat surface (`{message, surface}`) |
 | `POST /api/chat/stream` | Durable Console stream (`{message, surface, attachmentIds}`), NDJSON response |
 | `POST /api/chat/attachments/session` | Create a validated resumable upload session |
-| `POST /api/chat/attachments/{id}/complete` | Verify uploaded object metadata and mark it ready |
+| `POST /api/chat/attachments/{id}/complete` | Verify bytes, quarantine, scan, and mark ready only on a clean verdict |
 | `GET /api/chat/runs/{id}/events?after=N` | Replay persisted stream events after sequence `N` |
 | `GET /api/internal/insights` | Engagement insights fed into ideation |
 

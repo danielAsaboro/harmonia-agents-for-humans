@@ -1,17 +1,18 @@
 import { z } from "zod";
 import {
   getAgentState,
+  claimAgentTick,
   setAgentState,
 } from "@/lib/firestore";
 import { internalRoute } from "@/lib/internalHandler";
-import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
+import { internalTenantHandler, isInternalAuthorized, unauthorized, withInternalTenant } from "@/lib/internalAuth";
 
 /** Reads a proactive-check cadence marker. */
 export async function GET(req: Request) {
   if (!isInternalAuthorized(req)) return unauthorized();
   const key = new URL(req.url).searchParams.get("key") ?? "";
   if (!key) return Response.json({ error: "missing key" }, { status: 400 });
-  return Response.json({ state: await getAgentState(key) });
+  return withInternalTenant(req, async () => Response.json({ state: await getAgentState(key) }));
 }
 
 const putSchema = z.object({
@@ -32,3 +33,18 @@ export async function PUT(req: Request) {
     return Response.json({ ok: true });
   });
 }
+
+const claimSchema = z.object({
+  key: z.string().min(1).max(200),
+  claimId: z.string().min(1).max(200),
+  leaseSeconds: z.number().int().min(10).max(300),
+}).strict();
+
+async function post(req: Request) {
+  const parsed = claimSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return Response.json({ error: "invalid tick claim" }, { status: 400 });
+  const claimed = await claimAgentTick(parsed.data.key, parsed.data.claimId, parsed.data.leaseSeconds);
+  return Response.json({ claimed });
+}
+
+export const POST = internalTenantHandler(post);

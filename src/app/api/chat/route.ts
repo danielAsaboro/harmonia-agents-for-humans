@@ -1,4 +1,4 @@
-import { tenantHandler } from "@/lib/auth";
+import { operatorTenantHandler } from "@/lib/auth";
 import { handleChat } from "@/lib/chatHandler";
 
 export type {
@@ -9,4 +9,4 @@ export type {
   PendingActionSummary,
 } from "@/lib/chatHandler";
 
-export const POST = tenantHandler((req: Request) => handleChat(req));
+export const POST = operatorTenantHandler((req: Request) => handleChat(req));

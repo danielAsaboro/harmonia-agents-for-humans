@@ -1,8 +1,10 @@
 # Harmonia
 
-**Harmonia is an asynchronous social media content agent for startups.** Give it a YouTube video — a founder interview, a product walkthrough, a podcast appearance — and it runs a full content-engine workflow: ingest, transcribe with Gemini, understand what is clip-worthy (moments, trend angles, meme angles), draft platform-native posts, then **stop and wait for explicit human approval** before anything leaves the building. Approved actions execute through official platform APIs with idempotent audit receipts, and published state is independently re-verified afterwards.
+**Harmonia is an asynchronous social media content agent for startups.** Give it an authorized YouTube video or upload and it creates a durable content job: ingest, transcribe, understand clip-worthy moments, draft platform-native posts, authorize exact effects, execute through idempotent commands, and record verification evidence. Consequential effects require either an exact human approval or an operator-created durable mandate whose evaluated payload is bound into the command.
 
-Operators drive Harmonia from three equivalent surfaces: the web dashboard, a conversational chat drawer (`/api/chat`), and a Telegram bot. Every surface shares one intent grammar and one approval gate; no side-effecting action happens without an approval receipt.
+The dashboard and authenticated web chat are active operator surfaces. Telegram has a verified webhook/nonce approval boundary in code, but live message ingestion and webhook configuration are not yet production-verified; do not present Telegram as an equivalent working surface until that evidence exists.
+
+> **Deployment evidence status (2026-08-26):** the currently reachable Cloud Run URL is a `preview`-mode web-only revision. Read-only project inspection found no deployed agent service, Pub/Sub subscription, or Cloud Scheduler job. It is useful for UI review, but it is not evidence that the asynchronous pipeline or authenticated Gemini/ADK vertical slice is live. The topology below describes the implemented repository and target full deployment.
 
 ## Why Harmonia is an agent—and where it deliberately is not
 
@@ -44,13 +46,15 @@ flowchart LR
 
     subgraph "Cloud Run — harmonia-agent (Python ADK worker)"
         PUSH["Pub/Sub push receiver"]
-        TG["Telegram long-poll worker"]
+        TG["Telegram webhook boundary<br/>not live-verified"]
         STAGES[ingest · transcribe · understand ·<br/>draft · publish · verify handlers]
         RUNTIME[Vertex AI Agent Engine<br/>managed runtime only]
         MAYA["Maya presentation specialist<br/>reference-only SurfacePlan"]
     end
 
     PS[[Pub/Sub topic]]
+    OUTBOX[(Firestore stage outbox)]
+    TICK[Cloud Scheduler<br/>OIDC durable tick]
     FS[(Firestore<br/>jobs · events · receipts)]
     MB[(Memory Bank<br/>workspace + brand scope)]
     GEMC[Role-aware ADK team<br/>Flash-Lite · Flash · Gemma 3 endpoint]
@@ -64,9 +68,11 @@ flowchart LR
     A2UI -- bounded IDs + summaries --> MAYA
     MAYA --> RUNTIME
     MAYA -- component graph + references --> A2UI
-    T -- long polling --> TG -- same /api/chat grammar --> CHAT
+    T -- secret-verified webhook<br/>not live-evidenced --> TG -- same intent contract --> CHAT
     T -- inline-button approvals --> API
-    API -- stage transitions --> PS
+    API -- transition + pending trigger<br/>one transaction --> OUTBOX
+    OUTBOX -- claimed publication --> PS
+    TICK -- recover outbox + due work --> PUSH
     API <--> FS
     PS -- push subscription --> PUSH --> STAGES
     STAGES --> RUNTIME <--> GEMC
@@ -114,7 +120,7 @@ cp .env.example .env.local   # set Identity Platform, internal service, and Agen
 ./scripts/dev.sh             # Firestore + Pub/Sub emulators, web :3000, ADK worker
 ```
 
-Open http://localhost:3000, continue with Google, then paste a YouTube URL and watch the workspace-scoped job move through the stages. Approve or reject proposed actions when the job reaches the approval gate.
+Open http://localhost:3000, continue with Google, then paste an authorized YouTube URL. A real cognitive job also requires the managed resources listed in [Configuration](./docs/configuration.mdx) and may incur provider charges. For a no-spend inspection, use the clearly labeled local fixtures; they prove UI and data contracts, not authenticated Google execution. Approve or reject proposed actions with the trusted action control when the job reaches the approval gate.
 
 ### Google Calendar synchronization
 
@@ -140,7 +146,7 @@ Click the chat bubble on the dashboard (or `POST /api/chat` with `{message}`):
 "create a job from https://youtu.be/<id>"
 "status of job <id>"          # or just "status"
 "show drafts for <id>"
-"approve job <id>"            # requires the signed-in workspace member
+"approve job <id>"            # opens deterministic confirmation; text is not authority
 ```
 
 All chat reads and mutations use the verified Google session and active workspace. Intent parsing never selects tenant identity.
@@ -149,9 +155,9 @@ The full Console additionally uses a durable `POST /api/chat/stream` NDJSON tran
 
 Generated approval detail never owns authorization controls. The existing server-protected approval dock remains authoritative and validates the persisted `jobId + actionId` before making a decision request. Raw hidden chain-of-thought is never requested or displayed.
 
-### Telegram bot
+### Telegram integration status
 
-Connect a bot and one allowed chat from workspace Settings. The worker discovers workspace connections independently and the bot can access only that workspace. Messages go through the same `/api/chat` grammar; **approvals require tapping an inline button**, which triggers the same decision endpoint the dashboard uses.
+The repository contains an allow-listed, secret-verified webhook callback path with one-time approval nonces. The older long-poll message path no longer has browser authority and is not a production chat surface. Live webhook setup, message submission, and approval evidence remain intentionally unverified in this repository.
 
 Run tests:
 
@@ -209,8 +215,8 @@ Google sign-in creates an isolated owner workspace. Customer jobs, memory, conne
 - **Idempotency**: every action carries a stable key derived from `(jobId, actionId, contentHash)` and atomically claims it before any external effect; duplicate deliveries return `already_applied` with the original receipt identity instead of creating duplicate posts. Only explicit operator replay persists a replay observation.
 - **Audit receipts**: each actual effect attempt records its applied or failed outcome, artifact URL, and platform response in Firestore. Duplicate suppression references that immutable receipt rather than creating another one.
 - **Resumable state**: jobs survive worker crashes; Pub/Sub redelivery plus server-side stage guards (`assertTransition`) prevent duplicated side effects. Failed jobs retry from their failure point.
-- **Managed cognition without split-brain state**: Agent Engine sessions are invocation-scoped and discarded; Memory Bank stores only eligible durable facts under exact workspace/brand scope.
-- **Long-horizon context**: Firestore preserves the resumable workflow and audit ledger across worker restarts; Memory Bank carries only approved decisions, verified outcomes, learn-stage counts, and explicit preferences into later jobs.
+- **Managed cognition without split-brain state**: deterministic operation-scoped Agent Engine sessions can be retrieved after a worker restart, but never authorize workflow changes; Memory Bank code accepts only eligible durable facts under exact workspace/brand scope.
+- **Long-horizon context**: Firestore preserves the resumable workflow and audit ledger across worker restarts. Memory Bank is designed to carry only approved decisions, verified outcomes, learn-stage counts, and explicit preferences into later jobs; authenticated cross-job retrieval remains an evidence gate, not a completed public claim.
 - **Production-data boundary**: tenant identity is derived server-side, traces contain metadata rather than prompts or customer content, and deployment enforces one selected Google Cloud region across stateful and model services.
 - **Failure honesty**: permanent failures are preserved as visible unresolved gaps; errors never become simulated success.
 
@@ -225,7 +231,7 @@ harmonia/
 │                                 # policy engine, decision writer, intent parser
 ├── agent/
 │   ├── harmonia_agent/          # FastAPI worker, ADK agents, YouTube/X/Gemini,
-│   │                             # Telegram long-poll bot
+│   │                             # Telegram webhook and nonce approval boundary
 │   └── tests/                    # pytest units
 ├── infra/                        # setup.sh (one-time) and deploy.sh (revisions)
 ├── scripts/dev.sh                # emulator-based local loop

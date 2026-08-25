@@ -35,7 +35,6 @@ export default function CalendarView() {
   const [view, setView] = useState<"month" | "agenda">("month");
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [items, setItems] = useState<CalendarItem[]>([]);
-  const [jobTitles, setJobTitles] = useState<Record<string, string>>({});
   const [goals, setGoals] = useState<{ weeklyPostTarget?: number } | null>(null);
   const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("");
@@ -50,7 +49,6 @@ export default function CalendarView() {
     ]);
     setEvents(cal.events ?? []);
     setItems(cal.items ?? []);
-    setJobTitles(cal.jobTitles ?? {});
     if (goalsRes?.goals) setGoals(goalsRes.goals);
     if (googleRes) setGoogleCalendar(googleRes);
   }, []);

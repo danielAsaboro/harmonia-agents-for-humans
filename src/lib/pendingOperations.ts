@@ -1,12 +1,13 @@
 import { db } from "./firestore";
 import { newId } from "./idempotency";
-import { assertResourceWorkspace, currentTenant, tenantCollectionPath } from "./tenancy";
+import { assertResourceWorkspace, currentTenant, tenantCollectionPath, tenantSubjectId } from "./tenancy";
 
 export type PendingOperationDecision = "approved" | "rejected";
 export type PendingOperationState = "pending" | PendingOperationDecision | "expired";
-export type PendingOperationHandler = "publish_preview" | "export_content_pack" | "generate_image" | "render_clip" | "render_reel" | "publish_x_post";
+export type PendingOperationHandler = "decide_job_action" | "publish_preview" | "export_content_pack" | "generate_image" | "render_clip" | "render_reel" | "publish_x_post";
 
 const REGISTERED_HANDLERS = new Set<PendingOperationHandler>([
+  "decide_job_action",
   "publish_preview",
   "export_content_pack",
   "generate_image",
@@ -47,6 +48,14 @@ export function decideOperationRecord(
   if (!REGISTERED_HANDLERS.has(operation.handler as PendingOperationHandler)) {
     throw new Error("operation handler is not registered");
   }
+  if (
+    typeof operation.arguments.jobId !== "string"
+    || typeof operation.arguments.actionId !== "string"
+    || typeof operation.arguments.payloadDigest !== "string"
+    || !/^[a-f0-9]{64}$/.test(operation.arguments.payloadDigest)
+  ) {
+    throw new Error("operation is not payload-bound");
+  }
   return {
     ...operation,
     state: decision,
@@ -70,7 +79,7 @@ export async function createPendingOperation(input: {
     id: newId(),
     workspaceId: tenant.workspaceId,
     brandId: tenant.brandId,
-    createdByUserId: tenant.userId,
+    createdByUserId: tenantSubjectId(tenant),
     handler: input.handler,
     title: input.title,
     description: input.description,
@@ -100,7 +109,7 @@ export async function decidePendingOperation(id: string, decision: PendingOperat
     if (!snap.exists) throw new Error("operation not found");
     const operation = snap.data() as PendingOperation;
     assertResourceWorkspace(tenant, operation);
-    const decided = decideOperationRecord(operation, decision, new Date(), tenant.userId);
+    const decided = decideOperationRecord(operation, decision, new Date(), tenantSubjectId(tenant));
     transaction.set(ref, decided);
     return decided;
   });

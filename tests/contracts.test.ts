@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   analysisSubmissionSchema,
   budgetReservationSchema,
+  budgetReservationResolutionSchema,
   draftsSubmissionSchema,
   failureSubmissionSchema,
   ingestSubmissionSchema,
   receiptSubmissionSchema,
+  stageExecutionClaimSchema,
+  stageExecutionFinalizeSchema,
   usageRecordSchema,
   verificationSubmissionSchema,
 } from "@/lib/contracts";
@@ -116,6 +119,33 @@ describe("internal contracts", () => {
       modelPolicy,
       createdAt: "2026-08-23T12:00:00+00:00",
     }).success).toBe(true);
+  });
+
+  it("accepts only explicit no-call release or uncertain reservation outcomes", () => {
+    expect(budgetReservationResolutionSchema.safeParse({
+      jobId: "j1", operationId: "j1:draft:nimi:0", outcome: "not_invoked",
+      reason: "provider validation failed before request dispatch",
+    }).success).toBe(true);
+    expect(budgetReservationResolutionSchema.safeParse({
+      jobId: "j1", operationId: "j1:draft:nimi:0", outcome: "uncertain",
+      reason: "request timed out after dispatch",
+    }).success).toBe(true);
+    expect(budgetReservationResolutionSchema.safeParse({
+      jobId: "j1", operationId: "j1:draft:nimi:0", outcome: "released",
+      reason: "ambiguous",
+    }).success).toBe(false);
+  });
+
+  it("requires opaque tokens and bounded outcomes for stage execution leases", () => {
+    expect(stageExecutionClaimSchema.safeParse({
+      jobId: "j1", stage: "draft", ownerId: "worker-1", claimToken: "s".repeat(32),
+    }).success).toBe(true);
+    expect(stageExecutionFinalizeSchema.safeParse({
+      jobId: "j1", stage: "draft", claimToken: "s".repeat(32), outcome: "applied",
+    }).success).toBe(true);
+    expect(stageExecutionFinalizeSchema.safeParse({
+      jobId: "j1", stage: "draft", claimToken: "short", outcome: "retry",
+    }).success).toBe(false);
   });
 
   it("rejects unpriced-looking amounts and malformed trace ids", () => {

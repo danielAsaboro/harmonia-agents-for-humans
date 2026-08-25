@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { tenantHandler } from "@/lib/auth";
+import { operatorTenantHandler } from "@/lib/auth";
 import { createAttachmentUploadSession } from "@/lib/chatAttachments";
 
 const requestSchema = z.object({
@@ -37,4 +37,4 @@ async function post(req: Request) {
   }
 }
 
-export const POST = tenantHandler(post);
+export const POST = operatorTenantHandler(post);

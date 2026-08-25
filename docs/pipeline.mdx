@@ -3,7 +3,7 @@ title: "The Pipeline"
 description: "Stage by stage: ingest, transcribe, understand, draft, approve, publish, verify, learn."
 ---
 
-Harmonia's pipeline is a linear stage machine. Each completed stage persists its payload to Firestore, then advances the job and publishes the next Pub/Sub trigger.
+Harmonia's pipeline is a linear stage machine. Each completed stage persists its payload and atomically records the next trigger in a Firestore outbox. Pub/Sub publication is claimed and finalized from that outbox; the durable tick recovers pending delivery after a crash.
 
 ```mermaid
 flowchart LR

@@ -180,6 +180,13 @@ function decimalToMicros(value: string): bigint {
 }
 
 export function verifyVerticalSliceEvidence(input: unknown): EvidenceVerification {
+  if (input && typeof input === "object") {
+    const candidate = input as { executionMode?: unknown; evidenceClassification?: unknown };
+    const replayClassifications = new Set(["fixture", "recorded_replay", "historical_replay"]);
+    if (replayClassifications.has(String(candidate.executionMode)) || replayClassifications.has(String(candidate.evidenceClassification))) {
+      return { ok: false, failures: [failure("replay_not_fresh_evidence", "executionMode", "Fixtures and recorded replays cannot be accepted as fresh authenticated provider or deployment evidence.")] };
+    }
+  }
   const parsed = verticalSliceEvidenceSchema.safeParse(input);
   if (!parsed.success) {
     return {

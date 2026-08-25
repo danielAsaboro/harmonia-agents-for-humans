@@ -10,10 +10,11 @@ COORDINATOR_MODEL_ID="${COORDINATOR_MODEL_ID:-gemini-3.5-flash-lite}"
 STRATEGIST_MODEL_ID="${STRATEGIST_MODEL_ID:-gemini-3.5-flash}"
 ANALYST_MODEL_ID="${ANALYST_MODEL_ID:-gemini-3.5-flash}"
 COPYWRITER_MODEL_ID="${COPYWRITER_MODEL_ID:-gemma-3-12b-it}"
+COPYWRITER_PROVIDER="${COPYWRITER_PROVIDER:-vertex_endpoint}"
 EDITOR_MODEL_ID="${EDITOR_MODEL_ID:-gemini-3.5-flash}"
 PLANNER_MODEL_ID="${PLANNER_MODEL_ID:-gemini-3.5-flash-lite}"
 PRESENTER_MODEL_ID="${PRESENTER_MODEL_ID:-gemini-3.5-flash}"
-GEMMA_VERTEX_ENDPOINT="${GEMMA_VERTEX_ENDPOINT:?set GEMMA_VERTEX_ENDPOINT to the deployed Gemma endpoint resource}"
+GEMMA_VERTEX_ENDPOINT="${GEMMA_VERTEX_ENDPOINT:-}"
 GEMMA_MAX_COST_USD="${GEMMA_MAX_COST_USD:-0.100000}"
 MODEL_PRICING_VERSION="${MODEL_PRICING_VERSION:-2026-08-23}"
 DEFAULT_JOB_BUDGET_USD="${DEFAULT_JOB_BUDGET_USD:-5.00}"
@@ -53,7 +54,13 @@ require_region() {
 }
 
 require_region "Agent Engine" "${AGENT_ENGINE_RESOURCE}"
-require_region "Gemma endpoint" "${GEMMA_VERTEX_ENDPOINT}"
+if [[ "${COPYWRITER_PROVIDER}" == "vertex_endpoint" ]]; then
+  : "${GEMMA_VERTEX_ENDPOINT:?set GEMMA_VERTEX_ENDPOINT when COPYWRITER_PROVIDER=vertex_endpoint}"
+  require_region "Gemma endpoint" "${GEMMA_VERTEX_ENDPOINT}"
+elif [[ "${COPYWRITER_PROVIDER}" != "gemini" ]]; then
+  echo "COPYWRITER_PROVIDER must be gemini or vertex_endpoint" >&2
+  exit 2
+fi
 require_region "Memory Bank" "${MEMORY_BANK_RESOURCE}"
 if [[ "${VERTEX_MEDIA_LOCATION}" != "${REGION}" ]]; then
   echo "Vertex media is in ${VERTEX_MEDIA_LOCATION}; required residency region is ${REGION}" >&2
@@ -88,6 +95,13 @@ for pair in GOOGLE_CLIENT_ID:google-oauth-client-id GOOGLE_CLIENT_SECRET:google-
   fi
   WEB_SECRETS="${WEB_SECRETS},${env_name}=${secret_name}:latest"
 done
+WEB_ENV="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GCS_BUCKET=${GCS_BUCKET},MODEL_ID=${MODEL_ID},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},DEFAULT_WORKSPACE_BUDGET_USD=${DEFAULT_WORKSPACE_BUDGET_USD},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-web,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false"
+if [[ -n "${MALWARE_SCANNER_URL:-}" ]] && secret_exists malware-scanner-token; then
+  WEB_SECRETS="${WEB_SECRETS},MALWARE_SCANNER_TOKEN=malware-scanner-token:latest"
+  WEB_ENV="${WEB_ENV},MALWARE_SCANNER_URL=${MALWARE_SCANNER_URL}"
+else
+  echo "  malware scanner not configured; upload completion remains fail-closed"
+fi
 
 echo "== Deploying harmonia-web (Next.js) =="
 gcloud run deploy harmonia-web \
@@ -97,7 +111,7 @@ gcloud run deploy harmonia-web \
   --allow-unauthenticated \
   --min-instances 0 --max-instances 2 \
   --set-build-env-vars "NEXT_PUBLIC_FIREBASE_API_KEY=${FIREBASE_API_KEY},NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN},NEXT_PUBLIC_FIREBASE_PROJECT_ID=${PROJECT_ID},NEXT_PUBLIC_FIREBASE_APP_ID=${FIREBASE_APP_ID}" \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GCS_BUCKET=${GCS_BUCKET},MODEL_ID=${MODEL_ID},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},DEFAULT_WORKSPACE_BUDGET_USD=${DEFAULT_WORKSPACE_BUDGET_USD},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-web,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false" \
+  --set-env-vars "${WEB_ENV}" \
   --set-secrets "${WEB_SECRETS}" \
   --project "${PROJECT_ID}"
 
@@ -120,7 +134,10 @@ for pair in GEMINI_API_KEY:gemini-api-key YOUTUBE_API_KEY:youtube-api-key; do
     echo "  secret '${secret_name}' not found; ${env_name} left unset"
   fi
 done
-AGENT_ENV="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},WEB_INTERNAL_URL=${WEB_URL},PUBSUB_STAGE_TOPIC=harmonia-stages,MODEL_ID=${MODEL_ID},COORDINATOR_MODEL_ID=${COORDINATOR_MODEL_ID},STRATEGIST_MODEL_ID=${STRATEGIST_MODEL_ID},ANALYST_MODEL_ID=${ANALYST_MODEL_ID},COPYWRITER_MODEL_ID=${COPYWRITER_MODEL_ID},EDITOR_MODEL_ID=${EDITOR_MODEL_ID},PLANNER_MODEL_ID=${PLANNER_MODEL_ID},PRESENTER_MODEL_ID=${PRESENTER_MODEL_ID},GEMMA_VERTEX_ENDPOINT=${GEMMA_VERTEX_ENDPOINT},GEMMA_MAX_COST_USD=${GEMMA_MAX_COST_USD},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},IMAGE_MAX_COST_USD=${IMAGE_MAX_COST_USD},AGENT_ENGINE_RESOURCE=${AGENT_ENGINE_RESOURCE},MEMORY_BANK_ENABLED=${MEMORY_BANK_ENABLED},MEMORY_BANK_RESOURCE=${MEMORY_BANK_RESOURCE},GENERATIVE_MEDIA_ENABLED=${GENERATIVE_MEDIA_ENABLED},ALLOW_GLOBAL_LYRIA=${ALLOW_GLOBAL_LYRIA},VERTEX_MEDIA_LOCATION=${VERTEX_MEDIA_LOCATION},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-agent,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false"
+AGENT_ENV="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},WEB_INTERNAL_URL=${WEB_URL},PUBSUB_STAGE_TOPIC=harmonia-stages,MODEL_ID=${MODEL_ID},COORDINATOR_MODEL_ID=${COORDINATOR_MODEL_ID},STRATEGIST_MODEL_ID=${STRATEGIST_MODEL_ID},ANALYST_MODEL_ID=${ANALYST_MODEL_ID},COPYWRITER_PROVIDER=${COPYWRITER_PROVIDER},COPYWRITER_MODEL_ID=${COPYWRITER_MODEL_ID},EDITOR_MODEL_ID=${EDITOR_MODEL_ID},PLANNER_MODEL_ID=${PLANNER_MODEL_ID},PRESENTER_MODEL_ID=${PRESENTER_MODEL_ID},GEMMA_MAX_COST_USD=${GEMMA_MAX_COST_USD},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},IMAGE_MAX_COST_USD=${IMAGE_MAX_COST_USD},AGENT_ENGINE_RESOURCE=${AGENT_ENGINE_RESOURCE},MEMORY_BANK_ENABLED=${MEMORY_BANK_ENABLED},MEMORY_BANK_RESOURCE=${MEMORY_BANK_RESOURCE},GENERATIVE_MEDIA_ENABLED=${GENERATIVE_MEDIA_ENABLED},ALLOW_GLOBAL_LYRIA=${ALLOW_GLOBAL_LYRIA},VERTEX_MEDIA_LOCATION=${VERTEX_MEDIA_LOCATION},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-agent,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false"
+if [[ "${COPYWRITER_PROVIDER}" == "vertex_endpoint" ]]; then
+  AGENT_ENV="${AGENT_ENV},GEMMA_VERTEX_ENDPOINT=${GEMMA_VERTEX_ENDPOINT}"
+fi
 
 echo "== Deploying harmonia-agent (Python ADK worker) =="
 pushd agent >/dev/null
@@ -144,29 +161,68 @@ gcloud run services add-iam-policy-binding harmonia-agent \
   --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role roles/run.invoker >/dev/null
 
+gcloud run services add-iam-policy-binding harmonia-agent \
+  --region "${REGION}" --project "${PROJECT_ID}" \
+  --member "serviceAccount:harmonia-scheduler@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role roles/run.invoker >/dev/null
+
+gcloud run services add-iam-policy-binding harmonia-agent \
+  --region "${REGION}" --project "${PROJECT_ID}" \
+  --member "serviceAccount:harmonia-pubsub-push@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role roles/run.invoker >/dev/null
+
 gcloud run services update harmonia-web \
   --region "${REGION}" --project "${PROJECT_ID}" \
   --update-env-vars "AGENT_SERVICE_URL=${AGENT_URL}" >/dev/null
 
 echo "== Wiring Pub/Sub push subscription =="
-gcloud pubsub subscriptions create harmonia-stages-agent-push \
-  --topic harmonia-stages \
-  --push-endpoint "${AGENT_URL}/pubsub/push" \
-  --oidc-service-account-email "harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
-  --oidc-token-audience "${AGENT_URL}/pubsub/push" \
-  --ack-deadline 300 \
-  --dead-letter-topic projects/${PROJECT_ID}/topics/harmonia-stages-dlq \
-  --max-delivery-attempts 5 \
-  --project "${PROJECT_ID}" 2>/dev/null || echo "subscription exists"
-
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format 'value(projectNumber)')"
 gcloud pubsub topics add-iam-policy-binding harmonia-stages-dlq \
   --member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
-  --role roles/pubsub.publisher --project "${PROJECT_ID}" >/dev/null 2>&1 || true
+  --role roles/pubsub.publisher --project "${PROJECT_ID}" >/dev/null
+
+if gcloud pubsub subscriptions describe harmonia-stages-agent-push --project "${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud pubsub subscriptions update harmonia-stages-agent-push \
+    --push-endpoint "${AGENT_URL}/pubsub/push" \
+    --push-auth-service-account "harmonia-pubsub-push@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --push-auth-token-audience "${AGENT_URL}/pubsub/push" \
+    --ack-deadline 300 \
+    --dead-letter-topic "projects/${PROJECT_ID}/topics/harmonia-stages-dlq" \
+    --max-delivery-attempts 5 \
+    --project "${PROJECT_ID}"
+else
+  gcloud pubsub subscriptions create harmonia-stages-agent-push \
+    --topic harmonia-stages \
+    --push-endpoint "${AGENT_URL}/pubsub/push" \
+    --push-auth-service-account "harmonia-pubsub-push@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --push-auth-token-audience "${AGENT_URL}/pubsub/push" \
+    --ack-deadline 300 \
+    --dead-letter-topic "projects/${PROJECT_ID}/topics/harmonia-stages-dlq" \
+    --max-delivery-attempts 5 \
+    --project "${PROJECT_ID}"
+fi
 
 gcloud pubsub subscriptions add-iam-policy-binding harmonia-stages-agent-push \
-  --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
   --role roles/pubsub.subscriber --project "${PROJECT_ID}" >/dev/null
+
+echo "== Wiring durable autonomy tick =="
+SCHEDULER_ARGS=(
+  --location "${REGION}"
+  --schedule "* * * * *"
+  --time-zone "Etc/UTC"
+  --uri "${AGENT_URL}/durable/tick"
+  --http-method POST
+  --oidc-service-account-email "harmonia-scheduler@${PROJECT_ID}.iam.gserviceaccount.com"
+  --oidc-token-audience "${AGENT_URL}"
+  --attempt-deadline 300s
+  --project "${PROJECT_ID}"
+)
+if gcloud scheduler jobs describe harmonia-durable-autonomy --location "${REGION}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud scheduler jobs update http harmonia-durable-autonomy "${SCHEDULER_ARGS[@]}"
+else
+  gcloud scheduler jobs create http harmonia-durable-autonomy "${SCHEDULER_ARGS[@]}"
+fi
 
 echo
 echo "Deployed. Dashboard: ${WEB_URL}"

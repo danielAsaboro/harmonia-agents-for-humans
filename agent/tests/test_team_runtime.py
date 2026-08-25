@@ -19,10 +19,16 @@ class _RemoteAgent:
         self.created: list[dict] = []
         self.queries: list[dict] = []
         self.deleted: list[dict] = []
+        self.sessions: dict[str, dict] = {}
+
+    async def async_get_session(self, **kwargs):
+        return self.sessions.get(kwargs["session_id"])
 
     async def async_create_session(self, **kwargs):
         self.created.append(kwargs)
-        return {"id": "managed-session-1"}
+        session = {"id": kwargs["session_id"], "state": dict(kwargs["state"])}
+        self.sessions[kwargs["session_id"]] = session
+        return session
 
     async def async_stream_query(self, **kwargs):
         self.queries.append(kwargs)
@@ -63,7 +69,7 @@ def test_runtime_module_exposes_managed_runtime_only():
     assert not hasattr(runtime, "RuntimeMode")
 
 
-def test_agent_engine_runtime_seeds_state_collects_deltas_and_discards_session():
+def test_agent_engine_runtime_seeds_a_deterministic_persistent_session_and_collects_deltas():
     remote = _RemoteAgent()
     runtime = AgentEngineTeamRuntime(
         resource_name="projects/p/locations/us-central1/reasoningEngines/42",
@@ -74,26 +80,49 @@ def test_agent_engine_runtime_seeds_state_collects_deltas_and_discards_session()
         specialist="sophia_analyst",
         payload={"title": "Demo", "transcript": "proof"},
         user_id="job-123",
+        session_key="job-123:understand:0:sophia_analyst",
     ))
 
     assert state["analysis_result"]["summary"] == "Managed analysis"
     assert remote.created == [{
         "user_id": "job-123",
+        "session_id": remote.created[0]["session_id"],
         "state": {
             "title": "Demo",
             "transcript": "proof",
             "requested_specialist": "sophia_analyst",
         },
     }]
-    assert remote.queries[0]["session_id"] == "managed-session-1"
-    assert remote.deleted == [{"user_id": "job-123", "session_id": "managed-session-1"}]
+    assert remote.created[0]["session_id"].startswith("harmonia-")
+    assert remote.queries[0]["session_id"] == remote.created[0]["session_id"]
+    assert remote.deleted == []
+
+
+def test_runtime_resumes_the_same_managed_session_after_process_restart():
+    remote = _RemoteAgent()
+    kwargs = dict(
+        specialist="sophia_analyst", payload={"title": "Demo", "transcript": "proof"},
+        user_id="job-123", session_key="job-123:understand:0:sophia_analyst",
+    )
+    first = AgentEngineTeamRuntime(
+        resource_name="projects/p/locations/us-central1/reasoningEngines/42", client=_Client(remote),
+    )
+    asyncio.run(first.invoke(**kwargs))
+    restarted = AgentEngineTeamRuntime(
+        resource_name="projects/p/locations/us-central1/reasoningEngines/42", client=_Client(remote),
+    )
+    asyncio.run(restarted.invoke(**kwargs))
+
+    assert len(remote.created) == 1
+    assert len(remote.queries) == 2
+    assert remote.queries[0]["session_id"] == remote.queries[1]["session_id"]
 
 
 def test_runtime_never_mutates_the_caller_payload_or_retrieved_session_state():
     class ReadOnlySessionRemote(_RemoteAgent):
         async def async_create_session(self, **kwargs):
             self.created.append(kwargs)
-            return {"id": "managed-session-1", "state": _MutationTrap()}
+            return {"id": kwargs["session_id"], "state": _MutationTrap()}
 
     class _MutationTrap(dict):
         def __setitem__(self, key, value):
@@ -108,7 +137,9 @@ def test_runtime_never_mutates_the_caller_payload_or_retrieved_session_state():
         resource_name="projects/p/locations/us-central1/reasoningEngines/42",
         client=_Client(ReadOnlySessionRemote()),
     )
-    asyncio.run(runtime.invoke(specialist="sophia_analyst", payload=payload, user_id="job-123"))
+    asyncio.run(runtime.invoke(
+        specialist="sophia_analyst", payload=payload, user_id="job-123", session_key="op-1",
+    ))
     assert payload == original
 
 
@@ -127,6 +158,7 @@ def test_agent_engine_runtime_rejects_events_without_state_and_does_not_fallback
             specialist="sophia_analyst",
             payload={"title": "Demo", "transcript": "proof"},
             user_id="job-123",
+            session_key="op-1",
         ))
 
 
@@ -151,12 +183,18 @@ def test_agent_engine_deployment_config_is_narrow_and_reproducible():
             "COORDINATOR_MODEL_ID": "gemini-3.5-flash-lite",
             "PRESENTER_MODEL_ID": "gemini-3.5-flash",
             "GEMMA_VERTEX_ENDPOINT": "projects/p/locations/us-central1/endpoints/1",
+            "GOOGLE_CLOUD_PROJECT": "must-be-runtime-injected",
+            "GOOGLE_CLOUD_LOCATION": "must-be-runtime-injected",
             "INTERNAL_API_TOKEN": "must-not-be-forwarded",
         },
     )
     assert config["staging_bucket"] == "gs://harmonia-agent-staging"
     assert config["service_account"] == "harmonia-agent@p.iam.gserviceaccount.com"
-    assert config["requirements"] == ["google-cloud-aiplatform[agent_engines,adk]>=1.153,<2"]
+    assert "google-cloud-aiplatform[agent_engines,adk]>=1.153,<2" in config["requirements"]
+    assert "google-adk>=2.7,<3" in config["requirements"]
+    assert "opentelemetry-exporter-otlp-proto-grpc>=1.42,<2" in config["requirements"]
+    assert "google-cloud-firestore>=2.19" in config["requirements"]
+    assert config["extra_packages"] == ["harmonia_agent"]
     assert config["env_vars"] == {
         "COORDINATOR_MODEL_ID": "gemini-3.5-flash-lite",
         "PRESENTER_MODEL_ID": "gemini-3.5-flash",

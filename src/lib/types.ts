@@ -31,6 +31,7 @@ export interface JobConfig {
   /** Operator-supplied topic/brief for concept jobs that skip ingest+transcribe. */
   brief?: string;
   platforms: string[];
+  sourceRights?: import("./sourceRights").SourceRightsAuthorization;
 }
 
 export interface Job {
@@ -41,6 +42,9 @@ export interface Job {
   createdAt: string;
   updatedAt: string;
   status: JobStatus;
+  terminalOutcome?: "succeeded" | "partial" | "failed" | "unresolved";
+  retentionDeleteAfter?: string;
+  retentionHold?: boolean;
   stage: Stage;
   config: JobConfig;
   ingestedTitle?: string;
@@ -144,6 +148,8 @@ export interface PlannedAction {
   requiresApproval: boolean;
   approvalState: "not_required" | "pending" | "approved" | "rejected";
   payload: Record<string, unknown>;
+  /** Server-computed when an action is presented for an approval decision. */
+  payloadDigest?: string;
   state: "planned" | "executed" | "skipped" | "failed";
 }
 
@@ -152,8 +158,13 @@ export interface ApprovalDecision {
   jobId: string;
   actionId: string;
   decision: "approved" | "rejected";
-  actorType: "human_operator";
-  actorUserId: string;
+  payloadDigest: string;
+  actorType: "firebase_operator" | "telegram_operator" | "human_operator";
+  actorSubjectId?: string;
+  authenticationId?: string;
+  channel?: "dashboard" | "telegram";
+  /** Legacy records only; new decisions never write this field. */
+  actorUserId?: string;
   operationId: string;
   traceId: string;
   decidedAt: string;
@@ -347,6 +358,7 @@ export interface ContentItem {
   status: ContentItemStatus;
   publishMode: PublishMode;
   scheduledFor?: string;
+  effectCommandId?: string;
   revisions?: ContentItemRevision[];
   /** Rendered media attached to this post (image/clip action ids on the parent job). */
   assetActionIds?: string[];

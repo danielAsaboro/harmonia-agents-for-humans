@@ -3,7 +3,11 @@ title: "Harmonia"
 description: "Autonomous social media content engine for startups — video in, verified posts out."
 ---
 
-Harmonia turns raw material — a YouTube video or a plain topic brief — into drafted, approved, published, and **independently verified** social media posts. It runs asynchronously in the background, proposes ideas on its own, and never publishes without explicit operator approval.
+Harmonia turns authorized source material into a durable social-content job: understand the source, draft platform-native assets, wait for authority, execute an exact effect, and independently verify the result. Ambiguous creative work belongs to Google ADK agents; workflow truth, authority, cost, and side effects remain deterministic.
+
+<Warning>
+  **Evidence status (August 26, 2026):** repository behavior and the local Firestore/Pub/Sub workflow have automated evidence. The reachable Cloud Run revision is a web-only preview. It does not prove a deployed worker, Scheduler, Agent Engine invocation, Memory Bank retrieval, or live publish. Use the [evidence runbook](/evidence-runbook) before making any authenticated-cloud claim.
+</Warning>
 
 <CardGroup cols={2}>
   <Card title="Run Harmonia locally" icon="rocket" href="/quickstart">
@@ -26,21 +30,21 @@ Harmonia turns raw material — a YouTube video or a plain topic brief — into 
   </Card>
 </CardGroup>
 
-## What makes it agentic
+## What is implemented
 
-- **Autonomous pipeline**: ingest → transcribe → understand → draft runs end-to-end via Pub/Sub with persisted, resumable job state
+- **Bounded autonomous pipeline**: ingest → transcribe → understand → draft is designed to run through recoverable Pub/Sub stages with Firestore as workflow truth
 - **Proactive intelligence**: a background agent scans trends and your own engagement metrics on a schedule and proposes topics *with reasons and sources* (see [Proactive Agent](/proactive-agent))
-- **Meaningful action**: it publishes to X through the official API, renders real media with ffmpeg, and exports content packs
-- **Human-in-the-loop**: publishing, scheduling, and proposal acceptance all pass through explicit approval gates
+- **Meaningful action adapters**: official X publishing, real ffmpeg rendering, and content-pack export are bounded behind typed effect contracts
+- **Human authority**: consequential effects require an exact approval or an operator-created durable mandate whose evaluated payload is bound into the command
 - **Auditable**: publishing and export effects produce idempotent receipts and independent verification; Calendar mutations retain their latest verified projection or verified absence on the content item
 - **Calendar-aware**: scheduled content can be explicitly synchronized to an app-created Google Calendar without exposing unrelated calendars
 
 ## The short version
 
-1. An operator drops a YouTube URL into chat (dashboard or Telegram), or approves one of Harmonia's own topic proposals
+1. An operator submits an authorized YouTube URL or upload in the dashboard; Telegram's webhook boundary exists in code but is not yet live-evidenced
 2. Gemini 3.5 transcribes the video, finds clip-worthy moments, trend angles, and meme angles
 3. Harmonia delegates to Ryan and Sophia, then Flo runs Nimi → Dara → Temi before proposing gated actions
-4. Everything pauses at an approval gate. The operator approves, rejects, or schedules
+4. Proposed consequential effects wait for an exact approval or a matching durable mandate. Natural-language approval only opens the deterministic confirmation flow
 5. Approved actions execute with idempotency keys; every result is re-fetched independently and recorded as verification evidence
 6. Engagement metrics flow back into future ideation
 
@@ -51,10 +55,15 @@ Harmonia turns raw material — a YouTube video or a plain topic brief — into 
 | Models | Gemini 3.5 Flash / Flash-Lite plus Gemma 3 12B IT, selected by role policy |
 | Agent framework | Google ADK (coordinator, specialists, sequential review workflow) |
 | Web app | Next.js App Router |
-| Worker | Python FastAPI + background threads |
+| Worker | Python FastAPI on Cloud Run; Pub/Sub push plus Scheduler OIDC tick |
 | State | Cloud Firestore |
 | Messaging | Pub/Sub stage triggers |
 | Media | ffmpeg (cuts, reframes, captioned clips, reels) |
 | Publishing | X API v2 |
 
-Ready to run it? Head to the [Quickstart](/quickstart).
+## Read by goal
+
+- **Evaluate the product:** [Architecture](/architecture), [Operational model](/operational-model), and [Approval and audit](/approval-and-audit)
+- **Inspect locally:** [Quickstart](/quickstart) and [Development](/development)
+- **Deploy:** [Configuration](/configuration) and [Deployment](/deployment)
+- **Prove claims:** [Cloud proof](/cloud-proof) and [Evidence runbook](/evidence-runbook)

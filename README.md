@@ -53,6 +53,8 @@ flowchart LR
     end
 
     PS[[Pub/Sub topic]]
+    OUTBOX[(Firestore stage outbox)]
+    TICK[Cloud Scheduler<br/>OIDC durable tick]
     FS[(Firestore<br/>jobs · events · receipts)]
     MB[(Memory Bank<br/>workspace + brand scope)]
     GEMC[Role-aware ADK team<br/>Flash-Lite · Flash · Gemma 3 endpoint]
@@ -66,9 +68,11 @@ flowchart LR
     A2UI -- bounded IDs + summaries --> MAYA
     MAYA --> RUNTIME
     MAYA -- component graph + references --> A2UI
-    T -- long polling --> TG -- same /api/chat grammar --> CHAT
+    T -- secret-verified webhook<br/>not live-evidenced --> TG -- same intent contract --> CHAT
     T -- inline-button approvals --> API
-    API -- stage transitions --> PS
+    API -- transition + pending trigger<br/>one transaction --> OUTBOX
+    OUTBOX -- claimed publication --> PS
+    TICK -- recover outbox + due work --> PUSH
     API <--> FS
     PS -- push subscription --> PUSH --> STAGES
     STAGES --> RUNTIME <--> GEMC
@@ -116,7 +120,7 @@ cp .env.example .env.local   # set Identity Platform, internal service, and Agen
 ./scripts/dev.sh             # Firestore + Pub/Sub emulators, web :3000, ADK worker
 ```
 
-Open http://localhost:3000, continue with Google, then paste a YouTube URL and watch the workspace-scoped job move through the stages. Approve or reject proposed actions when the job reaches the approval gate.
+Open http://localhost:3000, continue with Google, then paste an authorized YouTube URL. A real cognitive job also requires the managed resources listed in [Configuration](./docs/configuration.mdx) and may incur provider charges. For a no-spend inspection, use the clearly labeled local fixtures; they prove UI and data contracts, not authenticated Google execution. Approve or reject proposed actions with the trusted action control when the job reaches the approval gate.
 
 ### Google Calendar synchronization
 
@@ -142,7 +146,7 @@ Click the chat bubble on the dashboard (or `POST /api/chat` with `{message}`):
 "create a job from https://youtu.be/<id>"
 "status of job <id>"          # or just "status"
 "show drafts for <id>"
-"approve job <id>"            # requires the signed-in workspace member
+"approve job <id>"            # opens deterministic confirmation; text is not authority
 ```
 
 All chat reads and mutations use the verified Google session and active workspace. Intent parsing never selects tenant identity.
@@ -227,7 +231,7 @@ harmonia/
 │                                 # policy engine, decision writer, intent parser
 ├── agent/
 │   ├── harmonia_agent/          # FastAPI worker, ADK agents, YouTube/X/Gemini,
-│   │                             # Telegram long-poll bot
+│   │                             # Telegram webhook and nonce approval boundary
 │   └── tests/                    # pytest units
 ├── infra/                        # setup.sh (one-time) and deploy.sh (revisions)
 ├── scripts/dev.sh                # emulator-based local loop

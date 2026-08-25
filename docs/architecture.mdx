@@ -24,6 +24,7 @@ flowchart TB
         FS[(Firestore<br/>workspaces/{workspaceId}/...)]
         LEDGER[(Budget reservations<br/>+ immutable usage records)]
         PS[Pub/Sub topics]
+        OUTBOX[(Stage outbox<br/>pending + claimed triggers)]
         STOR[Asset store<br/>.data/artifacts or GCS]
     end
 
@@ -33,6 +34,7 @@ flowchart TB
         CONTENT[Direct media operations<br/>transcription + image generation]
         PROACT[Proactive agent<br/>trend scan + engagement watch]
         SCHED[Scheduler dispatcher<br/>due content items]
+        TICK[Durable tick<br/>isolated recovery arms]
         X[X API v2 client]
         FFMPEG[ffmpeg skills<br/>clips, reels, images]
     end
@@ -62,7 +64,8 @@ flowchart TB
     UI --> CALSYNC --> GCAL
     CALSYNC --> FS
     API --> LEDGER
-    API --> PS
+    API -- transaction: state + trigger --> OUTBOX
+    OUTBOX -- claimed publication --> PS
     PS --> PULL
     PULL --> CONTENT --> YT
     PULL --> RUNTIME --> COORD
@@ -79,6 +82,9 @@ flowchart TB
     PROACT --> HN
     PROACT --> COORD
     SCHED --> X
+    TICK --> OUTBOX
+    TICK --> SCHED
+    TICK --> PROACT
     CONTENT --> FS
     YT --> SPECIALISTS
     X --> FS

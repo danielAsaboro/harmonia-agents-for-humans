@@ -1,0 +1,31 @@
+import { readFileSync } from "node:fs";
+
+import { describe, expect, it } from "vitest";
+
+describe("public documentation truth boundaries", () => {
+  const readme = readFileSync("README.md", "utf8");
+  const overview = readFileSync("docs/index.mdx", "utf8");
+  const quickstart = readFileSync("docs/quickstart.mdx", "utf8");
+  const deployment = readFileSync("docs/deployment.mdx", "utf8");
+
+  it("shows the recoverable stage outbox instead of direct transition publication", () => {
+    expect(readme).toContain("one transaction --> OUTBOX");
+    expect(readme).not.toContain("API -- stage transitions --> PS");
+  });
+
+  it("does not describe Telegram long polling as the production surface", () => {
+    expect(readme).not.toContain("T -- long polling");
+    expect(readme).toContain("not live-evidenced");
+  });
+
+  it("separates fixture inspection from authenticated evidence", () => {
+    expect(quickstart).toContain("Fixtures are never submission evidence");
+    expect(quickstart).toContain("model-parsed text cannot authorize");
+    expect(overview).toContain("web-only preview");
+  });
+
+  it("documents Agent Engine as mandatory in the managed worker", () => {
+    expect(deployment).toContain("mandatory in the managed worker");
+    expect(deployment).not.toContain("optional explicit production mode");
+  });
+});

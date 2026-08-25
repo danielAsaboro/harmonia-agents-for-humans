@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -20,6 +21,16 @@ from .web_client import report_usage, reserve_budget, resolve_budget_reservation
 
 MODEL = "gemini-3.5-flash"
 IMAGE_MODEL = os.environ.get("IMAGE_MODEL_ID", "gemini-3.5-flash-image")
+logger = logging.getLogger("harmonia.content")
+
+
+def _resolve_without_masking(
+    resolver: Callable[[dict[str, object]], None], payload: dict[str, object],
+) -> None:
+    try:
+        resolver(payload)
+    except Exception:  # noqa: BLE001 - preserve the causal provider failure
+        logger.exception("budget resolution failed for operation %s", payload["operationId"])
 
 
 def _client() -> genai.Client:
@@ -118,7 +129,7 @@ def transcribe_audio(
             usage_reporter(record.to_wire())
             return result
     except Exception:  # noqa: BLE001 - preserve the original provider failure
-        budget_resolver({
+        _resolve_without_masking(budget_resolver, {
             "jobId": invocation.job_id,
             "operationId": operation_id,
             "outcome": "uncertain" if dispatched else "not_invoked",
@@ -198,7 +209,7 @@ def generate_image(
             usage_reporter(record.to_wire())
             return img.image_bytes, getattr(img, "mime_type", None) or "image/png"
     except Exception as exc:  # noqa: BLE001 - normalized for stage failure classification
-        budget_resolver({
+        _resolve_without_masking(budget_resolver, {
             "jobId": invocation.job_id,
             "operationId": operation_id,
             "outcome": "uncertain" if dispatched else "not_invoked",

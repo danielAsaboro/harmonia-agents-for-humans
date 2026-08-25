@@ -687,15 +687,20 @@ async def run_publish(job_id: str) -> None:
             outcome, detail["error"] = "failed", str(exc)
         except Exception:
             if budget_operation_id is not None:
-                resolve_budget_reservation({
-                    "jobId": job_id,
-                    "operationId": budget_operation_id,
-                    "outcome": "uncertain" if budget_dispatched else "not_invoked",
-                    "reason": (
-                        "paid media failed after provider dispatch"
-                        if budget_dispatched else "paid media failed before provider dispatch"
-                    ),
-                })
+                try:
+                    resolve_budget_reservation({
+                        "jobId": job_id,
+                        "operationId": budget_operation_id,
+                        "outcome": "uncertain" if budget_dispatched else "not_invoked",
+                        "reason": (
+                            "paid media failed after provider dispatch"
+                            if budget_dispatched else "paid media failed before provider dispatch"
+                        ),
+                    })
+                except Exception:  # noqa: BLE001 - preserve the causal provider failure
+                    logger.exception(
+                        "budget resolution failed for operation %s", budget_operation_id,
+                    )
             raise
 
         web_post("/api/internal/receipt", {

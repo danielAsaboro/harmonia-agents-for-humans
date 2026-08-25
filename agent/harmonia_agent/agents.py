@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import asyncio
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
@@ -54,6 +55,8 @@ from .usage import (
     estimate_request_tokens,
 )
 from .web_client import report_usage, reserve_budget, resolve_budget_reservation
+
+logger = logging.getLogger("harmonia.agents")
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -540,15 +543,21 @@ async def _run_coordinator(
     except Exception:  # noqa: BLE001 - preserve original runtime/provider failure
         if invocation is not None:
             for reservation in reserved:
-                budget_resolver({
-                    "jobId": invocation.job_id,
-                    "operationId": reservation["operationId"],
-                    "outcome": "uncertain" if dispatched else "not_invoked",
-                    "reason": (
-                        "agent team failed after managed runtime dispatch"
-                        if dispatched else "agent team failed before managed runtime dispatch"
-                    ),
-                })
+                try:
+                    budget_resolver({
+                        "jobId": invocation.job_id,
+                        "operationId": reservation["operationId"],
+                        "outcome": "uncertain" if dispatched else "not_invoked",
+                        "reason": (
+                            "agent team failed after managed runtime dispatch"
+                            if dispatched else "agent team failed before managed runtime dispatch"
+                        ),
+                    })
+                except Exception:  # noqa: BLE001 - never mask the causal provider failure
+                    logger.exception(
+                        "budget resolution failed for operation %s",
+                        reservation["operationId"],
+                    )
         raise
 
 

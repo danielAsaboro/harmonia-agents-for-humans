@@ -103,13 +103,6 @@ def mock_analyze(title: str, channel: str, transcript: str, prior_learnings: str
     }
 
 
-def mock_ideate(brief: str, prior_learnings: str | None = None) -> dict:
-    """Same shape as analyze(); moments carry zero timestamps (no media timeline)."""
-    result = mock_analyze(brief[:60], "operator", "")
-    result["summary"] = f"(mock) Positioning summary for brief: {brief[:140]}"
-    return result
-
-
 def mock_drafts(title: str, analysis: dict) -> list[dict]:
     """3 X drafts ≤280 chars referencing moment/angle ids from the analysis."""
     moment_ids = [m["id"] for m in (analysis.get("moments") or [])]
@@ -167,44 +160,6 @@ def mock_plan_actions(drafts: list[dict]) -> dict:
     return {"actions": actions}
 
 
-def mock_propose_ideas(signals: list[dict]) -> dict:
-    """2-3 topic proposals derived from signals, with reasons + sources."""
-    ideas = []
-    for s in signals[:3]:
-        title = str(s.get("title", ""))[:140]
-        url = str(s.get("url", ""))
-        ideas.append({
-            "topic": f"Founder take: {title}",
-            "angle": "Contrarian operator perspective grounded in what we shipped this week",
-            "reason": f"Currently front-page news ({s.get('points', 0)} points, {s.get('comments', 0)} comments) - high attention window for a credible founder response.",
-            "sources": [url] if url else [],
-            "suggestedPost": "",
-        })
-    return {"ideas": ideas}
-
-
-def mock_propose_gap_fillers(goals_text: str, learnings_text: str) -> dict:
-    """Ideas to fill calendar gaps, grounded in goals and past performance."""
-    return {
-        "ideas": [
-            {
-                "topic": "Teardown: one metric we moved this quarter and exactly how",
-                "angle": "Numbers-first storytelling; matches your activation-time narrative",
-                "reason": f"Calendar has open slots in the next 7 days and your audience rewards concrete before/after stories. Goals on file: {goals_text[:80] or 'consistent posting'}.",
-                "sources": [],
-                "suggestedPost": "",
-            },
-            {
-                "topic": "Build-in-public update: what shipped this week and why it matters",
-                "angle": "Weekly cadence anchor; low effort, high trust",
-                "reason": f"Fills the gap while reinforcing consistency - your top posts came from operational honesty. {learnings_text[:100]}",
-                "sources": [],
-                "suggestedPost": "",
-            },
-        ]
-    }
-
-
 def mock_ask(question: str) -> str:
     """Deterministic liaison answer for offline dev; cites mock tool shapes."""
     return (
@@ -213,18 +168,3 @@ def mock_ask(question: str) -> str:
         "get_engagement_insights, get_job_status, or suggest_posting_windows "
         "and citing only their live results."
     )
-
-
-def mock_propose_recycle(post_text: str, likes: int) -> dict:
-    """A refresh angle for an older top-performing post."""
-    return {
-        "ideas": [
-            {
-                "topic": f"Refresh of a proven winner: {post_text[:110]}",
-                "angle": "Same core insight, new framing: what happened AFTER the original post",
-                "reason": f"This post earned {likes} likes and is aging out of feeds. Evergreen winners deserve a second run with updated proof.",
-                "sources": [],
-                "suggestedPost": "",
-            }
-        ]
-    }

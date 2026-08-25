@@ -7,8 +7,8 @@ import { advance } from "@/lib/advance";
 export async function POST(req: Request) {
   if (!isInternalAuthorized(req)) return unauthorized();
   return internalRoute(req, analysisSubmissionSchema, async (body) => {
-    await saveAnalysis(body.jobId, body.moments, body.angles, body.summary, body.strategy);
+    await saveAnalysis(body.jobId, body.moments, body.angles, body.summary);
     await appendEvent(body.jobId, "understand", `analysis: ${body.moments.length} clip moment(s), ${body.angles.length} trend/meme angle(s), with ${body.modelUsed}`, "agent");
-    return advance(body.jobId, "understand", "analysis complete; drafting platform posts");
+    return advance(body.jobId, "understand", "analysis complete; Ryan strategy dispatched");
   });
 }

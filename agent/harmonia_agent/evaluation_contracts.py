@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from .agent_models import AnalysisResult, DraftSet
+from .agent_models import AnalysisResult, ContentStrategy, DraftSet, StrategistInput
 
 
 class EvaluationFailure(BaseModel):
@@ -125,6 +125,32 @@ def evaluate_analysis(
                 "quote_not_in_transcript", "moment quote is absent from transcript", path,
             ))
     return _result(failures)
+
+
+def evaluate_strategy(
+    *, strategist_input: StrategistInput, strategy: ContentStrategy | Mapping[str, Any],
+) -> EvaluationCaseResult:
+    """Run Ryan's schema, grounding, and authority boundary as an eval contract."""
+    try:
+        parsed = strategy if isinstance(strategy, ContentStrategy) else ContentStrategy.model_validate(strategy)
+    except Exception:
+        return _result([_failure("incomplete_strategy", "strategy does not satisfy the strict contract")])
+    from .agents import AgentProtocolError, validate_strategy_grounding
+    try:
+        validate_strategy_grounding(strategist_input, parsed)
+    except AgentProtocolError as exc:
+        message = str(exc)
+        code = "invented_reference" if "unknown evidence" in message else (
+            "authority_overreach" if "authority overreach" in message else "missing_grounding"
+        )
+        return _result([_failure(code, message)])
+    memory_ids = {fact.id for fact in strategist_input.memoryFacts}
+    if memory_ids and any(
+        memory_ids.intersection(item.evidenceRefs)
+        for item in [*parsed.objectives, *parsed.pillars, *parsed.briefs]
+    ) and not all(fact.firestoreEvidenceRef for fact in strategist_input.memoryFacts):
+        return _result([_failure("memory_without_provenance", "memory context lacks Firestore provenance")])
+    return _result([])
 
 
 def evaluate_drafts(

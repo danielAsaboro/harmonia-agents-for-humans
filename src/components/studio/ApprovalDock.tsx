@@ -34,7 +34,8 @@ function generatedApprovalActionIds(operations: unknown[]): string[] {
   return ids;
 }
 
-export function ApprovalDock({ jobId, actions, verifications, receipts, claims = [], busy, onDecide, operations = [], onOperationDecision }: {
+export function ApprovalDock({ job, jobId, actions, verifications, receipts, claims = [], busy, onDecide, operations = [], onOperationDecision }: {
+  job?: JobFull;
   jobId: string;
   actions: PlannedAction[];
   verifications: Verification[];
@@ -48,6 +49,8 @@ export function ApprovalDock({ jobId, actions, verifications, receipts, claims =
   const [actionError, setActionError] = useState<string | null>(null);
   const [replayBusy, setReplayBusy] = useState<string | null>(null);
   const [replayStatus, setReplayStatus] = useState<Record<string, string>>({});
+  const [strategyFeedback, setStrategyFeedback] = useState("");
+  const strategyPending = job?.stage === "awaiting_strategy_approval" && job.strategyApprovalState === "pending" && job.contentStrategy && job.strategyDigest;
   const pending = actions.filter((action) => action.approvalState === "pending" && action.state === "planned");
   const replayable = actions.filter((action) => isReplayableAction(action, receipts, claims));
   let approvalOperations: unknown[] = [];
@@ -60,9 +63,18 @@ export function ApprovalDock({ jobId, actions, verifications, receipts, claims =
   } catch (error) {
     protocolError = error instanceof Error ? error.message : String(error);
   }
-  if (!pending.length && !replayable.length && !approvalOperations.length && !protocolError) return null;
+  if (!strategyPending && !pending.length && !replayable.length && !approvalOperations.length && !protocolError) return null;
   const totalRecordedCost = pending.reduce((sum, action) => sum + (recordedCost(action) ?? 0), 0);
-  const decisionCount = pending.length;
+  const decisionCount = pending.length + (strategyPending ? 1 : 0);
+
+  async function decideStrategy(decision: "approved" | "rejected") {
+    if (!job?.strategyDigest) return;
+    if (decision === "rejected" && !strategyFeedback.trim()) { setActionError("Strategy rejection requires feedback."); return; }
+    const response = await fetch(`/api/jobs/${jobId}/strategy/decision`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision, payloadDigest: job.strategyDigest, ...(decision === "rejected" ? { feedback: strategyFeedback.trim() } : {}) }) });
+    const body = await response.json();
+    if (!response.ok) { setActionError(body.error ?? "Strategy decision failed"); return; }
+    window.location.reload();
+  }
 
   async function proveReplay(action: PlannedAction) {
     setReplayBusy(action.id);
@@ -92,6 +104,7 @@ export function ApprovalDock({ jobId, actions, verifications, receipts, claims =
         <div className="max-h-[48vh] overflow-y-auto border-t border-black/10 bg-[#fffdf7] p-3 shadow-[0_-14px_34px_rgba(22,21,18,0.08)]">
         {protocolError ? <StudioFailure message={`A2UI protocol error: ${protocolError}`} permanent /> : null}
         {actionError ? <StudioFailure message={`A2UI action blocked: ${actionError}`} permanent /> : null}
+        {strategyPending ? <article className="mb-3 border-2 border-[#5165ff] bg-[#f0edff] p-4"><p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#5165ff]">Strategy approval · v{job.contentStrategy!.version}</p><h3 className="mt-1 font-serif text-xl">{job.contentStrategy!.thesis}</h3><p className="mt-2 text-xs text-black/60">Approves the exact four-week strategy digest before Temi creates calendar work.</p><code className="mt-2 block text-[8px] text-black/40">sha256 {job.strategyDigest}</code><textarea value={strategyFeedback} onChange={(event) => setStrategyFeedback(event.target.value)} placeholder="Required feedback when rejecting" className="mt-3 w-full border border-black/20 bg-white p-2 text-xs" maxLength={2000} /><div className="mt-3 flex gap-2"><button type="button" onClick={() => void decideStrategy("rejected")} className="rounded-full border-2 border-black px-4 py-2 text-xs font-black">Reject</button><button type="button" onClick={() => void decideStrategy("approved")} className="rounded-full bg-black px-4 py-2 text-xs font-black text-white">Approve strategy</button></div></article> : null}
         {approvalOperations.length ? <HarmoniaA2uiHost operations={approvalOperations} onAction={(action) => {
         if (action.name === "decide_operation" && onOperationDecision) {
           const operationId = String(action.context.operationId ?? "");

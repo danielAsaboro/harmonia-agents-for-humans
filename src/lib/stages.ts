@@ -7,7 +7,8 @@ import type { Stage } from "./types";
 const NEXT_STAGE: Partial<Record<Stage, Stage>> = {
   ingest: "transcribe",
   transcribe: "understand",
-  understand: "draft",
+  understand: "strategize",
+  strategize: "awaiting_strategy_approval",
   draft: "awaiting_approval",
 };
 
@@ -21,6 +22,8 @@ export function isKnownStage(stage: string): stage is Stage {
     "ingest",
     "transcribe",
     "understand",
+    "strategize",
+    "awaiting_strategy_approval",
     "draft",
     "awaiting_approval",
     "publish",

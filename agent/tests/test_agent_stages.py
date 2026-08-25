@@ -7,8 +7,9 @@ from pathlib import Path
 import pytest
 
 from harmonia_agent import stages
-from harmonia_agent.agent_models import AnalysisResult, ContentStrategy, StrategistResult
+from harmonia_agent.agent_models import AnalysisResult
 from harmonia_agent.web_client import EffectClaimInProgress, EffectClaimUncertain
+from tests.test_ryan_strategy import strategy as _content_strategy
 
 
 def _analysis() -> dict:
@@ -25,10 +26,6 @@ def _analysis() -> dict:
     }
 
 
-def _strategy() -> ContentStrategy:
-    return ContentStrategy(objective="Teach the activation lesson", audience="startup operators", pillars=["product proof"], cadence="one approved post", kpis=["verified engagement"], briefs=[{"title": "Activation", "objective": "Teach speed", "sourceRefs": ["m1"]}])
-
-
 def _effect_command(action: dict) -> dict:
     return {
         "id": f"command-{action['id']}",
@@ -41,13 +38,13 @@ def _effect_command(action: dict) -> dict:
     }
 
 
-def test_understand_brief_routes_through_strategist_without_schema_changes(monkeypatch):
+def test_understand_brief_routes_through_nimi_without_strategy(monkeypatch):
     requests = []
     posts = []
 
-    async def fake_strategy(request, *, invocation):
+    async def fake_analyze(request, *, invocation):
         requests.append((request, invocation))
-        return StrategistResult(analysis=AnalysisResult.model_validate(_analysis()), strategy=_strategy())
+        return AnalysisResult.model_validate(_analysis())
 
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
         "config": {"brief": "Explain our activation win"},
@@ -55,19 +52,19 @@ def test_understand_brief_routes_through_strategist_without_schema_changes(monke
         "transcriptSegments": [],
     })
     monkeypatch.setattr(stages, "get_insights", lambda: {})
-    monkeypatch.setattr(stages, "strategize_with_team", fake_strategy)
+    monkeypatch.setattr(stages, "analyze_with_team", fake_analyze)
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
 
     asyncio.run(stages.run_understand("job-1"))
 
     request, invocation = requests[0]
-    assert request.task == "brief"
+    assert request.transcript == "Explain our activation win"
     assert invocation.job_id == "job-1"
     assert invocation.stage == "understand"
     assert invocation.operation_id == "job-1:understand:0"
     path, payload = posts[0]
     assert path == "/api/internal/analysis"
-    assert set(payload) == {"jobId", "stage", "moments", "angles", "summary", "strategy", "modelUsed"}
+    assert set(payload) == {"jobId", "stage", "moments", "angles", "summary", "modelUsed"}
 
 
 def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypatch):
@@ -79,6 +76,9 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
         "summary": _analysis()["summary"],
         "moments": _analysis()["moments"],
         "angles": _analysis()["angles"],
+        "strategyDigest": "a" * 64,
+        "strategyApproval": {"decision": "approved", "payloadDigest": "a" * 64, "decidedAt": "2026-08-27T00:00:00Z", "expiresAt": "2099-01-01T00:00:00Z"},
+        "contentStrategy": _content_strategy().model_dump(mode="json"),
     }
     monkeypatch.setenv("HARMONIA_MOCK_AI", "1")
     monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
@@ -108,9 +108,6 @@ def test_understand_video_passes_direct_source_media_evidence(monkeypatch):
         requests.append((request, invocation))
         return AnalysisResult.model_validate(_analysis())
 
-    async def fake_strategy(request, *, invocation):
-        return StrategistResult(analysis=AnalysisResult.model_validate(_analysis()), strategy=_strategy())
-
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
         "config": {"youtubeUrl": "https://www.youtube.com/watch?v=abc12345678"},
         "workspaceId": "workspace-test", "brandId": "brand-test", "createdByUserId": "user-test",
@@ -122,7 +119,6 @@ def test_understand_video_passes_direct_source_media_evidence(monkeypatch):
     })
     monkeypatch.setattr(stages, "get_insights", lambda: {})
     monkeypatch.setattr(stages, "analyze_with_team", fake_analyze)
-    monkeypatch.setattr(stages, "strategize_with_team", fake_strategy)
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
 
     asyncio.run(stages.run_understand("job-video"))

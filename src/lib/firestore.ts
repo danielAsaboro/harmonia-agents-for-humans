@@ -27,6 +27,7 @@ import { markReservationFinalized, markReservationReleased, markReservationUncer
 import { parseBudgetConfig } from "./config";
 import { actionPayloadDigest, newId } from "./idempotency";
 import type { ApprovalActor } from "./decisions";
+import { applyStrategyDecision, assertStrategyProposalRevision, validatePersistedStrategy, type StrategyDecisionInput } from "./strategyApproval";
 import {
   assertResourceWorkspace,
   currentTenant,
@@ -702,6 +703,7 @@ export interface OperatorGoals {
   audience?: string;
   voice?: string;
   topics: string[];
+  strategyContext?: import("./types").StrategyContext;
 }
 
 export async function getGoals(): Promise<OperatorGoals> {
@@ -731,8 +733,10 @@ export interface TelegramDecisionNonceDoc {
   brandId: string;
   jobId: string;
   actionId: string;
+  target: "effect" | "strategy" | "strategy_feedback";
   payloadDigest: string;
   decision: "approved" | "rejected";
+  feedback?: string;
   expiresAt: string;
   state: "pending" | "processing" | "consumed";
   claimedAt?: string;
@@ -741,6 +745,43 @@ export interface TelegramDecisionNonceDoc {
 
 const TELEGRAM_WEBHOOK_ROUTES = "telegram_webhook_routes";
 const TELEGRAM_DECISION_NONCES = "telegram_decision_nonces";
+const TELEGRAM_STRATEGY_PROMPTS = "telegram_strategy_prompts";
+
+export async function createTelegramDecisionNonce(value: TelegramDecisionNonceDoc, nonce: string): Promise<void> {
+  const nonceId = telegramDigest(`${value.routeTokenDigest}:${nonce}`);
+  await db().collection(TELEGRAM_DECISION_NONCES).doc(nonceId).create(value);
+}
+
+export interface TelegramStrategyPromptDoc {
+  routeTokenDigest: string; workspaceId: string; brandId: string; jobId: string;
+  payloadDigest: string; actorSubjectId: string; expiresAt: string; state: "pending" | "processing" | "consumed";
+  claimedAt?: string; decisionId?: string;
+}
+
+export async function saveTelegramStrategyPrompt(routeTokenDigest: string, messageId: number, value: TelegramStrategyPromptDoc): Promise<void> {
+  await db().collection(TELEGRAM_STRATEGY_PROMPTS).doc(telegramDigest(`${routeTokenDigest}:${messageId}`)).create(value);
+}
+
+export async function claimTelegramStrategyPrompt(routeToken: string, messageId: number): Promise<{ duplicate: boolean; prompt: TelegramStrategyPromptDoc }> {
+  const routeTokenDigest = telegramDigest(routeToken);
+  const ref = db().collection(TELEGRAM_STRATEGY_PROMPTS).doc(telegramDigest(`${routeTokenDigest}:${messageId}`));
+  return db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error("Telegram strategy feedback prompt not found");
+    const value = snap.data() as TelegramStrategyPromptDoc;
+    if (value.routeTokenDigest !== routeTokenDigest) throw new Error("Telegram strategy prompt route mismatch");
+    const decision = decideTelegramNonceClaim(value);
+    if (decision.outcome === "duplicate") return { duplicate: true, prompt: value };
+    const prompt = { ...value, state: "processing" as const, claimedAt: new Date().toISOString() };
+    tx.update(ref, prompt);
+    return { duplicate: false, prompt };
+  });
+}
+
+export async function finalizeTelegramStrategyPrompt(routeToken: string, messageId: number, decisionId: string): Promise<void> {
+  const routeTokenDigest = telegramDigest(routeToken);
+  await db().collection(TELEGRAM_STRATEGY_PROMPTS).doc(telegramDigest(`${routeTokenDigest}:${messageId}`)).update({ state: "consumed", decisionId });
+}
 
 export async function getTelegramWebhookRoute(routeToken: string): Promise<TelegramWebhookRoute | null> {
   const routeTokenDigest = telegramDigest(routeToken);
@@ -928,6 +969,17 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
     ingestedTitle: data.ingestedTitle,
     ingestedChannel: data.ingestedChannel,
     ingestedDurationSec: data.ingestedDurationSec,
+    mediaDigest: data.mediaDigest,
+    contentStrategy: data.contentStrategy,
+    strategyDigest: data.strategyDigest,
+    strategyRevision: data.strategyRevision,
+    strategyApprovalState: data.strategyApprovalState,
+    strategyApproval: data.strategyApproval,
+    strategyApprovalExpiresAt: data.strategyApprovalExpiresAt,
+    strategyRevisionFeedback: data.strategyRevisionFeedback,
+    strategyEvidenceLineage: data.strategyEvidenceLineage,
+    strategyHistory: data.strategyHistory,
+    strategyInvocationContext: data.strategyInvocationContext,
     videoId: data.videoId,
     transcriptSegments: data.transcriptSegments ?? [],
     transcriptLanguage: data.transcriptLanguage,
@@ -1066,6 +1118,10 @@ export async function createJob(
   const id = newId();
   const now = new Date().toISOString();
   const storedConfig: JobConfig = { ...config };
+  if (!storedConfig.strategyContext) {
+    const goals = await getGoals();
+    if (goals.strategyContext) storedConfig.strategyContext = goals.strategyContext;
+  }
   const tenant = currentTenant();
   const doc: JobDoc = {
     workspaceId: tenant.workspaceId,
@@ -1424,14 +1480,106 @@ export async function saveAnalysis(
   moments: Moment[],
   angles: Angle[],
   summary: string,
-  strategy: { objective: string; audience: string; pillars: string[]; cadence: string; kpis: string[]; briefs: Array<{ title: string; objective: string; sourceRefs: string[] }> },
 ) {
   await jobRef(jobId).update({
     moments,
     angles,
     summary,
-    contentStrategy: strategy,
     updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function acceptStrategyProposal(
+  jobId: string, strategy: import("./types").ContentStrategy, digest: string, revision: number,
+) {
+  return db().runTransaction(async (tx) => {
+    const ref = jobRef(jobId);
+    const snap = await tx.get(ref);
+    const job = requireJobDoc(snap);
+    assertStrategyProposalRevision(job.stage, job.strategyRevision, revision, strategy.version);
+    validatePersistedStrategy(job, strategy);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const evidenceLineage = [...new Set([
+      ...strategy.objectives.flatMap((item) => item.evidenceRefs),
+      ...strategy.audiencePriorities.flatMap((item) => item.evidenceRefs),
+      ...strategy.pillars.flatMap((item) => item.evidenceRefs),
+      ...strategy.campaignThemes.flatMap((item) => item.evidenceRefs),
+      ...strategy.channelRoles.flatMap((item) => item.evidenceRefs),
+      ...strategy.kpis.flatMap((item) => item.evidenceRefs),
+      ...strategy.briefs.flatMap((item) => item.evidenceRefs),
+      ...strategy.assumptions.flatMap((item) => item.evidenceRefs),
+    ])].sort();
+    const historyKey = `strategyHistory.v${revision}`;
+    tx.update(ref, {
+      contentStrategy: strategy, strategyDigest: digest, strategyRevision: revision,
+      strategyApprovalState: "pending", strategyApproval: FieldValue.delete(),
+      strategyApprovalExpiresAt: expiresAt, strategyEvidenceLineage: evidenceLineage,
+      [historyKey]: { strategy, digest, revision, evidenceLineage, invocationContext: job.strategyInvocationContext, proposedAt: new Date().toISOString(), expiresAt },
+      stage: "awaiting_strategy_approval", status: "waiting_for_approval", updatedAt: new Date().toISOString(),
+    });
+    return { digest, expiresAt, evidenceLineage };
+  });
+}
+
+export async function saveStrategyInvocationContext(jobId: string, context: import("./types").StrategyInvocationContext) {
+  return db().runTransaction(async (tx) => {
+    const ref = jobRef(jobId);
+    const snap = await tx.get(ref);
+    const job = requireJobDoc(snap);
+    assertStrategyProposalRevision(job.stage, job.strategyRevision, context.revision, context.revision);
+    const configured = job.config.strategyContext;
+    if (!configured) throw new Error("typed strategy context required");
+    if (JSON.stringify([...context.operatorContextIds].sort()) !== JSON.stringify(["context:campaign", "context:company"])) throw new Error("strategy operator context IDs mismatch");
+    const sourceIds = [...new Set([...(job.moments ?? []), ...(job.angles ?? [])].map((item) => item.id))].sort();
+    if (JSON.stringify([...context.sourceIds].sort()) !== JSON.stringify(sourceIds)) throw new Error("strategy source context mismatch");
+    if (JSON.stringify([...context.audienceIds].sort()) !== JSON.stringify(configured.audiences.map((item) => item.id).sort())) throw new Error("strategy audience context mismatch");
+    if (JSON.stringify([...context.requestedChannels].sort()) !== JSON.stringify([...configured.requestedChannels].sort())) throw new Error("strategy requested channels mismatch");
+    if (JSON.stringify([...context.supportedChannels].sort()) !== JSON.stringify([...configured.supportedChannels].sort())) throw new Error("strategy supported channels mismatch");
+    if (context.horizonWeeks !== (configured.horizonWeeks ?? 4)) throw new Error("strategy horizon mismatch");
+    tx.update(ref, { strategyInvocationContext: context, updatedAt: new Date().toISOString() });
+  });
+}
+
+export async function decideStrategy(jobId: string, input: StrategyDecisionInput) {
+  const tenant = currentTenant();
+  const actorSubjectId = tenantSubjectId(tenant);
+  return db().runTransaction(async (tx) => {
+    const ref = jobRef(jobId);
+    const snap = await tx.get(ref);
+    const job = requireJobDoc(snap);
+    if (job.stage !== "awaiting_strategy_approval") throw new Error("strategy is not awaiting approval");
+    if (!job.strategyDigest || !job.strategyRevision) throw new Error("strategy proposal is incomplete");
+    const result = applyStrategyDecision(
+      { revision: job.strategyRevision, strategyDigest: job.strategyDigest,
+        approvalExpiresAt: job.strategyApprovalExpiresAt ?? "1970-01-01T00:00:00.000Z" }, input,
+      actorSubjectId, new Date(),
+    );
+    const update: Record<string, unknown> = {
+      strategyApproval: result.approval,
+      strategyApprovalState: result.approval.decision,
+      stage: result.nextStage,
+      status: result.nextStage === "complete" ? "complete" : "running",
+      updatedAt: new Date().toISOString(),
+      [`strategyHistory.v${job.strategyRevision}.approval`]: result.approval,
+    };
+    if (result.nextStage === "strategize") {
+      update.strategyRevision = result.nextRevision;
+      update.strategyRevisionFeedback = result.approval.feedback;
+    }
+    if (result.nextStage === "complete") update.terminalOutcome = "rejected";
+    tx.update(ref, update);
+    let outboxId: string | undefined;
+    if (result.nextStage === "draft" || result.nextStage === "strategize") {
+      const attempt = result.nextStage === "strategize" ? 1 : 0;
+      outboxId = stageOutboxId(jobId, result.nextStage, attempt);
+      tx.create(stageOutboxRef(outboxId), {
+        id: outboxId, workspaceId: tenant.workspaceId, brandId: tenant.brandId,
+        jobId, stage: result.nextStage, attempt, completedStage: "awaiting_strategy_approval",
+        note: result.nextStage === "draft" ? "strategy approved" : "strategy revision requested",
+        state: "pending", createdAt: new Date().toISOString(),
+      } satisfies StageOutboxRecord);
+    }
+    return { ...result, outboxId };
   });
 }
 

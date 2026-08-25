@@ -12,8 +12,8 @@ interface LogEntry {
 }
 
 const STAGES = [
-  "ingest", "transcribe", "understand", "draft",
-  "awaiting_approval", "publish", "verify", "learn",
+  "ingest", "transcribe", "understand", "strategize", "awaiting_strategy_approval",
+  "draft", "awaiting_approval", "publish", "verify", "learn",
 ];
 const ACTORS = ["system", "agent", "operator"];
 
@@ -21,7 +21,7 @@ function StageChip({ stage }: { stage: string }) {
   const color =
     stage === "failed"
       ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400"
-      : stage === "awaiting_approval"
+      : stage === "awaiting_approval" || stage === "awaiting_strategy_approval"
         ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400"
         : stage === "learn" || stage === "verify"
           ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"

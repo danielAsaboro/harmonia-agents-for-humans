@@ -13,7 +13,6 @@ from harmonia_agent.mock_ai import (
     mock_analyze,
     mock_drafts,
     mock_generate_image,
-    mock_ideate,
     mock_plan_actions,
     mock_transcribe,
 )
@@ -64,12 +63,6 @@ def test_analyze_shape_and_timestamp_bounds():
     assert kinds.count("trend") >= 3 and kinds.count("meme") >= 2
     for a in result["angles"]:
         assert set(a) == {"id", "kind", "title", "rationale"}
-
-
-def test_ideate_from_brief_has_zero_timestamps():
-    result = mock_ideate("Announce our usage-based billing launch for AI agent workloads.")
-    for m in result["moments"]:
-        assert m["startSec"] == 0 and m["endSec"] == 0
 
 
 def test_drafts_reference_ids_and_fit_limit():

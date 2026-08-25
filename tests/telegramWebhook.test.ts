@@ -48,7 +48,18 @@ describe("Telegram webhook authority", () => {
       kind: "telegram_user",
       subjectId: `telegram_${"c".repeat(24)}`,
     });
+    expect(verified.kind).toBe("callback");
+    if (verified.kind !== "callback") throw new Error("expected callback");
     expect(verified.nonce).toBe(callbackNonce(update.callback_query.data));
+  });
+
+  it("authenticates bounded strategy rejection feedback replies", () => {
+    const verified = verifyTelegramWebhook({
+      route, routeToken: "route-token", secret: "correct",
+      update: { update_id: 11, message: { message_id: 91, from: { id: 42 }, chat: { id: -1001 }, text: "Narrow the audience", reply_to_message: { message_id: 90 } } },
+      digest: (value) => value === "route-token" ? route.routeTokenDigest : value === "correct" ? route.webhookSecretDigest : value === "-1001" ? route.chatIdDigest : "c".repeat(64),
+    });
+    expect(verified).toMatchObject({ kind: "strategy_feedback", promptMessageId: 90, feedback: "Narrow the audience" });
   });
 
   it("strictly rejects extra callback fields", () => {

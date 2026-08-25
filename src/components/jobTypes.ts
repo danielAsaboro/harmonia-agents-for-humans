@@ -1,4 +1,4 @@
-import type { EvidenceRef, Angle, EffectClaimSummary, Moment, PlannedAction, PostDraft, Receipt, Stage } from "@/lib/types";
+import type { EvidenceRef, Angle, ContentStrategy, EffectClaimSummary, Moment, PlannedAction, PostDraft, Receipt, Stage, StrategyApproval } from "@/lib/types";
 
 export interface JobSummary {
   id: string;
@@ -20,6 +20,13 @@ export interface JobSummary {
 }
 
 export interface JobFull extends JobSummary {
+  contentStrategy?: ContentStrategy;
+  strategyDigest?: string;
+  strategyRevision?: number;
+  strategyApprovalState?: "pending" | "approved" | "rejected";
+  strategyApproval?: StrategyApproval;
+  strategyApprovalExpiresAt?: string;
+  strategyEvidenceLineage?: string[];
   transcriptSegments: Array<{ id: string; startSec: number; endSec: number; text: string }>;
   moments: Moment[];
   angles: Angle[];

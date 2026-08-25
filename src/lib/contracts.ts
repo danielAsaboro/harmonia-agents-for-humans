@@ -136,14 +136,54 @@ export const analysisSubmissionSchema = z.object({
   moments: z.array(momentSchema).max(12).default([]),
   angles: z.array(angleSchema).max(12).default([]),
   summary: z.string().min(1),
-  strategy: z.object({
-    objective: z.string().min(1).max(600), audience: z.string().min(1).max(300),
-    pillars: z.array(z.string().min(1).max(300)).min(1).max(8), cadence: z.string().min(1).max(200),
-    kpis: z.array(z.string().min(1).max(300)).min(1).max(8),
-    briefs: z.array(z.object({ title: z.string().min(1).max(300), objective: z.string().min(1).max(600), sourceRefs: z.array(z.string().min(1)).min(1).max(12) }).strict()).min(1).max(10),
-  }).strict(),
   modelUsed: z.string().min(1),
 });
+
+const evidenceRefs = z.array(z.string().min(1).max(100)).min(1).max(12);
+const funnelStage = z.enum(["awareness", "consideration", "conversion", "retention", "advocacy"]);
+export const strategyContextSchema = z.object({
+  company: z.string().min(1).max(200), product: z.string().min(1).max(500), positioning: z.string().min(1).max(500),
+  differentiators: z.array(z.string().min(1).max(300)).min(1).max(8), brandVoice: z.array(z.string().min(1).max(120)).min(1).max(8),
+  exclusions: z.array(z.string().min(1).max(300)).max(12).default([]), safetyConstraints: z.array(z.string().min(1).max(300)).max(12).default([]),
+  businessObjectives: z.array(z.string().min(1).max(300)).min(1).max(8), campaignObjectives: z.array(z.string().min(1).max(300)).min(1).max(8),
+  audiences: z.array(z.object({ id: z.string().min(1).max(100), name: z.string().min(1).max(200), pains: z.array(z.string().min(1).max(300)).min(1).max(8) }).strict()).min(1).max(6),
+  funnelStage, intendedConversion: z.string().min(1).max(300), requestedChannels: z.array(z.string().min(1).max(100)).min(1).max(8),
+  supportedChannels: z.array(z.string().min(1).max(100)).min(1).max(8), horizonWeeks: z.number().int().min(1).max(12).default(4),
+}).strict();
+export const contentStrategySchema = z.object({
+  strategyId: z.string().min(1).max(100), version: z.number().int().min(1).max(2), horizonWeeks: z.number().int().min(1).max(12),
+  thesis: z.string().min(1).max(600), differentiatedNarrative: z.string().min(1).max(600),
+  objectives: z.array(z.object({ text: z.string().min(1).max(600), evidenceRefs }).strict()).min(1).max(8),
+  audiencePriorities: z.array(z.object({ audienceId: z.string().min(1).max(100), priority: z.number().int().min(1).max(5), reason: z.string().min(1).max(500), evidenceRefs }).strict()).min(1).max(6),
+  funnelIntent: funnelStage, intendedConversions: z.array(z.string().min(1).max(300)).min(1).max(6),
+  pillars: z.array(z.object({ name: z.string().min(1).max(200), purpose: z.string().min(1).max(500), evidenceRefs }).strict()).min(1).max(8),
+  campaignThemes: z.array(z.object({ name: z.string().min(1).max(200), message: z.string().min(1).max(500), evidenceRefs }).strict()).min(1).max(8),
+  channelRoles: z.array(z.object({ channel: z.string().min(1).max(100), role: z.string().min(1).max(300), operationallySupported: z.boolean(), formats: z.array(z.string().min(1).max(100)).min(1).max(8), cadence: z.string().min(1).max(200), evidenceRefs }).strict()).min(1).max(8),
+  contentMix: z.array(z.object({ format: z.string().min(1).max(100), percentage: z.number().int().min(1).max(100) }).strict()).min(1).max(8).refine((items) => items.reduce((sum, item) => sum + item.percentage, 0) === 100, "content mix must total 100"),
+  cadenceGuidance: z.string().min(1).max(300), priorityRules: z.array(z.string().min(1).max(300)).min(1).max(8), ctaGuidance: z.array(z.string().min(1).max(300)).min(1).max(8),
+  kpis: z.array(z.object({ name: z.string().min(1).max(200), target: z.string().min(1).max(200), measurement: z.string().min(1).max(300), evidenceRefs }).strict()).min(1).max(8),
+  successCriteria: z.array(z.string().min(1).max(300)).min(1).max(8), constraints: z.array(z.string().min(1).max(300)).max(12), exclusions: z.array(z.string().min(1).max(300)).max(12), brandSafety: z.array(z.string().min(1).max(300)).max(12),
+  briefs: z.array(z.object({ id: z.string().min(1).max(100), title: z.string().min(1).max(300), objective: z.string().min(1).max(600), audienceId: z.string().min(1).max(100), funnelStage, keyMessage: z.string().min(1).max(600), channelCandidates: z.array(z.string().min(1).max(100)).min(1).max(8), formatCandidates: z.array(z.string().min(1).max(100)).min(1).max(8), ctaIntent: z.string().min(1).max(300), intendedConversion: z.string().min(1).max(300), kpi: z.string().min(1).max(200), priority: z.number().int().min(1).max(5), dependencies: z.array(z.string().min(1).max(300)).max(8), constraints: z.array(z.string().min(1).max(300)).max(12), evidenceRefs }).strict()).min(1).max(10),
+  assumptions: z.array(z.object({ text: z.string().min(1).max(500), evidenceRefs, confidence: z.enum(["low", "medium", "high"]) }).strict()).max(8),
+  confidence: z.enum(["low", "medium", "high"]),
+}).strict();
+
+export const strategySubmissionSchema = z.object({
+  jobId: z.string().min(1), stage: z.literal("strategize"), revision: z.number().int().min(1).max(2),
+  strategy: contentStrategySchema, modelUsed: z.string().min(1),
+}).strict();
+
+export const strategyInvocationContextSchema = z.object({
+  jobId: z.string().min(1), stage: z.literal("strategize"), revision: z.number().int().min(1).max(2),
+  sourceIds: z.array(z.string().min(1).max(100)).min(1).max(24),
+  operatorContextIds: z.array(z.string().min(1).max(100)).length(2),
+  performance: z.array(z.object({ id: z.string().min(1).max(100), firestoreEvidenceRef: z.string().min(1).max(500) }).strict()).max(12),
+  memoryFacts: z.array(z.object({ id: z.string().min(1).max(100), firestoreEvidenceRef: z.string().min(1).max(500) }).strict()).max(5),
+  audienceIds: z.array(z.string().min(1).max(100)).min(1).max(6),
+  requestedChannels: z.array(z.string().min(1).max(100)).min(1).max(8),
+  supportedChannels: z.array(z.string().min(1).max(100)).min(1).max(8),
+  horizonWeeks: z.number().int().min(1).max(12),
+}).strict();
 
 export const draftSchema = z.object({
   id: z.string().min(1),

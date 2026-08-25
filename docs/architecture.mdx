@@ -118,7 +118,7 @@ The UI exposes only concise activity and reasoning summaries derived from valida
 
 ### Typed multi-agent judgment
 
-Harmonia, the ADK root coordinator, delegates evidence analysis to Nimi (`nimi_analyst`) and strategy/content planning to Ryan (`ryan_strategist`). Production uses Flo (`flo_content_engine`), an `AgentTool` around a deterministic `SequentialAgent`: Temi creates a typed editorial plan, then a bounded `LoopAgent` runs Noni writing and Dara review for at most two passes. Deterministic stage code derives effect proposals from exact reviewed text; Firestore remains durable truth between Pub/Sub stages.
+Harmonia, the ADK root coordinator, delegates evidence analysis to Nimi (`nimi_analyst`) and agentic strategy/content planning to Ryan (`ryan_strategist`). Firestore persists Nimi evidence and Ryan's digest-bound proposal across deterministic stages. After independent human strategy approval, Flo (`flo_content_engine`) runs Temi planning followed by the bounded Noni/Dara production loop. Deterministic stage code derives effect proposals from exact reviewed text; Firestore remains durable truth between Pub/Sub stages.
 
 All cognitive roles use policy `gear-2026-08-24`, pricing catalog `2026-08-23`, the
 `harmonia-standard` safety profile, and a proposed promotion quality floor of `0.95`.
@@ -126,9 +126,8 @@ All cognitive roles use policy `gear-2026-08-24`, pricing catalog `2026-08-23`, 
 | Role | Default target | Temp / max output | Evaluation focus | State and tools | Prohibited authority |
 |---|---|---:|---|---|---|
 | Harmonia coordinator | Gemini 3.5 Flash-Lite | 0.1 / 1,024 | exact one-specialist route | delegation only; invocation state | answer task, approve, publish |
-| Ryan strategist | Gemini 3.5 Flash | 0.4 / 2,048 | grounded strategy contract | supplied brief/signals; no effect tools | invent evidence, approve, publish |
+| Ryan strategist | Gemini 3.5 Flash | 0.4 / 4,096 | grounded four-week strategy and content briefs | typed Nimi/company/campaign/performance/memory context; no tools | invent evidence, schedule, approve, publish |
 | Nimi analyst | Gemini 3.5 Flash multimodal | 0.2 / 2,048 | quote/time/frame grounding | bounded source media + transcript | invent evidence, define strategy, approve, publish |
-| Ryan strategist | Gemini 3.5 Flash | 0.4 / 2,048 | goals, pillars, campaign/content-plan direction | Nimi evidence + brand goals | write final copy, approve, publish |
 | Temi editorial planner | Gemini 3.5 Flash-Lite | 0.1 / 1,024 | typed objectives, source refs, format, priority | Ryan/Nimi grounded state | write copy, approve, schedule externally, publish |
 | Noni copywriter | Gemma 3 12B IT Vertex endpoint | 0.8 / 2,048 | references and X length | Temi plan + session state | create facts, approve, publish |
 | Dara editor | Gemini 3.5 Flash | 0.2 / 2,048 | preserve IDs/references | Noni drafts + session state | create authority, approve, publish |
@@ -222,7 +221,7 @@ Verification never trusts the executor. Published posts are re-fetched from the 
 
 ### Learnings feed forward
 
-The learn stage measures published posts via public metrics, stores takeaways per job, and the insights feed is injected into future ideation prompts — closing the loop between what performed and what gets proposed next.
+The learn stage measures published posts via public metrics and stores evidence-linked takeaways per job. Eligible learnings re-enter Ryan's single strategy contract on a future job or revision—closing the governed learning loop without granting Memory Bank authority.
 
 <Warning>
   Distinct role routing, the Gemma adapter, direct video attachment, managed-runtime adapter, exact-scope memory contracts, paid-media adapters, budget enforcement, usage normalization, and metadata-only trace behavior are verified offline. Authenticated Gemini/Gemma team execution, Agent Engine, Memory Bank, Veo, Lyria, and exported Cloud Trace correlation remain unverified until separate live evidence is captured.

@@ -10,7 +10,7 @@ describe("stage pipeline", () => {
       stage = nextStage(stage as never);
       if (path.length > 20) throw new Error("cycle");
     }
-    expect(path).toEqual(["ingest", "transcribe", "understand", "draft", "awaiting_approval"]);
+    expect(path).toEqual(["ingest", "transcribe", "understand", "strategize", "awaiting_strategy_approval"]);
   });
 
   it("has no successor for terminal stages", () => {

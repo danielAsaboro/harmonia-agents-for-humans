@@ -1,6 +1,6 @@
 # Harmonia
 
-**Harmonia is an asynchronous social media content agent for startups.** Give it an authorized YouTube video or upload and it creates a durable content job: ingest, transcribe, understand clip-worthy moments, draft platform-native posts, authorize exact effects, execute through idempotent commands, and record verification evidence. Consequential effects require either an exact human approval or an operator-created durable mandate whose evaluated payload is bound into the command.
+**Harmonia is an asynchronous social media content agent for startups.** Give it authorized source material and it creates a durable content job: Nimi extracts evidence, Ryan proposes a four-week strategy for human approval, Temi operationalizes approved briefs, Noni and Dara produce reviewed drafts, and deterministic code authorizes and verifies exact effects.
 
 The dashboard and authenticated web chat are active operator surfaces. Telegram has a verified webhook/nonce approval boundary in code, but live message ingestion and webhook configuration are not yet production-verified; do not present Telegram as an equivalent working surface until that evidence exists.
 
@@ -17,13 +17,14 @@ Harmonia is agentic where the problem is ambiguous: Gemini/ADK specialists inter
 Harmonia runs as an asynchronous, event-driven workflow on Pub/Sub. A single job travels across two services with durable state in Firestore at every step:
 
 ```
-ingest → transcribe → understand → draft → awaiting_approval → publish → verify
+ingest → transcribe → understand → strategize → awaiting_strategy_approval → draft → awaiting_approval → publish → verify
 ```
 
 - **Ingest**: YouTube metadata via oEmbed / YouTube Data API; audio pulled with yt-dlp.
 - **Transcribe**: Gemini 3.5 Flash transcribes the audio into timed segments.
-- **Understand**: Nimi uses Gemini multimodal video plus the transcript to identify clip-worthy spoken and visual moments, trend angles, and meme angles; Ryan turns evidence into strategy and content plans.
-- **Plan and draft**: Temi converts strategy into typed editorial calendar items, then Noni writes and Dara reviews in a bounded two-pass ADK loop. Deterministic code derives effect proposals from the reviewed text.
+- **Understand**: Nimi uses Gemini multimodal video plus the transcript to identify grounded spoken and visual moments and bounded angles.
+- **Strategize**: Ryan uses typed company, campaign, audience, performance, and eligible Memory Bank context to propose a provenance-linked four-week strategy and complete content briefs. A human must approve the exact strategy digest before Temi runs.
+- **Plan and draft**: Temi operationalizes only approved Ryan briefs into supported-channel editorial items, then Noni writes and Dara reviews in a bounded two-pass ADK loop. Deterministic code derives effect proposals from the reviewed text.
 - **Awaiting approval**: publishing is proposed as discrete actions. The model cannot self-authorize.
 - **Publish**: approved actions execute idempotently (stable idempotency keys from `jobId + actionId + contentHash`); X posts go through the official X API v2, while separately approved Veo/Lyria actions create internal media assets.
 - **Verify**: published state is confirmed by fresh independent API reads — never because a model said so.
@@ -49,7 +50,7 @@ flowchart LR
     subgraph "Cloud Run — harmonia-agent (Python ADK worker)"
         PUSH["Pub/Sub push receiver"]
         TG["Telegram webhook boundary<br/>not live-verified"]
-        STAGES[ingest · transcribe · understand ·<br/>draft · publish · verify handlers]
+        STAGES[ingest · transcribe · understand · strategize ·<br/>strategy approval · draft · publish · verify handlers]
         RUNTIME[Vertex AI Agent Engine<br/>managed runtime only]
         MAYA["Maya presentation specialist<br/>reference-only SurfacePlan"]
     end

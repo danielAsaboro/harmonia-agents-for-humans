@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import asyncio
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
@@ -18,6 +19,7 @@ from .agent_models import (
     ActionPlan,
     AnalysisResult,
     AnalystInput,
+    ContentStrategy,
     DraftSet,
     DraftWorkflowInput,
     DraftWorkflowResult,
@@ -37,13 +39,12 @@ from .mock_ai import (
     mock_analyze,
     mock_ask,
     mock_drafts,
-    mock_ideate,
-    mock_propose_gap_fillers,
-    mock_propose_ideas,
-    mock_propose_recycle,
 )
 from .multimodal import attach_media_evidence
 from .memory_bank import MemoryBank, MemoryScope, VertexMemoryBank, format_memory_context
+from .memory_bank import MemoryFact as RetrievedMemoryFact
+from .agent_models import MemoryFact as StrategyMemoryFact
+from .ryan_prompt import RYAN_STRATEGIST_INSTRUCTION
 from .telemetry import current_trace_id, safe_attributes, tracer
 from .team_runtime import AgentEngineTeamRuntime, TeamRuntime
 from .tenant_context import current_tenant
@@ -72,7 +73,7 @@ _SPECIALIST_ROLES = {
 _MAX_OUTPUT_TOKENS = {
     "harmonia_coordinator": 1024,
     "nimi_analyst": 2048,
-    "ryan_strategist": 2048,
+    "ryan_strategist": 4096,
     "noni_copywriter": 2048,
     "dara_editor": 2048,
     "temi_editorial_planner": 1024,
@@ -213,7 +214,7 @@ def _role_task(role: str, specialist: str, payload: BaseModel) -> str:
     if role == "harmonia_coordinator":
         return "route"
     if role == "ryan_strategist":
-        return str(getattr(payload, "task"))
+        return "strategize"
     if role == "nimi_analyst":
         return "analyze_media" if getattr(payload, "media_evidence", None) else "analyze_transcript"
     return {
@@ -250,16 +251,9 @@ def build_agent_team(
         generate_content_config=generation_config(resolved.config_for("ryan_strategist")),
         name="ryan_strategist",
         description=(
-            "Develops startup content strategy from briefs, trend signals, calendar gaps, "
-            "past learnings, and proven posts."
+            "Turns bounded startup context and Nimi evidence into a grounded strategy proposal."
         ),
-        instruction=(
-            "Complete exactly the requested strategy task. For task=brief, return analysis plus a "
-            "ContentStrategy with objective, audience, pillars, cadence, KPIs, and grounded briefs. "
-            "The analysis must contain a summary, 3-6 key-point moments using zero timestamps, and trend/meme angles. For "
-            "other tasks return 1-3 timely ideas grounded only in the supplied evidence. Return "
-            "only the StrategistResult JSON contract."
-        ),
+        instruction=RYAN_STRATEGIST_INSTRUCTION,
         input_schema=StrategistInput,
         output_schema=StrategistResult,
         output_key="strategist_result",
@@ -338,8 +332,9 @@ def build_agent_team(
         name="temi_editorial_planner",
         description="Converts Ryan's strategy evidence into an executable editorial calendar plan.",
         instruction=(
-            "Create an editorial plan from the supplied strategy, analysis, and brand context. For each item, "
-            "choose an objective, one supplied momentId or angleId as sourceRef, X as platform, "
+            "Create an editorial plan from Ryan's approved strategy, analysis, and brand context. For each item, "
+            "choose one supplied strategy briefId, one evidence ID from that brief as sourceRef, and only a channel "
+            "whose strategy channel role has operationallySupported=true. For the current implementation use X as platform, "
             "text_post as format, and a priority from 1 to 5. Do not write copy, approve, schedule "
             "externally, or publish. Return only the EditorialPlan JSON contract."
         ),
@@ -475,6 +470,16 @@ def _validate_run_output(
             raise AgentProtocolError(
                 f"unknown editorial sourceRef: {sorted(invalid_source_refs)}"
             )
+        briefs = {item.id: item for item in draft_input.strategy.briefs}
+        supported = {item.channel for item in draft_input.strategy.channelRoles if item.operationallySupported}
+        for item in editorial_plan.items:
+            brief = briefs.get(item.briefId)
+            if brief is None:
+                raise AgentProtocolError(f"unknown editorial briefId: {item.briefId}")
+            if item.sourceRef not in brief.evidenceRefs:
+                raise AgentProtocolError(f"editorial sourceRef is outside brief {item.briefId}")
+            if item.platform not in supported or item.platform not in brief.channelCandidates:
+                raise AgentProtocolError(f"unsupported editorial channel: {item.platform}")
         validate_draft_references(copywriter, draft_input.analysis)
         validate_draft_references(reviewed, draft_input.analysis)
         DraftWorkflowResult(
@@ -618,14 +623,60 @@ async def analyze_with_team(
     return _validated_state(state, "analysis_result", AnalysisResult)
 
 
-def _validate_strategy_result(
+def validate_strategy_grounding(
     input: StrategistInput,
-    result: StrategistResult,
-) -> StrategistResult:
-    if input.task == "brief" and (result.analysis is None or result.strategy is None):
-        raise AgentProtocolError("strategist brief task must return analysis and strategy")
-    if input.task != "brief" and not result.ideas:
-        raise AgentProtocolError(f"strategist {input.task} task must return ideas")
+    strategy: ContentStrategy,
+) -> ContentStrategy:
+    """Fail closed when Ryan exceeds supplied evidence or authority."""
+    source_ids = {item.id for item in [*input.analysis.moments, *input.analysis.angles]}
+    audience_ids = {item.id for item in input.campaign.audiences}
+    valid_ids = {
+        input.company.evidenceId,
+        input.campaign.evidenceId,
+        *source_ids,
+        *(item.id for item in input.performance),
+        *(item.id for item in input.memoryFacts),
+    }
+    referenced: set[str] = set()
+    for group in (
+        strategy.objectives, strategy.audiencePriorities, strategy.pillars,
+        strategy.campaignThemes, strategy.channelRoles, strategy.kpis,
+        strategy.briefs, strategy.assumptions,
+    ):
+        for item in group:
+            referenced.update(item.evidenceRefs)
+    invalid = referenced - valid_ids
+    if invalid:
+        raise AgentProtocolError(f"unknown evidence references: {sorted(invalid)}")
+    requested = set(input.campaign.requestedChannels)
+    supported = set(input.campaign.supportedChannels)
+    for brief in strategy.briefs:
+        if not set(brief.evidenceRefs) & source_ids:
+            raise AgentProtocolError(f"brief {brief.id} requires source evidence")
+        if brief.audienceId not in audience_ids:
+            raise AgentProtocolError(f"brief {brief.id} references unknown audience")
+        invalid_candidates = set(brief.channelCandidates) - requested
+        if invalid_candidates:
+            raise AgentProtocolError(f"brief {brief.id} contains unrequested channels: {sorted(invalid_candidates)}")
+    for role in strategy.channelRoles:
+        if role.channel not in requested:
+            raise AgentProtocolError(f"channel was not requested: {role.channel}")
+        if role.operationallySupported != (role.channel in supported):
+            raise AgentProtocolError(f"incorrect operational support for channel: {role.channel}")
+    if strategy.horizonWeeks != input.campaign.horizonWeeks or strategy.version != input.revision:
+        raise AgentProtocolError("strategy horizon or version does not match input")
+    serialized = strategy.model_dump_json().lower()
+    if re.search(
+        r"\b(memory|ryan|i|we|harmonia)\b.{0,40}\b(approved|published|executed|authorized)\b"
+        r"|\bautomatic publishing\b|\breceipt(?:id)?\b|\beffect payload\b",
+        serialized,
+    ):
+        raise AgentProtocolError("strategy authority overreach")
+    return strategy
+
+
+def _validate_strategy_result(input: StrategistInput, result: StrategistResult) -> StrategistResult:
+    validate_strategy_grounding(input, result.strategy)
     return result
 
 
@@ -660,39 +711,48 @@ async def _retrieve_memory(
     *,
     query: str,
     memory: tuple[MemoryBank, MemoryScope] | None,
-) -> list[str]:
+) -> list[RetrievedMemoryFact]:
     if memory is None:
         return []
     bank, scope = memory
     return await asyncio.to_thread(bank.retrieve, scope=scope, query=query, top_k=3)
 
 
-async def strategize_with_team(
+async def prepare_strategist_input(
     input: StrategistInput, *, invocation: InvocationContext | None = None,
     memory: tuple[MemoryBank, MemoryScope] | None = None,
-) -> StrategistResult:
+) -> StrategistInput:
     input = StrategistInput.model_validate(input)
     resolved_memory = configured_memory(invocation) if memory is None else memory
-    query = input.brief or input.post_text or input.goals_text or input.task
+    query = f"{input.company.company} {input.company.product} {input.source_title}"
     facts = await _retrieve_memory(query=query, memory=resolved_memory)
     if facts:
         input = input.model_copy(update={
-            "prior_learnings": _merge_memory(input.prior_learnings, facts),
+            "memoryFacts": [
+                *input.memoryFacts,
+                *(StrategyMemoryFact(
+                    id=f"memory:{fact.evidence_ref.kind}:{fact.evidence_ref.record_id}",
+                    content=fact.fact,
+                    firestoreEvidenceRef=(
+                        f"jobs/{fact.evidence_ref.job_id}/{fact.evidence_ref.kind}/"
+                        f"{fact.evidence_ref.record_id}"
+                    ),
+                ) for fact in facts),
+            ][:5],
         })
+    return input
+
+
+async def strategize_with_team(
+    input: StrategistInput, *, invocation: InvocationContext | None = None,
+    memory: tuple[MemoryBank, MemoryScope] | None = None, prepared: bool = False,
+) -> StrategistResult:
+    input = StrategistInput.model_validate(input)
+    if not prepared:
+        input = await prepare_strategist_input(input, invocation=invocation, memory=memory)
     if mock_ai_enabled():
         print("[MOCK-AI] coordinator -> ryan_strategist", flush=True)
-        if input.task == "brief":
-            raw = mock_ideate(input.brief, input.prior_learnings)
-            analysis = {k: v for k, v in raw.items() if k != "mock"}
-            refs = [item["id"] for item in analysis.get("moments", [])[:3]] or [item["id"] for item in analysis.get("angles", [])[:3]]
-            result = {"analysis": analysis, "strategy": {"objective": "Turn grounded startup lessons into useful social content", "audience": "startup operators and founders", "pillars": ["product lessons", "operational proof"], "cadence": "publish only operator-approved calendar items", "kpis": ["verified engagement", "approved-output yield"], "briefs": [{"title": "Grounded startup lesson", "objective": "Teach one defensible lesson", "sourceRefs": refs}]}}
-        elif input.task == "trend_scan":
-            result = mock_propose_ideas(input.signals)
-        elif input.task == "calendar_gap":
-            result = mock_propose_gap_fillers(input.goals_text, input.learnings_text)
-        else:
-            result = mock_propose_recycle(input.post_text, input.likes)
-        return _validate_strategy_result(input, StrategistResult.model_validate(result))
+        raise RuntimeError("Ryan has no mock strategy path; inject a TeamRuntime in tests")
     state = await _run_coordinator("ryan_strategist", input, invocation=invocation)
     result = _validated_state(state, "strategist_result", StrategistResult)
     return _validate_strategy_result(input, result)
@@ -713,7 +773,7 @@ async def draft_with_team(
         source = input.analysis.moments[0].id if input.analysis.moments else input.analysis.angles[0].id
         editorial_plan = EditorialPlan.model_validate({
             "strategySummary": input.analysis.summary,
-            "items": [{"id": "calendar-1", "platform": "x", "objective": "Share one grounded startup insight", "sourceRef": source, "format": "text_post", "priority": 1}],
+            "items": [{"id": "calendar-1", "briefId": input.strategy.briefs[0].id, "platform": "x", "objective": "Share one grounded startup insight", "sourceRef": source, "format": "text_post", "priority": 1}],
         })
         print("[MOCK-AI] coordinator -> temi_editorial_planner", flush=True)
         print("[MOCK-AI] coordinator -> noni_copywriter", flush=True)
@@ -743,13 +803,6 @@ async def draft_with_team(
         )
     except (ValidationError, ValueError) as exc:
         raise AgentProtocolError(f"invalid draft workflow result: {exc}") from exc
-
-
-def strategize_with_team_sync(input: StrategistInput) -> StrategistResult:
-    """Run strategist from the proactive worker thread, which has no event loop."""
-    import asyncio
-
-    return asyncio.run(strategize_with_team(input))
 
 
 async def ask_with_team(

@@ -83,7 +83,7 @@ export interface ChatResponse {
 
 type FullJob = Awaited<ReturnType<typeof getJob>>;
 type AnyJob = FullJob | Awaited<ReturnType<typeof createJob>>;
-type ApprovalJob = Pick<FullJob, "id" | "stage" | "status" | "ingestedTitle" | "failure" | "actions">;
+type ApprovalJob = Pick<FullJob, "id" | "stage" | "status" | "ingestedTitle" | "failure" | "actions" | "contentStrategy" | "strategyDigest" | "strategyApprovalState">;
 
 function toCard(job: AnyJob): JobCard {
   return {
@@ -117,6 +117,27 @@ export async function buildApprovalConfirmation(
   createOperation: typeof createPendingOperation = createPendingOperation,
 ): Promise<ChatResponse> {
   const pending = pendingOf(job as FullJob);
+  const strategyPending = job.stage === "awaiting_strategy_approval" && job.strategyApprovalState === "pending" && job.contentStrategy && job.strategyDigest;
+  if (strategyPending) {
+    const summary: PendingActionSummary = {
+      id: "strategy", title: `Ryan strategy v${job.contentStrategy!.version}`,
+      type: "content_strategy", risk: "material", payloadDigest: job.strategyDigest!,
+    };
+    if (surface === "telegram") return {
+      intent: "approve", reply: `Job ${job.id} has Ryan's four-week strategy waiting for digest-bound approval.`,
+      jobId: job.id, job: toCard(job as FullJob), pendingActions: [summary],
+    };
+    const operation = await createOperation({
+      handler: "decide_strategy", title: `Decide: ${summary.title}`,
+      description: job.contentStrategy!.thesis, risk: "material",
+      arguments: { jobId: job.id, actionId: "strategy", payloadDigest: job.strategyDigest },
+    }) as Pick<PendingOperation, "id">;
+    return {
+      intent: "approve", reply: `Review Ryan's strategy for job ${job.id}, then use the explicit confirmation control.`,
+      jobId: job.id, job: toCard(job as FullJob), pendingActions: [summary],
+      confirmation: { operationId: operation.id, payloadDigest: job.strategyDigest! },
+    };
+  }
   if (pending.length === 0) {
     return {
       intent: "approve",
@@ -314,7 +335,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
         await queueStageTrigger(job.id, "ingest");
         return { payload: {
           intent: intent.intent,
-          reply: `Created job ${job.id} for video ${videoId}. Pipeline is running: ingest → transcribe → understand → draft. I'll pause at the approval gate before anything is published.`,
+          reply: `Created job ${job.id} for video ${videoId}. Pipeline is running: ingest → transcribe → understand → strategize. Ryan's strategy and the final publication effects each require separate approval.`,
           jobId: job.id,
           job: toCard(job),
         } satisfies ChatResponse };
@@ -327,7 +348,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
         await queueStageTrigger(job.id, "understand");
         return { payload: {
           intent: intent.intent,
-          reply: `Created concept job ${job.id} from your brief. Running research + ideation + drafting — I'll pause at the approval gate before anything is published.`,
+          reply: `Created concept job ${job.id} from your brief. Nimi will analyze it, then Ryan will propose a strategy for your approval before Temi plans production.`,
           jobId: job.id,
           job: toCard(job),
         } satisfies ChatResponse };
@@ -343,7 +364,9 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
         const job = await getJob(intent.jobId);
         const reply = job.failure
           ? `Job ${job.id} failed at '${job.failure.stage}' (${job.failure.permanent ? "permanent" : "transient"}): ${job.failure.error}`
-          : job.stage === "awaiting_approval"
+          : job.stage === "awaiting_strategy_approval"
+            ? `Job ${job.id} is waiting for approval of Ryan's strategy digest ${job.strategyDigest ?? "(missing)"}.`
+            : job.stage === "awaiting_approval"
             ? `Job ${job.id} is waiting for your approval on ${pendingOf(job).length} action(s).`
             : `Job ${job.id} is at stage '${job.stage}' (${job.status}).`;
         return { payload: {
@@ -399,7 +422,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
 
       if (!job) {
         const jobs = await listJobs();
-        const awaiting = jobs.filter((j) => j.stage === "awaiting_approval");
+        const awaiting = jobs.filter((j) => j.stage === "awaiting_approval" || j.stage === "awaiting_strategy_approval");
         if (awaiting.length === 1) {
           job = await getJob(awaiting[0].id);
         } else if (awaiting.length === 0) {
@@ -439,7 +462,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
           "- \"make a job from https://youtu.be/<id>\"\n" +
           "- \"status of job <id>\" or \"status\"\n" +
           "- \"show drafts for <id>\"\n" +
-          "- \"approve job <id>\" (publishing still requires this explicit approval)",
+          "- \"approve job <id>\" (strategy and publication effects have separate explicit approvals)",
       } satisfies ChatResponse };
     }
   }

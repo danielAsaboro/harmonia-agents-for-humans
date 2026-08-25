@@ -2,6 +2,8 @@ import { z } from "zod";
 import { operatorTenantHandler } from "@/lib/auth";
 import { decidePendingOperation } from "@/lib/pendingOperations";
 import { resolveDecision } from "@/lib/decisions";
+import { decideStrategy } from "@/lib/firestore";
+import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";
 
 const decisionSchema = z.object({ decision: z.enum(["approved", "rejected"]) }).strict();
 
@@ -11,6 +13,13 @@ async function post(req: Request, { params }: { params: Promise<{ id: string }> 
   if (!parsed.success) return Response.json({ error: "invalid operation decision" }, { status: 400 });
   try {
     const operation = await decidePendingOperation(id, parsed.data.decision);
+    if (operation.handler === "decide_strategy") {
+      const { jobId, payloadDigest } = operation.arguments;
+      if (typeof jobId !== "string" || typeof payloadDigest !== "string") throw new Error("operation is not strategy-bound");
+      const outcome = await decideStrategy(jobId, { decision: parsed.data.decision, payloadDigest });
+      if (outcome.outboxId) { try { await dispatchStageOutboxRecord(outcome.outboxId); } catch { /* durable dispatcher retries */ } }
+      return Response.json({ operation, outcome });
+    }
     if (operation.handler !== "decide_job_action") return Response.json({ operation });
     const { jobId, actionId, payloadDigest } = operation.arguments;
     if (typeof jobId !== "string" || typeof actionId !== "string" || typeof payloadDigest !== "string") {

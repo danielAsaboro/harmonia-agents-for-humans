@@ -4,10 +4,11 @@ import { assertResourceWorkspace, currentTenant, tenantCollectionPath, tenantSub
 
 export type PendingOperationDecision = "approved" | "rejected";
 export type PendingOperationState = "pending" | PendingOperationDecision | "expired";
-export type PendingOperationHandler = "decide_job_action" | "publish_preview" | "export_content_pack" | "generate_image" | "render_clip" | "render_reel" | "publish_x_post";
+export type PendingOperationHandler = "decide_job_action" | "decide_strategy" | "publish_preview" | "export_content_pack" | "generate_image" | "render_clip" | "render_reel" | "publish_x_post";
 
 const REGISTERED_HANDLERS = new Set<PendingOperationHandler>([
   "decide_job_action",
+  "decide_strategy",
   "publish_preview",
   "export_content_pack",
   "generate_image",

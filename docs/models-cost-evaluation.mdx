@@ -10,7 +10,7 @@ Harmonia balances quality and cost per role rather than applying one model and o
 | Role | Default target | Temperature | Max output | Primary evaluation |
 |---|---|---:|---:|---|
 | coordinator | Gemini 3.5 Flash-Lite | 0.1 | 1,024 | exact specialist route |
-| strategist | Gemini 3.5 Flash | 0.4 | 2,048 | grounded strategy contract |
+| strategist | Gemini 3.5 Flash | 0.4 | 4,096 | provenance-linked four-week strategy and briefs |
 | analyst | Gemini 3.5 Flash multimodal | 0.2 | 2,048 | quote, time, and frame grounding |
 | copywriter | Gemma 3 12B IT endpoint | 0.8 | 2,048 | references and platform limits |
 | editor | Gemini 3.5 Flash | 0.2 | 2,048 | preserve IDs, evidence, and text constraints |
@@ -48,4 +48,3 @@ The public ADK evalset contains source-neutral contract fixtures. Private real-v
 <Warning>Offline fixtures prove contracts, not real-model quality. No numeric promotion, cost, latency, or quality claim is valid until linked private artifacts and immutable usage records exist.</Warning>
 
 See [Configuration](/configuration#model-evaluation-and-promotion) for the live runner and comparison manifest.
-

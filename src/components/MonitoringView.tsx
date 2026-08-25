@@ -4,14 +4,16 @@ import { useCallback, useEffect, useState } from "react";
 import type { MetricsResponse } from "@/app/api/metrics/route";
 
 const STAGE_ORDER = [
-  "queued", "ingest", "transcribe", "understand", "draft",
-  "awaiting_approval", "publish", "verify", "learn", "packet", "complete",
+  "queued", "ingest", "transcribe", "understand", "strategize", "awaiting_strategy_approval",
+  "draft", "awaiting_approval", "publish", "verify", "learn", "packet", "complete",
 ];
 
 const STAGE_COLORS: Record<string, string> = {
   complete: "#10b981",
   failed: "#ef4444",
   awaiting_approval: "#f59e0b",
+  awaiting_strategy_approval: "#f59e0b",
+  strategize: "#8b5cf6",
 };
 
 function stageColor(stage: string): string {

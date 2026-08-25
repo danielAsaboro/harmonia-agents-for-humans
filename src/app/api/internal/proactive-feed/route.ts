@@ -62,7 +62,7 @@ async function get(_req: Request) {
     stuckJobs: jobs
       .filter((j) => j.status === "running" && Date.parse(j.updatedAt) < now - STUCK_AFTER_MS)
       .map((j) => ({ id: j.id, stage: j.stage, at: j.updatedAt })),
-    pendingApprovalCount: jobs.filter((j) => j.stage === "awaiting_approval").length,
+    pendingApprovalCount: jobs.filter((j) => j.stage === "awaiting_approval" || j.stage === "awaiting_strategy_approval").length,
     proposalsPending: proposals.filter((p) => p.status === "proposed").length,
     recentPublished,
     goals,

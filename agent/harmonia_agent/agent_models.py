@@ -82,60 +82,168 @@ class AnalystInput(StrictModel):
     media_evidence: MediaEvidence | None = None
 
 
-class Idea(StrictModel):
-    topic: str = Field(min_length=1, max_length=300)
-    angle: str = Field(default="", max_length=300)
-    reason: str = Field(min_length=1, max_length=600)
-    sources: list[str] = Field(default_factory=list, max_length=5)
-    suggestedPost: str = Field(default="", max_length=280)
+class AudienceSegment(StrictModel):
+    id: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=200)
+    pains: list[str] = Field(min_length=1, max_length=8)
+
+
+class CompanyContext(StrictModel):
+    evidenceId: str = Field(min_length=1, max_length=100)
+    company: str = Field(min_length=1, max_length=200)
+    product: str = Field(min_length=1, max_length=500)
+    positioning: str = Field(min_length=1, max_length=500)
+    differentiators: list[str] = Field(min_length=1, max_length=8)
+    brandVoice: list[str] = Field(min_length=1, max_length=8)
+    exclusions: list[str] = Field(default_factory=list, max_length=12)
+    safetyConstraints: list[str] = Field(default_factory=list, max_length=12)
+
+
+class CampaignContext(StrictModel):
+    evidenceId: str = Field(min_length=1, max_length=100)
+    businessObjectives: list[str] = Field(min_length=1, max_length=8)
+    campaignObjectives: list[str] = Field(min_length=1, max_length=8)
+    audiences: list[AudienceSegment] = Field(min_length=1, max_length=6)
+    funnelStage: Literal["awareness", "consideration", "conversion", "retention", "advocacy"]
+    intendedConversion: str = Field(min_length=1, max_length=300)
+    requestedChannels: list[str] = Field(min_length=1, max_length=8)
+    supportedChannels: list[str] = Field(min_length=1, max_length=8)
+    horizonWeeks: int = Field(default=4, ge=1, le=12)
+
+
+class PerformanceObservation(StrictModel):
+    id: str = Field(min_length=1, max_length=100)
+    summary: str = Field(min_length=1, max_length=600)
+    firestoreEvidenceRef: str = Field(min_length=1, max_length=500)
+
+
+class MemoryFact(StrictModel):
+    id: str = Field(min_length=1, max_length=100)
+    content: str = Field(min_length=1, max_length=600)
+    firestoreEvidenceRef: str = Field(min_length=1, max_length=500)
 
 
 class StrategistInput(StrictModel):
-    task: Literal["brief", "trend_scan", "calendar_gap", "recycle"]
-    brief: str = Field(default="", max_length=20_000)
-    signals: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
-    goals_text: str = Field(default="", max_length=4_000)
-    learnings_text: str = Field(default="", max_length=4_000)
-    post_text: str = Field(default="", max_length=1_000)
-    likes: int = Field(default=0, ge=0)
-    prior_learnings: str = Field(default="", max_length=4_000)
+    source_title: str = Field(min_length=1, max_length=300)
+    company: CompanyContext
+    campaign: CampaignContext
+    analysis: AnalysisResult
+    performance: list[PerformanceObservation] = Field(default_factory=list, max_length=12)
+    memoryFacts: list[MemoryFact] = Field(default_factory=list, max_length=5)
+    revision: int = Field(default=1, ge=1, le=2)
+    revisionFeedback: str | None = Field(default=None, max_length=2_000)
 
     @model_validator(mode="after")
-    def validate_task_payload(self) -> "StrategistInput":
-        if self.task == "brief" and not self.brief.strip():
-            raise ValueError("brief task requires brief")
-        if self.task == "trend_scan" and not self.signals:
-            raise ValueError("trend_scan task requires signals")
-        if self.task == "recycle" and not self.post_text.strip():
-            raise ValueError("recycle task requires post_text")
+    def validate_revision(self) -> "StrategistInput":
+        if self.revision == 2 and not (self.revisionFeedback or "").strip():
+            raise ValueError("strategy revision feedback is required")
+        return self
+
+
+class EvidenceClaim(StrictModel):
+    text: str = Field(min_length=1, max_length=600)
+    evidenceRefs: list[str] = Field(min_length=1, max_length=12)
+
+
+class AudiencePriority(StrictModel):
+    audienceId: str = Field(min_length=1, max_length=100)
+    priority: int = Field(ge=1, le=5)
+    reason: str = Field(min_length=1, max_length=500)
+    evidenceRefs: list[str] = Field(min_length=1, max_length=12)
+
+
+class StrategicPillar(StrictModel):
+    name: str = Field(min_length=1, max_length=200)
+    purpose: str = Field(min_length=1, max_length=500)
+    evidenceRefs: list[str] = Field(min_length=1, max_length=12)
+
+
+class CampaignTheme(StrictModel):
+    name: str = Field(min_length=1, max_length=200)
+    message: str = Field(min_length=1, max_length=500)
+    evidenceRefs: list[str] = Field(min_length=1, max_length=12)
+
+
+class ChannelRole(StrictModel):
+    channel: str = Field(min_length=1, max_length=100)
+    role: str = Field(min_length=1, max_length=300)
+    operationallySupported: bool
+    formats: list[str] = Field(min_length=1, max_length=8)
+    cadence: str = Field(min_length=1, max_length=200)
+    evidenceRefs: list[str] = Field(min_length=1, max_length=12)
+
+
+class ContentMixItem(StrictModel):
+    format: str = Field(min_length=1, max_length=100)
+    percentage: int = Field(ge=1, le=100)
+
+
+class StrategyKpi(StrictModel):
+    name: str = Field(min_length=1, max_length=200)
+    target: str = Field(min_length=1, max_length=200)
+    measurement: str = Field(min_length=1, max_length=300)
+    evidenceRefs: list[str] = Field(min_length=1, max_length=12)
+
+
+class StrategyAssumption(StrictModel):
+    text: str = Field(min_length=1, max_length=500)
+    evidenceRefs: list[str] = Field(min_length=1, max_length=12)
+    confidence: Literal["low", "medium", "high"]
+
+
+class ContentBrief(StrictModel):
+    id: str = Field(min_length=1, max_length=100)
+    title: str = Field(min_length=1, max_length=300)
+    objective: str = Field(min_length=1, max_length=600)
+    audienceId: str = Field(min_length=1, max_length=100)
+    funnelStage: Literal["awareness", "consideration", "conversion", "retention", "advocacy"]
+    keyMessage: str = Field(min_length=1, max_length=600)
+    channelCandidates: list[str] = Field(min_length=1, max_length=8)
+    formatCandidates: list[str] = Field(min_length=1, max_length=8)
+    ctaIntent: str = Field(min_length=1, max_length=300)
+    intendedConversion: str = Field(min_length=1, max_length=300)
+    kpi: str = Field(min_length=1, max_length=200)
+    priority: int = Field(ge=1, le=5)
+    dependencies: list[str] = Field(default_factory=list, max_length=8)
+    constraints: list[str] = Field(default_factory=list, max_length=12)
+    evidenceRefs: list[str] = Field(min_length=1, max_length=12)
+
+
+class ContentStrategy(StrictModel):
+    strategyId: str = Field(min_length=1, max_length=100)
+    version: int = Field(ge=1, le=2)
+    horizonWeeks: int = Field(ge=1, le=12)
+    thesis: str = Field(min_length=1, max_length=600)
+    differentiatedNarrative: str = Field(min_length=1, max_length=600)
+    objectives: list[EvidenceClaim] = Field(min_length=1, max_length=8)
+    audiencePriorities: list[AudiencePriority] = Field(min_length=1, max_length=6)
+    funnelIntent: Literal["awareness", "consideration", "conversion", "retention", "advocacy"]
+    intendedConversions: list[str] = Field(min_length=1, max_length=6)
+    pillars: list[StrategicPillar] = Field(min_length=1, max_length=8)
+    campaignThemes: list[CampaignTheme] = Field(min_length=1, max_length=8)
+    channelRoles: list[ChannelRole] = Field(min_length=1, max_length=8)
+    contentMix: list[ContentMixItem] = Field(min_length=1, max_length=8)
+    cadenceGuidance: str = Field(min_length=1, max_length=300)
+    priorityRules: list[str] = Field(min_length=1, max_length=8)
+    ctaGuidance: list[str] = Field(min_length=1, max_length=8)
+    kpis: list[StrategyKpi] = Field(min_length=1, max_length=8)
+    successCriteria: list[str] = Field(min_length=1, max_length=8)
+    constraints: list[str] = Field(default_factory=list, max_length=12)
+    exclusions: list[str] = Field(default_factory=list, max_length=12)
+    brandSafety: list[str] = Field(default_factory=list, max_length=12)
+    briefs: list[ContentBrief] = Field(min_length=1, max_length=10)
+    assumptions: list[StrategyAssumption] = Field(default_factory=list, max_length=8)
+    confidence: Literal["low", "medium", "high"]
+
+    @model_validator(mode="after")
+    def validate_mix(self) -> "ContentStrategy":
+        if sum(item.percentage for item in self.contentMix) != 100:
+            raise ValueError("content mix percentages must total 100")
         return self
 
 
 class StrategistResult(StrictModel):
-    analysis: AnalysisResult | None = None
-    ideas: list[Idea] = Field(default_factory=list, max_length=6)
-    strategy: "ContentStrategy | None" = None
-
-    @model_validator(mode="after")
-    def require_one_result(self) -> "StrategistResult":
-        if self.analysis is None and not self.ideas and self.strategy is None:
-            raise ValueError("strategist must return analysis, strategy, or ideas")
-        return self
-
-
-class ContentBrief(StrictModel):
-    title: str = Field(min_length=1, max_length=300)
-    objective: str = Field(min_length=1, max_length=600)
-    sourceRefs: list[str] = Field(min_length=1, max_length=12)
-
-
-class ContentStrategy(StrictModel):
-    objective: str = Field(min_length=1, max_length=600)
-    audience: str = Field(min_length=1, max_length=300)
-    pillars: list[str] = Field(min_length=1, max_length=8)
-    cadence: str = Field(min_length=1, max_length=200)
-    kpis: list[str] = Field(min_length=1, max_length=8)
-    briefs: list[ContentBrief] = Field(min_length=1, max_length=10)
+    strategy: ContentStrategy
 
 
 class Draft(StrictModel):
@@ -154,13 +262,14 @@ class DraftWorkflowInput(StrictModel):
     title: str = Field(min_length=1)
     analysis: AnalysisResult
     brand_context: str = Field(default="", max_length=4_000)
-    strategy: ContentStrategy | None = None
+    strategy: ContentStrategy
 
 
 class EditorialCalendarItem(StrictModel):
     id: str = Field(min_length=1, max_length=100)
     platform: Literal["x"]
     objective: str = Field(min_length=1, max_length=300)
+    briefId: str = Field(min_length=1, max_length=100)
     sourceRef: str = Field(min_length=1, max_length=100)
     format: Literal["text_post"] = "text_post"
     priority: int = Field(default=1, ge=1, le=5)

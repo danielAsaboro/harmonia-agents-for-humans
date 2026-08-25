@@ -1,13 +1,24 @@
 import {
   claimTelegramDecisionNonce,
+  claimTelegramStrategyPrompt,
   finalizeTelegramDecisionNonce,
+  finalizeTelegramStrategyPrompt,
+  getTelegramConnection,
+  getJob,
   getTelegramWebhookRoute,
+  decideStrategy,
 } from "@/lib/firestore";
 import { resolveDecision } from "@/lib/decisions";
 import { runWithTenant } from "@/lib/tenancy";
 import { TelegramWebhookError, verifyTelegramWebhook } from "@/lib/telegramWebhook";
+import { promptTelegramStrategyFeedback } from "@/lib/telegramStrategyApproval";
 
 const MAX_UPDATE_BYTES = 64 * 1024;
+
+async function existingStrategyDecision(jobId: string, payloadDigest: string, decision: "approved" | "rejected"): Promise<boolean> {
+  const job = await getJob(jobId);
+  return job.strategyApproval?.payloadDigest === payloadDigest && job.strategyApproval.decision === decision;
+}
 
 function errorResponse(error: unknown): Response {
   if (error instanceof TelegramWebhookError) {
@@ -42,6 +53,21 @@ export async function POST(
       secret: req.headers.get("x-telegram-bot-api-secret-token") ?? "",
       update: JSON.parse(raw) as unknown,
     });
+    if (verified.kind === "strategy_feedback") {
+      const claim = await claimTelegramStrategyPrompt(routeToken, verified.promptMessageId);
+      const prompt = claim.prompt;
+      if (prompt.workspaceId !== route.workspaceId || prompt.brandId !== route.brandId) throw new TelegramWebhookError("Telegram strategy prompt tenant mismatch", 409);
+      if (prompt.actorSubjectId !== verified.principal.subjectId) throw new TelegramWebhookError("Telegram strategy feedback actor mismatch", 409);
+      if (claim.duplicate) return Response.json({ ok: true, duplicate: true, decisionId: prompt.decisionId });
+      const outcome = await runWithTenant({ workspaceId: route.workspaceId, brandId: route.brandId, principal: verified.principal }, async () => (
+        await existingStrategyDecision(prompt.jobId, prompt.payloadDigest, "rejected")
+          ? { reconciled: true }
+          : decideStrategy(prompt.jobId, { decision: "rejected", payloadDigest: prompt.payloadDigest, feedback: verified.feedback })
+      ));
+      const decisionId = `${prompt.jobId}:strategy:${prompt.payloadDigest}`;
+      await finalizeTelegramStrategyPrompt(routeToken, verified.promptMessageId, decisionId);
+      return Response.json({ ok: true, decisionId, outcome });
+    }
     const claim = await claimTelegramDecisionNonce(routeToken, verified.nonce);
     if (claim.nonce.workspaceId !== route.workspaceId || claim.nonce.brandId !== route.brandId) {
       throw new TelegramWebhookError("Telegram decision tenant mismatch", 409);
@@ -49,17 +75,38 @@ export async function POST(
     if (claim.duplicate) {
       return Response.json({ ok: true, duplicate: true, decisionId: claim.nonce.decisionId });
     }
+    if (claim.nonce.target === "strategy_feedback") {
+      const promptMessageId = await runWithTenant({ workspaceId: route.workspaceId, brandId: route.brandId, principal: verified.principal }, async () => {
+        const connection = await getTelegramConnection();
+        if (!connection) throw new Error("Telegram not connected");
+        return promptTelegramStrategyFeedback({
+          botToken: connection.botToken, chatId: connection.chatId, routeTokenDigest: connection.routeTokenDigest,
+          workspaceId: route.workspaceId, brandId: route.brandId, jobId: claim.nonce.jobId,
+          payloadDigest: claim.nonce.payloadDigest, actorSubjectId: verified.principal.subjectId,
+          expiresAt: claim.nonce.expiresAt,
+        });
+      });
+      const decisionId = `${claim.nonce.jobId}:strategy-feedback:${promptMessageId}`;
+      await finalizeTelegramDecisionNonce(routeToken, verified.nonce, decisionId);
+      return Response.json({ ok: true, duplicate: false, decisionId, awaitingFeedback: true });
+    }
     const outcome = await runWithTenant({
       workspaceId: route.workspaceId,
       brandId: route.brandId,
       principal: verified.principal,
-    }, () => resolveDecision(
-      claim.nonce.jobId,
-      claim.nonce.actionId,
-      claim.nonce.decision,
-      claim.nonce.payloadDigest,
-    ));
-    const decisionId = `${claim.nonce.jobId}:approval:${claim.nonce.actionId}`;
+    }, async () => claim.nonce.target === "strategy"
+      ? await existingStrategyDecision(claim.nonce.jobId, claim.nonce.payloadDigest, claim.nonce.decision)
+        ? { reconciled: true }
+        : decideStrategy(claim.nonce.jobId, {
+          decision: claim.nonce.decision, payloadDigest: claim.nonce.payloadDigest,
+          ...(claim.nonce.feedback ? { feedback: claim.nonce.feedback } : {}),
+        })
+      : resolveDecision(
+        claim.nonce.jobId, claim.nonce.actionId, claim.nonce.decision, claim.nonce.payloadDigest,
+      ));
+    const decisionId = claim.nonce.target === "strategy"
+      ? `${claim.nonce.jobId}:strategy:${claim.nonce.payloadDigest}`
+      : `${claim.nonce.jobId}:approval:${claim.nonce.actionId}`;
     await finalizeTelegramDecisionNonce(routeToken, verified.nonce, decisionId);
     return Response.json({ ok: true, duplicate: false, decisionId, outcome });
   } catch (error) {

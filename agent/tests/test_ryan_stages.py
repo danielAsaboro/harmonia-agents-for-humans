@@ -1,0 +1,105 @@
+"""Nimi-to-Ryan stage wiring and approved Temi handoff."""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import UTC, datetime, timedelta
+
+import pytest
+
+from harmonia_agent import stages
+from harmonia_agent.agent_models import AnalysisResult, StrategistResult
+from tests.test_ryan_strategy import strategy
+
+
+def job() -> dict:
+    return {
+        "id": "job-1", "workspaceId": "workspace-test", "brandId": "brand-test",
+        "createdByUserId": "user-test", "ingestedTitle": "Activation interview",
+        "ingestedChannel": "Harmonia", "transcriptSegments": [],
+        "summary": "Activation time fell.",
+        "moments": [{"id": "m1", "title": "Activation", "startSec": 2, "endSec": 8, "hook": "Nine days to forty hours", "quote": "we cut nine days to forty hours"}],
+        "angles": [{"id": "a1", "kind": "trend", "title": "Operational speed", "rationale": "The source demonstrates a measurable operational improvement."}],
+        "config": {"brief": "Explain the activation result", "strategyContext": {
+            "company": "Harmonia", "product": "A governed content engine",
+            "positioning": "Evidence-grounded content operations", "differentiators": ["approval-bound effects"],
+            "brandVoice": ["direct"], "exclusions": ["fabricated outcomes"],
+            "safetyConstraints": ["never imply autonomous approval"],
+            "businessObjectives": ["increase qualified demos"], "campaignObjectives": ["teach evidence-grounded operations"],
+            "audiences": [{"id": "aud-founders", "name": "startup founders", "pains": ["content bottlenecks"]}],
+            "funnelStage": "consideration", "intendedConversion": "request a product demo",
+            "requestedChannels": ["x", "linkedin"], "supportedChannels": ["x"],
+        }},
+    }
+
+
+def test_understand_persists_nimi_analysis_without_running_ryan(monkeypatch):
+    calls, posts = [], []
+    async def fake_analyze(request, *, invocation):
+        calls.append(request)
+        return AnalysisResult.model_validate({"summary": job()["summary"], "moments": job()["moments"], "angles": job()["angles"]})
+    source = job()
+    source["transcriptSegments"] = [{"id": "s1", "startSec": 0, "endSec": 5, "text": "hello"}]
+    monkeypatch.setattr(stages, "get_job", lambda _id: source)
+    monkeypatch.setattr(stages, "get_insights", lambda: {})
+    monkeypatch.setattr(stages, "analyze_with_team", fake_analyze)
+    monkeypatch.setattr(stages, "strategize_with_team", lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("Ryan ran during understand")))
+    monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
+
+    asyncio.run(stages.run_understand("job-1"))
+
+    assert calls[0].transcript == "[0s] hello"
+    assert posts[0][0] == "/api/internal/analysis"
+    assert "strategy" not in posts[0][1]
+
+
+def test_strategize_receives_typed_analysis_context_and_performance(monkeypatch):
+    requests, posts = [], []
+    async def fake_strategy(request, *, invocation, **_kwargs):
+        requests.append((request, invocation))
+        return StrategistResult(strategy=strategy())
+    async def fake_prepare(request, *, invocation):
+        return request
+    monkeypatch.setattr(stages, "get_job", lambda _id: job())
+    monkeypatch.setattr(stages, "get_insights", lambda: {"topPosts": [{"postId": "post-1", "text": "Proof post", "likes": 12, "reposts": 3}]})
+    monkeypatch.setattr(stages, "strategize_with_team", fake_strategy)
+    monkeypatch.setattr(stages, "prepare_strategist_input", fake_prepare)
+    monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
+
+    asyncio.run(stages.run_strategize("job-1"))
+
+    request, invocation = requests[0]
+    assert request.analysis.moments[0].id == "m1"
+    assert request.company.company == "Harmonia"
+    assert request.campaign.horizonWeeks == 4
+    assert request.performance[0].id == "performance:post-1"
+    assert invocation.stage == "strategize"
+    assert posts[0][0] == "/api/internal/strategy-context"
+    assert posts[0][1]["sourceIds"] == ["m1", "a1"]
+    assert posts[1][0] == "/api/internal/strategy"
+    assert posts[1][1]["strategy"]["briefs"][0]["id"] == "brief-1"
+
+
+def test_draft_requires_digest_bound_approved_strategy(monkeypatch):
+    source = job()
+    source.update({"contentStrategy": strategy().model_dump(mode="json"), "strategyDigest": "a" * 64,
+                   "strategyApproval": {"decision": "approved", "payloadDigest": "b" * 64}})
+    monkeypatch.setattr(stages, "get_job", lambda _id: source)
+    monkeypatch.setattr(stages, "get_insights", lambda: {})
+    try:
+        asyncio.run(stages.run_draft("job-1"))
+    except Exception as exc:
+        assert "digest-bound approved strategy" in str(exc)
+    else:
+        raise AssertionError("Temi ran with mismatched strategy approval")
+
+
+def test_draft_rejects_strategy_approval_decided_after_expiry(monkeypatch):
+    source = job()
+    source.update({"contentStrategy": strategy().model_dump(mode="json"), "strategyDigest": "a" * 64,
+                   "strategyApproval": {"decision": "approved", "payloadDigest": "a" * 64,
+                                        "decidedAt": datetime.now(UTC).isoformat(),
+                                        "expiresAt": (datetime.now(UTC) - timedelta(minutes=1)).isoformat()}})
+    monkeypatch.setattr(stages, "get_job", lambda _id: source)
+    with pytest.raises(Exception, match="decided after expiry"):
+        asyncio.run(stages.run_draft("job-1"))

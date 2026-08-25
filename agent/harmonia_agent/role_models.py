@@ -169,8 +169,8 @@ def load_role_model_catalog() -> RoleModelCatalog:
             ("route",),
         ),
         strategist=_gemini(
-            "ryan_strategist", "STRATEGIST_MODEL_ID", "gemini-3.5-flash", 2048, 0.4,
-            ("brief", "trend_scan", "calendar_gap", "recycle"),
+            "ryan_strategist", "STRATEGIST_MODEL_ID", "gemini-3.5-flash", 4096, 0.4,
+            ("strategize",),
         ),
         analyst=_gemini(
             "nimi_analyst", "ANALYST_MODEL_ID", "gemini-3.5-flash", 2048, 0.2,

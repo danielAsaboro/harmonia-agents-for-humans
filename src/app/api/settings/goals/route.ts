@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { strategyContextSchema } from "@/lib/contracts";
 import { getGoals, saveGoals } from "@/lib/firestore";
 import { administratorTenantHandler } from "@/lib/auth";
 
@@ -7,6 +8,7 @@ const goalsSchema = z.object({
   audience: z.string().max(300).optional(),
   voice: z.string().max(300).optional(),
   topics: z.array(z.string().min(1).max(120)).max(10).default([]),
+  strategyContext: strategyContextSchema.optional(),
 });
 
 async function get(_req: Request) {

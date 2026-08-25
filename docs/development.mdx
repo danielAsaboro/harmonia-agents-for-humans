@@ -12,11 +12,11 @@ Harmonia's model and social-effect legs have explicit development-only fixtures 
 Replaces every Gemini call with deterministic local fixtures that satisfy the exact JSON shapes of the real stages:
 
 - **Transcription** — segments derived from audio size, plausible startup-podcast text
-- **Analysis / ideation** — summary, moments (real timestamps for video jobs, zero for briefs), trend + meme angles
+- **Analysis / strategy** — Nimi summary and grounded moments/angles, followed by Ryan's typed strategy proposal and briefs
 - **Drafting** — three ≤280-char X posts referencing moment/angle ids
 - **Image generation** — renders a *real* PNG locally via ffmpeg lavfi
 - **Chat intent parsing** — keyword rules instead of structured output
-- **Proactive ideation** — proposals derived from fixture signals; signal fetching uses fixtures too, so the loop needs zero network
+- **Proactive proposals** — deterministic proposals derived from fixture signals; later learning inputs re-enter Ryan through the same strict strategy contract
 
 Every mock path logs loudly (`[MOCK-AI] ...`) and persisted `modelUsed` labels read `mock-local (HARMONIA_MOCK_AI)` so offline runs are never mistaken for real model calls.
 
@@ -64,7 +64,7 @@ Worker tests set safe dummy credentials via `agent/tests/conftest.py`; mock-mode
 | `POST /api/chat/attachments/session` | Create a validated resumable upload session |
 | `POST /api/chat/attachments/{id}/complete` | Verify bytes, quarantine, scan, and mark ready only on a clean verdict |
 | `GET /api/chat/runs/{id}/events?after=N` | Replay persisted stream events after sequence `N` |
-| `GET /api/internal/insights` | Engagement insights fed into ideation |
+| `GET /api/internal/insights` | Verified engagement and eligible context fed into Nimi/Ryan |
 
 Internal routes require service authentication plus workspace and brand headers. Dashboard routes require a verified Google session and derive the workspace from server-side membership.
 

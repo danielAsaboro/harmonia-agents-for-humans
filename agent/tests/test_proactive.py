@@ -3,8 +3,6 @@
 import pytest
 
 from harmonia_agent import proactive
-from harmonia_agent.agent_models import StrategistResult
-from harmonia_agent.agents import strategize_with_team_sync
 from harmonia_agent.mock_ai import MOCK_FLAG
 
 
@@ -41,17 +39,6 @@ def test_fetch_signals_mock_needs_no_network():
     for s in signals:
         assert {"title", "url", "points", "comments"} <= set(s)
         assert s["url"].startswith("http")
-
-
-def test_strategist_propose_ideas_routes_to_mock():
-    from harmonia_agent.agent_models import StrategistInput
-
-    result = strategize_with_team_sync(StrategistInput(
-        task="trend_scan", signals=proactive.fetch_signals(),
-    ))
-    for idea in result.ideas:
-        assert idea.topic and idea.reason
-        assert isinstance(idea.sources, list)
 
 
 def test_watch_engagement_flags_outliers(monkeypatch):
@@ -199,13 +186,6 @@ def test_failure_watchdog_flags_permanent_failures(monkeypatch):
 
 
 def test_calendar_gap_scan_proposes_from_goals(monkeypatch):
-    calls = []
-    monkeypatch.setattr(
-        proactive, "strategize_with_team_sync",
-        lambda request: calls.append(request) or StrategistResult.model_validate({
-            "ideas": [{"topic": "filler topic", "reason": "calendar gap"}],
-        }),
-    )
     feed = {
         "items": [],
         "goals": {"weeklyPostTarget": 3, "voice": "direct"},
@@ -213,7 +193,6 @@ def test_calendar_gap_scan_proposes_from_goals(monkeypatch):
     _, __, ___, subs = _patch_web(monkeypatch, feed=feed, insights={"topPosts": []})
     summary = proactive.check_calendar_gap_scan({"feed": feed})
     assert "gap=3" in summary
-    assert calls and "weeklyPostTarget: 3" in calls[0].goals_text
     assert any(p["source"] == "calendar_gap" for p in subs)
 
 
@@ -229,29 +208,18 @@ def test_calendar_gap_scan_quiet_when_full(monkeypatch):
         ],
         "goals": {"weeklyPostTarget": 3},
     }
-    called = []
-    monkeypatch.setattr(proactive, "strategize_with_team_sync", lambda request: called.append(1))
     summary = proactive.check_calendar_gap_scan({"feed": feed})
     assert summary == "calendar full"
-    assert not called
 
 
 def test_recycle_winners_needs_old_high_performer(monkeypatch):
     import time as _time
 
     old_ts = _time.time() - 30 * 86400
-    calls = []
-    monkeypatch.setattr(
-        proactive, "strategize_with_team_sync",
-        lambda request: calls.append(request) or StrategistResult.model_validate({
-            "ideas": [{"topic": f"refresh {request.post_text[:20]}", "reason": "winner"}],
-        }),
-    )
     insights = {"topPosts": [{"text": "evergreen banger", "likes": 220, "checkedAt": _iso(old_ts)}]}
     _, __, ___, subs = _patch_web(monkeypatch, insights=insights)
     summary = proactive.check_recycle_winners({"insights": insights})
     assert "1 recycle proposal" in summary
-    assert (calls[0].post_text, calls[0].likes) == ("evergreen banger", 220)
     assert subs[0]["source"] == "recycle"
 
     # fresh top post -> no recycle

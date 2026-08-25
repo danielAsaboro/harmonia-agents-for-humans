@@ -12,7 +12,7 @@ export interface TelegramWebhookRoute {
 }
 
 const callbackData = z.string().regex(/^harmonia:[A-Za-z0-9_-]{24,48}$/).max(64);
-export const telegramUpdateSchema = z.object({
+const callbackUpdate = z.object({
   update_id: z.number().int().nonnegative(),
   callback_query: z.object({
     id: z.string().min(1).max(256),
@@ -23,6 +23,15 @@ export const telegramUpdateSchema = z.object({
     data: callbackData,
   }).strict(),
 }).strict();
+const feedbackUpdate = z.object({
+  update_id: z.number().int().nonnegative(),
+  message: z.object({
+    message_id: z.number().int().positive(), from: z.object({ id: z.number().int() }).strict(),
+    chat: z.object({ id: z.number().int() }).strict(), text: z.string().min(1).max(2000),
+    reply_to_message: z.object({ message_id: z.number().int().positive() }).passthrough(),
+  }).strict(),
+}).strict();
+export const telegramUpdateSchema = z.union([callbackUpdate, feedbackUpdate]);
 
 export class TelegramWebhookError extends Error {
   constructor(message: string, readonly status: 400 | 401 | 403 | 404 | 409 | 413) {
@@ -69,9 +78,14 @@ export function verifyTelegramWebhook(input: {
   update: unknown;
   digest?: (value: string) => string;
 }): {
+  kind: "callback";
   principal: Extract<Principal, { kind: "telegram_user" }>;
   nonce: string;
   updateId: number;
+} | {
+  kind: "strategy_feedback";
+  principal: Extract<Principal, { kind: "telegram_user" }>;
+  promptMessageId: number; feedback: string; updateId: number;
 } {
   const digest = input.digest ?? telegramDigest;
   if (!equalDigest(digest(input.routeToken), input.route.routeTokenDigest)) {
@@ -82,21 +96,27 @@ export function verifyTelegramWebhook(input: {
   }
   const parsed = telegramUpdateSchema.safeParse(input.update);
   if (!parsed.success) throw new TelegramWebhookError("invalid Telegram update", 400);
-  const query = parsed.data.callback_query;
-  const chatIdDigest = digest(String(query.message.chat.id));
+  const callback = "callback_query" in parsed.data ? parsed.data.callback_query : null;
+  const message = "message" in parsed.data ? parsed.data.message : null;
+  const chatIdDigest = digest(String(callback ? callback.message.chat.id : message!.chat.id));
   if (!equalDigest(chatIdDigest, input.route.chatIdDigest)) {
     throw new TelegramWebhookError("Telegram chat is not allowed", 403);
   }
-  const senderDigest = digest(String(query.from.id));
-  const callbackQueryIdDigest = digest(query.id);
+  const senderDigest = digest(String(callback ? callback.from.id : message!.from.id));
+  const principal = telegramPrincipal({
+    subjectId: `telegram_${senderDigest.slice(0, 24)}`,
+    authenticationId: `telegram_update_${parsed.data.update_id}`,
+    chatIdDigest,
+    callbackQueryIdDigest: callback ? digest(callback.id) : digest(`message:${message!.message_id}`),
+  });
+  if (message) return {
+    kind: "strategy_feedback", principal, promptMessageId: message.reply_to_message.message_id,
+    feedback: message.text.trim(), updateId: parsed.data.update_id,
+  };
   return {
-    principal: telegramPrincipal({
-      subjectId: `telegram_${senderDigest.slice(0, 24)}`,
-      authenticationId: `telegram_update_${parsed.data.update_id}`,
-      chatIdDigest,
-      callbackQueryIdDigest,
-    }),
-    nonce: callbackNonce(query.data),
+    kind: "callback",
+    principal,
+    nonce: callbackNonce(callback!.data),
     updateId: parsed.data.update_id,
   };
 }

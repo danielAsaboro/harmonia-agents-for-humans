@@ -32,8 +32,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from . import signals, telegram_bot, x_client
-from .agent_models import StrategistInput
-from .agents import strategize_with_team_sync
 from .web_client import (
     WebApiError,
     get_feed,
@@ -149,15 +147,14 @@ def watch_engagement() -> list[dict[str, Any]]:
 
 
 def check_trend_scan(ctx: dict[str, Any]) -> str:
-    signals = fetch_signals()
-    if not signals:
+    observed = fetch_signals()
+    if not observed:
         return "no signals"
-    insights = ctx.get("insights") or {}
-    result = strategize_with_team_sync(StrategistInput(
-        task="trend_scan", signals=signals,
-        prior_learnings=_prior_learnings_line(insights),
-    ))
-    ideas = [idea.model_dump(mode="json") for idea in result.ideas]
+    ideas = [{
+        "topic": item.get("title", ""), "angle": "Observed external signal",
+        "reason": f"Observed {int(item.get('points') or 0)} points and {int(item.get('comments') or 0)} comments.",
+        "sources": [item["url"]] if item.get("url") else [], "suggestedPost": "",
+    } for item in observed]
     created, _ = submit_proposals(build_proposals(ideas, "trend_scan"))
     return f"{created} proposal(s)"
 
@@ -271,12 +268,13 @@ def check_calendar_gap_scan(ctx: dict[str, Any]) -> str:
     gap = max(target - scheduled_soon, 0)
     if gap == 0:
         return "calendar full"
-    goals_text = _goals_text(feed.get("goals") or {})
-    learnings_text = _learnings_text(ctx.get("insights") or {})
-    result = strategize_with_team_sync(StrategistInput(
-        task="calendar_gap", goals_text=goals_text, learnings_text=learnings_text,
-    ))
-    ideas = [idea.model_dump(mode="json") for idea in result.ideas]
+    goals = feed.get("goals") or {}
+    topics = goals.get("topics") or ["Fill the documented weekly content gap"]
+    ideas = [{
+        "topic": str(topic), "angle": "Calendar capacity gap",
+        "reason": f"The calendar is {gap} item(s) below the operator's weekly target.",
+        "sources": [], "suggestedPost": "",
+    } for topic in topics[:gap]]
     created, _ = submit_proposals(build_proposals(ideas, "calendar_gap"))
     return f"gap={gap}; {created} fill proposal(s)"
 
@@ -292,10 +290,12 @@ def check_recycle_winners(ctx: dict[str, Any]) -> str:
     age_days = (time.time() - checked_at) / 86400 if checked_at else RECYCLE_MIN_AGE_DAYS
     if age_days < RECYCLE_MIN_AGE_DAYS or int(best.get("likes", 0)) < 10:
         return "top post still fresh"
-    result = strategize_with_team_sync(StrategistInput(
-        task="recycle", post_text=str(best.get("text", "")), likes=int(best.get("likes", 0)),
-    ))
-    ideas = [idea.model_dump(mode="json") for idea in result.ideas]
+    ideas = [{
+        "topic": f"Revisit verified winner: {str(best.get('text', ''))[:180]}",
+        "angle": "Measured winner eligible for a new strategy cycle",
+        "reason": f"The verified post is {round(age_days)} days old and earned {int(best.get('likes', 0))} likes.",
+        "sources": [], "suggestedPost": "",
+    }]
     created, _ = submit_proposals(build_proposals(ideas, "recycle"))
     return f"{created} recycle proposal(s)"
 

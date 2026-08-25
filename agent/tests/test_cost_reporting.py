@@ -17,6 +17,7 @@ from harmonia_agent.usage import InvocationContext, run_metered
 from harmonia_agent.telemetry import configure_telemetry
 from test_agent_team import ManagedRuntime, ScriptedDraftModel, _analysis
 from harmonia_agent.tenant_context import tenant_scope
+from tests.test_ryan_strategy import strategy as _content_strategy
 
 
 def test_model_call_reserves_budget_before_provider():
@@ -49,7 +50,7 @@ def test_draft_run_reserves_and_reports_each_participating_role():
     reservations: list[dict] = []
     reports: list[dict] = []
     model = ScriptedDraftModel(model="gemini-3.5-flash")
-    payload = DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="voice: direct")
+    payload = DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="voice: direct", strategy=_content_strategy())
 
     asyncio.run(_run_coordinator(
         "flo_content_engine",
@@ -88,7 +89,7 @@ def test_team_releases_prior_reservations_when_reservation_fails_before_dispatch
     with pytest.raises(RuntimeError, match="budget service unavailable"):
         asyncio.run(_run_coordinator(
             "flo_content_engine",
-            DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="direct"),
+            DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="direct", strategy=_content_strategy()),
             model=ScriptedDraftModel(model="gemini-3.5-flash"),
             team_runtime=ManagedRuntime(),
             invocation=InvocationContext(
@@ -297,7 +298,7 @@ def test_agent_trace_has_safe_delegation_model_and_validation_spans():
     exporter = InMemorySpanExporter()
     configure_telemetry(exporter=exporter, force=True)
     payload = DraftWorkflowInput(
-        title="Demo", analysis=_analysis(), brand_context="private voice instructions",
+        title="Demo", analysis=_analysis(), brand_context="private voice instructions", strategy=_content_strategy(),
     )
 
     asyncio.run(_run_coordinator(
@@ -365,7 +366,7 @@ def test_heterogeneous_draft_usage_keeps_each_actual_role_model():
 
     asyncio.run(_run_coordinator(
         "flo_content_engine",
-        DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="voice: direct"),
+        DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="voice: direct", strategy=_content_strategy()),
         models=models,
         team_runtime=ManagedRuntime(),
         invocation=InvocationContext(

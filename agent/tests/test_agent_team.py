@@ -47,6 +47,7 @@ from harmonia_agent.stages import classify_failure
 from harmonia_agent.tenant_context import tenant_scope
 from harmonia_agent.generation_policy import safety_settings
 from harmonia_agent.usage import InvocationContext
+from tests.test_ryan_strategy import strategy as _content_strategy
 
 
 class ScriptedDelegationModel(BaseLlm):
@@ -111,7 +112,7 @@ class ScriptedDraftModel(BaseLlm):
             response_schema = str(llm_request.config.response_schema)
             if "strategySummary" in response_schema or "editorial plan" in instructions:
                 self.calls.append("temi_editorial_planner")
-                text = '{"strategySummary":"Activation lessons","items":[{"id":"c1","platform":"x","objective":"Teach activation speed","sourceRef":"m1","format":"text_post","priority":1}]}'
+                text = '{"strategySummary":"Activation lessons","items":[{"id":"c1","briefId":"brief-1","platform":"x","objective":"Teach activation speed","sourceRef":"m1","format":"text_post","priority":1}]}'
             elif "Write up to 10" in instructions:
                 self.calls.append("noni_copywriter")
                 text = '{"drafts":[{"id":"d1","platform":"x","momentId":"m1","text":"Original"}]}'
@@ -153,7 +154,7 @@ def _analysis() -> AnalysisResult:
 
 def _editorial_plan() -> EditorialPlan:
     return EditorialPlan(strategySummary="Activation lessons", items=[{
-        "id": "c1", "platform": "x", "objective": "Teach activation speed",
+        "id": "c1", "briefId": "brief-1", "platform": "x", "objective": "Teach activation speed",
         "sourceRef": "m1", "format": "text_post", "priority": 1,
     }])
 
@@ -170,7 +171,7 @@ class ManagedRuntime:
                 "summary": "Delegated analysis",
             }}
         return {
-            "editorial_plan": {"strategySummary": "Activation lessons", "items": [{"id": "c1", "platform": "x", "objective": "Teach activation speed", "sourceRef": "m1", "format": "text_post", "priority": 1}]},
+            "editorial_plan": {"strategySummary": "Activation lessons", "items": [{"id": "c1", "briefId": "brief-1", "platform": "x", "objective": "Teach activation speed", "sourceRef": "m1", "format": "text_post", "priority": 1}]},
             "copywriter_drafts": {"drafts": [
                 {"id": "d1", "platform": "x", "momentId": "m1", "text": "Original"},
             ]},
@@ -334,7 +335,7 @@ def test_analyst_receives_source_video_as_a_real_multimodal_part():
 
 def test_draft_agent_tool_forwards_all_sequential_state_to_coordinator():
     runtime = ManagedRuntime()
-    input = DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="voice: direct")
+    input = DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="voice: direct", strategy=_content_strategy())
     with tenant_scope("workspace-test", "brand-test"):
         state = asyncio.run(_run_coordinator(
             "flo_content_engine", input, model="gemini-test", team_runtime=runtime,
@@ -369,21 +370,6 @@ def test_liaison_must_return_nonempty_answer_text():
         LiaisonInput(question="q"),
         {"liaison_answer": "Two jobs await approval."},
     )
-
-
-def test_strategist_must_return_the_branch_requested_by_its_task():
-    with pytest.raises(AgentProtocolError, match="trend_scan.*ideas"):
-        _validate_strategy_result(
-            StrategistInput(task="trend_scan", signals=[{"title": "signal"}]),
-            StrategistResult(analysis=_analysis()),
-        )
-    with pytest.raises(AgentProtocolError, match="brief.*analysis"):
-        _validate_strategy_result(
-            StrategistInput(task="brief", brief="launch"),
-            StrategistResult(ideas=[{
-                "topic": "launch", "reason": "timely",
-            }]),
-        )
 
 
 def test_draft_workflow_result_requires_editor_to_preserve_identity_and_references():
@@ -426,9 +412,9 @@ def test_draft_workflow_result_limits_actions_to_reviewed_drafts():
 
 
 def test_content_engine_rejects_editorial_plan_with_unknown_source_reference():
-    payload = DraftWorkflowInput(title="Demo", analysis=_analysis())
+    payload = DraftWorkflowInput(title="Demo", analysis=_analysis(), strategy=_content_strategy())
     invalid = {
-        "editorial_plan": {"strategySummary": "Bad", "items": [{"id": "c1", "platform": "x", "objective": "Invent", "sourceRef": "missing", "format": "text_post", "priority": 1}]},
+        "editorial_plan": {"strategySummary": "Bad", "items": [{"id": "c1", "briefId": "brief-1", "platform": "x", "objective": "Invent", "sourceRef": "missing", "format": "text_post", "priority": 1}]},
         "copywriter_drafts": {"drafts": []}, "reviewed_drafts": {"drafts": []},
     }
     with pytest.raises(AgentProtocolError, match="unknown editorial sourceRef"):
@@ -440,23 +426,18 @@ def test_mock_team_routes_all_roles_and_returns_validated_shapes(monkeypatch, ca
     analysis = asyncio.run(analyze_with_team(AnalystInput(
         title="Demo", channel="Harmonia", transcript="[0s] hello [30s] proof",
     )))
-    strategy = asyncio.run(strategize_with_team(StrategistInput(
-        task="trend_scan",
-        signals=[{"title": "Agents act", "url": "https://example.com", "points": 20, "comments": 4}],
-    )))
     package = asyncio.run(draft_with_team(DraftWorkflowInput(
-        title="Demo", analysis=analysis, brand_context="voice: direct",
+        title="Demo", analysis=analysis, brand_context="voice: direct", strategy=_content_strategy(),
     )))
 
     assert analysis.summary
-    assert strategy.ideas
     assert package.reviewed_drafts.drafts
     assert {a.text for a in package.action_plan.actions} <= {
         d.text for d in package.reviewed_drafts.drafts
     }
     trace = capsys.readouterr().out
     for role in (
-        "nimi_analyst", "ryan_strategist", "noni_copywriter",
+        "nimi_analyst", "noni_copywriter",
         "dara_editor", "temi_editorial_planner",
     ):
         assert f"[MOCK-AI] coordinator -> {role}" in trace

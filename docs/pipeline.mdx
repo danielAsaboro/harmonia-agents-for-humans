@@ -1,13 +1,13 @@
 ---
 title: "The Pipeline"
-description: "Stage by stage: ingest, transcribe, understand, draft, approve, publish, verify, learn."
+description: "Stage by stage: ingest, transcribe, understand, strategize, approve strategy, plan, draft, approve effects, publish, verify, learn."
 ---
 
 Harmonia's pipeline is a linear stage machine. Each completed stage persists its payload and atomically records the next trigger in a Firestore outbox. Pub/Sub publication is claimed and finalized from that outbox; the durable tick recovers pending delivery after a crash.
 
 ```mermaid
 flowchart LR
-    Q[queued] > I[ingest] > T[transcribe] > U[understand] > D[draft] > A[awaiting_approval]
+    Q[queued] > I[ingest] > T[transcribe] > U[understand] > S[strategize] > SA[awaiting_strategy_approval] > D[draft] > A[awaiting_approval]
     A -- approved --> P[publish] > V[verify] > L[learn] > C[complete]
     A -- rejected/skipped --> C2[complete]
 ```
@@ -22,7 +22,11 @@ Gemini 3.5 Flash returns `{language, segments:[{id,startSec,endSec,text}]}` from
 
 ## understand
 
-For video jobs, Harmonia delegates the formatted transcript to Nimi (`nimi_analyst`) for clip-worthy moments (timestamps + hook + exact quote), trend angles, and meme angles. Ryan (`ryan_strategist`) turns grounded evidence or an operator brief into strategy and content-plan direction; brief-only concepts use zero timestamps because there is no media timeline.
+For video jobs, Harmonia delegates the formatted transcript to Nimi (`nimi_analyst`) for clip-worthy moments (timestamps + hook + exact quote), trend angles, and meme angles. The application persists that typed analysis before invoking Ryan (`ryan_strategist`) with explicit company, campaign, audience, verified-performance, and eligible Memory Bank context. Ryan returns one strict four-week strategy plus source-grounded content briefs; brief-only concepts still pass through Nimi and use zero timestamps because there is no media timeline.
+
+The durable stage order is `understand → strategize → awaiting_strategy_approval → draft`. Before Ryan runs, the exact typed evidence catalog—including eligible Memory Bank IDs and Firestore provenance—is persisted and later revalidated in the same transaction that accepts the proposal. Strategy approval is bound to the canonical SHA-256 digest. One rejection with operator feedback permits strategy version 2; a second rejection ends the job. Temi cannot run without an approval record matching the current digest.
+
+Dashboard and chat confirmations call the same tenant-scoped decision transaction. Telegram receives expiring digest-bound nonces via the official Bot API; a rejection callback must be completed with an authenticated reply containing operator notes before it can request Ryan's single revision.
 
 ## draft
 
@@ -53,4 +57,4 @@ Independent re-fetch of every executed action: tweets re-read from X by id, pack
 
 ## learn
 
-Measures published posts via public metrics, derives takeaways (top post, winning patterns), and stores them where the insights feed can inject them into future ideation prompts.
+Measures published posts via public metrics, derives evidence-linked takeaways, and stores eligible facts for future Nimi analysis and Ryan strategy inputs.

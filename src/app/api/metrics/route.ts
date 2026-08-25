@@ -62,7 +62,7 @@ async function get(_req: Request) {
   const totals = {
     jobs: jobs.length,
     running: jobs.filter((j) => j.status === "running").length,
-    waiting_for_approval: jobs.filter((j) => j.stage === "awaiting_approval").length,
+    waiting_for_approval: jobs.filter((j) => j.stage === "awaiting_approval" || j.stage === "awaiting_strategy_approval").length,
     complete: jobs.filter((j) => j.status === "complete").length,
     failed: jobs.filter((j) => j.status === "failed").length,
   };

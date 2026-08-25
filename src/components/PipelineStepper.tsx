@@ -4,6 +4,8 @@ const FLOW = [
   { key: "ingest", label: "Ingest" },
   { key: "transcribe", label: "Transcribe" },
   { key: "understand", label: "Understand" },
+  { key: "strategize", label: "Strategy" },
+  { key: "awaiting_strategy_approval", label: "Strategy approval" },
   { key: "draft", label: "Draft" },
   { key: "awaiting_approval", label: "Approval" },
   { key: "publish", label: "Publish" },
@@ -38,7 +40,7 @@ export default function PipelineStepper({
                       ? "border-emerald-500 bg-emerald-500 text-white"
                       : isActive
                         ? "border-blue-500 bg-blue-500 text-white shadow-[0_0_0_3px_rgba(59,130,246,0.25)]"
-                        : s.key === "awaiting_approval" && status === "waiting_for_approval"
+                        : (s.key === "awaiting_approval" || s.key === "awaiting_strategy_approval") && status === "waiting_for_approval"
                           ? "border-amber-500 bg-amber-500 text-white"
                           : "border-zinc-300 bg-zinc-100 text-zinc-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-500"
                 }`}

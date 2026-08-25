@@ -37,13 +37,14 @@ const nodes: ArchitectureNode[] = [
     ["ingest", "1 · Ingest", "Resolve an authorized YouTube source or uploaded media."],
     ["transcribe", "2 · Transcribe", "Gemini transcription with timed segments."],
     ["analyze", "3 · Analyze", "Ground clip moments in transcript and video evidence."],
-    ["ideate", "4 · Ideate", "Develop grounded trend, meme, and content angles."],
-    ["draft", "5 · Draft", "Run the bounded sequential drafting team."],
-    ["await-approval", "6 · Await approval", "Hard human gate before every external effect."],
-    ["publish-render", "7 · Publish / export / render", "Claim and execute only approved actions."],
-    ["verify", "8 · Verify", "Independently re-fetch providers or re-read artifact digests."],
-    ["learn", "9 · Learn", "Persist measured outcomes and eligible takeaways."],
-  ].map(([id, name, summary]) => node({ id: `stage-${id}`, name, kind: id === "await-approval" ? "gate" : id === "verify" ? "verification" : "stage", layer: "workflow", parentId: "group-workflow", summary, statuses: id === "await-approval" ? ["approval-gated"] : ["implemented"], authorities: id === "await-approval" ? ["approve"] : id === "verify" ? ["verify"] : ["write"], dataScope: "workspace", stateLifetime: "durable", sourceFiles: ["agent/harmonia_agent/stages.py"], docs: ["pipeline"] })),
+    ["strategize", "4 · Strategize", "Ryan proposes a grounded four-week strategy and content briefs."],
+    ["strategy-approval", "5 · Approve strategy", "Human approval bound to the exact strategy digest."],
+    ["draft", "6 · Plan & draft", "Temi operationalizes approved briefs before bounded production."],
+    ["await-approval", "7 · Await effect approval", "Hard human gate before every external effect."],
+    ["publish-render", "8 · Publish / export / render", "Claim and execute only approved actions."],
+    ["verify", "9 · Verify", "Independently re-fetch providers or re-read artifact digests."],
+    ["learn", "10 · Learn", "Persist measured outcomes and eligible takeaways."],
+  ].map(([id, name, summary]) => node({ id: `stage-${id}`, name, kind: id === "await-approval" || id === "strategy-approval" ? "gate" : id === "verify" ? "verification" : "stage", layer: "workflow", parentId: "group-workflow", summary, statuses: id === "await-approval" || id === "strategy-approval" ? ["approval-gated"] : ["implemented"], authorities: id === "await-approval" || id === "strategy-approval" ? ["approve"] : id === "verify" ? ["verify"] : ["write"], dataScope: "workspace", stateLifetime: "durable", sourceFiles: ["agent/harmonia_agent/stages.py"], docs: ["pipeline"] })),
 
   group("group-worker", "ADK worker", "control", "FastAPI Cloud Run worker consumes stages and persists results."),
   ...[["dispatcher", "Stage dispatcher"], ["scheduler", "Scheduler dispatcher"], ["proactive", "Proactive agent"], ["media", "Direct media operations"], ["ffmpeg", "ffmpeg skills"], ["providers", "Provider clients"], ["tenant", "Tenant-context validation"]].map(([id, name]) => node({ id: `worker-${id}`, name, kind: "service", layer: "control", parentId: "group-worker", summary: `${name} inside the service-authenticated worker boundary.`, authorities: ["read", "write"], dataScope: "workspace-brand", runtime: "FastAPI / Cloud Run" })),
@@ -54,7 +55,7 @@ const nodes: ArchitectureNode[] = [
 
   group("group-agent-team", "Agent team + delegation", "agents", "Bounded ADK roles with no effect authority."),
   node({ id: "agent-harmonia", name: "Harmonia coordinator", kind: "agent", layer: "agents", parentId: "group-agent-team", summary: "Routes exactly one bounded specialist; cannot answer the task, approve, or publish.", statuses: ["offline-verified", "pending-live"], authorities: ["delegate"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash-Lite" }, promptResponsibility: "Exact one-specialist routing and delegation only.", sourceFiles: ["agent/harmonia_agent/agents.py"] }),
-  node({ id: "agent-ryan", name: "Ryan strategist", kind: "agent", layer: "agents", parentId: "group-agent-team", summary: "Produces grounded strategy contracts from supplied briefs and signals.", statuses: ["offline-verified", "pending-live"], authorities: ["propose"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash" }, promptResponsibility: "Grounded strategy; never invent evidence." }),
+  node({ id: "agent-ryan", name: "Ryan strategist", kind: "agent", layer: "agents", parentId: "group-agent-team", summary: "Produces provenance-linked four-week strategy and content briefs for human approval.", statuses: ["offline-verified", "approval-gated", "pending-live"], authorities: ["propose"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash" }, promptResponsibility: "Agentic strategy from closed-world evidence; no tools, scheduling, approval, or effects." }),
   node({ id: "agent-nimi", name: "Nimi multimodal analyst", kind: "agent", layer: "agents", parentId: "group-agent-team", summary: "Analyzes bounded video plus timed transcript with quote/time/frame grounding.", statuses: ["offline-verified", "pending-live"], authorities: ["propose"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash" }, promptResponsibility: "Grounded moments, visual hooks, crop suitability, and evidence references." }),
   group("workflow-flo", "Flo content engine", "agents", "ADK SequentialAgent with a bounded Noni-Dara LoopAgent."),
   node({ id: "agent-noni", name: "Noni copywriter", kind: "agent", layer: "agents", parentId: "workflow-flo", summary: "Creates and revises typed platform-native drafts from Temi's editorial plan.", statuses: ["offline-verified", "pending-live"], authorities: ["propose"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemma 3 12B IT" }, promptResponsibility: "Draft with valid references and X length constraints." }),
@@ -94,7 +95,7 @@ const nodes: ArchitectureNode[] = [
   ...[["trace", "W3C trace propagation"], ["spans", "Metadata-only OpenTelemetry spans"], ["cost", "Role/model cost accounting"], ["budgets", "Workspace + job budget guards"]].map(([id, name]) => node({ id: `observe-${id}`, name, kind: "control", layer: "observability", parentId: "group-observability", summary: `${name}; no prompts, responses, transcripts, drafts, media, or chain-of-thought.`, statuses: id === "trace" || id === "spans" ? ["offline-verified", "pending-live"] : ["offline-verified"], authorities: ["read"], dataScope: "metadata-only", stateLifetime: "durable", sourceFiles: ["agent/harmonia_agent/telemetry.py"], docs: ["observability", "models-cost-evaluation"] })),
 ];
 
-const workflowIds = ["ingest", "transcribe", "analyze", "ideate", "draft", "await-approval", "publish-render", "verify", "learn"].map((id) => `stage-${id}`);
+const workflowIds = ["ingest", "transcribe", "analyze", "strategize", "strategy-approval", "draft", "await-approval", "publish-render", "verify", "learn"].map((id) => `stage-${id}`);
 const effectIds = nodes.filter((item) => item.kind === "effect").map((item) => item.id);
 const edges = [
   ...workflowIds.slice(0, -1).map((source, index) => ({ id: `flow-${index + 1}`, source, target: workflowIds[index + 1], kind: index === 4 ? "approval" as const : index === 6 ? "verification" as const : "workflow" as const, label: index === 4 ? "Human approval" : index === 6 ? "Independent verification" : "Durable transition" })),

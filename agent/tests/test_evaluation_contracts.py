@@ -8,8 +8,10 @@ from harmonia_agent.evaluation_contracts import (
     evaluate_drafts,
     evaluate_editor,
     evaluate_liaison_tool_use,
+    evaluate_strategy,
     validate_specialist_trajectory,
 )
+from tests.test_ryan_strategy import strategist_input, strategy
 
 
 def _analysis(**moment_overrides) -> AnalysisResult:
@@ -89,6 +91,19 @@ def test_analysis_rejects_out_of_bounds_time_and_ungrounded_quote():
     assert {failure.code for failure in result.failures} == {
         "moment_out_of_bounds", "quote_not_in_transcript",
     }
+
+
+def test_ryan_evaluation_covers_grounding_authority_completeness_and_memory():
+    assert evaluate_strategy(strategist_input=strategist_input(), strategy=strategy()).passed
+    invented = strategy().model_dump(mode="json")
+    invented["briefs"][0]["evidenceRefs"] = ["invented"]
+    assert evaluate_strategy(strategist_input=strategist_input(), strategy=invented).failures[0].code == "invented_reference"
+    incomplete = strategy().model_dump(mode="json")
+    del incomplete["briefs"][0]["keyMessage"]
+    assert evaluate_strategy(strategist_input=strategist_input(), strategy=incomplete).failures[0].code == "incomplete_strategy"
+    overreach = strategy().model_dump(mode="json")
+    overreach["priorityRules"] = ["Memory mem-1 approved automatic publishing"]
+    assert evaluate_strategy(strategist_input=strategist_input(), strategy=overreach).failures[0].code == "authority_overreach"
 
 
 def test_analysis_rejects_negative_or_late_start_and_invalid_duration():

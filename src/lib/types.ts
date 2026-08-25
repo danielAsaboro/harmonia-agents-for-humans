@@ -3,6 +3,8 @@ export const STAGES = [
   "ingest",
   "transcribe",
   "understand",
+  "strategize",
+  "awaiting_strategy_approval",
   "draft",
   "awaiting_approval",
   "publish",
@@ -30,8 +32,48 @@ export interface JobConfig {
   mediaStorageUri?: string;
   /** Operator-supplied topic/brief for concept jobs that skip ingest+transcribe. */
   brief?: string;
+  strategyContext?: StrategyContext;
   platforms: string[];
   sourceRights?: import("./sourceRights").SourceRightsAuthorization;
+}
+
+export interface StrategyContext {
+  company: string; product: string; positioning: string;
+  differentiators: string[]; brandVoice: string[]; exclusions: string[]; safetyConstraints: string[];
+  businessObjectives: string[]; campaignObjectives: string[];
+  audiences: Array<{ id: string; name: string; pains: string[] }>;
+  funnelStage: "awareness" | "consideration" | "conversion" | "retention" | "advocacy";
+  intendedConversion: string; requestedChannels: string[]; supportedChannels: string[];
+  horizonWeeks?: number;
+}
+
+export interface ContentStrategy {
+  strategyId: string; version: number; horizonWeeks: number; thesis: string; differentiatedNarrative: string;
+  objectives: Array<{ text: string; evidenceRefs: string[] }>;
+  audiencePriorities: Array<{ audienceId: string; priority: number; reason: string; evidenceRefs: string[] }>;
+  funnelIntent: StrategyContext["funnelStage"]; intendedConversions: string[];
+  pillars: Array<{ name: string; purpose: string; evidenceRefs: string[] }>;
+  campaignThemes: Array<{ name: string; message: string; evidenceRefs: string[] }>;
+  channelRoles: Array<{ channel: string; role: string; operationallySupported: boolean; formats: string[]; cadence: string; evidenceRefs: string[] }>;
+  contentMix: Array<{ format: string; percentage: number }>;
+  cadenceGuidance: string; priorityRules: string[]; ctaGuidance: string[];
+  kpis: Array<{ name: string; target: string; measurement: string; evidenceRefs: string[] }>;
+  successCriteria: string[]; constraints: string[]; exclusions: string[]; brandSafety: string[];
+  briefs: Array<{ id: string; title: string; objective: string; audienceId: string; funnelStage: StrategyContext["funnelStage"]; keyMessage: string; channelCandidates: string[]; formatCandidates: string[]; ctaIntent: string; intendedConversion: string; kpi: string; priority: number; dependencies: string[]; constraints: string[]; evidenceRefs: string[] }>;
+  assumptions: Array<{ text: string; evidenceRefs: string[]; confidence: "low" | "medium" | "high" }>;
+  confidence: "low" | "medium" | "high";
+}
+
+export interface StrategyApproval {
+  decision: "approved" | "rejected"; payloadDigest: string; revision: number;
+  actorSubjectId: string; decidedAt: string; expiresAt: string; feedback?: string;
+}
+
+export interface StrategyInvocationContext {
+  revision: number; sourceIds: string[]; operatorContextIds: string[];
+  performance: Array<{ id: string; firestoreEvidenceRef: string }>;
+  memoryFacts: Array<{ id: string; firestoreEvidenceRef: string }>;
+  audienceIds: string[]; requestedChannels: string[]; supportedChannels: string[]; horizonWeeks: number;
 }
 
 export interface Job {
@@ -42,7 +84,7 @@ export interface Job {
   createdAt: string;
   updatedAt: string;
   status: JobStatus;
-  terminalOutcome?: "succeeded" | "partial" | "failed" | "unresolved";
+  terminalOutcome?: "succeeded" | "partial" | "failed" | "unresolved" | "rejected";
   retentionDeleteAfter?: string;
   retentionHold?: boolean;
   stage: Stage;
@@ -51,7 +93,16 @@ export interface Job {
   ingestedChannel?: string;
   ingestedDurationSec?: number;
   mediaDigest?: string;
-  contentStrategy?: { objective: string; audience: string; pillars: string[]; cadence: string; kpis: string[]; briefs: Array<{ title: string; objective: string; sourceRefs: string[] }> };
+  contentStrategy?: ContentStrategy;
+  strategyDigest?: string;
+  strategyRevision?: number;
+  strategyApprovalState?: "pending" | "approved" | "rejected";
+  strategyApproval?: StrategyApproval;
+  strategyApprovalExpiresAt?: string;
+  strategyRevisionFeedback?: string;
+  strategyEvidenceLineage?: string[];
+  strategyHistory?: Record<string, { strategy: ContentStrategy; digest: string; revision: number; evidenceLineage: string[]; invocationContext: StrategyInvocationContext; proposedAt: string; expiresAt: string; approval?: StrategyApproval }>;
+  strategyInvocationContext?: StrategyInvocationContext;
   videoId?: string;
   budget?: JobBudget;
   failure?: {

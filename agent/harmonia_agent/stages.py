@@ -1,4 +1,4 @@
-"""Harmonia stage handlers: ingest -> transcribe -> understand -> draft -> publish -> verify."""
+"""Harmonia stage handlers: ingest -> transcribe -> understand -> strategize -> draft -> publish -> verify."""
 
 from __future__ import annotations
 
@@ -21,8 +21,11 @@ from . import clipper, content, x_client, youtube
 from .agent_models import (
     AnalysisResult,
     AnalystInput,
+    CampaignContext,
+    CompanyContext,
     DraftWorkflowInput,
     MediaEvidence,
+    PerformanceObservation,
     StrategistInput,
 )
 from .agents import (
@@ -30,6 +33,7 @@ from .agents import (
     analyze_with_team,
     configured_memory,
     draft_with_team,
+    prepare_strategist_input,
     strategize_with_team,
 )
 from .config import settings
@@ -264,61 +268,108 @@ async def run_understand(job_id: str) -> None:
             prior = ("Operator goals: " + "; ".join(goal_bits) + "\n" + prior).strip()
     except WebApiError:
         logger.info("no prior engagement insights yet")
-    if not job["transcriptSegments"]:
-        brief = (job.get("config") or {}).get("brief")
-        if not brief:
-            raise RuntimeError("job has neither transcript nor operator brief")
-        strategy = await strategize_with_team(StrategistInput(
-            task="brief", brief=brief, prior_learnings=prior,
-        ), invocation=invocation)
-        if strategy.analysis is None:
-            raise AgentProtocolError("strategist brief task returned no analysis")
-        if strategy.strategy is None:
-            raise AgentProtocolError("strategist brief task returned no content strategy")
-        result = strategy.analysis.model_dump(mode="json")
-        content_strategy = strategy.strategy.model_dump(mode="json") if strategy.strategy else None
-    else:
-        transcript = "\n".join(
-            f"[{int(s['startSec'])}s] {s['text']}" for s in job["transcriptSegments"]
+    brief = str((job.get("config") or {}).get("brief") or "").strip()
+    transcript = "\n".join(
+        f"[{int(s['startSec'])}s] {s['text']}" for s in job["transcriptSegments"]
+    ) or brief
+    if not transcript:
+        raise RuntimeError("job has neither transcript nor operator brief")
+    media_evidence = None
+    source_url = (job.get("config") or {}).get("youtubeUrl") or (job.get("config") or {}).get("mediaStorageUri")
+    source_digest = job.get("mediaDigest")
+    duration = job.get("ingestedDurationSec")
+    if source_url and source_digest and duration:
+        media_evidence = MediaEvidence(
+            video_uri=source_url, duration_sec=duration, source_digest=source_digest, frames=[],
         )
-        media_evidence = None
-        source_url = (job.get("config") or {}).get("youtubeUrl") or (job.get("config") or {}).get("mediaStorageUri")
-        source_digest = job.get("mediaDigest")
-        duration = job.get("ingestedDurationSec")
-        if source_url and source_digest and duration:
-            media_evidence = MediaEvidence(
-                video_uri=source_url,
-                duration_sec=duration,
-                source_digest=source_digest,
-                frames=[],
-            )
-        result = (await analyze_with_team(AnalystInput(
-            title=job["ingestedTitle"],
-            channel=job["ingestedChannel"],
-            transcript=transcript,
-            prior_learnings=prior,
-            media_evidence=media_evidence,
-        ), invocation=invocation)).model_dump(mode="json")
-        strategy = await strategize_with_team(StrategistInput(
-            task="brief",
-            brief=json.dumps({"sourceAnalysis": result, "operatorContext": prior})[:20_000],
-            prior_learnings=prior,
-        ), invocation=invocation)
-        if strategy.strategy is None:
-            raise AgentProtocolError("strategist returned no content strategy")
-        content_strategy = strategy.strategy.model_dump(mode="json")
+    result = (await analyze_with_team(AnalystInput(
+        title=job.get("ingestedTitle") or brief[:200],
+        channel=job.get("ingestedChannel") or "operator brief",
+        transcript=transcript, prior_learnings=prior, media_evidence=media_evidence,
+    ), invocation=invocation)).model_dump(mode="json")
     web_post("/api/internal/analysis", {
         "jobId": job_id, "stage": "understand",
         "moments": result.get("moments", [])[:12],
         "angles": result.get("angles", [])[:12],
         "summary": result.get("summary", ""),
-        "strategy": content_strategy,
         "modelUsed": content.model_used(),
+    })
+
+
+def _strategy_input(job: dict[str, Any], insights: dict[str, Any]) -> StrategistInput:
+    context = (job.get("config") or {}).get("strategyContext")
+    if not isinstance(context, dict):
+        raise AgentProtocolError("job requires typed strategyContext")
+    analysis = AnalysisResult.model_validate({
+        "summary": job.get("summary"), "moments": job.get("moments") or [],
+        "angles": job.get("angles") or [],
+    })
+    performance = []
+    for item in (insights.get("topPosts") or [])[:5]:
+        post_id = str(item.get("postId") or "").strip()
+        if post_id:
+            performance.append(PerformanceObservation(
+                id=f"performance:{post_id}",
+                summary=f"Verified post {post_id}: {int(item.get('likes') or 0)} likes and {int(item.get('reposts') or 0)} reposts.",
+                firestoreEvidenceRef=f"engagement/{post_id}",
+            ))
+    revision = int(job.get("strategyRevision") or 1)
+    return StrategistInput(
+        source_title=job.get("ingestedTitle") or str((job.get("config") or {}).get("brief") or "")[:300],
+        company=CompanyContext(
+            evidenceId="context:company",
+            **{key: context[key] for key in ("company", "product", "positioning", "differentiators", "brandVoice", "exclusions", "safetyConstraints")},
+        ),
+        campaign=CampaignContext(
+            evidenceId="context:campaign",
+            **{key: context[key] for key in ("businessObjectives", "campaignObjectives", "audiences", "funnelStage", "intendedConversion", "requestedChannels", "supportedChannels")},
+            horizonWeeks=int(context.get("horizonWeeks") or 4),
+        ),
+        analysis=analysis, performance=performance, revision=revision,
+        revisionFeedback=job.get("strategyRevisionFeedback"),
+    )
+
+
+async def run_strategize(job_id: str) -> None:
+    job = get_job(job_id)
+    try:
+        insights = get_insights()
+    except WebApiError:
+        insights = {}
+    revision = int(job.get("strategyRevision") or 1)
+    invocation = InvocationContext(
+        job_id=job_id, workspace_id=job["workspaceId"], brand_id=job["brandId"],
+        user_id=job["createdByUserId"], stage="strategize",
+        operation_id=f"{job_id}:strategize:{revision - 1}",
+    )
+    prepared = await prepare_strategist_input(_strategy_input(job, insights), invocation=invocation)
+    web_post("/api/internal/strategy-context", {
+        "jobId": job_id, "stage": "strategize", "revision": revision,
+        "sourceIds": [item.id for item in [*prepared.analysis.moments, *prepared.analysis.angles]],
+        "operatorContextIds": [prepared.company.evidenceId, prepared.campaign.evidenceId],
+        "performance": [{"id": item.id, "firestoreEvidenceRef": item.firestoreEvidenceRef} for item in prepared.performance],
+        "memoryFacts": [{"id": item.id, "firestoreEvidenceRef": item.firestoreEvidenceRef} for item in prepared.memoryFacts],
+        "audienceIds": [item.id for item in prepared.campaign.audiences],
+        "requestedChannels": prepared.campaign.requestedChannels,
+        "supportedChannels": prepared.campaign.supportedChannels,
+        "horizonWeeks": prepared.campaign.horizonWeeks,
+    })
+    result = await strategize_with_team(prepared, invocation=invocation, prepared=True)
+    web_post("/api/internal/strategy", {
+        "jobId": job_id, "stage": "strategize", "revision": revision,
+        "strategy": result.strategy.model_dump(mode="json"), "modelUsed": content.model_used(),
     })
 
 
 async def run_draft(job_id: str) -> None:
     job = get_job(job_id)
+    approval = job.get("strategyApproval") or {}
+    if approval.get("decision") != "approved" or approval.get("payloadDigest") != job.get("strategyDigest"):
+        raise AgentProtocolError("digest-bound approved strategy required before Temi")
+    expires_at = approval.get("expiresAt")
+    decided_at = approval.get("decidedAt")
+    if not expires_at or not decided_at or datetime.fromisoformat(decided_at.replace("Z", "+00:00")) > datetime.fromisoformat(expires_at.replace("Z", "+00:00")):
+        raise AgentProtocolError("strategy approval was decided after expiry")
     analysis = AnalysisResult.model_validate({
         "summary": job.get("summary") or "Content analysis completed.",
         "moments": job["moments"],
@@ -858,6 +909,7 @@ HANDLERS: dict[str, Handler] = {
     "ingest": run_ingest,
     "transcribe": run_transcribe,
     "understand": run_understand,
+    "strategize": run_strategize,
     "draft": run_draft,
     "publish": run_publish,
     "verify": run_verify,

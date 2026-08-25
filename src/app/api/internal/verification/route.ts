@@ -5,12 +5,11 @@ import {
   listReceipts,
   savePacket,
   saveVerifications,
-  setStage,
+  transitionStageWithOutbox,
 } from "@/lib/firestore";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
-import { publishStage } from "@/lib/pubsub";
-import { currentTenant } from "@/lib/tenancy";
+import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";
 import { assemblePacket } from "@/lib/packet";
 import type { VerificationResult } from "@/lib/types";
 import { newId } from "@/lib/idempotency";
@@ -47,8 +46,8 @@ export async function POST(req: Request) {
     await appendEvent(body.jobId, "packet", `evidence packet assembled: ${verifiedCount} verified, ${packet.unresolved.length} unresolved gap(s)`, "system");
 
     // Reaction learning happens after verification; its handler completes the job.
-    await setStage(body.jobId, "learn");
-    await publishStage(currentTenant(), body.jobId, "learn");
+    const outboxId = await transitionStageWithOutbox(body.jobId, "verify", "learn", "verification complete; reaction learning dispatched");
+    try { await dispatchStageOutboxRecord(outboxId); } catch { /* durable tick retries */ }
     return Response.json({ ok: true, unresolved: packet.unresolved.length });
   });
 }

@@ -3,9 +3,9 @@ import {
   getJob,
   markActionExecuted,
   recordApproval,
-  setStage,
+  transitionStageWithOutbox,
 } from "@/lib/firestore";
-import { publishStage } from "@/lib/pubsub";
+import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";
 import { requireContentOperator } from "@/lib/authority";
 import { actionPayloadDigest } from "@/lib/idempotency";
 import { currentTenant, type TenantContext } from "@/lib/tenancy";
@@ -90,14 +90,12 @@ export async function resolveDecision(
 
   if (executable.length > 0) {
     await materializeExecutableJobCommands(jobId);
-    await setStage(jobId, "publish");
-    const pubsubMessageId = await publishStage(currentTenant(), jobId, "publish");
-    await appendEvent(jobId, "draft", `${executable.length} approved action(s) dispatched to publishing`, "system", { pubsubMessageId });
+    const outboxId = await transitionStageWithOutbox(jobId, "awaiting_approval", "publish", `${executable.length} approved action(s) dispatched to publishing`);
+    try { await dispatchStageOutboxRecord(outboxId); } catch { /* durable tick retries */ }
     return { ok: true, triggered: "publish" };
   }
 
-  await setStage(jobId, "verify");
-  const pubsubMessageId = await publishStage(currentTenant(), jobId, "verify");
-  await appendEvent(jobId, "awaiting_approval", "no executable actions; proceeding to verification of existing evidence", "system", { pubsubMessageId });
+  const outboxId = await transitionStageWithOutbox(jobId, "awaiting_approval", "verify", "no executable actions; proceeding to verification of existing evidence");
+  try { await dispatchStageOutboxRecord(outboxId); } catch { /* durable tick retries */ }
   return { ok: true, triggered: "verify" };
 }

@@ -43,6 +43,12 @@ import { decideConnectionRefresh, type ConnectionRefreshState } from "./connecti
 import { deleteArtifactUri, deleteWorkspaceArtifactUri } from "./storage";
 import { deletionTombstone, retentionDeadline, type DeletionPlan, type WorkspaceDeletionPlan } from "./lifecycle";
 import { decideTickClaim, type TickClaimState } from "./tickClaims";
+import {
+  decideStageOutboxClaim,
+  finalizeStageOutbox,
+  releaseStageOutboxClaim,
+  type StageOutboxRecord,
+} from "./stageOutbox";
 
 let client: Firestore | null = null;
 
@@ -101,6 +107,7 @@ const USAGE_RECORDS = "usage_records";
 const MEDIA_OPERATIONS = "media_operations";
 const STAGE_EXECUTIONS = "stage_executions";
 const DELETION_TOMBSTONES = "deletion_tombstones";
+const STAGE_OUTBOX = "stage_outbox";
 
 function tenantCollection(name: string) {
   return db().collection(tenantCollectionPath(currentTenant(), name));
@@ -115,6 +122,141 @@ function initialJobBudget(): JobBudget {
     limitUsd: config.DEFAULT_JOB_BUDGET_USD,
     approvalThresholdUsd: config.DEFAULT_JOB_APPROVAL_THRESHOLD_USD,
   };
+}
+
+function stageOutboxId(jobId: string, stage: Stage, attempt: number): string {
+  return createHash("sha256").update(`${jobId}:${stage}:${attempt}`).digest("hex");
+}
+
+function stageOutboxRef(id: string) {
+  return tenantCollection(STAGE_OUTBOX).doc(id);
+}
+
+export async function enqueueStageTrigger(
+  jobId: string,
+  stage: Stage,
+  attempt = 0,
+  metadata: { completedStage?: Stage; note?: string } = {},
+): Promise<string> {
+  const id = stageOutboxId(jobId, stage, attempt);
+  const ref = stageOutboxRef(id);
+  const tenant = currentTenant();
+  await db().runTransaction(async (tx) => {
+    const [jobSnapshot, existing] = await Promise.all([tx.get(jobRef(jobId)), tx.get(ref)]);
+    const job = requireJobDoc(jobSnapshot);
+    if (job.stage !== stage) throw new Error(`cannot enqueue stage '${stage}' while job is '${job.stage}'`);
+    if (existing.exists) return;
+    tx.create(ref, {
+      id, workspaceId: tenant.workspaceId, brandId: tenant.brandId,
+      jobId, stage, attempt, ...metadata,
+      state: "pending", createdAt: new Date().toISOString(),
+    } satisfies StageOutboxRecord);
+  });
+  return id;
+}
+
+export async function transitionStageWithOutbox(
+  jobId: string,
+  completedStage: Stage,
+  nextStage: Stage,
+  note: string,
+): Promise<string> {
+  const id = stageOutboxId(jobId, nextStage, 0);
+  const ref = stageOutboxRef(id);
+  const tenant = currentTenant();
+  await db().runTransaction(async (tx) => {
+    const [jobSnapshot, existing] = await Promise.all([tx.get(jobRef(jobId)), tx.get(ref)]);
+    const job = requireJobDoc(jobSnapshot);
+    if (job.stage === nextStage && existing.exists) return;
+    if (job.stage !== completedStage) {
+      throw new Error(`cannot complete stage '${completedStage}' while job is '${job.stage}'`);
+    }
+    tx.update(jobRef(jobId), {
+      stage: nextStage,
+      status: "running",
+      updatedAt: new Date().toISOString(),
+    });
+    tx.create(ref, {
+      id, workspaceId: tenant.workspaceId, brandId: tenant.brandId,
+      jobId, stage: nextStage, attempt: 0, completedStage, note,
+      state: "pending", createdAt: new Date().toISOString(),
+    } satisfies StageOutboxRecord);
+  });
+  return id;
+}
+
+export async function listDispatchableStageOutbox(limit = 20): Promise<StageOutboxRecord[]> {
+  const tenant = currentTenant();
+  const snapshot = await tenantCollection(STAGE_OUTBOX)
+    .where("state", "in", ["pending", "claimed"])
+    .limit(100)
+    .get();
+  return snapshot.docs
+    .map((doc) => doc.data() as StageOutboxRecord)
+    .filter((record) => record.workspaceId === tenant.workspaceId && record.brandId === tenant.brandId)
+    .slice(0, Math.max(1, Math.min(limit, 100)));
+}
+
+export async function claimStageOutbox(
+  id: string,
+  claimTokenDigest: string,
+  now = new Date(),
+): Promise<ReturnType<typeof decideStageOutboxClaim>> {
+  const ref = stageOutboxRef(id);
+  return db().runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (!snapshot.exists) throw new Error("stage outbox record not found");
+    const record = snapshot.data() as StageOutboxRecord;
+    assertResourceWorkspace(currentTenant(), record);
+    const decision = decideStageOutboxClaim(record, claimTokenDigest, now);
+    if (decision.outcome === "publish") tx.set(ref, decision.record);
+    return decision;
+  });
+}
+
+export async function releaseStageOutbox(
+  id: string,
+  claimTokenDigest: string,
+): Promise<void> {
+  const ref = stageOutboxRef(id);
+  await db().runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (!snapshot.exists) return;
+    const record = snapshot.data() as StageOutboxRecord;
+    assertResourceWorkspace(currentTenant(), record);
+    tx.set(ref, releaseStageOutboxClaim(record, claimTokenDigest));
+  });
+}
+
+export async function finalizeStageOutboxPublish(
+  id: string,
+  claimTokenDigest: string,
+  pubsubMessageId: string,
+  now = new Date(),
+): Promise<void> {
+  const ref = stageOutboxRef(id);
+  await db().runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref);
+    if (!snapshot.exists) throw new Error("stage outbox record not found");
+    const current = snapshot.data() as StageOutboxRecord;
+    assertResourceWorkspace(currentTenant(), current);
+    const finalized = finalizeStageOutbox(current, claimTokenDigest, pubsubMessageId, now);
+    tx.set(ref, finalized);
+    if (current.completedStage && current.note) {
+      const event = {
+        jobId: current.jobId,
+        at: FieldValue.serverTimestamp(),
+        stage: current.completedStage,
+        message: current.note,
+        actor: "system" as const,
+        operationId: `${current.jobId}:${current.completedStage}:${id}`,
+        traceId: currentTraceId(),
+        pubsubMessageId,
+      };
+      tx.set(jobRef(current.jobId).collection(EVENTS).doc(`outbox-${id}`), event);
+      tx.set(tenantCollection(EVENT_LOG).doc(`outbox-${id}`), event);
+    }
+  });
 }
 
 // ---------- content items ----------
@@ -942,8 +1084,38 @@ export async function createJob(
     config: storedConfig,
     budget: initialJobBudget(),
   };
-  await jobRef(id).set(doc);
+  const outboxId = stageOutboxId(id, initialStage, 0);
+  await db().runTransaction(async (tx) => {
+    tx.create(jobRef(id), doc);
+    tx.create(stageOutboxRef(outboxId), {
+      id: outboxId,
+      workspaceId: tenant.workspaceId,
+      brandId: tenant.brandId,
+      jobId: id,
+      stage: initialStage,
+      attempt: 0,
+      state: "pending",
+      createdAt: now,
+    } satisfies StageOutboxRecord);
+  });
   return { id, ...doc };
+}
+
+export async function retryFailedJobWithOutbox(jobId: string, stage: Stage, attempt: number): Promise<string> {
+  const id = stageOutboxId(jobId, stage, attempt);
+  const ref = stageOutboxRef(id);
+  const tenant = currentTenant();
+  await db().runTransaction(async (tx) => {
+    const [jobSnapshot, existing] = await Promise.all([tx.get(jobRef(jobId)), tx.get(ref)]);
+    const job = requireJobDoc(jobSnapshot);
+    if (job.status !== "failed" || job.failure?.stage !== stage) throw new Error("job is not retryable from this stage");
+    tx.update(jobRef(jobId), { stage, status: "running", updatedAt: new Date().toISOString() });
+    if (!existing.exists) tx.create(ref, {
+      id, workspaceId: tenant.workspaceId, brandId: tenant.brandId, jobId, stage, attempt,
+      state: "pending", createdAt: new Date().toISOString(),
+    } satisfies StageOutboxRecord);
+  });
+  return id;
 }
 
 export async function getJob(jobId: string) {

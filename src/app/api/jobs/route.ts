@@ -1,6 +1,6 @@
 import { appendEvent, createJob, listJobs, saveIngestMeta } from "@/lib/firestore";
 import { operatorTenantHandler } from "@/lib/auth";
-import { publishStage } from "@/lib/pubsub";
+import { queueStageTrigger } from "@/lib/stageTrigger";
 import { currentTenant } from "@/lib/tenancy";
 import { parseYouTubeUrl } from "@/lib/youtubeUrl";
 import { sourceRightsAuthorization } from "@/lib/sourceRights";
@@ -49,7 +49,7 @@ async function post(req: Request) {
       "ingest",
     );
     await appendEvent(job.id, "queued", `job created for video ${videoId}`, "operator");
-    await publishStage(currentTenant(), job.id, "ingest");
+    await queueStageTrigger(job.id, "ingest");
     return Response.json({ jobId: job.id }, { status: 201 });
   }
 
@@ -65,7 +65,7 @@ async function post(req: Request) {
       durationSec: 0,
     });
     await appendEvent(job.id, "understand", "concept job created from operator brief", "operator");
-    await publishStage(currentTenant(), job.id, "understand");
+    await queueStageTrigger(job.id, "understand");
     return Response.json({ jobId: job.id }, { status: 201 });
   }
 

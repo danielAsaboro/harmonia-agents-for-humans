@@ -90,7 +90,7 @@ async def healthz() -> dict[str, Any]:
 async def durable_tick() -> dict[str, Any]:
     from datetime import datetime, timezone
     from . import proactive, scheduler
-    from .web_client import claim_tick, get_workspaces, run_retention_tick
+    from .web_client import claim_tick, get_workspaces, run_retention_tick, run_stage_outbox_tick
 
     workspaces = await asyncio.to_thread(get_workspaces)
     claim_id = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
@@ -104,6 +104,7 @@ async def durable_tick() -> dict[str, Any]:
             scheduled=scheduler.tick_current_tenant,
             proactive=proactive.tick,
             retention=run_retention_tick,
+            stage_outbox=run_stage_outbox_tick,
         ),
     }
 

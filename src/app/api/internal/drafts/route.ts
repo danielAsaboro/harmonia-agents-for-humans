@@ -7,12 +7,12 @@ import {
   saveActions,
   saveDrafts,
   setStage,
+  transitionStageWithOutbox,
 } from "@/lib/firestore";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { applyPolicy, validateDraftText } from "@/lib/policy";
-import { publishStage } from "@/lib/pubsub";
-import { currentTenant } from "@/lib/tenancy";
+import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";
 import { materializeExecutableJobCommands } from "@/lib/jobEffectCommands";
 
 export async function POST(req: Request) {
@@ -78,14 +78,12 @@ export async function POST(req: Request) {
     }
     if (autoRun.length > 0) {
       await materializeExecutableJobCommands(job.id);
-      await setStage(job.id, "publish");
-      await appendEvent(job.id, "draft", `${autoRun.length} safe action(s) dispatched`, "agent");
-      await publishStage(currentTenant(), job.id, "publish");
+      const outboxId = await transitionStageWithOutbox(job.id, "draft", "publish", `${autoRun.length} safe action(s) dispatched`);
+      try { await dispatchStageOutboxRecord(outboxId); } catch { /* durable tick retries */ }
       return Response.json({ ok: true, triggered: "publish" });
     }
-    await setStage(job.id, "verify");
-    await appendEvent(job.id, "draft", "no actions to execute; verifying existing artifacts", "agent");
-    await publishStage(currentTenant(), job.id, "verify");
+    const outboxId = await transitionStageWithOutbox(job.id, "draft", "verify", "no actions to execute; verifying existing artifacts");
+    try { await dispatchStageOutboxRecord(outboxId); } catch { /* durable tick retries */ }
     return Response.json({ ok: true, triggered: "verify" });
   });
 }

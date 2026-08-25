@@ -210,6 +210,14 @@ def run_retention_tick(limit: int = 20) -> list[str]:
     return [str(value) for value in res.json().get("erasedJobIds") or []]
 
 
+def run_stage_outbox_tick(limit: int = 20) -> list[dict[str, Any]]:
+    with _client() as c:
+        res = c.post("/api/internal/stage-outbox", json={"limit": limit})
+    if res.status_code != 200:
+        raise WebApiError(f"stage outbox tick failed: {res.status_code} {res.text}", res.status_code)
+    return list(res.json().get("results") or [])
+
+
 def post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     with _client() as c:
         res = c.post(path, json=payload)

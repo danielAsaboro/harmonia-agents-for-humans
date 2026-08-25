@@ -178,7 +178,7 @@ Google Calendar is deliberately adjacent to, rather than inside, the worker acti
 
 ### Async by Pub/Sub, state in Firestore
 
-Each stage transition is persisted first, then a stage trigger is published. The worker consumes stages through a push subscription on Cloud Run or an identical pull loop locally against the emulators. Jobs carry their full state (`transcriptSegments`, `moments`, `angles`, `drafts`, `actions`), so any stage can resume after a crash.
+Each stage transition and its deterministic pending outbox record are committed in one Firestore transaction. Publication then claims that record before sending the Pub/Sub trigger; the durable tick retries pending or expired claims. A crash can therefore cause a harmless duplicate trigger, but cannot leave a persisted stage without a recoverable trigger. The worker consumes stages through a push subscription on Cloud Run or an identical pull loop locally against the emulators. Jobs carry their full state (`transcriptSegments`, `moments`, `angles`, `drafts`, `actions`), so any stage can resume after a crash.
 
 The coordinator is the cognitive dispatcher, not the durable workflow engine. Pub/Sub owns asynchronous delivery and retry; Firestore owns resumable stage state, approvals, reservations, usage, provider-operation IDs, receipts, and verification evidence. Agent Engine hosts cognitive turns; it does not replace the durable stage machine.
 
@@ -198,7 +198,7 @@ Every executable action derives a deterministic idempotency key from `(jobId, ac
 
 Cloud Scheduler invokes the private worker's `/durable/tick` endpoint once per minute with an OIDC
 service account that has only Cloud Run invocation authority. A Firestore transaction grants one
-55-second workspace lease per minute. The tick runs scheduled-effect dispatch, proactive checks, and
+55-second workspace lease per minute. The tick runs stage-outbox recovery, scheduled-effect dispatch, proactive checks, and
 retention as isolated arms: one failure is recorded in the response and cannot suppress the others.
 Scheduled effects still enter the immutable command/effect-claim boundary. Resident Python threads
 remain development-only and disabled in deployed revisions.

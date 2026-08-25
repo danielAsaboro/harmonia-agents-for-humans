@@ -3,12 +3,11 @@ import {
   appendEvent,
   finalizeEffectReceipt,
   getJob,
-  setStage,
+  transitionStageWithOutbox,
 } from "@/lib/firestore";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
-import { publishStage } from "@/lib/pubsub";
-import { currentTenant } from "@/lib/tenancy";
+import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";
 import { newId } from "@/lib/idempotency";
 import { finalizeCommandReceipt } from "@/lib/effectCommandStore";
 
@@ -53,15 +52,8 @@ export async function POST(req: Request) {
     const refreshed = await getJob(body.jobId);
     const outstanding = refreshed.actions.filter((a) => a.state === "planned");
     if (job.stage === "publish" && outstanding.length === 0) {
-      await setStage(body.jobId, "verify");
-      const pubsubMessageId = await publishStage(currentTenant(), body.jobId, "verify");
-      await appendEvent(
-        body.jobId,
-        "publish",
-        "all approved effects completed; verification dispatched",
-        "system",
-        { operationId: `${body.operationId}:verify`, traceId: body.traceId, pubsubMessageId },
-      );
+      const outboxId = await transitionStageWithOutbox(body.jobId, "publish", "verify", "all approved effects completed; verification dispatched");
+      try { await dispatchStageOutboxRecord(outboxId); } catch { /* durable tick retries */ }
     }
     return Response.json({ ok: true });
   });

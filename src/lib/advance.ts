@@ -1,12 +1,5 @@
-import {
-  appendEvent,
-  getJob,
-  markFailed,
-  notifyPermanentFailure,
-  setStage,
-} from "./firestore";
-import { publishStage } from "./pubsub";
-import { currentTenant } from "./tenancy";
+import { appendEvent, getJob, markFailed, notifyPermanentFailure, transitionStageWithOutbox } from "./firestore";
+import { dispatchStageOutboxRecord } from "./stageOutboxDispatcher";
 import { assertTransition, nextStage } from "./stages";
 import type { Stage } from "./types";
 import type { FailureSubmission } from "./contracts";
@@ -25,9 +18,13 @@ export async function advance(
   assertTransition(job.stage, completedStage);
   const next = nextStage(completedStage);
   if (!next) throw new Error(`no successor for stage '${completedStage}'`);
-  await setStage(jobId, next);
-  const pubsubMessageId = await publishStage(currentTenant(), jobId, next);
-  await appendEvent(jobId, completedStage, note, "system", { pubsubMessageId });
+  const outboxId = await transitionStageWithOutbox(jobId, completedStage, next, note);
+  try {
+    await dispatchStageOutboxRecord(outboxId);
+  } catch (error) {
+    // The transition and pending trigger are already durable. The external tick retries it.
+    console.error("stage outbox immediate dispatch failed", { outboxId, errorType: error instanceof Error ? error.name : "unknown" });
+  }
 }
 
 export async function recordFailure(

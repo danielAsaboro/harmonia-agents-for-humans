@@ -13,7 +13,7 @@ import {
 } from "@/lib/firestore";
 import { currentTenant } from "@/lib/tenancy";
 import { parseIntent } from "@/lib/chatIntent";
-import { publishStage } from "@/lib/pubsub";
+import { queueStageTrigger } from "@/lib/stageTrigger";
 import { parseYouTubeUrl } from "@/lib/youtubeUrl";
 import type { PlannedAction, PostDraft, Stage } from "@/lib/types";
 import { requireReadyAttachments, type ChatAttachment } from "@/lib/chatAttachments";
@@ -293,7 +293,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
           platforms: ["x"],
         }, "ingest");
         await appendEvent(job.id, "queued", `job created via ${surface} chat for uploaded ${media.category}`, "operator");
-        await publishStage(currentTenant(), job.id, "ingest");
+        await queueStageTrigger(job.id, "ingest");
         return { payload: {
           intent: intent.intent,
           reply: `Created job ${job.id} from ${media.filename}. The pipeline is running and will stop at the approval gate before any external action.`,
@@ -311,7 +311,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
           "ingest",
         );
         await appendEvent(job.id, "queued", `job created via ${surface} chat for video ${videoId}`, "operator");
-        await publishStage(currentTenant(), job.id, "ingest");
+        await queueStageTrigger(job.id, "ingest");
         return { payload: {
           intent: intent.intent,
           reply: `Created job ${job.id} for video ${videoId}. Pipeline is running: ingest → transcribe → understand → draft. I'll pause at the approval gate before anything is published.`,
@@ -324,7 +324,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
         const job = await createJob({ brief: intent.topic, platforms: ["x"] }, "understand");
         await saveIngestMeta(job.id, { videoId: "brief", title, channel: "operator", durationSec: 0 });
         await appendEvent(job.id, "understand", `concept job created via ${surface} chat`, "operator");
-        await publishStage(currentTenant(), job.id, "understand");
+        await queueStageTrigger(job.id, "understand");
         return { payload: {
           intent: intent.intent,
           reply: `Created concept job ${job.id} from your brief. Running research + ideation + drafting — I'll pause at the approval gate before anything is published.`,

@@ -38,6 +38,19 @@ def test_gemma_role_requires_a_concrete_vertex_endpoint(monkeypatch):
         load_role_model_catalog()
 
 
+def test_copywriter_can_use_explicit_gemini_core_mode(monkeypatch):
+    monkeypatch.setenv("COPYWRITER_PROVIDER", "gemini")
+    monkeypatch.setenv("COPYWRITER_MODEL_ID", "gemini-3.5-flash")
+    monkeypatch.delenv("GEMMA_VERTEX_ENDPOINT", raising=False)
+
+    catalog = load_role_model_catalog()
+
+    assert catalog.copywriter.provider == "gemini"
+    assert catalog.copywriter.model_id == "gemini-3.5-flash"
+    assert catalog.copywriter.endpoint is None
+    assert catalog.copywriter.reservation_usd is None
+
+
 def test_every_role_has_versioned_generation_and_safety_policy(monkeypatch):
     """Catches a role falling back to implicit provider generation defaults."""
     monkeypatch.setenv(

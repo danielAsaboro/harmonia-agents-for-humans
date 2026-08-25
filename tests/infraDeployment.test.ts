@@ -26,8 +26,7 @@ exit 0
 `,
   );
   chmodSync(gcloudPath, 0o755);
-  return {
-    env: {
+  const env: NodeJS.ProcessEnv = {
       ...process.env,
       PATH: `${directory}:${process.env.PATH}`,
       FAKE_GCLOUD_LOG: logPath,
@@ -37,7 +36,9 @@ exit 0
       GOOGLE_CLIENT_SECRET: "calendar-client-secret",
       MALWARE_SCANNER_URL: "https://malware-scanner.example.run.app/scan",
       MALWARE_SCANNER_TOKEN: "scanner-token",
-    },
+  };
+  return {
+    env,
     log: () => readFileSync(logPath, "utf8"),
   };
 }
@@ -93,6 +94,28 @@ describe("Google Cloud deployment automation", () => {
 
     expect(fake.log()).toContain("GOOGLE_CLIENT_ID=google-oauth-client-id:latest");
     expect(fake.log()).toContain("GOOGLE_CLIENT_SECRET=google-oauth-client-secret:latest");
+  });
+
+  it("deploys the core with uploads fail-closed when no scanner is configured", () => {
+    const fake = fakeGcloudEnvironment();
+    delete fake.env.MALWARE_SCANNER_URL;
+    delete fake.env.MALWARE_SCANNER_TOKEN;
+
+    execFileSync("bash", ["infra/deploy.sh"], {
+      cwd: repoRoot,
+      env: {
+        ...fake.env,
+        FIREBASE_API_KEY: "firebase-api-key",
+        FIREBASE_APP_ID: "firebase-app-id",
+        GEMMA_VERTEX_ENDPOINT: "projects/p/locations/us-central1/endpoints/1",
+        AGENT_ENGINE_RESOURCE: "projects/p/locations/us-central1/reasoningEngines/2",
+      },
+    });
+
+    const log = fake.log();
+    expect(log).toContain("run deploy harmonia-web");
+    expect(log).not.toContain("MALWARE_SCANNER_URL=");
+    expect(log).not.toContain("MALWARE_SCANNER_TOKEN=");
   });
 
   it("provisions durable media storage and authenticated Pub/Sub push authority", () => {

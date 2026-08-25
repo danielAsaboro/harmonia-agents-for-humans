@@ -162,9 +162,13 @@ def _resolve_role_models(
         coordinator=catalog.coordinator.model_id,
         strategist=catalog.strategist.model_id,
         analyst=catalog.analyst.model_id,
-        copywriter=VertexGemmaModel(
-            model=catalog.copywriter.model_id,
-            endpoint=catalog.copywriter.endpoint or "",
+        copywriter=(
+            catalog.copywriter.model_id
+            if catalog.copywriter.provider == "gemini"
+            else VertexGemmaModel(
+                model=catalog.copywriter.model_id,
+                endpoint=catalog.copywriter.endpoint or "",
+            )
         ),
         editor=catalog.editor.model_id,
         planner=catalog.planner.model_id,

@@ -35,8 +35,9 @@ gcloud pubsub topics create harmonia-stages
 
 Uploads additionally require a private malware scanner that accepts raw bytes and returns the strict
 verdict contract documented in Configuration. Set `MALWARE_SCANNER_URL` and provision
-`malware-scanner-token`; deployment refuses to continue without both. This repository does not claim
-to deploy or verify a scanner engine itself. Capture the engine identity and definition version from a
+`malware-scanner-token` to enable upload completion. Without both, the core YouTube workflow may be
+deployed but uploaded objects remain quarantined and unavailable. This repository does not claim to
+deploy or verify a scanner engine itself. Capture the engine identity and definition version from a
 real clean scan before presenting uploaded-media operation as production evidence.
 
 Create one runtime service account for each Cloud Run service. Both receive `roles/cloudtrace.agent`; preserve the existing least-privilege data, messaging, and asset permissions. The web identity can sign only as itself for short-lived upload/download URLs. The Pub/Sub service agent receives token-creator authority only on that web identity so the private worker push subscription can authenticate with OIDC.

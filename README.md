@@ -4,6 +4,8 @@
 
 The dashboard and authenticated web chat are active operator surfaces. Telegram has a verified webhook/nonce approval boundary in code, but live message ingestion and webhook configuration are not yet production-verified; do not present Telegram as an equivalent working surface until that evidence exists.
 
+The repository also implements governed resident autonomy: an hourly Heartbeat, post-outcome Micro-reflections, a budget-gated nightly Dream Cycle, a morning Wakeup Call with durable agendas, bounded experiments, conservative tuning, and rollback. Its schedules are disabled by default, not deployed, and not authenticated evidence. See [`docs/resident-autonomy.mdx`](./docs/resident-autonomy.mdx).
+
 > **Deployment evidence status (2026-08-26):** the currently reachable Cloud Run URL is a `preview`-mode web-only revision. Read-only project inspection found no deployed agent service, Pub/Sub subscription, or Cloud Scheduler job. It is useful for UI review, but it is not evidence that the asynchronous pipeline or authenticated Gemini/ADK vertical slice is live. The topology below describes the implemented repository and target full deployment.
 
 ## Why Harmonia is an agent—and where it deliberately is not

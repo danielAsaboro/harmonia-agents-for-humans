@@ -18,7 +18,7 @@ function collection(name: ResidentCollection) { return db().collection(residentC
 
 export async function createResidentCycle(input: AutonomyCycle): Promise<{ created: boolean }> {
   const cycle = autonomyCycleSchema.parse(input); assertResourceWorkspace(currentTenant(), cycle); const ref = collection("cycles").doc(cycle.id);
-  return db().runTransaction(async (tx) => { const existing = await tx.get(ref); if (existing.exists) { assertImmutableRecord(autonomyCycleSchema.parse(existing.data()), cycle); return { created: false }; } tx.create(ref, cycle); return { created: true }; });
+  return db().runTransaction(async (tx) => { const existing = await tx.get(ref); if (existing.exists) return { created: false }; tx.create(ref, cycle); return { created: true }; });
 }
 export async function getResidentCycle(id: string): Promise<AutonomyCycle | null> { const snapshot = await collection("cycles").doc(id).get(); if (!snapshot.exists) return null; const cycle = autonomyCycleSchema.parse(snapshot.data()); assertResourceWorkspace(currentTenant(), cycle); return cycle; }
 export async function listResidentCycles(limit = 100): Promise<AutonomyCycle[]> { const snapshots = await collection("cycles").orderBy("scheduledAt", "desc").limit(limit).get(); return snapshots.docs.map((doc) => autonomyCycleSchema.parse(doc.data())); }

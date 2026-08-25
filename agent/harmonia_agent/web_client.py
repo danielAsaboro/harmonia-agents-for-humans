@@ -4,6 +4,9 @@ through the web service so the state machine has a single writer)."""
 from __future__ import annotations
 
 from typing import Any
+from datetime import datetime, timedelta, timezone
+import hashlib
+import secrets
 from urllib.parse import unquote
 
 import httpx
@@ -216,6 +219,36 @@ def run_stage_outbox_tick(limit: int = 20) -> list[dict[str, Any]]:
     if res.status_code != 200:
         raise WebApiError(f"stage outbox tick failed: {res.status_code} {res.text}", res.status_code)
     return list(res.json().get("results") or [])
+
+
+def claim_autonomy_cycle(cycle_type: str, scheduled_at: str, lease_seconds: int) -> dict[str, Any]:
+    """Create-once and claim a tenant-scoped resident cycle."""
+    tenant = current_tenant()
+    normalized = datetime.fromisoformat(scheduled_at.replace("Z", "+00:00")).astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    cycle_id = hashlib.sha256(f"{tenant.workspace_id}\n{tenant.brand_id}\n{cycle_type}\n{normalized}".encode()).hexdigest()
+    cycle = {"id": cycle_id, "workspaceId": tenant.workspace_id, "brandId": tenant.brand_id, "type": cycle_type, "state": "scheduled", "scheduledAt": normalized, "timezone": "Etc/UTC", "triggerReason": "authenticated_scheduler_wake", "cycleVersion": "1", "effectBearing": False, "armsAttempted": [], "evidenceRefs": [], "modelUsageIds": [], "estimatedCostUsd": 0, "outcome": "scheduled"}
+    token = secrets.token_hex(24)
+    now = datetime.now(timezone.utc)
+    with _client() as c:
+        created = c.post("/api/internal/autonomy/cycles", json=cycle)
+        if created.status_code >= 300: raise WebApiError(f"cycle create failed: {created.status_code} {created.text}", created.status_code)
+        claim = c.post(f"/api/internal/autonomy/cycles/{cycle_id}/claim", json={"ownerId": "harmonia-agent", "claimToken": token, "now": now.isoformat(), "leaseExpiresAt": (now + timedelta(seconds=lease_seconds)).isoformat()})
+        if claim.status_code >= 300: raise WebApiError(f"cycle claim failed: {claim.status_code} {claim.text}", claim.status_code)
+        body = claim.json()
+        if body.get("outcome") == "execute":
+            running = c.post(f"/api/internal/autonomy/cycles/{cycle_id}/transition", json={"state": "running", "at": now.isoformat(), "claimToken": token, "outcome": "resident cycle running"})
+            if running.status_code >= 300: raise WebApiError(f"cycle start failed: {running.status_code} {running.text}", running.status_code)
+            body.update({"cycleId": cycle_id, "claimToken": token})
+        return body
+
+
+def finalize_autonomy_cycle(result: dict[str, Any]) -> None:
+    cycle_id, token = str(result["cycleId"]), str(result["claimToken"])
+    state = str(result.get("status", "failed"))
+    if state not in {"completed", "partially_completed", "failed", "uncertain"}: state = "failed"
+    with _client() as c:
+        res = c.post(f"/api/internal/autonomy/cycles/{cycle_id}/transition", json={"state": state, "at": datetime.now(timezone.utc).isoformat(), "claimToken": token, "outcome": str(result.get("outcome", state))[:200]})
+    if res.status_code >= 300: raise WebApiError(f"cycle finalize failed: {res.status_code} {res.text}", res.status_code)
 
 
 def post(path: str, payload: dict[str, Any]) -> dict[str, Any]:

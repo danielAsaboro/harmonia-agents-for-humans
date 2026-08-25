@@ -23,6 +23,7 @@ const eventPayloads = {
   verification: z.object({ ...commonPayload, receiptId: id, verified: z.boolean(), method: z.string().max(500) }).strict(),
   pubsub_delivery: z.object({ ...commonPayload, messageId: id, deliveryAttempt: z.number().int().positive(), status }).strict(),
   scheduler_trigger: z.object({ ...commonPayload, scheduleId: id, scheduledAt: iso, status }).strict(),
+  resident_autonomy: z.object({ cycleId: id, cycleType: z.enum(["heartbeat", "micro_reflection", "dream_cycle", "wakeup_call"]), state: status, summary: z.string().max(2000), historical: z.literal(true) }).strict(),
   a2ui_event: z.object({ ...commonPayload, runId: id, surfaceId: id, operation: z.string().max(4000) }).strict(),
   surface_revision: z.object({ ...commonPayload, surfaceId: id, revision: z.number().int().nonnegative(), status }).strict(),
   usage: z.object({ ...commonPayload, model: id, inputTokens: z.number().int().nonnegative(), outputTokens: z.number().int().nonnegative(), estimatedCostUsd: z.number().nonnegative() }).strict(),

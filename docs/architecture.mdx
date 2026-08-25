@@ -5,6 +5,8 @@ description: "How Harmonia wires Gemini, ADK, Firestore, Pub/Sub, Cloud Run, and
 
 ## System diagram
 
+The resident-autonomy control plane adds tenant-scoped Firestore cycles, leases, Micro-reflections, durable agendas, bounded experiments, and rollback. Scheduler only wakes private endpoints; deterministic policy owns eligibility, authority, cost, and transitions. See [Governed resident autonomy](./resident-autonomy).
+
 <Card title="Open the interactive architecture explorer" icon="route" href="./architecture-explorer">
   Progressively explore agents, APIs, state ownership, approval boundaries, effects, verification, and operational controls.
 </Card>

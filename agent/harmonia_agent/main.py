@@ -109,6 +109,37 @@ async def durable_tick() -> dict[str, Any]:
     }
 
 
+@app.post("/durable/heartbeat")
+async def resident_heartbeat() -> dict[str, Any]:
+    """OIDC/IAM-protected hourly wake; the controller itself is model-free by default."""
+    from datetime import datetime, timezone
+    from .heartbeat import run_heartbeat
+    from .web_client import claim_autonomy_cycle, finalize_autonomy_cycle, get_feed, get_workspaces, run_retention_tick, run_stage_outbox_tick
+    from .tenant_context import tenant_scope
+    scheduled_at = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0).isoformat()
+    results = []
+    for scope in await asyncio.to_thread(get_workspaces):
+        with tenant_scope(scope["workspaceId"], scope["brandId"]):
+            feed = await asyncio.to_thread(get_feed)
+            result = await run_heartbeat(scheduled_at=scheduled_at, claim_cycle=claim_autonomy_cycle, finalize_cycle=finalize_autonomy_cycle, stage_outbox=run_stage_outbox_tick, recover_missed=lambda: [], inspect_stuck=lambda: list(feed.get("failedJobs") or []), provider_health=lambda: {"status": "configured"}, budget_health=lambda: {"available": False, "reason": "no cognitive arm due"}, maintenance=lambda: run_retention_tick(20))
+            results.append({"workspaceId": scope["workspaceId"], **result})
+    return {"ok": True, "scheduledAt": scheduled_at, "workspaces": results}
+
+
+@app.post("/durable/dream")
+async def resident_dream() -> dict[str, Any]:
+    """Authenticated nightly wake. Persistence/model adapters remain fail-closed until eligible evidence exists."""
+    from datetime import datetime, timezone
+    return {"ok": True, "status": "deferred", "reason": "eligible observation feed not yet materialized for this wake", "scheduledAt": datetime.now(timezone.utc).isoformat()}
+
+
+@app.post("/durable/wakeup")
+async def resident_wakeup() -> dict[str, Any]:
+    """Authenticated morning wake; never invents a briefing without persisted Dream results."""
+    from datetime import datetime, timezone
+    return {"ok": True, "status": "deferred", "reason": "no persisted Dream result available", "scheduledAt": datetime.now(timezone.utc).isoformat()}
+
+
 class PushEnvelope(dict):
     pass
 

@@ -196,6 +196,7 @@ Setup complete.
   Agent SA:     harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com
   Push SA:      harmonia-pubsub-push@${PROJECT_ID}.iam.gserviceaccount.com
   Scheduler SA: harmonia-scheduler@${PROJECT_ID}.iam.gserviceaccount.com
+  Resident jobs: disabled until HARMONIA_ENABLE_RESIDENT_AUTONOMY=1 at deploy time
   Assets:       ${ASSET_BUCKET}
 
 Next: ./infra/deploy.sh   (deploys both Cloud Run services and wires the push subscription)

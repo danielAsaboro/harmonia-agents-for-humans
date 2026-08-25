@@ -47,6 +47,8 @@ agent service and converges the `harmonia-durable-autonomy` Cloud Scheduler job 
 OIDC POST. Do not enable the legacy resident loops in Cloud Run; stage-outbox recovery, scheduled
 publishing, proactive checks, and retention are driven by this durable external tick and protected by workspace leases.
 
+Resident Heartbeat, Dream, and Wakeup schedules are separate and disabled by default. They are provisioned only when `HARMONIA_ENABLE_RESIDENT_AUTONOMY=1`; `HARMONIA_WORKSPACE_TIMEZONE` controls their timezone. This repository state is not evidence that those jobs are deployed. Keep the flag off during local and recorded-replay development.
+
 ## Deploying
 
 Both services containerize from the repo root:

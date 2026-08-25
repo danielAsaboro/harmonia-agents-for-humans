@@ -1,0 +1,2 @@
+import AutonomousOperationsView from "@/components/AutonomousOperationsView";
+export default function AutonomyPage() { return <main className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6"><h1 className="text-xl font-semibold">Autonomous operations</h1><p className="mb-6 mt-1 text-sm text-zinc-500">Heartbeat, Dream Cycle, Wakeup Call, bounded experiments, rollback, cost, and attention.</p><AutonomousOperationsView /></main>; }

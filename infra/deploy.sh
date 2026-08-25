@@ -224,6 +224,26 @@ else
   gcloud scheduler jobs create http harmonia-durable-autonomy "${SCHEDULER_ARGS[@]}"
 fi
 
+# Resident cycles are separate from the precise effect dispatcher above and are
+# never provisioned unless the operator explicitly opts in.
+if [[ "${HARMONIA_ENABLE_RESIDENT_AUTONOMY:-0}" == "1" ]]; then
+  RESIDENT_TIMEZONE="${HARMONIA_WORKSPACE_TIMEZONE:-Etc/UTC}"
+  provision_resident_schedule() {
+    local name="$1" schedule="$2" path="$3"
+    local args=(--location "${REGION}" --schedule "${schedule}" --time-zone "${RESIDENT_TIMEZONE}" --uri "${AGENT_URL}${path}" --http-method POST --oidc-service-account-email "harmonia-scheduler@${PROJECT_ID}.iam.gserviceaccount.com" --oidc-token-audience "${AGENT_URL}" --attempt-deadline 300s --project "${PROJECT_ID}")
+    if gcloud scheduler jobs describe "${name}" --location "${REGION}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
+      gcloud scheduler jobs update http "${name}" "${args[@]}"
+    else
+      gcloud scheduler jobs create http "${name}" "${args[@]}"
+    fi
+  }
+  provision_resident_schedule harmonia-resident-heartbeat "0 * * * *" /durable/heartbeat
+  provision_resident_schedule harmonia-resident-dream "0 2 * * *" /durable/dream
+  provision_resident_schedule harmonia-resident-wakeup "0 7 * * *" /durable/wakeup
+else
+  echo "Resident autonomy schedules disabled (HARMONIA_ENABLE_RESIDENT_AUTONOMY=0)."
+fi
+
 echo
 echo "Deployed. Dashboard: ${WEB_URL}"
 echo "Smoke test:"

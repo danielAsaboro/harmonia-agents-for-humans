@@ -64,5 +64,5 @@ async def run_heartbeat(
 
     status = "partially_completed" if any(arm["status"] == "failed" for arm in arms.values()) else "completed"
     result = {"status": status, "cycleId": cycle_id, "arms": arms}
-    await asyncio.to_thread(finalize_cycle, {"cycleId": cycle_id, "scheduledAt": scheduled_at, **result})
+    await asyncio.to_thread(finalize_cycle, {"cycleId": cycle_id, "claimToken": claim.get("claimToken"), "scheduledAt": scheduled_at, **result})
     return result

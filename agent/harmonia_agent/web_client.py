@@ -217,6 +217,16 @@ def reserve_budget(payload: dict[str, object]) -> None:
         )
 
 
+def resolve_budget_reservation(payload: dict[str, object]) -> None:
+    with _client() as c:
+        res = c.post("/api/internal/budget/resolve", json=payload)
+    if res.status_code >= 300:
+        raise WebApiError(
+            f"budget reservation resolution failed: {res.status_code} {res.text}",
+            res.status_code,
+        )
+
+
 def report_usage(payload: dict[str, object]) -> None:
     with _client() as c:
         res = c.post("/api/internal/usage", json=payload)

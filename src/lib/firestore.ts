@@ -21,7 +21,8 @@ import type {
   EffectClaimInput,
   EffectClaimOutcome,
 } from "./types";
-import { applyFinalizedUsage, applyReservation, canReserve } from "./costs";
+import { applyFinalizedUsage, applyReleasedReservation, applyReservation, canReserve, exceedsApprovalThreshold } from "./costs";
+import { markReservationFinalized, markReservationReleased, markReservationUncertain, type CostReservationState } from "./costReservations";
 import { getConfig } from "./config";
 import { actionPayloadDigest, newId } from "./idempotency";
 import type { ApprovalActor } from "./decisions";
@@ -741,7 +742,7 @@ export async function setStage(
   });
 }
 
-export interface BudgetReservation {
+export interface BudgetReservation extends CostReservationState {
   jobId: string;
   operationId: string;
   stage: string;
@@ -751,12 +752,11 @@ export interface BudgetReservation {
   pricingVersion: string;
   modelPolicy?: import("./types").ModelPolicySnapshot;
   accepted: boolean;
-  finalized: boolean;
   createdAt: string;
 }
 
 export async function reserveJobBudget(
-  input: Omit<BudgetReservation, "accepted" | "finalized" | "createdAt">,
+  input: Omit<BudgetReservation, "accepted" | "createdAt" | keyof CostReservationState>,
 ): Promise<{ reserved: boolean; duplicate: boolean; budget: JobBudget }> {
   const ref = jobRef(input.jobId);
   const reservationRef = ref.collection(COST_RESERVATIONS).doc(input.operationId);
@@ -780,13 +780,17 @@ export async function reserveJobBudget(
       limitUsd: getConfig().DEFAULT_WORKSPACE_BUDGET_USD,
       approvalThresholdUsd: budget.approvalThresholdUsd,
     };
-    const accepted = canReserve(budget, input.estimatedCostUsd)
+    const accepted = !exceedsApprovalThreshold(budget, input.estimatedCostUsd)
+      && canReserve(budget, input.estimatedCostUsd)
       && canReserve(workspaceBudget, input.estimatedCostUsd);
+    const now = new Date();
     const reservation: BudgetReservation = {
       ...input,
       accepted,
-      finalized: false,
-      createdAt: new Date().toISOString(),
+      state: "reserved",
+      reservedAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 15 * 60 * 1000).toISOString(),
+      createdAt: now.toISOString(),
     };
     tx.set(reservationRef, reservation);
     if (!accepted) return { reserved: false, duplicate: false, budget };
@@ -818,9 +822,7 @@ export async function finalizeUsageRecord(record: UsageRecord): Promise<{ duplic
     if (!reservationSnap.exists) throw new Error(`missing cost reservation: ${record.operationId}`);
     const reservation = reservationSnap.data() as BudgetReservation;
     if (!reservation.accepted) throw new Error(`cost reservation was rejected: ${record.operationId}`);
-    if (reservation.finalized) {
-      throw new Error(`cost reservation already finalized by another usage record: ${record.operationId}`);
-    }
+    if (reservation.state !== "reserved") throw new Error(`cost reservation is ${reservation.state}: ${record.operationId}`);
 
     const budget = applyFinalizedUsage(
       job.budget ?? initialJobBudget(),
@@ -835,13 +837,50 @@ export async function finalizeUsageRecord(record: UsageRecord): Promise<{ duplic
       record.observedCostUsd ?? record.estimatedCostUsd,
     );
     tx.set(usageRef, record);
-    tx.update(reservationRef, { finalized: true, finalizedAt: new Date().toISOString() });
+    tx.update(reservationRef, markReservationFinalized(reservation, new Date().toISOString()));
     tx.update(ref, { budget, updatedAt: new Date().toISOString() });
     tx.update(workspaceRef, {
       budget: finalizedWorkspaceBudget,
       updatedAt: new Date().toISOString(),
     });
     return { duplicate: false };
+  });
+}
+
+export async function resolveJobBudgetReservation(input: {
+  jobId: string;
+  operationId: string;
+  outcome: "not_invoked" | "uncertain";
+  reason: string;
+}): Promise<{ duplicate: boolean; state: CostReservationState["state"] }> {
+  const ref = jobRef(input.jobId);
+  const reservationRef = ref.collection(COST_RESERVATIONS).doc(input.operationId);
+  const workspaceRef = db().collection("workspaces").doc(currentTenant().workspaceId);
+  return db().runTransaction(async (tx) => {
+    const [jobSnap, reservationSnap, workspaceSnap] = await Promise.all([
+      tx.get(ref), tx.get(reservationRef), tx.get(workspaceRef),
+    ]);
+    const job = requireJobDoc(jobSnap);
+    if (!reservationSnap.exists) throw new Error(`missing cost reservation: ${input.operationId}`);
+    const reservation = reservationSnap.data() as BudgetReservation;
+    if (!reservation.accepted) throw new Error(`cost reservation was rejected: ${input.operationId}`);
+    if (reservation.state !== "reserved") return { duplicate: true, state: reservation.state };
+
+    const now = new Date().toISOString();
+    if (input.outcome === "uncertain") {
+      const uncertain = markReservationUncertain(reservation, input.reason, now);
+      tx.update(reservationRef, uncertain);
+      return { duplicate: false, state: "uncertain" };
+    }
+
+    if (!workspaceSnap.exists) throw new Error("workspace not found");
+    const workspaceBudget = workspaceSnap.get("budget") as JobBudget;
+    const budget = applyReleasedReservation(job.budget ?? initialJobBudget(), reservation.estimatedCostUsd);
+    const releasedWorkspaceBudget = applyReleasedReservation(workspaceBudget, reservation.estimatedCostUsd);
+    tx.update(reservationRef, { ...markReservationReleased(reservation, now), releaseReason: input.reason });
+    tx.update(ref, { budget, updatedAt: now });
+    tx.update(workspaceRef, { budget: releasedWorkspaceBudget, updatedAt: now });
+    return { duplicate: false, state: "released" };
   });
 }
 

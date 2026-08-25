@@ -24,6 +24,10 @@ export function canReserve(budget: JobBudget, requestedUsd: string): boolean {
     <= usdToMicros(budget.limitUsd);
 }
 
+export function exceedsApprovalThreshold(budget: JobBudget, requestedUsd: string): boolean {
+  return usdToMicros(requestedUsd) > usdToMicros(budget.approvalThresholdUsd);
+}
+
 export function applyReservation(budget: JobBudget, requestedUsd: string): JobBudget {
   if (!canReserve(budget, requestedUsd)) throw new Error("job budget exceeded");
   const requested = usdToMicros(requestedUsd);
@@ -46,6 +50,19 @@ export function applyFinalizedUsage(
     ...budget,
     reservedUsd: microsToUsd(currentReserved - reserved),
     observedUsd: microsToUsd(usdToMicros(budget.observedUsd) + usdToMicros(actualUsd)),
+  };
+}
+
+export function applyReleasedReservation(
+  budget: JobBudget,
+  reservedUsd: string,
+): JobBudget {
+  const released = usdToMicros(reservedUsd);
+  const currentReserved = usdToMicros(budget.reservedUsd);
+  if (released > currentReserved) throw new Error("release exceeds reserved job amount");
+  return {
+    ...budget,
+    reservedUsd: microsToUsd(currentReserved - released),
   };
 }
 

@@ -26,6 +26,13 @@ export const budgetReservationSchema = z.object({
   modelPolicy: modelPolicySchema.optional(),
 }).strict();
 
+export const budgetReservationResolutionSchema = z.object({
+  jobId: z.string().min(1),
+  operationId: z.string().min(1),
+  outcome: z.enum(["not_invoked", "uncertain"]),
+  reason: z.string().min(10).max(500),
+}).strict();
+
 export const usageRecordSchema = z.object({
   id: z.string().min(1),
   jobId: z.string().min(1),

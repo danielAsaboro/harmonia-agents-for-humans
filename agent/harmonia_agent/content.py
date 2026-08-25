@@ -16,7 +16,7 @@ from .model_catalog import PRICING_VERSION, estimate_text_cost
 from .mock_ai import mock_ai_enabled, mock_generate_image, mock_transcribe
 from .telemetry import current_trace_id, safe_attributes, tracer
 from .usage import InvocationContext, UsageAccumulator, UsageRecord, estimate_request_tokens
-from .web_client import report_usage, reserve_budget
+from .web_client import report_usage, reserve_budget, resolve_budget_reservation
 
 MODEL = "gemini-3.5-flash"
 IMAGE_MODEL = os.environ.get("IMAGE_MODEL_ID", "gemini-3.5-flash-image")
@@ -124,6 +124,7 @@ def generate_image(
     *,
     invocation: InvocationContext | None = None,
     budget_reserver: Callable[[dict[str, object]], None] = reserve_budget,
+    budget_resolver: Callable[[dict[str, object]], None] = resolve_budget_reservation,
     usage_reporter: Callable[[dict[str, object]], None] = report_usage,
 ) -> tuple[bytes, str]:
     """Generate an image with Gemini and return its bytes and MIME type."""
@@ -144,8 +145,9 @@ def generate_image(
         "estimatedCostUsd": maximum_cost,
         "pricingVersion": PRICING_VERSION,
     })
-    client = _client()
+    dispatched = False
     try:
+        client = _client()
         with tracer().start_as_current_span("harmonia.model.generate") as span:
             span.set_attributes(safe_attributes({
                 "job.id": invocation.job_id,
@@ -153,6 +155,7 @@ def generate_image(
                 "agent": role,
                 "model": IMAGE_MODEL,
             }))
+            dispatched = True
             res = client.models.generate_images(model=IMAGE_MODEL, contents=prompt)
             images = getattr(res, "generated_images", None)
             if not images:
@@ -179,9 +182,18 @@ def generate_image(
             }))
             usage_reporter(record.to_wire())
             return img.image_bytes, getattr(img, "mime_type", None) or "image/png"
-    except ImageGenError:
-        raise
     except Exception as exc:  # noqa: BLE001 - normalized for stage failure classification
+        budget_resolver({
+            "jobId": invocation.job_id,
+            "operationId": operation_id,
+            "outcome": "uncertain" if dispatched else "not_invoked",
+            "reason": (
+                "provider request outcome is unknown after dispatch"
+                if dispatched else "provider request was not dispatched"
+            ),
+        })
+        if isinstance(exc, ImageGenError):
+            raise
         raise ImageGenError(f"image generation failed: {exc}") from exc
 
 

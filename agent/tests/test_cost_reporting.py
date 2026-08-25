@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from harmonia_agent import content
@@ -132,6 +134,65 @@ def test_image_generation_uses_explicit_maximum_cost_reservation(monkeypatch):
     assert reservations[0]["estimatedCostUsd"] == "0.500000"
     assert reports[0]["unitType"] == "images"
     assert reports[0]["inputUnits"] == 1
+
+
+def test_image_generation_releases_reservation_when_client_fails_before_dispatch(monkeypatch):
+    resolutions: list[dict] = []
+    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
+    monkeypatch.setattr(content, "_client", lambda: (_ for _ in ()).throw(RuntimeError("client unavailable")))
+
+    with pytest.raises(content.ImageGenError):
+        content.generate_image(
+            "safe visual description",
+            invocation=InvocationContext(
+                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
+                job_id="job-1", stage="publish", operation_id="job-1:publish:act-img",
+            ),
+            budget_reserver=lambda _item: None,
+            budget_resolver=resolutions.append,
+        )
+
+    assert resolutions[0]["outcome"] == "not_invoked"
+
+
+def test_image_generation_marks_reservation_uncertain_after_provider_dispatch(monkeypatch):
+    resolutions: list[dict] = []
+    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
+    models = SimpleNamespace(generate_images=lambda **_kwargs: (_ for _ in ()).throw(TimeoutError("timeout")))
+    monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=models))
+
+    with pytest.raises(content.ImageGenError):
+        content.generate_image(
+            "safe visual description",
+            invocation=InvocationContext(
+                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
+                job_id="job-1", stage="publish", operation_id="job-1:publish:act-img",
+            ),
+            budget_reserver=lambda _item: None,
+            budget_resolver=resolutions.append,
+        )
+
+    assert resolutions[0]["outcome"] == "uncertain"
+
+
+def test_image_generation_marks_empty_provider_response_uncertain(monkeypatch):
+    resolutions: list[dict] = []
+    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
+    models = SimpleNamespace(generate_images=lambda **_kwargs: SimpleNamespace(generated_images=[]))
+    monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=models))
+
+    with pytest.raises(content.ImageGenError):
+        content.generate_image(
+            "safe visual description",
+            invocation=InvocationContext(
+                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
+                job_id="job-1", stage="publish", operation_id="job-1:publish:act-img",
+            ),
+            budget_reserver=lambda _item: None,
+            budget_resolver=resolutions.append,
+        )
+
+    assert resolutions[0]["outcome"] == "uncertain"
 
 
 def test_agent_trace_has_safe_delegation_model_and_validation_spans():

@@ -187,6 +187,7 @@ export const draftsSubmissionSchema = z.object({
 });
 
 export const receiptSubmissionSchema = z.object({
+  commandId: z.string().min(1).optional(),
   jobId: z.string().min(1),
   actionId: z.string().min(1),
   actionType: z.enum([
@@ -208,6 +209,7 @@ export const receiptSubmissionSchema = z.object({
 });
 
 export const effectClaimSubmissionSchema = z.object({
+  commandId: z.string().min(1).optional(),
   jobId: z.string().min(1),
   actionId: z.string().min(1),
   actionType: z.enum([

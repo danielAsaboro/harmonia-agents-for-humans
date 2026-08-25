@@ -20,7 +20,7 @@ Harmonia uses **bounded agency inside a durable workflow**. Gemini/ADK handles a
 
 Chat and Telegram are control surfaces, not the autonomous core. The asynchronous pipeline continues in the background and every surface reaches the same policy and approval boundary.
 
-The autonomous core is the persisted job/effect-command pipeline driven by Pub/Sub. The legacy in-process scheduler, proactive scan, and Telegram long-poll threads are disabled unless `HARMONIA_ENABLE_RESIDENT_LOOPS=1` is explicitly set for development. In production, an OIDC-authenticated Cloud Scheduler invocation runs the lease-protected durable tick once per minute; stage-outbox recovery, scheduled work, proactive checks, and retention are isolated arms.
+The autonomous core is the persisted job/effect-command pipeline driven by Pub/Sub. The legacy in-process scheduler, proactive scan, and Telegram long-poll threads are disabled unless `HARMONIA_ENABLE_RESIDENT_LOOPS=1` is explicitly set for development. The full-deployment script configures an OIDC-authenticated Cloud Scheduler invocation to run the lease-protected durable tick once per minute; stage-outbox recovery, scheduled work, proactive checks, and retention are isolated arms. The current web-only preview has not deployed this runtime.
 
 ## Demo KPI contract
 

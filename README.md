@@ -4,6 +4,8 @@
 
 The dashboard and authenticated web chat are active operator surfaces. Telegram has a verified webhook/nonce approval boundary in code, but live message ingestion and webhook configuration are not yet production-verified; do not present Telegram as an equivalent working surface until that evidence exists.
 
+> **Deployment evidence status (2026-08-26):** the currently reachable Cloud Run URL is a `preview`-mode web-only revision. Read-only project inspection found no deployed agent service, Pub/Sub subscription, or Cloud Scheduler job. It is useful for UI review, but it is not evidence that the asynchronous pipeline or authenticated Gemini/ADK vertical slice is live. The topology below describes the implemented repository and target full deployment.
+
 ## Why Harmonia is an agent—and where it deliberately is not
 
 Harmonia is agentic where the problem is ambiguous: Gemini/ADK specialists interpret multimodal source material, identify grounded moments and angles, create platform-native drafts, revise them, and propose bounded actions. It is deliberately deterministic where mistakes have consequences: Firestore/Pub/Sub progression, schema validation, cost reservation, policy, approval, idempotent execution, receipts, and independent verification. Humans retain final publishing authority. This is bounded agency inside a durable workflow, not an unrestricted model loop; the full stage/authority and KPI contract is in [`docs/operational-model.mdx`](./docs/operational-model.mdx).

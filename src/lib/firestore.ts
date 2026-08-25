@@ -35,6 +35,7 @@ import { chatScopeKey, retentionPlan, type ChatSurface } from "./chatHistory";
 import { currentTraceId } from "./telemetry";
 import { decideEffectClaim, decideEffectFinalization } from "./effectClaims";
 import { decideTelegramNonceClaim, telegramDigest, type TelegramWebhookRoute } from "./telegramWebhook";
+import { connectionEnvelopeKey, decryptSecret, encryptSecret, type SecretEnvelope } from "./secretEnvelope";
 
 let client: Firestore | null = null;
 
@@ -276,6 +277,27 @@ export interface ConnectionDoc {
   calendarProvisioning?: { status: "claimed" | "uncertain"; claimId: string; at: string };
 }
 
+type StoredConnectionDoc = Omit<ConnectionDoc, "accessToken" | "refreshToken"> & {
+  accessTokenEnvelope: SecretEnvelope;
+  refreshTokenEnvelope?: SecretEnvelope;
+};
+
+function connectionAad(platform: string): string {
+  return `${currentTenant().workspaceId}:${platform}`;
+}
+
+function decodeConnection(stored: StoredConnectionDoc): ConnectionDoc {
+  const key = connectionEnvelopeKey();
+  const { accessTokenEnvelope, refreshTokenEnvelope, ...metadata } = stored;
+  return {
+    ...metadata,
+    accessToken: decryptSecret(accessTokenEnvelope, key, `${connectionAad(stored.platform)}:access`),
+    refreshToken: refreshTokenEnvelope
+      ? decryptSecret(refreshTokenEnvelope, key, `${connectionAad(stored.platform)}:refresh`)
+      : undefined,
+  };
+}
+
 export async function claimCalendarProvisioning(): Promise<{ calendarId?: string; claimId?: string }> {
   const ref = connectionRef("google-calendar");
   return db().runTransaction(async (tx) => {
@@ -322,11 +344,22 @@ export function connectionRef(platform: string) {
 export async function getConnection(platform: string): Promise<ConnectionDoc | null> {
   const snap = await connectionRef(platform).get();
   if (!snap.exists) return null;
-  return snap.data() as ConnectionDoc;
+  const data = snap.data() as Partial<StoredConnectionDoc> & { accessToken?: string };
+  if (data.accessToken) throw new Error("legacy plaintext connection requires migration");
+  return decodeConnection(data as StoredConnectionDoc);
 }
 
 export async function saveConnection(conn: ConnectionDoc): Promise<void> {
-  await connectionRef(conn.platform).set(conn);
+  const key = connectionEnvelopeKey();
+  const { accessToken, refreshToken, ...metadata } = conn;
+  const stored: StoredConnectionDoc = {
+    ...metadata,
+    accessTokenEnvelope: encryptSecret(accessToken, key, `${connectionAad(conn.platform)}:access`),
+    refreshTokenEnvelope: refreshToken
+      ? encryptSecret(refreshToken, key, `${connectionAad(conn.platform)}:refresh`)
+      : undefined,
+  };
+  await connectionRef(conn.platform).set(stored);
 }
 
 export async function deleteConnection(platform: string): Promise<void> {
@@ -335,7 +368,11 @@ export async function deleteConnection(platform: string): Promise<void> {
 
 export async function listConnections(): Promise<ConnectionDoc[]> {
   const snaps = await tenantCollection(CONNECTIONS).get();
-  return snaps.docs.map((d) => d.data() as ConnectionDoc);
+  return snaps.docs.map((doc) => {
+    const data = doc.data() as Partial<StoredConnectionDoc> & { accessToken?: string };
+    if (data.accessToken) throw new Error("legacy plaintext connection requires migration");
+    return decodeConnection(data as StoredConnectionDoc);
+  });
 }
 
 // ---------- operator chat history ----------
@@ -438,6 +475,8 @@ export interface TelegramConnectionDoc {
   chatIdDigest: string;
 }
 
+type StoredTelegramConnectionDoc = Omit<TelegramConnectionDoc, "botToken"> & { botTokenEnvelope: SecretEnvelope };
+
 export interface TelegramDecisionNonceDoc {
   routeTokenDigest: string;
   workspaceId: string;
@@ -496,20 +535,36 @@ export async function finalizeTelegramDecisionNonce(
 
 export async function getTelegramConnection(): Promise<TelegramConnectionDoc | null> {
   const snap = await tenantCollection(CONFIG).doc("telegram").get();
-  return snap.exists ? (snap.data() as TelegramConnectionDoc) : null;
+  if (!snap.exists) return null;
+  const stored = snap.data() as Partial<StoredTelegramConnectionDoc> & { botToken?: string };
+  if (stored.botToken) throw new Error("legacy plaintext Telegram token requires migration");
+  const { botTokenEnvelope, ...metadata } = stored as StoredTelegramConnectionDoc;
+  return {
+    ...metadata,
+    botToken: decryptSecret(
+      botTokenEnvelope,
+      connectionEnvelopeKey(),
+      `${currentTenant().workspaceId}:telegram:bot`,
+    ),
+  };
 }
 
 export async function saveTelegramConnection(connection: TelegramConnectionDoc): Promise<void> {
   const tenant = currentTenant();
   const configRef = tenantCollection(CONFIG).doc("telegram");
   const routeRef = db().collection(TELEGRAM_WEBHOOK_ROUTES).doc(connection.routeTokenDigest);
+  const { botToken, ...metadata } = connection;
+  const stored: StoredTelegramConnectionDoc = {
+    ...metadata,
+    botTokenEnvelope: encryptSecret(botToken, connectionEnvelopeKey(), `${tenant.workspaceId}:telegram:bot`),
+  };
   await db().runTransaction(async (tx) => {
     const existing = await tx.get(configRef);
     const existingRoute = existing.get("routeTokenDigest") as string | undefined;
     if (existingRoute && existingRoute !== connection.routeTokenDigest) {
       tx.delete(db().collection(TELEGRAM_WEBHOOK_ROUTES).doc(existingRoute));
     }
-    tx.set(configRef, connection);
+    tx.set(configRef, stored);
     tx.set(routeRef, {
       routeTokenDigest: connection.routeTokenDigest,
       webhookSecretDigest: connection.webhookSecretDigest,
@@ -1115,12 +1170,14 @@ export async function saveLearnings(
   jobId: string,
   engagement: Engagement[],
   learnings: Learnings,
+  terminalOutcome: NonNullable<Job["terminalOutcome"]>,
 ): Promise<void> {
   await jobRef(jobId).update({
     engagement,
     learnings,
     status: "complete",
     stage: "complete",
+    terminalOutcome,
     updatedAt: new Date().toISOString(),
   });
 }

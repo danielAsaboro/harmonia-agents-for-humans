@@ -41,6 +41,7 @@ export interface Job {
   createdAt: string;
   updatedAt: string;
   status: JobStatus;
+  terminalOutcome?: "succeeded" | "partial" | "failed" | "unresolved";
   stage: Stage;
   config: JobConfig;
   ingestedTitle?: string;

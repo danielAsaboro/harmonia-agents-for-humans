@@ -2,6 +2,8 @@ import { engagementSubmissionSchema } from "@/lib/contracts";
 import { appendEvent, getJob, saveLearnings } from "@/lib/firestore";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
+import { listCommandsForJob } from "@/lib/effectCommandStore";
+import { decideTerminalOutcome } from "@/lib/effectCommands";
 
 /**
  * Learn-stage completion: stores reaction metrics + takeaways and closes the
@@ -17,10 +19,13 @@ export async function POST(req: Request) {
         { status: 409 },
       );
     }
+    const commands = await listCommandsForJob(body.jobId);
+    const terminalOutcome = decideTerminalOutcome(commands);
     await saveLearnings(
       body.jobId,
       body.engagement.map((e) => ({ ...e, checkedAt: new Date().toISOString() })),
       { ...body.learnings, generatedAt: new Date().toISOString() },
+      terminalOutcome,
     );
     await appendEvent(
       body.jobId,
@@ -28,6 +33,6 @@ export async function POST(req: Request) {
       `${body.engagement.length} post(s) measured; ${body.learnings.notes.length} takeaway(s) stored for future ideation`,
       "agent",
     );
-    return Response.json({ ok: true });
+    return Response.json({ ok: true, terminalOutcome });
   });
 }

@@ -293,26 +293,146 @@ export const editorialPlanSchema = z.object({
   "selectedNextItemId must identify exactly one plan item",
 );
 
-export const productionDraftInputSchema = z.object({
-  planId: z.string().min(1).max(100), strategyDigest: z.string().regex(/^[0-9a-f]{64}$/), editorialItem: editorialPlanItemSchema,
+const strictIdentifierSchema = z.string().min(1).max(100);
+const constraintTextSchema = z.string().min(1).max(300);
+const assumptionTextSchema = z.string().min(1).max(500);
+const confidenceSchema = z.enum(["low", "medium", "high"]);
+
+export const contentClaimSchema = z.object({
+  text: z.string().min(1).max(600),
+  evidenceRefs: z.array(strictIdentifierSchema).min(1).max(12),
+}).strict();
+
+export const contentDraftSchema = z.object({
+  id: strictIdentifierSchema,
+  planId: strictIdentifierSchema,
+  planDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  strategyDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  editorialItemId: strictIdentifierSchema,
+  briefId: strictIdentifierSchema,
+  revision: z.union([z.literal(1), z.literal(2)]),
+  platform: z.literal("x"),
+  format: z.literal("text_post"),
+  text: z.string().min(1).max(280),
+  ctaTreatment: z.string().min(1).max(300),
+  intendedConversion: z.string().min(1).max(300),
+  evidenceRefs: z.array(strictIdentifierSchema).min(1).max(12),
+  claims: z.array(contentClaimSchema).max(12),
+  assumptions: z.array(assumptionTextSchema).max(8),
+  confidence: confidenceSchema,
+  appliedConstraints: z.array(constraintTextSchema).min(1).max(24),
+  priorDraftId: strictIdentifierSchema.nullable(),
+  addressedIssueIds: z.array(strictIdentifierSchema).max(12),
+}).strict().superRefine((draft, context) => {
+  if (draft.revision === 1 && (draft.priorDraftId !== null || draft.addressedIssueIds.length > 0)) {
+    context.addIssue({ code: "custom", message: "original draft cannot contain revision linkage" });
+  }
+  if (draft.revision === 2 && (draft.priorDraftId === null || draft.addressedIssueIds.length === 0)) {
+    context.addIssue({ code: "custom", message: "revision draft requires prior draft linkage and addressed issue ids" });
+  }
+  if (new Set(draft.evidenceRefs).size !== draft.evidenceRefs.length) {
+    context.addIssue({ code: "custom", message: "draft evidence references must be unique" });
+  }
+  if (new Set(draft.addressedIssueIds).size !== draft.addressedIssueIds.length) {
+    context.addIssue({ code: "custom", message: "addressed issue ids must be unique" });
+  }
+});
+
+export const editorialReviewIssueSchema = z.object({
+  id: strictIdentifierSchema,
+  category: z.enum(["grounding", "brief_alignment", "brand_voice", "platform_constraints", "cta", "safety", "clarity"]),
+  severity: confidenceSchema,
+  fieldPath: z.string().min(1).max(300),
+  instruction: z.string().min(1).max(1000),
+  evidenceRefs: z.array(strictIdentifierSchema).max(12),
+  constraintRefs: z.array(constraintTextSchema).max(24),
+}).strict();
+
+export const editorialReviewSchema = z.object({
+  id: strictIdentifierSchema,
+  planId: strictIdentifierSchema,
+  planDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  strategyDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  editorialItemId: strictIdentifierSchema,
+  briefId: strictIdentifierSchema,
+  draftId: strictIdentifierSchema,
+  revision: z.union([z.literal(1), z.literal(2)]),
+  verdict: z.enum(["accepted", "revise"]),
+  reviewedAt: utcTimestampSchema,
+  issues: z.array(editorialReviewIssueSchema).max(12),
+}).strict().superRefine((review, context) => {
+  if (review.verdict === "accepted" && review.issues.length > 0) {
+    context.addIssue({ code: "custom", message: "accepted review cannot contain revision issues" });
+  }
+  if (review.verdict === "revise" && review.issues.length === 0) {
+    context.addIssue({ code: "custom", message: "revision review requires at least one issue" });
+  }
+  if (new Set(review.issues.map((issue) => issue.id)).size !== review.issues.length) {
+    context.addIssue({ code: "custom", message: "review issue ids must be unique" });
+  }
+});
+
+export const copywriterInputSchema = z.object({
+  planId: strictIdentifierSchema,
+  planDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  strategyDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  editorialItemId: strictIdentifierSchema,
+  briefId: strictIdentifierSchema,
+  editorialItem: editorialPlanItemSchema,
   brief: contentStrategySchema.shape.briefs.element,
-  referencedMoments: z.array(strictMomentSchema).max(12).default([]), referencedAngles: z.array(strictAngleSchema).max(12).default([]),
-  brandContext: z.string().min(1).max(4000), constraints: z.array(z.string().min(1).max(300)).max(24).default([]),
+  referencedMoments: z.array(strictMomentSchema).max(12),
+  referencedAngles: z.array(strictAngleSchema).max(12),
+  brandContext: z.string().min(1).max(4000),
+  constraints: z.array(constraintTextSchema).max(24),
+  platform: z.literal("x"),
+  format: z.literal("text_post"),
+  passType: z.enum(["original", "revision"]),
+  priorDraft: contentDraftSchema.nullable(),
+  priorReview: editorialReviewSchema.nullable(),
 }).strict().superRefine((input, context) => {
+  const issue = (message: string) => context.addIssue({ code: "custom", message });
   if (input.brief.id !== input.editorialItem.briefId) {
-    context.addIssue({ code: "custom", message: "production input must contain the exact selected brief" });
+    issue("copywriter input must contain the exact selected brief");
+  }
+  if (input.editorialItemId !== input.editorialItem.id || input.briefId !== input.brief.id) {
+    issue("copywriter input ids must match the exact selected item and brief");
   }
   const exactFields = ["objective", "audienceId", "funnelStage", "intendedConversion", "ctaIntent", "kpi"] as const;
   if (exactFields.some((field) => input.brief[field] !== input.editorialItem[field])) {
-    context.addIssue({ code: "custom", message: "production input brief does not match the selected editorial item" });
+    issue("copywriter input brief does not match the selected editorial item");
   }
   if ([...input.brief.evidenceRefs].sort().join("\0") !== [...input.editorialItem.evidenceRefs].sort().join("\0")) {
-    context.addIssue({ code: "custom", message: "production input brief evidence does not match the selected editorial item" });
+    issue("copywriter input brief evidence does not match the selected editorial item");
   }
-  const itemEvidence = new Set(input.editorialItem.evidenceRefs);
   const supplied = [...input.referencedMoments, ...input.referencedAngles].map((item) => item.id);
-  if (supplied.length === 0 || supplied.some((id) => !itemEvidence.has(id))) {
-    context.addIssue({ code: "custom", message: "production input contains unreferenced evidence" });
+  if (
+    [...supplied].sort().join("\0") !== [...input.editorialItem.evidenceRefs].sort().join("\0")
+    || new Set(supplied).size !== supplied.length
+  ) {
+    issue("copywriter input evidence must exactly match selected evidence");
+  }
+  if (input.editorialItem.channel !== input.platform || input.editorialItem.format !== input.format) {
+    issue("copywriter platform and format must match the selected item");
+  }
+  if (!input.brief.channelCandidates.includes(input.platform) || !input.brief.formatCandidates.includes(input.format)) {
+    issue("copywriter platform and format must be supported by the selected brief");
+  }
+  if (input.passType === "original" && (input.priorDraft !== null || input.priorReview !== null)) {
+    issue("original pass cannot contain revision context");
+  }
+  if (input.passType === "revision") {
+    if (input.priorDraft === null) issue("revision pass requires a prior draft");
+    if (input.priorReview === null) issue("revision pass requires a prior review");
+    if (input.priorDraft !== null && input.priorReview !== null) {
+      if (input.priorReview.verdict !== "revise") issue("revision pass requires a revise review");
+      if (input.priorReview.draftId !== input.priorDraft.id || input.priorReview.revision !== input.priorDraft.revision) {
+        issue("revision context must review the exact prior draft");
+      }
+      const lineage = [input.planId, input.planDigest, input.strategyDigest, input.editorialItemId, input.briefId].join("\0");
+      const priorLineage = [input.priorDraft.planId, input.priorDraft.planDigest, input.priorDraft.strategyDigest, input.priorDraft.editorialItemId, input.priorDraft.briefId].join("\0");
+      const reviewLineage = [input.priorReview.planId, input.priorReview.planDigest, input.priorReview.strategyDigest, input.priorReview.editorialItemId, input.priorReview.briefId].join("\0");
+      if (lineage !== priorLineage || lineage !== reviewLineage) issue("revision context must preserve exact lineage");
+    }
   }
 });
 

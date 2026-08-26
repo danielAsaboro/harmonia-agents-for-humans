@@ -253,18 +253,6 @@ class StrategistResult(StrictModel):
     strategy: ContentStrategy
 
 
-class Draft(StrictModel):
-    id: str = Field(min_length=1)
-    platform: Literal["x"]
-    momentId: str | None = None
-    angleId: str | None = None
-    text: str = Field(min_length=1, max_length=280)
-
-
-class DraftSet(StrictModel):
-    drafts: list[Draft] = Field(default_factory=list, max_length=10)
-
-
 def _validate_utc_timestamp(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() != timezone.utc.utcoffset(value):
         raise ValueError("timestamp must be UTC")
@@ -450,65 +438,139 @@ class EditorialPlan(StrictModel):
         return self
 
 
-class ProductionDraftInput(StrictModel):
-    planId: str = Field(min_length=1, max_length=100)
+class ContentClaim(StrictModel):
+    text: str = Field(min_length=1, max_length=600)
+    evidenceRefs: list[Identifier] = Field(min_length=1, max_length=12)
+
+
+class ContentDraft(StrictModel):
+    id: Identifier
+    planId: Identifier
+    planDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
     strategyDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    editorialItemId: Identifier
+    briefId: Identifier
+    revision: int = Field(ge=1, le=2)
+    platform: Literal["x"]
+    format: Literal["text_post"]
+    text: str = Field(min_length=1, max_length=280)
+    ctaTreatment: str = Field(min_length=1, max_length=300)
+    intendedConversion: str = Field(min_length=1, max_length=300)
+    evidenceRefs: list[Identifier] = Field(min_length=1, max_length=12)
+    claims: list[ContentClaim] = Field(default_factory=list, max_length=12)
+    assumptions: list[AssumptionText] = Field(default_factory=list, max_length=8)
+    confidence: Literal["low", "medium", "high"]
+    appliedConstraints: list[ConstraintText] = Field(min_length=1, max_length=24)
+    priorDraftId: Identifier | None = None
+    addressedIssueIds: list[Identifier] = Field(default_factory=list, max_length=12)
+
+    @model_validator(mode="after")
+    def validate_revision_linkage(self) -> "ContentDraft":
+        if self.revision == 1:
+            if self.priorDraftId is not None or self.addressedIssueIds:
+                raise ValueError("original draft cannot contain revision linkage")
+        elif self.priorDraftId is None or not self.addressedIssueIds:
+            raise ValueError("revision draft requires prior draft linkage and addressed issue ids")
+        if len(self.evidenceRefs) != len(set(self.evidenceRefs)):
+            raise ValueError("draft evidence references must be unique")
+        if len(self.addressedIssueIds) != len(set(self.addressedIssueIds)):
+            raise ValueError("addressed issue ids must be unique")
+        return self
+
+
+class EditorialReviewIssue(StrictModel):
+    id: Identifier
+    category: Literal["grounding", "brief_alignment", "brand_voice", "platform_constraints", "cta", "safety", "clarity"]
+    severity: Literal["low", "medium", "high"]
+    fieldPath: str = Field(min_length=1, max_length=300)
+    instruction: str = Field(min_length=1, max_length=1_000)
+    evidenceRefs: list[Identifier] = Field(default_factory=list, max_length=12)
+    constraintRefs: list[ConstraintText] = Field(default_factory=list, max_length=24)
+
+
+class EditorialReview(StrictModel):
+    id: Identifier
+    planId: Identifier
+    planDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    strategyDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    editorialItemId: Identifier
+    briefId: Identifier
+    draftId: Identifier
+    revision: int = Field(ge=1, le=2)
+    verdict: Literal["accepted", "revise"]
+    reviewedAt: datetime
+    issues: list[EditorialReviewIssue] = Field(default_factory=list, max_length=12)
+
+    @field_validator("reviewedAt")
+    @classmethod
+    def validate_utc_timestamp(cls, value: datetime) -> datetime:
+        return _validate_utc_timestamp(value)
+
+    @model_validator(mode="after")
+    def validate_verdict_and_issues(self) -> "EditorialReview":
+        if self.verdict == "accepted" and self.issues:
+            raise ValueError("accepted review cannot contain revision issues")
+        if self.verdict == "revise" and not self.issues:
+            raise ValueError("revision review requires at least one issue")
+        issue_ids = [issue.id for issue in self.issues]
+        if len(issue_ids) != len(set(issue_ids)):
+            raise ValueError("review issue ids must be unique")
+        return self
+
+
+class CopywriterInput(StrictModel):
+    planId: Identifier
+    planDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    strategyDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    editorialItemId: Identifier
+    briefId: Identifier
     editorialItem: EditorialPlanItem
     brief: ContentBrief
     referencedMoments: list[Moment] = Field(default_factory=list, max_length=12)
     referencedAngles: list[Angle] = Field(default_factory=list, max_length=12)
     brandContext: str = Field(min_length=1, max_length=4_000)
     constraints: list[ConstraintText] = Field(default_factory=list, max_length=24)
+    platform: Literal["x"]
+    format: Literal["text_post"]
+    passType: Literal["original", "revision"]
+    priorDraft: ContentDraft | None = None
+    priorReview: EditorialReview | None = None
 
     @model_validator(mode="after")
-    def validate_selected_authority(self) -> "ProductionDraftInput":
+    def validate_selected_authority_and_revision(self) -> "CopywriterInput":
         if self.brief.id != self.editorialItem.briefId:
-            raise ValueError("production input must contain the exact selected brief")
-        exact_fields = (
-            "objective", "audienceId", "funnelStage", "intendedConversion",
-            "ctaIntent", "kpi",
-        )
+            raise ValueError("copywriter input must contain the exact selected brief")
+        if self.editorialItemId != self.editorialItem.id or self.briefId != self.brief.id:
+            raise ValueError("copywriter input ids must match the exact selected item and brief")
+        exact_fields = ("objective", "audienceId", "funnelStage", "intendedConversion", "ctaIntent", "kpi")
         if any(getattr(self.brief, field) != getattr(self.editorialItem, field) for field in exact_fields):
-            raise ValueError("production input brief does not match the selected editorial item")
+            raise ValueError("copywriter input brief does not match the selected editorial item")
         if set(self.brief.evidenceRefs) != set(self.editorialItem.evidenceRefs):
-            raise ValueError("production input brief evidence does not match the selected editorial item")
-        supplied_ids = {item.id for item in [*self.referencedMoments, *self.referencedAngles]}
-        if not supplied_ids or not supplied_ids.issubset(set(self.editorialItem.evidenceRefs)):
-            raise ValueError("production input contains unreferenced evidence")
-        return self
-
-
-class PublishAction(StrictModel):
-    type: Literal["publish_x_post"] = "publish_x_post"
-    text: str = Field(min_length=1, max_length=280)
-
-
-class ActionPlan(StrictModel):
-    actions: list[PublishAction] = Field(default_factory=list, max_length=10)
-
-
-class DraftWorkflowResult(StrictModel):
-    copywriter_drafts: DraftSet
-    reviewed_drafts: DraftSet
-    action_plan: ActionPlan
-
-    @model_validator(mode="after")
-    def validate_review_and_plan(self) -> "DraftWorkflowResult":
-        originals = {draft.id: draft for draft in self.copywriter_drafts.drafts}
-        reviewed_ids: set[str] = set()
-        for draft in self.reviewed_drafts.drafts:
-            original = originals.get(draft.id)
-            if original is None:
-                raise ValueError("editor must preserve draft id")
-            if (draft.momentId, draft.angleId) != (original.momentId, original.angleId):
-                raise ValueError("editor must preserve source references")
-            reviewed_ids.add(draft.id)
-        if len(reviewed_ids) != len(self.reviewed_drafts.drafts):
-            raise ValueError("editor returned duplicate draft ids")
-
-        reviewed_text = {draft.text for draft in self.reviewed_drafts.drafts}
-        if any(action.text not in reviewed_text for action in self.action_plan.actions):
-            raise ValueError("planner actions must use reviewed draft text")
+            raise ValueError("copywriter input brief evidence does not match the selected editorial item")
+        supplied_ids = [item.id for item in [*self.referencedMoments, *self.referencedAngles]]
+        if set(supplied_ids) != set(self.editorialItem.evidenceRefs) or len(supplied_ids) != len(set(supplied_ids)):
+            raise ValueError("copywriter input evidence must exactly match selected evidence")
+        if self.editorialItem.channel != self.platform or self.editorialItem.format != self.format:
+            raise ValueError("copywriter platform and format must match the selected item")
+        if self.platform not in self.brief.channelCandidates or self.format not in self.brief.formatCandidates:
+            raise ValueError("copywriter platform and format must be supported by the selected brief")
+        if self.passType == "original":
+            if self.priorDraft is not None or self.priorReview is not None:
+                raise ValueError("original pass cannot contain revision context")
+        else:
+            if self.priorDraft is None:
+                raise ValueError("revision pass requires a prior draft")
+            if self.priorReview is None:
+                raise ValueError("revision pass requires a prior review")
+            if self.priorReview.verdict != "revise":
+                raise ValueError("revision pass requires a revise review")
+            if self.priorReview.draftId != self.priorDraft.id or self.priorReview.revision != self.priorDraft.revision:
+                raise ValueError("revision context must review the exact prior draft")
+            lineage = (self.planId, self.planDigest, self.strategyDigest, self.editorialItemId, self.briefId)
+            prior_lineage = (self.priorDraft.planId, self.priorDraft.planDigest, self.priorDraft.strategyDigest, self.priorDraft.editorialItemId, self.priorDraft.briefId)
+            review_lineage = (self.priorReview.planId, self.priorReview.planDigest, self.priorReview.strategyDigest, self.priorReview.editorialItemId, self.priorReview.briefId)
+            if lineage != prior_lineage or lineage != review_lineage:
+                raise ValueError("revision context must preserve exact lineage")
         return self
 
 
@@ -516,15 +578,3 @@ class LiaisonInput(StrictModel):
     """Operator question routed to the skill-enabled insight liaison."""
 
     question: str = Field(min_length=1, max_length=2000)
-
-
-def validate_draft_references(drafts: DraftSet, analysis: AnalysisResult) -> DraftSet:
-    """Reject draft references that are not present in the current analysis."""
-    moment_ids = {moment.id for moment in analysis.moments}
-    angle_ids = {angle.id for angle in analysis.angles}
-    for draft in drafts.drafts:
-        if draft.momentId is not None and draft.momentId not in moment_ids:
-            raise ValueError(f"unknown momentId: {draft.momentId}")
-        if draft.angleId is not None and draft.angleId not in angle_ids:
-            raise ValueError(f"unknown angleId: {draft.angleId}")
-    return drafts

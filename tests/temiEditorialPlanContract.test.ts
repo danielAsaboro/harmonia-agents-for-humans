@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   editorialPlanSchema,
   editorialPlannerInputSchema,
-  productionDraftInputSchema,
+  copywriterInputSchema,
 } from "@/lib/contracts";
 
 const strategy = {
@@ -19,7 +19,7 @@ const strategy = {
   kpis: [{ name: "qualified demo requests", target: "measure weekly", measurement: "verified attributed requests", evidenceRefs: ["ctx-campaign"] }],
   successCriteria: ["At least one verified qualified demo request"], constraints: ["Use only supplied evidence"],
   exclusions: ["Unsupported outcome claims"], brandSafety: ["Never imply autonomous approval"],
-  briefs: [{ id: "brief-1", title: "Nine days to forty hours", objective: "Show operational proof", audienceId: "aud-founders", funnelStage: "consideration", keyMessage: "Governed workflows reduce activation delay", channelCandidates: ["x"], formatCandidates: ["text_post"], ctaIntent: "request a demo", intendedConversion: "qualified demo request", kpi: "qualified demo requests", priority: 1, dependencies: [], constraints: ["Quote the source exactly"], evidenceRefs: ["m1", "ctx-campaign"] }],
+  briefs: [{ id: "brief-1", title: "Nine days to forty hours", objective: "Show operational proof", audienceId: "aud-founders", funnelStage: "consideration", keyMessage: "Governed workflows reduce activation delay", channelCandidates: ["x"], formatCandidates: ["text_post"], ctaIntent: "request a demo", intendedConversion: "qualified demo request", kpi: "qualified demo requests", priority: 1, dependencies: [], constraints: ["Quote the source exactly"], evidenceRefs: ["m1", "a1"] }],
   assumptions: [], confidence: "high",
 };
 
@@ -33,7 +33,7 @@ const item = {
   id: "item-1", briefId: "brief-1", campaignTheme: "From delay to flow", contentPillar: "operational proof",
   objective: "Show operational proof", audienceId: "aud-founders", funnelStage: "consideration",
   intendedConversion: "qualified demo request", ctaIntent: "request a demo", kpi: "qualified demo requests",
-  channel: "x", format: "text_post", evidenceRefs: ["m1", "ctx-campaign"],
+  channel: "x", format: "text_post", evidenceRefs: ["m1", "a1"],
   publicationWindowStartAt: "2026-09-01T16:00:00Z", publicationWindowEndAt: "2026-09-01T18:00:00Z",
   productionDeadlineAt: "2026-08-31T18:00:00Z", priority: 1, selectionScore: 0.9,
   dependencies: [], productionStatus: "planned", constraints: ["Quote the source exactly"], requiredAssets: ["source-clip"],
@@ -59,16 +59,16 @@ const plannerInput = {
 };
 
 const productionInput = {
-  planId: "plan-job-1-v1", strategyDigest: "a".repeat(64), editorialItem: item, brief: strategy.briefs[0],
-  referencedMoments: analysis.moments, referencedAngles: [], brandContext: "Use a direct, evidence-led voice.",
-  constraints: ["Quote the source exactly", "Never imply autonomous approval"],
+  planId: "plan-job-1-v1", planDigest: "b".repeat(64), strategyDigest: "a".repeat(64), editorialItemId: "item-1", briefId: "brief-1", editorialItem: item, brief: strategy.briefs[0],
+  referencedMoments: analysis.moments, referencedAngles: analysis.angles, brandContext: "Use a direct, evidence-led voice.",
+  constraints: ["Quote the source exactly", "Never imply autonomous approval"], platform: "x", format: "text_post", passType: "original", priorDraft: null, priorReview: null,
 };
 
 describe("Temi editorial-plan contract parity", () => {
   it("accepts the complete strict Python boundary fixture", () => {
     expect(editorialPlannerInputSchema.parse(plannerInput).timezone).toBe("America/Los_Angeles");
     expect(editorialPlanSchema.parse(plan).selectedNextItemId).toBe("item-1");
-    expect(productionDraftInputSchema.parse(productionInput).editorialItem.id).toBe("item-1");
+    expect(copywriterInputSchema.parse(productionInput).editorialItem.id).toBe("item-1");
   });
 
   it("requires complete fields and exactly one selected planned item", () => {
@@ -86,11 +86,11 @@ describe("Temi editorial-plan contract parity", () => {
 
     const wrongBrief = structuredClone(productionInput);
     wrongBrief.brief.id = "brief-other";
-    expect(productionDraftInputSchema.safeParse(wrongBrief).success).toBe(false);
+    expect(copywriterInputSchema.safeParse(wrongBrief).success).toBe(false);
 
     const extraEvidence = structuredClone(productionInput);
     extraEvidence.referencedMoments.push({ id: "m-extra", title: "Invented", startSec: 0, endSec: 1, hook: "h", quote: "q" });
-    expect(productionDraftInputSchema.safeParse(extraEvidence).success).toBe(false);
+    expect(copywriterInputSchema.safeParse(extraEvidence).success).toBe(false);
   });
 
   it("rejects authority overreach and invalid horizon or timezone parity boundaries", () => {
@@ -109,7 +109,7 @@ describe("Temi editorial-plan contract parity", () => {
 
     const effect = structuredClone(productionInput) as typeof productionInput & { publishPayload?: unknown };
     effect.publishPayload = { type: "publish_x_post" };
-    expect(productionDraftInputSchema.safeParse(effect).success).toBe(false);
+    expect(copywriterInputSchema.safeParse(effect).success).toBe(false);
   });
 
   it("rejects the same empty and overlong new list entries as Python", () => {
@@ -121,7 +121,7 @@ describe("Temi editorial-plan contract parity", () => {
       [editorialPlanSchema, { ...structuredClone(plan), items: [{ ...item, constraints: ["x".repeat(301)] }] }],
       [editorialPlanSchema, { ...structuredClone(plan), items: [{ ...item, requiredAssets: [""] }] }],
       [editorialPlanSchema, { ...structuredClone(plan), assumptions: ["x".repeat(501)] }],
-      [productionDraftInputSchema, { ...structuredClone(productionInput), constraints: [""] }],
+      [copywriterInputSchema, { ...structuredClone(productionInput), constraints: [""] }],
     ];
     for (const [schema, payload] of invalidCases) {
       expect((schema as { safeParse: (value: unknown) => { success: boolean } }).safeParse(payload).success).toBe(false);

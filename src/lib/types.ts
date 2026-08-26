@@ -132,15 +132,74 @@ export interface EditorialPlan {
   selectedNextItemId: string;
 }
 
-export interface ProductionDraftInput {
+export interface ContentClaim {
+  text: string;
+  evidenceRefs: string[];
+}
+
+export interface ContentDraft {
+  id: string;
   planId: string;
+  planDigest: string;
   strategyDigest: string;
+  editorialItemId: string;
+  briefId: string;
+  revision: 1 | 2;
+  platform: "x";
+  format: "text_post";
+  text: string;
+  ctaTreatment: string;
+  intendedConversion: string;
+  evidenceRefs: string[];
+  claims: ContentClaim[];
+  assumptions: string[];
+  confidence: "low" | "medium" | "high";
+  appliedConstraints: string[];
+  priorDraftId: string | null;
+  addressedIssueIds: string[];
+}
+
+export interface EditorialReviewIssue {
+  id: string;
+  category: "grounding" | "brief_alignment" | "brand_voice" | "platform_constraints" | "cta" | "safety" | "clarity";
+  severity: "low" | "medium" | "high";
+  fieldPath: string;
+  instruction: string;
+  evidenceRefs: string[];
+  constraintRefs: string[];
+}
+
+export interface EditorialReview {
+  id: string;
+  planId: string;
+  planDigest: string;
+  strategyDigest: string;
+  editorialItemId: string;
+  briefId: string;
+  draftId: string;
+  revision: 1 | 2;
+  verdict: "accepted" | "revise";
+  reviewedAt: string;
+  issues: EditorialReviewIssue[];
+}
+
+export interface CopywriterInput {
+  planId: string;
+  planDigest: string;
+  strategyDigest: string;
+  editorialItemId: string;
+  briefId: string;
   editorialItem: EditorialPlanItem;
   brief: ContentStrategy["briefs"][number];
   referencedMoments: Moment[];
   referencedAngles: Angle[];
   brandContext: string;
   constraints: string[];
+  platform: "x";
+  format: "text_post";
+  passType: "original" | "revision";
+  priorDraft: ContentDraft | null;
+  priorReview: EditorialReview | null;
 }
 
 export interface StrategyInvocationContext {

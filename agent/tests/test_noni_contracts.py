@@ -207,3 +207,65 @@ def test_one_revision_boundary_rejects_id_reuse_and_third_pass_targets(factory, 
     model = CopywriterInput if factory is revision_input else ContentDraft
     with pytest.raises(ValidationError, match=message):
         model.model_validate(payload)
+
+
+@pytest.mark.parametrize(("factory", "mutation"), [
+    (original_input, lambda value: value["referencedMoments"][0].update(startSec="1")),
+    (original_input, lambda value: value["referencedMoments"][0].update(startSec=True)),
+    (original_input, lambda value: value["brief"].update(priority=True)),
+    (original_input, lambda value: value["editorialItem"].update(priority=True)),
+    (original_input, lambda value: value["editorialItem"].update(selectionScore=True)),
+    (original_draft, lambda value: value.update(evidenceRefs=("moment-1",))),
+    (original_draft, lambda value: value.update(claims=(value["claims"][0],))),
+    (original_draft, lambda value: value.update(assumptions=(value["assumptions"][0],))),
+    (original_draft, lambda value: value.update(appliedConstraints=(value["appliedConstraints"][0],))),
+    (original_draft, lambda value: value.update(addressedIssueIds=())),
+    (original_input, lambda value: value.update(referencedMoments=tuple(value["referencedMoments"]))),
+    (original_input, lambda value: value.update(referencedAngles=tuple(value["referencedAngles"]))),
+    (original_input, lambda value: value.update(constraints=tuple(value["constraints"]))),
+    (revise_review, lambda value: value.update(issues=tuple(value["issues"]))),
+    (revise_review, lambda value: value["issues"][0].update(evidenceRefs=("moment-1",))),
+    (revise_review, lambda value: value["issues"][0].update(constraintRefs=())),
+    (revise_review, lambda value: value.update(reviewedAt="2026-08-27 10:00:00Z")),
+])
+def test_complete_json_boundary_rejects_nested_coercions_and_non_json_lists(factory, mutation):
+    payload = deepcopy(factory())
+    mutation(payload)
+    model = CopywriterInput if factory is original_input else ContentDraft if factory is original_draft else EditorialReview
+    with pytest.raises(ValidationError):
+        model.model_validate(payload)
+
+
+@pytest.mark.parametrize(("factory", "mutation"), [
+    (original_draft, lambda value: value["claims"][0].update(evidenceRefs=("moment-1",))),
+    (original_input, lambda value: value["referencedMoments"][0].update(visualEvidenceIds=("frame-1",))),
+    (original_input, lambda value: value["brief"].update(channelCandidates=("x",))),
+    (original_input, lambda value: value["brief"].update(formatCandidates=("text_post",))),
+    (original_input, lambda value: value["brief"].update(dependencies=())),
+    (original_input, lambda value: value["brief"].update(constraints=("Use an evidence-led voice",))),
+    (original_input, lambda value: value["brief"].update(evidenceRefs=("moment-1", "angle-1"))),
+    (original_input, lambda value: value["editorialItem"].update(evidenceRefs=("moment-1", "angle-1"))),
+    (original_input, lambda value: value["editorialItem"].update(dependencies=())),
+    (original_input, lambda value: value["editorialItem"].update(constraints=("Use an evidence-led voice",))),
+    (original_input, lambda value: value["editorialItem"].update(requiredAssets=())),
+])
+def test_complete_json_boundary_rejects_tuple_for_every_nested_array(factory, mutation):
+    payload = deepcopy(factory())
+    mutation(payload)
+    model = CopywriterInput if factory is original_input else ContentDraft
+    with pytest.raises(ValidationError):
+        model.model_validate(payload)
+
+
+@pytest.mark.parametrize("timestamp", [
+    "2026-08-27T10:00Z",
+    "2026-08-27T10:00:00Z",
+    "2026-08-27T10:00:00.123Z",
+    "2026-08-27T10:00+00:00",
+    "2026-08-27T10:00:00+00:00",
+    "2026-08-27T10:00:00.123+00:00",
+])
+def test_review_timestamp_accepts_the_same_utc_iso_forms_as_zod(timestamp):
+    payload = revise_review()
+    payload["reviewedAt"] = timestamp
+    assert EditorialReview.model_validate(payload).reviewedAt.isoformat().endswith("+00:00")

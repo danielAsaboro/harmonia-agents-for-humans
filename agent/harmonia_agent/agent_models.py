@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
@@ -21,6 +22,26 @@ StrictIdentifier = Annotated[StrictStr, Field(min_length=1, max_length=100)]
 StrictConstraintText = Annotated[StrictStr, Field(min_length=1, max_length=300)]
 StrictAssumptionText = Annotated[StrictStr, Field(min_length=1, max_length=500)]
 StrictDigest = Annotated[StrictStr, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+def _require_json_list(value: object) -> object:
+    if not isinstance(value, list):
+        raise ValueError("JSON boundary arrays must be lists")
+    return value
+
+
+def _require_json_number(value: object) -> object:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("JSON boundary numbers must be numbers, not booleans")
+    return value
+
+
+def _require_iso_utc_timestamp(value: object) -> object:
+    if not isinstance(value, str) or not re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]00:00)", value,
+    ):
+        raise ValueError("timestamp must be an ISO-8601 UTC string")
+    return value
 
 
 class FrameEvidence(StrictModel):
@@ -446,6 +467,8 @@ class ContentClaim(StrictModel):
     text: StrictStr = Field(min_length=1, max_length=600)
     evidenceRefs: list[StrictIdentifier] = Field(min_length=1, max_length=12)
 
+    _require_evidence_refs_list = field_validator("evidenceRefs", mode="before")(_require_json_list)
+
 
 class ContentDraft(StrictModel):
     id: StrictIdentifier
@@ -467,6 +490,10 @@ class ContentDraft(StrictModel):
     appliedConstraints: list[StrictConstraintText] = Field(min_length=1, max_length=24)
     priorDraftId: StrictIdentifier | None = Field(...)
     addressedIssueIds: list[StrictIdentifier] = Field(..., max_length=12)
+
+    _require_lists = field_validator(
+        "evidenceRefs", "claims", "assumptions", "appliedConstraints", "addressedIssueIds", mode="before",
+    )(_require_json_list)
 
     @model_validator(mode="after")
     def validate_revision_linkage(self) -> "ContentDraft":
@@ -493,6 +520,8 @@ class EditorialReviewIssue(StrictModel):
     evidenceRefs: list[StrictIdentifier] = Field(..., max_length=12)
     constraintRefs: list[StrictConstraintText] = Field(..., max_length=24)
 
+    _require_reference_lists = field_validator("evidenceRefs", "constraintRefs", mode="before")(_require_json_list)
+
 
 class EditorialReview(StrictModel):
     id: StrictIdentifier
@@ -510,9 +539,7 @@ class EditorialReview(StrictModel):
     @field_validator("reviewedAt", mode="before")
     @classmethod
     def require_serialized_timestamp(cls, value: object) -> object:
-        if not isinstance(value, str):
-            raise ValueError("reviewedAt must be an ISO-8601 UTC string")
-        return value
+        return _require_iso_utc_timestamp(value)
 
     @field_validator("reviewedAt")
     @classmethod
@@ -530,6 +557,89 @@ class EditorialReview(StrictModel):
             raise ValueError("review issue ids must be unique")
         return self
 
+    _require_issues_list = field_validator("issues", mode="before")(_require_json_list)
+
+
+class CopywriterMoment(Moment):
+    id: StrictIdentifier
+    title: StrictStr = Field(min_length=1)
+    startSec: float = Field(ge=0)
+    endSec: float = Field(ge=0)
+    hook: StrictStr = Field(min_length=1)
+    quote: StrictStr = Field(min_length=1)
+    visualHook: StrictStr | None = Field(default=None, max_length=500)
+    cropSuitability: Literal["poor", "fair", "good", "excellent"] | None = None
+    captionSafeRegion: StrictStr | None = Field(default=None, max_length=200)
+    visualEvidenceIds: list[StrictIdentifier] = Field(default_factory=list, max_length=12)
+
+    _require_numbers = field_validator("startSec", "endSec", mode="before")(_require_json_number)
+    _require_visual_evidence_list = field_validator("visualEvidenceIds", mode="before")(_require_json_list)
+
+
+class CopywriterAngle(Angle):
+    id: StrictIdentifier
+    kind: Literal["trend", "meme"]
+    title: StrictStr = Field(min_length=1)
+    rationale: StrictStr = Field(min_length=1)
+
+
+class CopywriterContentBrief(ContentBrief):
+    id: StrictIdentifier
+    title: StrictStr = Field(min_length=1, max_length=300)
+    objective: StrictStr = Field(min_length=1, max_length=600)
+    audienceId: StrictIdentifier
+    funnelStage: Literal["awareness", "consideration", "conversion", "retention", "advocacy"]
+    keyMessage: StrictStr = Field(min_length=1, max_length=600)
+    channelCandidates: list[StrictIdentifier] = Field(min_length=1, max_length=8)
+    formatCandidates: list[StrictIdentifier] = Field(min_length=1, max_length=8)
+    ctaIntent: StrictStr = Field(min_length=1, max_length=300)
+    intendedConversion: StrictStr = Field(min_length=1, max_length=300)
+    kpi: StrictStr = Field(min_length=1, max_length=200)
+    priority: StrictInt = Field(ge=1, le=5)
+    dependencies: list[StrictConstraintText] = Field(max_length=8)
+    constraints: list[StrictConstraintText] = Field(max_length=12)
+    evidenceRefs: list[StrictIdentifier] = Field(min_length=1, max_length=12)
+
+    _require_lists = field_validator(
+        "channelCandidates", "formatCandidates", "dependencies", "constraints", "evidenceRefs", mode="before",
+    )(_require_json_list)
+
+
+class CopywriterEditorialPlanItem(EditorialPlanItem):
+    id: StrictIdentifier
+    briefId: StrictIdentifier
+    campaignTheme: StrictStr = Field(min_length=1, max_length=200)
+    contentPillar: StrictStr = Field(min_length=1, max_length=200)
+    objective: StrictStr = Field(min_length=1, max_length=600)
+    audienceId: StrictIdentifier
+    funnelStage: Literal["awareness", "consideration", "conversion", "retention", "advocacy"]
+    intendedConversion: StrictStr = Field(min_length=1, max_length=300)
+    ctaIntent: StrictStr = Field(min_length=1, max_length=300)
+    kpi: StrictStr = Field(min_length=1, max_length=200)
+    channel: StrictIdentifier
+    format: StrictIdentifier
+    evidenceRefs: list[StrictIdentifier] = Field(min_length=1, max_length=12)
+    publicationWindowStartAt: datetime
+    publicationWindowEndAt: datetime
+    productionDeadlineAt: datetime
+    priority: StrictInt = Field(ge=1, le=5)
+    selectionScore: float = Field(ge=0, le=1)
+    dependencies: list[StrictIdentifier] = Field(default_factory=list, max_length=8)
+    productionStatus: Literal["planned"]
+    constraints: list[StrictConstraintText] = Field(default_factory=list, max_length=12)
+    requiredAssets: list[StrictConstraintText] = Field(default_factory=list, max_length=12)
+    planningRationale: StrictStr = Field(min_length=1, max_length=600)
+    selectionRationale: StrictStr = Field(min_length=1, max_length=600)
+    confidence: Literal["low", "medium", "high"]
+
+    _require_lists = field_validator(
+        "evidenceRefs", "dependencies", "constraints", "requiredAssets", mode="before",
+    )(_require_json_list)
+    _require_selection_score = field_validator("selectionScore", mode="before")(_require_json_number)
+    _require_timestamps = field_validator(
+        "publicationWindowStartAt", "publicationWindowEndAt", "productionDeadlineAt", mode="before",
+    )(_require_iso_utc_timestamp)
+
 
 class CopywriterInput(StrictModel):
     planId: StrictIdentifier
@@ -537,10 +647,10 @@ class CopywriterInput(StrictModel):
     strategyDigest: StrictDigest
     editorialItemId: StrictIdentifier
     briefId: StrictIdentifier
-    editorialItem: EditorialPlanItem
-    brief: ContentBrief
-    referencedMoments: list[Moment] = Field(..., max_length=12)
-    referencedAngles: list[Angle] = Field(..., max_length=12)
+    editorialItem: CopywriterEditorialPlanItem
+    brief: CopywriterContentBrief
+    referencedMoments: list[CopywriterMoment] = Field(..., max_length=12)
+    referencedAngles: list[CopywriterAngle] = Field(..., max_length=12)
     brandContext: StrictStr = Field(min_length=1, max_length=4_000)
     constraints: list[StrictConstraintText] = Field(..., max_length=24)
     platform: Literal["x"]
@@ -548,6 +658,8 @@ class CopywriterInput(StrictModel):
     passType: Literal["original", "revision"]
     priorDraft: ContentDraft | None = Field(...)
     priorReview: EditorialReview | None = Field(...)
+
+    _require_lists = field_validator("referencedMoments", "referencedAngles", "constraints", mode="before")(_require_json_list)
 
     @model_validator(mode="after")
     def validate_selected_authority_and_revision(self) -> "CopywriterInput":

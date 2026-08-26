@@ -131,4 +131,27 @@ describe("Noni and Dara contracts", () => {
   ])("rejects reused draft ids and third-pass revision targets", (schema, payload) => {
     expect(schema.safeParse(payload).success).toBe(false);
   });
+
+  it.each([
+    [copywriterInputSchema, { ...originalInput, referencedMoments: [{ ...originalInput.referencedMoments[0], startSec: "1" }] }],
+    [copywriterInputSchema, { ...originalInput, referencedMoments: [{ ...originalInput.referencedMoments[0], startSec: true }] }],
+    [copywriterInputSchema, { ...originalInput, brief: { ...brief, priority: true } }],
+    [copywriterInputSchema, { ...originalInput, editorialItem: { ...editorialItem, priority: true } }],
+    [copywriterInputSchema, { ...originalInput, editorialItem: { ...editorialItem, selectionScore: true } }],
+    [contentDraftSchema, { ...originalDraft, claims: [{ ...originalDraft.claims[0], evidenceRefs: [1] }] }],
+    [editorialReviewSchema, { ...reviseReview, reviewedAt: "2026-08-27 10:00:00Z" }],
+  ])("rejects nested non-JSON scalar coercions", (schema, payload) => {
+    expect(schema.safeParse(payload).success).toBe(false);
+  });
+
+  it.each([
+    "2026-08-27T10:00Z",
+    "2026-08-27T10:00:00Z",
+    "2026-08-27T10:00:00.123Z",
+    "2026-08-27T10:00+00:00",
+    "2026-08-27T10:00:00+00:00",
+    "2026-08-27T10:00:00.123+00:00",
+  ])("accepts each supported UTC ISO timestamp form", (reviewedAt) => {
+    expect(editorialReviewSchema.safeParse({ ...reviseReview, reviewedAt }).success).toBe(true);
+  });
 });

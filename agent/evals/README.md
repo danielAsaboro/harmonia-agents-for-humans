@@ -19,6 +19,10 @@ schema and validator behavior, not prompt wording.
 overreach, incomplete output, provenance-bound Memory Bank use, memory-as-authorization, and
 explicit uncertainty. The evaluator calls the same strict runtime validator used before persistence.
 
+`maya_contract_cases.json` catalogs exact-context presentation, invented/wrong references,
+component-reference mismatches, unsafe approvals, host-owned lifecycle states, authority overreach,
+and malformed graphs. Maya's output remains layout plus references; the host owns all displayed truth.
+
 Live evaluation refuses to run when `HARMONIA_MOCK_AI=1`, unless `HARMONIA_REAL_EVAL=1` is set, or
 without an absolute `HARMONIA_EVAL_EVIDENCE_ROOT`. The output resolves inside that private root and
 outside the public repository, including through symlinks and `..` segments. A public fixture

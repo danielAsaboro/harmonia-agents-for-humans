@@ -94,7 +94,7 @@ flowchart LR
 | Ingestion | `agent/harmonia_agent/youtube.py` | metadata fetch + bounded audio download |
 | Transcription / understanding / drafting | `agent/harmonia_agent/content.py`, `agents.py`, `gemma_model.py` | Gemini transcription, multimodal Nimi, Ryan strategy, Temi planning, Gemma Noni, and Dara review |
 | Intent parsing (chat + Telegram) | web `src/lib/chatIntent.ts` | Gemini structured output: `{intent, youtubeUrl?, jobId?}` |
-| Generative interface composition | ADK `maya_presenter` + web `src/lib/a2ui/` | reference-only `SurfacePlan`; server hydration from authenticated Firestore records |
+| Generative interface composition | ADK `maya_presenter` + web `src/lib/a2ui/` | exact-context, reference-only `SurfacePlan`; deterministic validation and server hydration from authenticated Firestore records |
 | Approval gate | web `src/lib/policy.ts`, `src/lib/decisions.ts` | deterministic risk rules; single decision writer shared by REST, chat, and Telegram |
 | Publishing | `agent/harmonia_agent/x_client.py` | official X API v2, idempotent |
 | Verification | `agent/harmonia_agent/stages.py` | fresh GET of the published artifact |
@@ -155,7 +155,7 @@ Click the chat bubble on the dashboard (or `POST /api/chat` with `{message}`):
 
 All chat reads and mutations use the verified Google session and active workspace. Intent parsing never selects tenant identity.
 
-The full Console additionally uses a durable `POST /api/chat/stream` NDJSON transport and a strict Harmonia catalog rendered by Google’s official A2UI React packages. The managed Maya specialist can compose three independent revisions—conversation, working canvas, and approval—from `CampaignBrief`, `JobProgress`, `MomentExplorer`, `DraftComparison`, `PlatformPreview`, `SourceEvidence`, `ApprovalReview`, and `VerificationReceipt`. Its output contains references and layout only. Full draft copy, transcript excerpts, action risk, approval state, asset routes, and receipts are hydrated server-side from the active persisted job. Stale references become visible `SurfaceUnresolved` components, and presenter failures terminate the run without a generic-success surface.
+The full Console additionally uses a durable `POST /api/chat/stream` NDJSON transport and a strict Harmonia catalog rendered by Google’s official A2UI React packages. The managed Maya specialist can compose three independent revisions—conversation, working canvas, and approval—from `CampaignBrief`, `JobProgress`, `MomentExplorer`, `DraftComparison`, `PlatformPreview`, `SourceEvidence`, `ApprovalReview`, and `VerificationReceipt`. Its output contains references and layout only. Matching Python and TypeScript validators bind every node to the exact supplied job/entity catalog and permit approval presentation only for one supplied pending action in the approval slot. Full draft copy, transcript excerpts, action risk, approval state, asset routes, and receipts are hydrated server-side from the active persisted job. Loading, empty, unresolved, and failure components are host-owned; presenter failures terminate the run without a generic-success surface.
 
 Generated approval detail never owns authorization controls. The existing server-protected approval dock remains authoritative and validates the persisted `jobId + actionId` before making a decision request. Raw hidden chain-of-thought is never requested or displayed.
 

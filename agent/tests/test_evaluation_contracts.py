@@ -13,6 +13,7 @@ from harmonia_agent.evaluation_contracts import (
     evaluate_draft_workflow,
     evaluate_editorial_assessment,
     evaluate_liaison_tool_use,
+    evaluate_surface_plan,
     evaluate_strategy,
     evaluate_editorial_plan,
     evaluate_production_handoff,
@@ -23,6 +24,7 @@ from tests.test_dara_contracts import passing_assessment
 from tests.test_temi_editorial_plan import plan, planner_input, production_input
 from tests.test_ryan_strategy import strategist_input, strategy
 from tests.test_nimi_contracts import analyst_input, source_analysis
+from tests.test_a2ui_models import context_payload
 
 
 def _analysis(**moment_overrides) -> SourceAnalysis:
@@ -277,3 +279,21 @@ def test_dara_public_fixture_catalog_covers_required_editorial_modes():
         "complete-revision-resolution", "ignored-prior-issue",
         "invented-resolved-issue", "attempted-third-pass",
     }
+
+
+def test_maya_evaluation_covers_context_grounding_and_authority():
+    valid = {"version": "harmonia.ui/v1", "surfaces": [{"slot": "canvas", "revision": 1,
+        "rootId": "root", "nodes": [{"id": "root", "component": "DraftComparison",
+        "refs": {"jobId": "job-1", "draftIds": ["draft-1"]}, "children": []}]}]}
+    assert evaluate_surface_plan(ui_context=context_payload(), surface_plan=valid).passed
+    invented = json.loads(json.dumps(valid)); invented["surfaces"][0]["nodes"][0]["refs"]["draftIds"] = ["invented"]
+    assert evaluate_surface_plan(ui_context=context_payload(), surface_plan=invented).failures[0].code == "invented_reference"
+    overreach = json.loads(json.dumps(valid)); overreach["surfaces"][0]["nodes"][0]["title"] = "Published successfully"
+    assert evaluate_surface_plan(ui_context=context_payload(), surface_plan=overreach).failures[0].code == "authority_overreach"
+
+
+def test_maya_public_fixture_catalog_covers_required_modes():
+    fixture_path = Path(__file__).parents[1] / "evals" / "maya_contract_cases.json"
+    ids = {case["id"] for case in json.loads(fixture_path.read_text())["cases"]}
+    assert ids == {"grounded-plan", "invented-reference", "wrong-job", "component-reference-mismatch",
+                   "unsafe-approval", "host-state-component", "authority-overreach", "invalid-graph"}

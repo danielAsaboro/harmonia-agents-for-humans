@@ -37,7 +37,7 @@ export interface CampaignBriefProps extends FrameProps {
   brief: string;
   sourceKind: "written" | "video" | "audio" | "mixed";
   platforms: string[];
-  angles: Array<{ id: string; kind: "trend" | "meme"; title: string; rationale: string }>;
+  angles: Array<{ id: string; kind: "source" | "trend" | "meme" | "performance" | "memory"; title: string; rationale: string }>;
 }
 
 export function CampaignBrief({ title, brief, sourceKind, platforms, angles, agentFraming, emphasis, children }: CampaignBriefProps) {

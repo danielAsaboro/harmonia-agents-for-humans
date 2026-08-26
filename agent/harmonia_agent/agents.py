@@ -51,6 +51,7 @@ from .ryan_prompt import RYAN_STRATEGIST_INSTRUCTION
 from .temi_prompt import TEMI_EDITORIAL_PLANNER_INSTRUCTION
 from .noni_prompt import NONI_COPYWRITER_INSTRUCTION
 from .nimi_prompt import NIMI_ANALYST_INSTRUCTION
+from .maya_prompt import MAYA_PRESENTER_INSTRUCTION
 from .dara_prompt import DARA_EDITOR_INSTRUCTION
 from .telemetry import current_trace_id, safe_attributes, tracer
 from .team_runtime import AgentEngineTeamRuntime, TeamRuntime
@@ -285,13 +286,7 @@ def build_agent_team(
         description=(
             "Composes trustworthy Harmonia A2UI workspaces from bounded entity references."
         ),
-        instruction=(
-            "Compose the smallest useful Harmonia interface for the supplied operator intent. "
-            "Use only component names and entity identifiers present in UiContext. "
-            "Never invent domain content, status, risk, cost, URLs, actions, receipts, or evidence. "
-            "Prefer one canvas surface; add conversation or approval surfaces only when useful. "
-            "Return only the SurfacePlan JSON contract."
-        ),
+        instruction=MAYA_PRESENTER_INSTRUCTION,
         input_schema=UiContext,
         output_schema=SurfacePlan,
         output_key="surface_plan",

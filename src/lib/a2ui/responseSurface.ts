@@ -3,7 +3,7 @@ import type { JobFull, Receipt } from "@/components/jobTypes";
 import { requestSurfacePlan } from "./agentPresentationClient";
 import { hydrateSurfacePlan, type HydratedSurfaceSet } from "./hydrateSurfacePlan";
 import { buildUiContext } from "./presentationContext";
-import { surfacePlanSchema, type SurfacePlan, type UiContext } from "./presentationContracts";
+import { surfacePlanSchema, validateSurfacePlan, type SurfacePlan, type UiContext } from "./presentationContracts";
 
 interface GenerateResponseSurfacesInput {
   runId: string;
@@ -24,7 +24,7 @@ export async function generateResponseSurfaces(input: GenerateResponseSurfacesIn
     receipts: input.receipts,
   });
   const planned = await (input.planner ?? requestSurfacePlan)(context);
-  const plan = surfacePlanSchema.parse(planned);
+  const plan = validateSurfacePlan(context, surfacePlanSchema.parse(planned));
   return hydrateSurfacePlan({
     runId: input.runId,
     plan,

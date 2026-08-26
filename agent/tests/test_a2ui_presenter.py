@@ -5,7 +5,8 @@ import asyncio
 import pytest
 
 from harmonia_agent.a2ui_models import UiContext
-from harmonia_agent.a2ui_presenter import plan_surface
+from harmonia_agent.a2ui_presenter import plan_surface, validate_surface_plan
+from harmonia_agent.a2ui_models import SurfacePlan
 from harmonia_agent.agents import AgentProtocolError
 from harmonia_agent.usage import InvocationContext
 
@@ -120,3 +121,39 @@ def test_plan_surface_rejects_invalid_managed_output() -> None:
                 usage_reporter=lambda _record: None,
             )
         )
+
+
+@pytest.mark.parametrize(("mutation", "message"), [
+    (lambda value: value["surfaces"][0]["nodes"][0]["refs"].update(momentIds=["invented"]), "unknown moment"),
+    (lambda value: value["surfaces"][0]["nodes"][0].update(component="DraftComparison", refs={"jobId": "job-1"}), "requires draftIds"),
+    (lambda value: value["surfaces"][0]["nodes"][0].update(title="Published successfully"), "authority"),
+])
+def test_context_bound_validator_rejects_invented_incomplete_and_authoritative_plans(mutation, message) -> None:
+    candidate = valid_surface_state()["surface_plan"]
+    mutation(candidate)
+    with pytest.raises(AgentProtocolError, match=message):
+        validate_surface_plan(context_fixture(), SurfacePlan.model_validate(candidate))
+
+
+def test_approval_component_requires_approval_slot_and_pending_exact_action() -> None:
+    payload = context_fixture().model_dump(mode="json")
+    payload["actions"] = [{"id": "action-1", "type": "publish_x_post", "pending": False}]
+    candidate = {
+        "version": "harmonia.ui/v1", "surfaces": [{"slot": "canvas", "revision": 1,
+        "rootId": "root", "nodes": [{"id": "root", "component": "ApprovalReview",
+        "refs": {"jobId": "job-1", "actionIds": ["action-1"]}, "children": []}]}],
+    }
+    with pytest.raises(AgentProtocolError, match="approval slot"):
+        validate_surface_plan(UiContext.model_validate(payload), SurfacePlan.model_validate(candidate))
+    candidate["surfaces"][0]["slot"] = "approval"
+    with pytest.raises(AgentProtocolError, match="pending action"):
+        validate_surface_plan(UiContext.model_validate(payload), SurfacePlan.model_validate(candidate))
+
+
+def test_plan_surface_validates_managed_output_against_exact_context() -> None:
+    candidate = valid_surface_state()
+    candidate["surface_plan"]["surfaces"][0]["nodes"][0]["refs"]["momentIds"] = ["invented"]
+    with pytest.raises(AgentProtocolError, match="unknown moment"):
+        asyncio.run(plan_surface(context_fixture(), invocation=invocation_fixture(),
+            team_runtime=FakeTeamRuntime(candidate), budget_reserver=lambda _record: None,
+            usage_reporter=lambda _record: None))

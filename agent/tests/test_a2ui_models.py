@@ -98,6 +98,24 @@ def test_surface_plan_rejects_authoritative_inline_content() -> None:
         )
 
 
+@pytest.mark.parametrize("component", ["SurfaceLoading", "SurfaceEmpty", "SurfaceUnresolved", "SurfaceFailure"])
+def test_surface_plan_rejects_host_owned_lifecycle_components(component: str) -> None:
+    with pytest.raises(ValidationError):
+        SurfacePlan.model_validate({
+            "version": "harmonia.ui/v1",
+            "surfaces": [{"slot": "canvas", "revision": 1, "rootId": "root", "nodes": [
+                {"id": "root", "component": component, "children": []},
+            ]}],
+        })
+
+
+def test_ui_context_rejects_duplicate_durable_ids() -> None:
+    payload = context_payload()
+    payload["drafts"].append(dict(payload["drafts"][0]))
+    with pytest.raises(ValidationError, match="draft ids must be unique"):
+        UiContext.model_validate(payload)
+
+
 def test_surface_plan_rejects_dangling_children() -> None:
     with pytest.raises(ValidationError, match="dangling child"):
         SurfacePlan.model_validate(
@@ -127,15 +145,15 @@ def test_surface_plan_rejects_dangling_children() -> None:
     [
         (
             [
-                {"id": "root", "component": "CampaignBrief", "children": ["child"]},
-                {"id": "child", "component": "JobProgress", "children": ["root"]},
+                {"id": "root", "component": "CampaignBrief", "refs": {"jobId": "job-1"}, "children": ["child"]},
+                {"id": "child", "component": "JobProgress", "refs": {"jobId": "job-1"}, "children": ["root"]},
             ],
             "cycle",
         ),
         (
             [
-                {"id": "root", "component": "CampaignBrief", "children": []},
-                {"id": "orphan", "component": "JobProgress", "children": []},
+                {"id": "root", "component": "CampaignBrief", "refs": {"jobId": "job-1"}, "children": []},
+                {"id": "orphan", "component": "JobProgress", "refs": {"jobId": "job-1"}, "children": []},
             ],
             "unreachable",
         ),

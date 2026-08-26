@@ -290,14 +290,6 @@ function hydrateNode(node: PlannedNode, job: JobFull | null | undefined, receipt
         } } : {}),
       }) as CatalogRecord;
     }
-    case "SurfaceLoading":
-      return parseCatalogComponent({ id: node.id, component: node.component, ...framing(node, "Preparing the workspace"), message: "Harmonia is resolving the latest persisted campaign state." }) as CatalogRecord;
-    case "SurfaceEmpty":
-      return parseCatalogComponent({ id: node.id, component: node.component, ...framing(node, "Nothing to show yet"), message: "This campaign has not produced content for this view yet." }) as CatalogRecord;
-    case "SurfaceUnresolved":
-      return unresolved(node, ["presenter-requested-unresolved-state"]);
-    case "SurfaceFailure":
-      return parseCatalogComponent({ id: node.id, component: node.component, ...framing(node, "Workspace unavailable"), message: "The generated workspace could not be prepared from current state.", retryable: true }) as CatalogRecord;
   }
 }
 

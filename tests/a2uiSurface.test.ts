@@ -84,4 +84,14 @@ describe("Harmonia A2UI surfaces", () => {
       planner: vi.fn().mockRejectedValue(new Error("Agent Engine unavailable")),
     })).rejects.toThrow("Agent Engine unavailable");
   });
+
+  test("rejects a model-invented reference before hydration or persistence", async () => {
+    await expect(generateResponseSurfaces({
+      runId: "run-3", message: "Compare drafts",
+      response: { intent: "list_drafts", reply: "Ready.", jobId: "job-1" }, job, receipts: [],
+      planner: vi.fn().mockResolvedValue({ version: "harmonia.ui/v1", surfaces: [{ slot: "canvas", revision: 1,
+        rootId: "drafts", nodes: [{ id: "drafts", component: "DraftComparison",
+          refs: { jobId: "job-1", draftIds: ["invented"] }, children: [] }] }] }),
+    })).rejects.toThrow("unknown draft");
+  });
 });

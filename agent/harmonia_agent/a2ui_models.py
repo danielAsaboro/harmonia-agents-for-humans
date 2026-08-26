@@ -17,10 +17,6 @@ ComponentName = Literal[
     "SourceEvidence",
     "ApprovalReview",
     "VerificationReceipt",
-    "SurfaceLoading",
-    "SurfaceEmpty",
-    "SurfaceUnresolved",
-    "SurfaceFailure",
 ]
 
 
@@ -94,9 +90,23 @@ class UiContext(StrictModel):
     actions: list[ActionSummary] = Field(default_factory=list, max_length=20)
     receipts: list[ReceiptSummary] = Field(default_factory=list, max_length=20)
 
+    @model_validator(mode="after")
+    def validate_unique_entity_ids(self) -> "UiContext":
+        for label, ids in (
+            ("draft", [item.id for item in self.drafts]),
+            ("moment", [item.id for item in self.moments]),
+            ("source", [item.id for item in self.sources]),
+            ("asset action", [item.actionId for item in self.assets]),
+            ("action", [item.id for item in self.actions]),
+            ("receipt", [item.id for item in self.receipts]),
+        ):
+            if len(ids) != len(set(ids)):
+                raise ValueError(f"{label} ids must be unique")
+        return self
+
 
 class EntityRefs(StrictModel):
-    jobId: str | None = Field(default=None, max_length=200)
+    jobId: str = Field(min_length=1, max_length=200)
     draftIds: list[str] = Field(default_factory=list, max_length=20)
     momentIds: list[str] = Field(default_factory=list, max_length=20)
     sourceIds: list[str] = Field(default_factory=list, max_length=50)
@@ -104,11 +114,19 @@ class EntityRefs(StrictModel):
     actionIds: list[str] = Field(default_factory=list, max_length=20)
     receiptIds: list[str] = Field(default_factory=list, max_length=20)
 
+    @model_validator(mode="after")
+    def validate_unique_references(self) -> "EntityRefs":
+        for field in ("draftIds", "momentIds", "sourceIds", "assetActionIds", "actionIds", "receiptIds"):
+            values = getattr(self, field)
+            if len(values) != len(set(values)):
+                raise ValueError(f"{field} must contain unique references")
+        return self
+
 
 class SurfacePlanNode(StrictModel):
     id: str = Field(min_length=1, max_length=200)
     component: ComponentName
-    refs: EntityRefs = Field(default_factory=EntityRefs)
+    refs: EntityRefs
     title: str | None = Field(default=None, max_length=160)
     emphasis: Literal["primary", "secondary", "compact"] = "primary"
     children: list[str] = Field(default_factory=list, max_length=30)

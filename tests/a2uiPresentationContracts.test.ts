@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { surfacePlanSchema, uiContextSchema } from "../src/lib/a2ui/presentationContracts";
+import { surfacePlanSchema, uiContextSchema, validateSurfacePlan } from "../src/lib/a2ui/presentationContracts";
 
 const context = {
   runId: "run-1",
@@ -120,5 +120,37 @@ describe("A2UI presentation contracts", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("rejects invented references and component/reference mismatches against exact context", () => {
+    const unknown = surfacePlanSchema.parse({ version: "harmonia.ui/v1", surfaces: [{ slot: "canvas", revision: 1, rootId: "root", nodes: [
+      { id: "root", component: "MomentExplorer", refs: { jobId: "job-1", momentIds: ["invented"] }, children: [] },
+    ] }] });
+    expect(() => validateSurfacePlan(uiContextSchema.parse(context), unknown)).toThrow("unknown moment");
+    const incomplete = structuredClone(unknown);
+    incomplete.surfaces[0].nodes[0].component = "DraftComparison";
+    incomplete.surfaces[0].nodes[0].refs.momentIds = [];
+    expect(() => validateSurfacePlan(uiContextSchema.parse(context), incomplete)).toThrow("requires draftIds");
+  });
+
+  it("keeps approval presentation pending, exact, and in the approval slot", () => {
+    const approval = surfacePlanSchema.parse({ version: "harmonia.ui/v1", surfaces: [{ slot: "approval", revision: 1, rootId: "root", nodes: [
+      { id: "root", component: "ApprovalReview", refs: { jobId: "job-1", actionIds: ["action-1"] }, children: [] },
+    ] }] });
+    expect(() => validateSurfacePlan(uiContextSchema.parse(context), approval)).not.toThrow();
+    const notPending = structuredClone(context); notPending.actions[0].pending = false;
+    expect(() => validateSurfacePlan(uiContextSchema.parse(notPending), approval)).toThrow("pending action");
+    const wrongSlot = structuredClone(approval); wrongSlot.surfaces[0].slot = "canvas";
+    expect(() => validateSurfacePlan(uiContextSchema.parse(context), wrongSlot)).toThrow("approval slot");
+  });
+
+  it("rejects host-owned state components and authoritative model titles", () => {
+    expect(surfacePlanSchema.safeParse({ version: "harmonia.ui/v1", surfaces: [{ slot: "canvas", revision: 1, rootId: "root", nodes: [
+      { id: "root", component: "SurfaceFailure", children: [] },
+    ] }] }).success).toBe(false);
+    const titled = surfacePlanSchema.parse({ version: "harmonia.ui/v1", surfaces: [{ slot: "canvas", revision: 1, rootId: "root", nodes: [
+      { id: "root", component: "JobProgress", title: "Published successfully", refs: { jobId: "job-1" }, children: [] },
+    ] }] });
+    expect(() => validateSurfacePlan(uiContextSchema.parse(context), titled)).toThrow("authority");
   });
 });

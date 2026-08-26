@@ -64,7 +64,19 @@ export const uiContextSchema = z.object({
   assets: boundedList(assetSummarySchema, 20).default([]),
   actions: boundedList(actionSummarySchema, 20).default([]),
   receipts: boundedList(receiptSummarySchema, 20).default([]),
-}).strict();
+}).strict().superRefine((context, refinement) => {
+  const groups = [
+    ["draft", context.drafts.map((item) => item.id)],
+    ["moment", context.moments.map((item) => item.id)],
+    ["source", context.sources.map((item) => item.id)],
+    ["asset action", context.assets.map((item) => item.actionId)],
+    ["action", context.actions.map((item) => item.id)],
+    ["receipt", context.receipts.map((item) => item.id)],
+  ] as const;
+  for (const [label, ids] of groups) if (new Set(ids).size !== ids.length) {
+    refinement.addIssue({ code: "custom", message: `${label} ids must be unique` });
+  }
+});
 
 export const surfaceSlots = ["canvas", "conversation", "approval"] as const;
 export const surfaceComponentNames = [
@@ -76,33 +88,28 @@ export const surfaceComponentNames = [
   "SourceEvidence",
   "ApprovalReview",
   "VerificationReceipt",
-  "SurfaceLoading",
-  "SurfaceEmpty",
-  "SurfaceUnresolved",
-  "SurfaceFailure",
 ] as const;
 
 const entityRefsSchema = z.object({
-  jobId: id.optional(),
+  jobId: id,
   draftIds: boundedList(id, 20).default([]),
   momentIds: boundedList(id, 20).default([]),
   sourceIds: boundedList(id, 50).default([]),
   assetActionIds: boundedList(id, 20).default([]),
   actionIds: boundedList(id, 20).default([]),
   receiptIds: boundedList(id, 20).default([]),
-}).strict();
+}).strict().superRefine((refs, context) => {
+  for (const [field, values] of Object.entries(refs)) {
+    if (Array.isArray(values) && new Set(values).size !== values.length) {
+      context.addIssue({ code: "custom", message: `${field} must contain unique references` });
+    }
+  }
+});
 
 const surfacePlanNodeSchema = z.object({
   id,
   component: z.enum(surfaceComponentNames),
-  refs: entityRefsSchema.default(() => ({
-    draftIds: [],
-    momentIds: [],
-    sourceIds: [],
-    assetActionIds: [],
-    actionIds: [],
-    receiptIds: [],
-  })),
+  refs: entityRefsSchema,
   title: z.string().max(160).optional(),
   emphasis: z.enum(["primary", "secondary", "compact"]).default("primary"),
   children: boundedList(id, 30).default([]),
@@ -168,3 +175,52 @@ export type UiContext = z.infer<typeof uiContextSchema>;
 export type SurfacePlan = z.infer<typeof surfacePlanSchema>;
 export type SurfaceSlot = (typeof surfaceSlots)[number];
 export type SurfaceComponentName = (typeof surfaceComponentNames)[number];
+
+const authorityTitle = /\b(?:approved|rejected|published|verified|executed|scheduled|authorized)\b/i;
+const refFields = ["draftIds", "momentIds", "sourceIds", "assetActionIds", "actionIds", "receiptIds"] as const;
+const allowedRefs: Record<SurfaceComponentName, ReadonlySet<(typeof refFields)[number]>> = {
+  CampaignBrief: new Set(), JobProgress: new Set(), MomentExplorer: new Set(["momentIds"]),
+  DraftComparison: new Set(["draftIds"]), PlatformPreview: new Set(["draftIds", "assetActionIds"]),
+  SourceEvidence: new Set(["sourceIds"]), ApprovalReview: new Set(["actionIds"]),
+  VerificationReceipt: new Set(["receiptIds"]),
+};
+
+export function validateSurfacePlan(context: UiContext, plan: SurfacePlan): SurfacePlan {
+  if (!context.job) throw new Error("Maya requires an active persisted job");
+  const known = {
+    draftIds: new Set(context.drafts.map((item) => item.id)),
+    momentIds: new Set(context.moments.map((item) => item.id)),
+    sourceIds: new Set(context.sources.map((item) => item.id)),
+    assetActionIds: new Set(context.assets.map((item) => item.actionId)),
+    actionIds: new Set(context.actions.map((item) => item.id)),
+    receiptIds: new Set(context.receipts.map((item) => item.id)),
+  };
+  const labels = { draftIds: "draft", momentIds: "moment", sourceIds: "source", assetActionIds: "asset action", actionIds: "action", receiptIds: "receipt" };
+  const pendingActions = new Set(context.actions.filter((item) => item.pending).map((item) => item.id));
+  for (const surface of plan.surfaces) {
+    if (surface.slot === "approval" && surface.nodes.filter((node) => node.component === "ApprovalReview").length !== 1) {
+      throw new Error("Maya approval surface requires exactly one ApprovalReview");
+    }
+    for (const node of surface.nodes) {
+      if (node.title && authorityTitle.test(node.title)) throw new Error("Maya title claims lifecycle authority");
+      if (node.refs.jobId !== context.job.id) throw new Error("Maya node must reference the exact active job");
+      for (const field of refFields) {
+        const values = node.refs[field];
+        if (values.length && !allowedRefs[node.component].has(field)) throw new Error(`Maya ${node.component} cannot use ${field}`);
+        const unknown = values.filter((value) => !known[field].has(value));
+        if (unknown.length) throw new Error(`Maya references unknown ${labels[field]} ids: ${unknown.join(", ")}`);
+      }
+      if (node.component === "MomentExplorer" && !node.refs.momentIds.length) throw new Error("Maya MomentExplorer requires momentIds");
+      if (node.component === "DraftComparison" && !node.refs.draftIds.length) throw new Error("Maya DraftComparison requires draftIds");
+      if (node.component === "PlatformPreview" && node.refs.draftIds.length !== 1) throw new Error("Maya PlatformPreview requires exactly one draftId");
+      if (node.component === "SourceEvidence" && !node.refs.sourceIds.length) throw new Error("Maya SourceEvidence requires sourceIds");
+      if (node.component === "ApprovalReview") {
+        if (surface.slot !== "approval") throw new Error("Maya ApprovalReview requires the approval slot");
+        if (node.refs.actionIds.length !== 1) throw new Error("Maya ApprovalReview requires exactly one actionId");
+        if (!pendingActions.has(node.refs.actionIds[0])) throw new Error("Maya ApprovalReview requires a pending action");
+      }
+      if (node.component === "VerificationReceipt" && node.refs.receiptIds.length !== 1) throw new Error("Maya VerificationReceipt requires exactly one receiptId");
+    }
+  }
+  return plan;
+}

@@ -150,7 +150,7 @@ const campaignBriefSchema = baseComponent.extend({
   platforms: z.array(z.string().min(1).max(50)).max(10),
   angles: z.array(z.object({
     id,
-    kind: z.enum(["trend", "meme"]),
+    kind: z.enum(["source", "trend", "meme", "performance", "memory"]),
     title: z.string().min(1).max(300),
     rationale: z.string().max(2_000),
   }).strict()).max(20),

@@ -21,6 +21,7 @@ from .agent_models import (
     EditorialPlannerInput,
     StrategistInput,
 )
+from .a2ui_models import SurfacePlan, UiContext
 
 
 class EvaluationFailure(BaseModel):
@@ -301,6 +302,28 @@ def evaluate_draft_workflow(
     return _result([])
 
 
+def evaluate_surface_plan(
+    *, ui_context: UiContext | Mapping[str, Any], surface_plan: SurfacePlan | Mapping[str, Any],
+) -> EvaluationCaseResult:
+    """Evaluate Maya's strict schema and exact-context presentation boundary."""
+    try:
+        supplied = ui_context if isinstance(ui_context, UiContext) else UiContext.model_validate(ui_context)
+        parsed = surface_plan if isinstance(surface_plan, SurfacePlan) else SurfacePlan.model_validate(surface_plan)
+        from .a2ui_presenter import validate_surface_plan
+        validate_surface_plan(supplied, parsed)
+    except Exception as exc:
+        message = str(exc)
+        code = (
+            "authority_overreach" if "authority" in message else
+            "invented_reference" if "unknown" in message or "exact active job" in message else
+            "unsafe_approval" if "approval" in message or "pending action" in message else
+            "incomplete_component" if "requires" in message or "cannot use" in message else
+            "invalid_surface_plan"
+        )
+        return _result([_failure(code, message)])
+    return _result([])
+
+
 _AUTHORITY_KEYS = frozenset({
     "approvalstate", "approved", "published", "publicationid", "receiptid",
     "executed", "executionid", "effectreceipt",
@@ -383,6 +406,16 @@ def _public_copywriter_input() -> CopywriterInput:
     })
 
 
+def _public_analyst_input() -> AnalystInput:
+    return AnalystInput.model_validate({
+        "sourceId": "public-source", "sourceKind": "brief", "sourceDigest": "a" * 64,
+        "title": "synthetic demo", "channel": "public channel",
+        "transcriptSegments": [{"id": "segment-1", "startSec": 0, "endSec": 2,
+                                "text": "public synthetic source bounded proof"}],
+        "performanceObservations": [], "memoryFacts": [],
+    })
+
+
 def _public_content_draft() -> ContentDraft:
     return ContentDraft.model_validate({
         "id": "draft-1", "planId": "plan-1", "planDigest": "a" * 64,
@@ -445,9 +478,7 @@ def adk_contract_metric(
             payload = json.loads(response_text)
             if kind == "analysis":
                 result = evaluate_analysis(
-                    analysis=SourceAnalysis.model_validate(payload),
-                    transcript=spec["transcript"],
-                    duration_sec=float(spec["durationSec"]),
+                    analyst_input=_public_analyst_input(), analysis=payload,
                 )
             elif kind == "draft":
                 result = evaluate_content_draft(copywriter_input=_public_copywriter_input(), draft=payload)

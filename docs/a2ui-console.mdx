@@ -23,7 +23,7 @@ flowchart LR
   FIRE[(Authoritative records)] --> HYDRATE
 ```
 
-Unknown components, invalid entity references, non-HTTP citations, and preview URLs outside authenticated routes fail validation. Hydration supplies actual draft text, transcript excerpts, policy state, costs, asset routes, and receipts from authenticated records; the model never supplies those authoritative values.
+Unknown components, wrong-job or invented entity references, duplicate references, component/reference mismatches, authoritative titles, non-HTTP citations, and preview URLs outside authenticated routes fail validation. `ApprovalReview` is valid only in the approval slot for exactly one action that the supplied context marks pending. Loading, empty, unresolved, and failure components are host-owned and cannot be selected by Maya. Hydration supplies actual draft text, transcript excerpts, policy state, costs, asset routes, and receipts from authenticated records; the model never supplies those authoritative values.
 
 ## Durable streaming
 

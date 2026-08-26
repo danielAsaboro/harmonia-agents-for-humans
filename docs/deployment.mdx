@@ -40,7 +40,7 @@ deployed but uploaded objects remain quarantined and unavailable. This repositor
 deploy or verify a scanner engine itself. Capture the engine identity and definition version from a
 real clean scan before presenting uploaded-media operation as production evidence.
 
-Create one runtime service account for each Cloud Run service. Both receive `roles/cloudtrace.agent`; preserve the existing least-privilege data, messaging, and asset permissions. The web identity can sign only as itself for short-lived upload/download URLs. The Pub/Sub service agent receives token-creator authority only on that web identity so the private worker push subscription can authenticate with OIDC.
+Create one runtime service account for each Cloud Run service. The worker needs `roles/cloudtrace.agent`, `roles/logging.logWriter`, and `roles/monitoring.metricWriter`; preserve the existing least-privilege data, messaging, and asset permissions. The web identity can sign only as itself for short-lived upload/download URLs. The Pub/Sub service agent receives token-creator authority only on that web identity so the private worker push subscription can authenticate with OIDC.
 
 Setup also creates `harmonia-scheduler`. Deployment grants it `roles/run.invoker` only on the private
 agent service and converges the `harmonia-durable-autonomy` Cloud Scheduler job to an every-minute
@@ -88,6 +88,10 @@ Enable Google as the Identity Platform provider and register the deployed web or
 - W3C context crosses Pub/Sub and internal HTTP, correlating web, stage, agent, model, and validation spans
 - Firestore usage records retain the trace ID, operation ID, role, model, usage units, cost estimate, and pricing version
 - `/api/metrics` aggregates model calls and estimated cost by role/model using integer microdollars
+- Google ADK exports structured logs, standard agent/tool/token metrics, and invocation/tool/model spans to the corresponding Google Cloud backends when telemetry is enabled
+- **Monitoring → Agent activity** reads a tenant-scoped, metadata-only Firestore projection with server-side filters and opaque cursor pagination
+
+Configure a Firestore TTL policy for the `agent_activity` collection group using `retentionDeleteAfter` as the expiration field. The application writes a 30-day expiry timestamp, but Firestore does not delete expired documents until the TTL policy exists.
 
 Content capture must remain disabled in every deployed revision. Raw prompts, responses, transcripts, draft text, and media bytes are excluded; observability records the execution graph and explicit validation/delegation metadata, not private reasoning.
 

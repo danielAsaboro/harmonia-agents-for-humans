@@ -17,11 +17,13 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor, SpanExporter
 from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+from google.adk.telemetry.google_cloud import get_gcp_exporters
+from google.adk.telemetry.setup import maybe_set_otel_providers
 
 from .config import settings
 
 _CONTENT_FIELDS = {"body", "content", "media", "prompt", "response", "text", "transcript"}
-_provider: TracerProvider | None = None
+_provider: Any | None = None
 _global_provider_registered = False
 
 
@@ -47,6 +49,42 @@ def _cloud_exporter() -> OTLPSpanExporter:
     )
 
 
+def _privacy_environment() -> None:
+    """Disable ADK/GenAI message capture for every telemetry signal."""
+    os.environ["ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS"] = "false"
+    os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "NO_CONTENT"
+
+
+def _otel_resource() -> Resource:
+    cfg = settings()
+    return Resource.create({
+        SERVICE_NAME: cfg.otel_service_name,
+        "gcp.project_id": cfg.gcp_project,
+        "service.version": os.environ.get("K_REVISION", "local"),
+        "deployment.environment.name": os.environ.get("HARMONIA_ENVIRONMENT", "development"),
+    })
+
+
+def configure_adk_telemetry(*, enabled: bool | None = None) -> None:
+    """Configure ADK's native logs, metrics, and traces through Google Cloud."""
+    _privacy_environment()
+    cfg = settings()
+    if enabled is None:
+        enabled = cfg.telemetry_enabled
+    if not enabled:
+        return
+    # ADK constructs the SDK provider, which reads the standard OTel sampler
+    # environment at construction time.
+    os.environ["OTEL_TRACES_SAMPLER"] = "parentbased_traceidratio"
+    os.environ["OTEL_TRACES_SAMPLER_ARG"] = str(cfg.telemetry_sample_rate)
+    hooks = get_gcp_exporters(
+        enable_cloud_logging=True,
+        enable_cloud_metrics=True,
+        enable_cloud_tracing=True,
+    )
+    maybe_set_otel_providers([hooks], otel_resource=_otel_resource())
+
+
 def configure_telemetry(
     *,
     exporter: SpanExporter | None = None,
@@ -56,25 +94,26 @@ def configure_telemetry(
     global _provider, _global_provider_registered
     # ADK's legacy content capture defaults on. Harmonia's audit policy is
     # metadata-only, so enforce both the legacy and current controls here.
-    os.environ["ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS"] = "false"
-    os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "NO_CONTENT"
+    _privacy_environment()
     if _provider is not None and not force:
         return _provider
     if _provider is not None and force:
         _provider.shutdown()
 
     cfg = settings()
+    if exporter is None and cfg.telemetry_enabled:
+        configure_adk_telemetry(enabled=True)
+        _provider = trace.get_tracer_provider()
+        propagate.set_global_textmap(TraceContextTextMapPropagator())
+        _global_provider_registered = True
+        return _provider
+
     provider = TracerProvider(
-        resource=Resource.create({
-            SERVICE_NAME: cfg.otel_service_name,
-            "gcp.project_id": cfg.gcp_project,
-        }),
+        resource=_otel_resource(),
         sampler=ParentBased(TraceIdRatioBased(cfg.telemetry_sample_rate)),
     )
     if exporter is not None:
         provider.add_span_processor(SimpleSpanProcessor(exporter))
-    elif cfg.telemetry_enabled:
-        provider.add_span_processor(BatchSpanProcessor(_cloud_exporter()))
 
     _provider = provider
     propagate.set_global_textmap(TraceContextTextMapPropagator())
@@ -100,6 +139,11 @@ def inject_context(carrier: MutableMapping[str, str]) -> None:
 def current_trace_id() -> str:
     context = trace.get_current_span().get_span_context()
     return f"{context.trace_id:032x}" if context.is_valid else "0" * 32
+
+
+def current_span_id() -> str:
+    context = trace.get_current_span().get_span_context()
+    return f"{context.span_id:016x}" if context.is_valid else "0" * 16
 
 
 def safe_attributes(values: Mapping[str, Any]) -> dict[str, Any]:

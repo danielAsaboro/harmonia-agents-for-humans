@@ -5,7 +5,7 @@ import path from "node:path";
 describe("agent monitoring surface", () => {
   const root = process.cwd();
   const page = fs.readFileSync(path.join(root, "src/app/dashboard/monitoring/page.tsx"), "utf8");
-  const view = fs.readFileSync(path.join(root, "src/components/monitoring/AgentActivityView.tsx"), "utf8");
+  const view = fs.readFileSync(path.join(root, "src/components/monitoring/WorkflowActivityView.tsx"), "utf8");
   const route = fs.readFileSync(path.join(root, "src/app/api/events/route.ts"), "utf8");
 
   it("exposes an Agents tab with success, retry, failure, empty, and load-error states", () => {

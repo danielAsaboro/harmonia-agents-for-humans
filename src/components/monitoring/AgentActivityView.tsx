@@ -1,99 +1,93 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import type { AgentActivity } from "@/lib/contracts";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { AgentActivity, ObservabilityPage } from "@/lib/observability/schema";
+import ActivityFilters from "./ActivityFilters";
+import ActivityMetrics from "./ActivityMetrics";
+import TraceTree from "./TraceTree";
 
-interface ActivityEvent {
-  id: string;
-  jobId: string;
-  at: string | null;
-  stage: string;
-  operationId: string;
-  traceId: string;
-  activity?: AgentActivity;
+type SignalType = "log" | "trace" | "metric";
+export interface ActivityFiltersState { types: SignalType[]; agent: string; stage: string; outcome: string; severity: string; model: string; tool: string; jobId: string; traceId: string; since: string; until: string; q: string; }
+export interface ActivityPagination { cursor: string | null; history: Array<string | null>; }
+export const emptyActivityFilters = (): ActivityFiltersState => ({ types: [], agent: "", stage: "", outcome: "", severity: "", model: "", tool: "", jobId: "", traceId: "", since: "", until: "", q: "" });
+export const resetPagination = (_pagination: ActivityPagination): ActivityPagination => ({ cursor: null, history: [] });
+
+export function parseActivityFilters(params: URLSearchParams): ActivityFiltersState {
+  const empty = emptyActivityFilters();
+  const types = params.getAll("type").filter((value): value is SignalType => value === "log" || value === "trace" || value === "metric");
+  return {
+    ...empty,
+    types,
+    agent: params.get("agent") ?? "",
+    stage: params.get("stage") ?? "",
+    outcome: params.get("outcome") ?? "",
+    severity: params.get("severity") ?? "",
+    model: params.get("model") ?? "",
+    tool: params.get("tool") ?? "",
+    jobId: params.get("jobId") ?? "",
+    traceId: params.get("traceId") ?? "",
+    since: params.get("since")?.slice(0, 16) ?? "",
+    until: params.get("until")?.slice(0, 16) ?? "",
+    q: params.get("q") ?? "",
+  };
 }
 
-const ROLES = ["nimi_analyst", "ryan_strategist", "temi_editorial_planner", "noni_copywriter", "dara_editor", "maya_trend_researcher", "nova_liaison"];
-const STATUS_STYLE = {
-  succeeded: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
-  retrying: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-  failed: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
-};
+export function buildActivityQuery(filters: ActivityFiltersState, cursor: string | null): URLSearchParams {
+  const query = new URLSearchParams({ limit: "25" });
+  for (const type of filters.types) query.append("type", type);
+  for (const key of ["agent", "stage", "outcome", "severity", "model", "tool", "jobId", "traceId", "q"] as const) if (filters[key]) query.set(key, filters[key]);
+  for (const key of ["since", "until"] as const) if (filters[key]) query.set(key, new Date(filters[key]).toISOString());
+  if (cursor) query.set("cursor", cursor);
+  return query;
+}
+
+const modes: Array<{ label: string; type: SignalType }> = [{ label: "Logs", type: "log" }, { label: "Traces", type: "trace" }, { label: "Metrics", type: "metric" }];
 
 export default function AgentActivityView() {
-  const [events, setEvents] = useState<ActivityEvent[] | null>(null);
-  const [error, setError] = useState("");
-  const [role, setRole] = useState("");
-  const [status, setStatus] = useState("");
-  const [selected, setSelected] = useState<ActivityEvent | null>(null);
-
-  const load = useCallback(async () => {
-    const params = new URLSearchParams({ limit: "200" });
-    if (role) params.set("role", role);
-    if (status) params.set("status", status);
-    try {
-      const response = await fetch(`/api/events?${params}`, { cache: "no-store" });
-      if (!response.ok) throw new Error("activity request failed");
-      const body = await response.json();
-      setEvents((body.events as ActivityEvent[]).filter((event) => event.activity));
-      setError("");
-    } catch {
-      setError("Agent activity could not be loaded. Retry when the service is available.");
-      setEvents([]);
-    }
-  }, [role, status]);
+  const [filters, setFilters] = useState<ActivityFiltersState>(() => typeof window === "undefined" ? emptyActivityFilters() : parseActivityFilters(new URL(window.location.href).searchParams));
+  const [pagination, setPagination] = useState<ActivityPagination>({ cursor: null, history: [] });
+  const [page, setPage] = useState<ObservabilityPage | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const query = useMemo(() => buildActivityQuery(filters, pagination.cursor).toString(), [filters, pagination.cursor]);
 
   useEffect(() => {
-    // Fetching is the external synchronization performed by this effect.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load();
-  }, [load]);
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setLoading(true); setError(null);
+      try {
+        const response = await fetch(`/api/observability?${query}`, { signal: controller.signal });
+        if (!response.ok) throw new Error(`Activity request failed (${response.status})`);
+        setPage(await response.json() as ObservabilityPage);
+        const url = new URL(window.location.href);
+        for (const key of ["type", "agent", "stage", "outcome", "severity", "model", "tool", "jobId", "traceId", "since", "until", "q"]) url.searchParams.delete(key);
+        const shareable = buildActivityQuery(filters, null); shareable.delete("limit");
+        shareable.forEach((value, key) => url.searchParams.append(key, value));
+        url.searchParams.set("tab", "activity");
+        window.history.replaceState(null, "", url);
+      } catch (cause) { if (!(cause instanceof DOMException && cause.name === "AbortError")) setError(cause instanceof Error ? cause.message : "Activity request failed"); }
+      finally { if (!controller.signal.aborted) setLoading(false); }
+    }, filters.q ? 250 : 0);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [query, filters]);
 
-  return (
-    <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]" aria-label="Agent activity">
-      <div className="space-y-3">
-        <div className="flex flex-wrap gap-2">
-          <select aria-label="Filter by agent" value={role} onChange={(event) => setRole(event.target.value)} className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950">
-            <option value="">all agents</option>
-            {ROLES.map((item) => <option key={item} value={item}>{item.replaceAll("_", " ")}</option>)}
-          </select>
-          <select aria-label="Filter by status" value={status} onChange={(event) => setStatus(event.target.value)} className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950">
-            <option value="">all states</option><option value="succeeded">succeeded</option><option value="retrying">retrying</option><option value="failed">failed</option>
-          </select>
-          <button onClick={() => void load()} className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-700">Refresh</button>
-        </div>
-        {error ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950">{error}</p> : events === null ? (
-          <p className="rounded-xl border border-zinc-200 p-6 text-center text-sm text-zinc-400 dark:border-zinc-800">Loading agent activity…</p>
-        ) : events.length === 0 ? (
-          <p className="rounded-xl border border-zinc-200 p-6 text-center text-sm text-zinc-400 dark:border-zinc-800">No structured agent activity matches these filters.</p>
-        ) : (
-          <ol className="divide-y divide-zinc-100 overflow-hidden rounded-xl border border-zinc-200 dark:divide-zinc-900 dark:border-zinc-800">
-            {events.map((event) => {
-              const item = event.activity!;
-              return <li key={event.id}><button onClick={() => setSelected(event)} className="grid w-full gap-2 p-3 text-left hover:bg-zinc-50 dark:hover:bg-zinc-900 sm:grid-cols-[8rem_1fr_auto]">
-                <span className="font-mono text-[10px] text-zinc-400">{event.at ? new Date(event.at).toLocaleString() : "pending"}</span>
-                <span><span className="block text-xs font-semibold">{item.kind === "handoff" ? `${item.fromRole} → ${item.toRole}` : `${item.role} · ${item.toolName ?? item.kind}`}</span><span className="mt-1 block text-xs text-zinc-500">{item.publicMessage}</span></span>
-                <span className={`h-fit rounded-full px-2 py-1 text-[10px] font-semibold uppercase ${STATUS_STYLE[item.status]}`}>{item.status}</span>
-              </button></li>;
-            })}
-          </ol>
-        )}
-      </div>
-      <aside className="h-fit rounded-xl border border-zinc-200 p-4 text-xs dark:border-zinc-800">
-        <h2 className="font-semibold">Activity details</h2>
-        {!selected?.activity ? <p className="mt-3 text-zinc-400">Select an event to inspect its safe structured metadata.</p> : (
-          <dl className="mt-3 grid grid-cols-[6rem_1fr] gap-x-2 gap-y-2 break-all">
-            <dt className="text-zinc-400">Role</dt><dd>{selected.activity.role}</dd>
-            <dt className="text-zinc-400">Kind</dt><dd>{selected.activity.kind}</dd>
-            <dt className="text-zinc-400">Code</dt><dd>{selected.activity.code ?? "—"}</dd>
-            <dt className="text-zinc-400">Category</dt><dd>{selected.activity.category ?? "—"}</dd>
-            <dt className="text-zinc-400">Path</dt><dd>{selected.activity.path ?? "—"}</dd>
-            <dt className="text-zinc-400">Attempt</dt><dd>{selected.activity.attempt === undefined ? "—" : `${selected.activity.attempt}/${selected.activity.maxAttempts ?? "—"}`}</dd>
-            <dt className="text-zinc-400">Operation</dt><dd className="font-mono">{selected.operationId}</dd>
-            <dt className="text-zinc-400">Trace</dt><dd className="font-mono">{selected.traceId}</dd>
-          </dl>
-        )}
-      </aside>
-    </section>
-  );
+  const changeFilters = useCallback((next: ActivityFiltersState) => { setFilters(next); setPagination(resetPagination); }, []);
+  const selectMode = (type: SignalType) => changeFilters({ ...filters, types: [type] });
+  const items = page?.items ?? [];
+
+  return <section className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-medium">Agent activity</h2><p className="text-xs text-zinc-500">Safe operational metadata only. Prompt and response content is never stored here.</p></div>
+      <div className="flex rounded-full border border-zinc-200 p-1 text-xs dark:border-zinc-800">{modes.map((mode) => <button key={mode.type} className={`rounded-full px-3 py-1.5 ${filters.types[0] === mode.type && filters.types.length === 1 ? "bg-zinc-900 text-white dark:bg-white dark:text-black" : "text-zinc-500"}`} onClick={() => selectMode(mode.type)}>{mode.label}</button>)}</div>
+    </div>
+    <ActivityFilters filters={filters} onChange={changeFilters} />
+    <div className="flex justify-end"><button className="text-xs text-zinc-500 underline" onClick={() => changeFilters(emptyActivityFilters())}>Reset filters</button></div>
+    {error && <div role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error} <button className="underline" onClick={() => setPagination((v) => ({ ...v }))}>Retry</button></div>}
+    {loading ? <p className="p-8 text-center text-sm text-zinc-500">Loading agent activity…</p> : filters.types[0] === "metric" && filters.types.length === 1 ? <ActivityMetrics records={items} /> : filters.types[0] === "trace" && filters.types.length === 1 ? <TraceTree records={items} /> : <ActivityTable records={items} />}
+    <div className="flex items-center justify-between text-xs"><span className="text-zinc-500">{items.length} records on this page</span><div className="flex gap-2"><button disabled={!pagination.history.length || loading} className="rounded-full border px-3 py-1.5 disabled:opacity-40 dark:border-zinc-700" onClick={() => setPagination((current) => ({ cursor: current.history.at(-1) ?? null, history: current.history.slice(0, -1) }))}>Previous</button><button disabled={!page?.hasMore || !page.nextCursor || loading} className="rounded-full border px-3 py-1.5 disabled:opacity-40 dark:border-zinc-700" onClick={() => setPagination((current) => ({ cursor: page!.nextCursor, history: [...current.history, current.cursor] }))}>Next</button></div></div>
+  </section>;
+}
+
+function ActivityTable({ records }: { records: AgentActivity[] }) {
+  if (!records.length) return <p className="rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700">No activity matches these filters.</p>;
+  return <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800"><table className="w-full text-left text-xs"><thead className="bg-zinc-50 text-zinc-500 dark:bg-zinc-900"><tr>{["Time", "Signal", "Agent / stage", "Event", "Outcome", "Duration", "Details"].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr></thead><tbody>{records.map((item) => <tr key={item.id} className="border-t border-zinc-200 align-top dark:border-zinc-800"><td className="whitespace-nowrap px-3 py-2">{new Date(item.occurredAt).toLocaleString()}</td><td className="px-3 py-2">{item.signalType}</td><td className="px-3 py-2"><span className="font-mono">{item.agent}</span><br/><span className="text-zinc-500">{item.stage}</span></td><td className="px-3 py-2">{item.eventName}</td><td className={item.outcome === "error" ? "px-3 py-2 text-red-600" : "px-3 py-2 text-emerald-600"}>{item.outcome}</td><td className="px-3 py-2">{item.durationMs} ms</td><td className="px-3 py-2"><details><summary className="cursor-pointer">Inspect</summary><pre className="mt-2 max-w-sm whitespace-pre-wrap break-all text-[10px] text-zinc-500">{JSON.stringify(item, null, 2)}</pre></details></td></tr>)}</tbody></table></div>;
 }

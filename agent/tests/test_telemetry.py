@@ -1,16 +1,61 @@
 import asyncio
+import os
+from dataclasses import replace
 
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 import harmonia_agent.telemetry as telemetry
 from harmonia_agent import stages
 from harmonia_agent.telemetry import (
+    configure_adk_telemetry,
     configure_telemetry,
     current_trace_id,
     inject_context,
     safe_attributes,
     tracer,
 )
+
+
+def test_adk_cloud_exporters_enable_logs_metrics_and_traces(monkeypatch):
+    captured = {}
+    marker = object()
+    monkeypatch.setattr(telemetry, "get_gcp_exporters", lambda **kwargs: captured.update(kwargs) or marker)
+    monkeypatch.setattr(
+        telemetry,
+        "maybe_set_otel_providers",
+        lambda hooks, otel_resource=None: captured.update(hooks=hooks, resource=otel_resource),
+    )
+
+    configure_adk_telemetry(enabled=True)
+
+    assert captured["enable_cloud_logging"] is True
+    assert captured["enable_cloud_metrics"] is True
+    assert captured["enable_cloud_tracing"] is True
+    assert captured["hooks"] == [marker]
+    assert captured["resource"].attributes["service.name"] == "harmonia-agent"
+    assert captured["resource"].attributes["gcp.project_id"] == "harmonia-local"
+
+
+def test_adk_telemetry_never_captures_message_content(monkeypatch):
+    monkeypatch.setattr(telemetry, "maybe_set_otel_providers", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(telemetry, "get_gcp_exporters", lambda **_kwargs: object())
+
+    configure_adk_telemetry(enabled=True)
+
+    assert os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] == "NO_CONTENT"
+    assert os.environ["ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS"] == "false"
+
+
+def test_adk_telemetry_applies_configured_parent_based_sampling(monkeypatch):
+    monkeypatch.setattr(telemetry, "maybe_set_otel_providers", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(telemetry, "get_gcp_exporters", lambda **_kwargs: object())
+    configured = replace(telemetry.settings(), telemetry_sample_rate=0.25)
+    monkeypatch.setattr(telemetry, "settings", lambda: configured)
+
+    configure_adk_telemetry(enabled=True)
+
+    assert os.environ["OTEL_TRACES_SAMPLER"] == "parentbased_traceidratio"
+    assert os.environ["OTEL_TRACES_SAMPLER_ARG"] == "0.25"
 
 
 def test_w3c_context_round_trip():

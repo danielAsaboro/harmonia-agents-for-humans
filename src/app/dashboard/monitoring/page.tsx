@@ -1,17 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import MonitoringView from "@/components/MonitoringView";
 import LogsView from "@/components/monitoring/LogsView";
 import JobsTableView from "@/components/monitoring/JobsTableView";
 import AssetsGallery from "@/components/monitoring/AssetsGallery";
 import ReceiptsLedger from "@/components/monitoring/ReceiptsLedger";
 import AgentActivityView from "@/components/monitoring/AgentActivityView";
+import WorkflowActivityView from "@/components/monitoring/WorkflowActivityView";
 
 const TABS = [
   { key: "overview", label: "Overview" },
   { key: "agents", label: "Agents" },
   { key: "logs", label: "Logs" },
+  { key: "activity", label: "Agent activity" },
   { key: "jobs", label: "Jobs" },
   { key: "assets", label: "Assets" },
   { key: "receipts", label: "Receipts" },
@@ -20,10 +22,21 @@ const TABS = [
 type Tab = (typeof TABS)[number]["key"];
 
 export default function MonitoringPage() {
-  const [tab, setTab] = useState<Tab>("overview");
+  const mounted = useSyncExternalStore(() => () => undefined, () => true, () => false);
+  const [selectedTab, setSelectedTab] = useState<Tab | null>(null);
+  const requested = mounted ? new URL(window.location.href).searchParams.get("tab") : null;
+  const urlTab = TABS.some((item) => item.key === requested) ? requested as Tab : "overview";
+  const tab = selectedTab ?? urlTab;
+
+  const selectTab = (next: Tab) => {
+    setSelectedTab(next);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", next);
+    window.history.replaceState(null, "", url);
+  };
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-6 sm:px-6">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-6 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Monitoring</h1>
@@ -35,7 +48,7 @@ export default function MonitoringPage() {
           {TABS.map((t) => (
             <button
               key={t.key}
-              onClick={() => setTab(t.key)}
+              onClick={() => selectTab(t.key)}
               className={`rounded-full px-3 py-1.5 font-medium transition-colors ${
                 tab === t.key
                   ? "bg-zinc-900 text-white dark:bg-white dark:text-black"
@@ -49,8 +62,9 @@ export default function MonitoringPage() {
       </div>
 
       {tab === "overview" && <MonitoringView />}
-      {tab === "agents" && <AgentActivityView />}
+      {tab === "agents" && <WorkflowActivityView />}
       {tab === "logs" && <LogsView />}
+      {tab === "activity" && <AgentActivityView />}
       {tab === "jobs" && <JobsTableView />}
       {tab === "assets" && <AssetsGallery />}
       {tab === "receipts" && <ReceiptsLedger />}

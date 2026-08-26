@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -65,6 +66,8 @@ from .nova_liaison import (
 )
 from .dara_prompt import DARA_EDITOR_INSTRUCTION
 from .telemetry import current_trace_id, safe_attributes, tracer
+from .activity_models import AgentActivityRecord
+from .activity_projection import invocation_activity, tool_activity
 from .team_runtime import AgentEngineTeamRuntime, TeamRuntime
 from .tenant_context import current_tenant
 from .role_models import RoleModelConfig, load_role_model_catalog
@@ -74,7 +77,7 @@ from .usage import (
     endpoint_usage_record,
     estimate_request_tokens,
 )
-from .web_client import report_usage, reserve_budget, resolve_budget_reservation
+from .web_client import record_agent_activity, report_usage, reserve_budget, resolve_budget_reservation
 
 logger = logging.getLogger("harmonia.agents")
 
@@ -1527,6 +1530,7 @@ async def _run_coordinator(
     budget_reserver: Callable[[dict[str, object]], None] = reserve_budget,
     budget_resolver: Callable[[dict[str, object]], None] = resolve_budget_reservation,
     usage_reporter: Callable[[dict[str, object]], None] = report_usage,
+    activity_reporter: Callable[[AgentActivityRecord], None] | None = None,
     team_runtime: TeamRuntime | None = None,
 ) -> dict[str, Any]:
     resolved = _resolve_role_models(model, models)
@@ -1534,6 +1538,28 @@ async def _run_coordinator(
     timeout_seconds = _enforce_role_eligibility(specialist, payload, resolved)
     reserved: list[dict[str, object]] = []
     dispatched = False
+    started_at = time.monotonic()
+    managed_trace_id = "0" * 32
+    managed_span_id = "0" * 16
+    input_tokens_total = 0
+    output_tokens_total = 0
+    inference_calls = 0
+    tool_calls = 0
+    reporter = activity_reporter
+    if reporter is None and team_runtime is None:
+        reporter = record_agent_activity
+
+    def emit(records: list[AgentActivityRecord]) -> None:
+        if reporter is None:
+            return
+        for record in records:
+            try:
+                reporter(record)
+            except Exception:  # noqa: BLE001 - observability cannot change workflow outcome
+                logger.warning(
+                    "agent activity projection failed for operation %s; details suppressed",
+                    invocation.operation_id if invocation else "proactive",
+                )
     try:
         if invocation is not None:
             for reservation in _reservation_payloads(
@@ -1573,6 +1599,9 @@ async def _run_coordinator(
                     ),
                 )
             managed_trace_id = current_trace_id()
+            span_context = invoke_span.get_span_context()
+            if span_context.is_valid:
+                managed_span_id = f"{span_context.span_id:016x}"
         _validate_run_output(specialist, payload, final_state)
         if invocation is not None:
             serialized = payload.model_dump_json(exclude_none=True)
@@ -1607,8 +1636,60 @@ async def _run_coordinator(
                     accumulator.output_tokens = estimated_output
                     record = accumulator.finalize(trace_id=trace_id)
                 usage_reporter(record.to_wire())
+                input_tokens_total += record.input_units if record.unit_type == "tokens" else 0
+                output_tokens_total += record.output_units if record.unit_type == "tokens" else 0
+                inference_calls += 1
+            if specialist == "nova_liaison":
+                nova_trace = final_state.get(LIAISON_TRACE_KEY)
+                if isinstance(nova_trace, list):
+                    data_calls = [item for item in nova_trace if item.get("name") not in {"load_skill", "load_skill_resource"}]
+                    tool_calls = len(data_calls)
+                    for item in data_calls:
+                        response = item.get("response") or {}
+                        tool_trace_id = item.get("traceId")
+                        tool_span_id = item.get("spanId")
+                        if not isinstance(tool_trace_id, str) or tool_trace_id == "0" * 32:
+                            continue
+                        if not isinstance(tool_span_id, str) or tool_span_id == "0" * 16:
+                            continue
+                        emit([tool_activity(
+                            invocation=invocation,
+                            agent=specialist,
+                            tool=str(item.get("name")),
+                            trace_id=tool_trace_id,
+                            span_id=tool_span_id,
+                            parent_span_id=managed_span_id,
+                            duration_ms=0,
+                            status="error" if response.get("status") == "error" else "success",
+                        )])
+            emit(invocation_activity(
+                invocation=invocation,
+                agent=specialist,
+                model=_instance_model_id(resolved.model_for(specialist)),
+                trace_id=managed_trace_id,
+                span_id=managed_span_id,
+                duration_ms=max(0, round((time.monotonic() - started_at) * 1000)),
+                input_tokens=input_tokens_total,
+                output_tokens=output_tokens_total,
+                inference_calls=inference_calls,
+                tool_calls=tool_calls,
+            ))
         return final_state
-    except Exception:  # noqa: BLE001 - preserve original runtime/provider failure
+    except Exception as exc:  # noqa: BLE001 - preserve original runtime/provider failure
+        if invocation is not None:
+            emit(invocation_activity(
+                invocation=invocation,
+                agent=specialist,
+                model=_instance_model_id(resolved.model_for(specialist)),
+                trace_id=managed_trace_id,
+                span_id=managed_span_id,
+                duration_ms=max(0, round((time.monotonic() - started_at) * 1000)),
+                input_tokens=input_tokens_total,
+                output_tokens=output_tokens_total,
+                inference_calls=inference_calls,
+                tool_calls=tool_calls,
+                error=exc,
+            ))
         if invocation is not None:
             for reservation in reserved:
                 try:

@@ -14,6 +14,7 @@ import httpx
 from .config import settings
 from .telemetry import inject_context
 from .tenant_context import current_tenant
+from .activity_models import AgentActivityRecord
 
 
 class WebApiError(RuntimeError):
@@ -304,6 +305,20 @@ def report_usage(payload: dict[str, object]) -> None:
         res = c.post("/api/internal/usage", json=payload)
     if res.status_code >= 300:
         raise WebApiError(f"usage reporting failed: {res.status_code} {res.text}", res.status_code)
+
+
+def record_agent_activity(record: AgentActivityRecord) -> None:
+    """Persist one strict metadata-only activity projection, retrying transient failure once."""
+    for attempt in range(2):
+        with _client() as c:
+            res = c.post("/api/internal/observability", json=record.to_wire())
+        if res.status_code < 300:
+            return
+        retryable = res.status_code == 429 or res.status_code >= 500
+        if not retryable or attempt == 1:
+            raise WebApiError(
+                f"agent activity reporting failed: {res.status_code}", res.status_code,
+            )
 
 
 def chat(message: str, surface: str = "telegram") -> dict[str, Any]:

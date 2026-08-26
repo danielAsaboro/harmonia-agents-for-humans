@@ -1,0 +1,34 @@
+---
+title: "Agent team"
+description: "Reference for Harmonia's seven bounded Google ADK specialists."
+---
+
+Harmonia separates agentic judgment from deterministic workflow authority. Agents analyze,
+strategize, plan, write, review, compose interfaces, and answer read-only questions. Firestore and
+application code own stage transitions, approvals, scheduling effects, publishing, receipts, and
+verification.
+
+```mermaid
+flowchart LR
+  NIMI[Nimi: evidence] --> RYAN[Ryan: strategy]
+  RYAN --> GATE[Human strategy approval]
+  GATE --> TEMI[Temi: editorial plan]
+  TEMI --> NONI[Noni: draft]
+  NONI --> DARA[Dara: review]
+  DARA -->|one bounded revision| NONI
+  DARA --> FINAL[Human effect approval]
+  MAYA[Maya: presentation] -. reads bounded context .-> GATE
+  NOVA[Nova: read-only liaison] -. reads bounded tools .-> GATE
+```
+
+| Agent | Runtime role | Output | Skills/tools |
+|---|---|---|---|
+| [Nimi](/agents/nimi) | Evidence analyst | `SourceAnalysis` | None |
+| [Ryan](/agents/ryan) | Content strategist | `StrategistResult` / `ContentStrategy` | None |
+| [Temi](/agents/temi) | Editorial planner | `EditorialPlan` | None |
+| [Noni](/agents/noni) | Copywriter | `ContentDraft` | None |
+| [Dara](/agents/dara) | Editor | `EditorialAssessment` | None |
+| [Maya](/agents/maya) | A2UI presenter | `SurfacePlan` | None |
+| [Nova](/agents/nova) | Read-only liaison | `LiaisonAnswer` | Five ADK skills and six read tools |
+
+<Warning>Memory Bank provides eligible context only. It never grants approval, permissions, policy exceptions, or authority to cause an external effect.</Warning>

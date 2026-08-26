@@ -10,6 +10,7 @@ from google.adk.tools.base_tool import BaseTool
 
 from .agent_models import LiaisonAnswer
 from .skills_runtime import _TOOL_CONTRACTS
+from .tool_contracts import error as tool_error, validate_tool_envelope
 
 TRACE_KEY = "liaison_tool_trace"
 _AUTHORITY = re.compile(
@@ -35,10 +36,12 @@ def record_liaison_tool(
 def record_liaison_tool_error(
     tool: BaseTool, args: dict[str, Any], context: Context, error: Exception,
 ) -> dict[str, Any]:
-    response = {"status": "error", "data": None, "error": {
-        "code": "tool_execution_failed", "category": "dependency",
-        "message": "The read tool failed before returning a valid envelope.", "retryable": False,
-    }, "evidence": []}
+    response = tool_error(
+        "tool_execution_failed",
+        "The read tool failed before returning a valid envelope.",
+        category="dependency",
+        retryable=False,
+    )
     record_liaison_tool(tool, args, context, response)
     return response
 
@@ -85,14 +88,15 @@ def validate_liaison_answer(answer: LiaisonAnswer, trace: list[dict[str, Any]]) 
     last_response: dict[str, Any] = {}
     for item in data_calls:
         response = item.get("response")
-        if not isinstance(response, dict) or response.get("status") not in {"success", "error"}:
+        if not isinstance(response, dict):
             raise ValueError("Nova tool trace contains an invalid envelope")
-        last_response = response
-        if response["status"] == "success":
-            for evidence in response.get("evidence") or []:
-                evidence_id = evidence.get("evidenceId") if isinstance(evidence, dict) else None
-                if isinstance(evidence_id, str):
-                    evidence_ids.add(evidence_id)
+        try:
+            envelope = validate_tool_envelope(response)
+        except ValueError as exc:
+            raise ValueError("Nova tool trace contains an invalid envelope") from exc
+        last_response = envelope.model_dump(mode="json", exclude_none=False)
+        if envelope.status == "success":
+            evidence_ids.update(item.evidenceId for item in envelope.evidence)
 
     if _AUTHORITY.search(answer.answer):
         raise ValueError("Nova answer claims mutation authority")
@@ -110,7 +114,12 @@ def validate_liaison_answer(answer: LiaisonAnswer, trace: list[dict[str, Any]]) 
         actual_error = last_response.get("error") if last_response.get("status") == "error" else None
         if not isinstance(actual_error, dict) or answer.error is None:
             raise ValueError("Nova error answer is not bound to the final tool error")
-        if answer.error.code != actual_error.get("code") or answer.error.message != actual_error.get("message"):
+        if (
+            answer.error.code != actual_error.get("code")
+            or answer.error.category != actual_error.get("category")
+            or answer.error.message != actual_error.get("message")
+            or answer.error.retryable is not actual_error.get("retryable")
+        ):
             raise ValueError("Nova error answer must preserve the exact final tool error")
         if answer.error.code.casefold() not in normalized_answer:
             raise ValueError("Nova answer must display the typed error code")

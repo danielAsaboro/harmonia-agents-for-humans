@@ -12,7 +12,11 @@ export async function POST(req: Request) {
       throw new Error("source analysis digest mismatch");
     }
     await saveAnalysis(body.jobId, body.analysis, body.analysisDigest);
-    await appendEvent(body.jobId, "understand", `analysis: ${body.analysis.moments.length} grounded moment(s), ${body.analysis.angles.length} grounded angle(s), with ${body.modelUsed}`, "agent");
+    const message = `analysis: ${body.analysis.moments.length} grounded moment(s), ${body.analysis.angles.length} grounded angle(s), with ${body.modelUsed}`;
+    await appendEvent(body.jobId, "understand", message, "agent", { activity: {
+      kind: "handoff", status: "succeeded", role: "nimi_analyst",
+      fromRole: "nimi_analyst", toRole: "ryan_strategist", publicMessage: message,
+    } });
     return advance(body.jobId, "understand", "analysis complete; Ryan strategy dispatched");
   });
 }

@@ -7,9 +7,12 @@ import re
 import uuid
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from typing import Literal
 
-from .agents import AgentProtocolError, ask_with_team
+from pydantic import BaseModel, ConfigDict, Field
+
+from .agent_errors import AgentContractError
+from .agents import AgentProtocolError, ask_with_team_detailed
 from .config import settings
 from .team_runtime import AgentEngineProviderError, AgentEngineProtocolError
 from .tenant_context import tenant_scope
@@ -26,7 +29,24 @@ class OperatorQuestion(BaseModel):
 
 
 class OperatorAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     answer: str
+    operationId: str
+    traceId: str
+    activity: list["SafeToolActivity"]
+
+
+class SafeToolActivity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sequence: int = Field(ge=1)
+    toolName: str = Field(pattern=r"^[a-z]+(?:_[a-z]+)+$", max_length=80)
+    status: Literal["succeeded", "failed"]
+    publicMessage: str = Field(min_length=1, max_length=500)
+    code: str | None = Field(default=None, pattern=r"^[a-z0-9_]+$", max_length=80)
+    category: Literal["validation", "authorization", "not_found", "dependency", "provider_permanent"] | None = None
+    retryable: bool | None = None
 
 
 @router.post("/internal/agent/ask", response_model=OperatorAnswer)
@@ -38,6 +58,7 @@ async def operator_ask(payload: OperatorQuestion, request: Request) -> OperatorA
     brand_id = _required_id(request, "x-brand-id")
     user_id = _required_id(request, "x-user-id")
     ask_id = uuid.uuid4().hex[:12]
+    trace_id = uuid.uuid4().hex
     invocation = InvocationContext(
         job_id=f"ask-{ask_id}",
         workspace_id=workspace_id,
@@ -48,14 +69,25 @@ async def operator_ask(payload: OperatorQuestion, request: Request) -> OperatorA
     )
     try:
         with tenant_scope(workspace_id, brand_id):
-            answer = await ask_with_team(
+            answer, activity = await ask_with_team_detailed(
                 payload.question, invocation=invocation,
             )
+    except AgentContractError as exc:
+        raise HTTPException(status_code=502, detail={
+            "code": exc.code, "category": "protocol", "message": exc.public_message,
+            "retryable": False, "role": exc.role, **({"path": exc.path} if exc.path else {}),
+        }) from exc
     except (AgentProtocolError, AgentEngineProtocolError) as exc:
-        raise HTTPException(status_code=502, detail=f"liaison protocol failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail={
+            "code": "liaison_protocol_failed", "category": "protocol",
+            "message": "Nova returned a response that did not satisfy its contract.", "retryable": False,
+        }) from exc
     except AgentEngineProviderError as exc:
-        raise HTTPException(status_code=502, detail=f"Agent Engine unavailable: {exc}") from exc
-    return OperatorAnswer(answer=answer)
+        raise HTTPException(status_code=502, detail={
+            "code": "agent_engine_unavailable", "category": "dependency",
+            "message": "The agent service is temporarily unavailable.", "retryable": True,
+        }) from exc
+    return OperatorAnswer(answer=answer, operationId=invocation.operation_id, traceId=trace_id, activity=activity)
 
 
 def _required_id(request: Request, header: str) -> str:

@@ -17,7 +17,11 @@ export async function POST(req: Request) {
       const message = error instanceof Error ? error.message : String(error);
       return Response.json({ error: message }, { status: 409 });
     }
-    await appendEvent(body.jobId, "strategize", `Ryan strategy v${body.revision} awaiting digest-bound approval`, "agent");
+    const message = `Ryan strategy v${body.revision} awaiting digest-bound approval`;
+    await appendEvent(body.jobId, "strategize", message, "agent", { activity: {
+      kind: "handoff", status: "succeeded", role: "ryan_strategist",
+      fromRole: "ryan_strategist", toRole: "coordinator_system", publicMessage: message,
+    } });
     await createNotification({
       kind: "approval_needed", title: "Strategy approval needed",
       body: `${job.ingestedTitle ?? body.jobId} has a four-week strategy proposal waiting for review.`,

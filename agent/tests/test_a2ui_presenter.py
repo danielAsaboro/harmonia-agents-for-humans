@@ -8,6 +8,7 @@ from harmonia_agent.a2ui_models import UiContext
 from harmonia_agent.a2ui_presenter import plan_surface, validate_surface_plan
 from harmonia_agent.a2ui_models import SurfacePlan
 from harmonia_agent.agents import AgentProtocolError
+from harmonia_agent.agent_errors import AgentContractError
 from harmonia_agent.usage import InvocationContext
 
 
@@ -111,7 +112,7 @@ def test_plan_surface_uses_managed_runtime_and_validates_output() -> None:
 def test_plan_surface_rejects_invalid_managed_output() -> None:
     runtime = FakeTeamRuntime({"surface_plan": {"version": "harmonia.ui/v1", "surfaces": []}})
 
-    with pytest.raises(AgentProtocolError, match="invalid agent output"):
+    with pytest.raises(AgentContractError, match="Maya returned output"):
         asyncio.run(
             plan_surface(
                 context_fixture(),

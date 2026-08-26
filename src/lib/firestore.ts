@@ -43,6 +43,7 @@ import { connectionEnvelopeKey, decryptSecret, encryptSecret, type SecretEnvelop
 import { claimStageExecution as decideStageClaim, finalizeStageExecution, type StageExecution, type StageClaimResult } from "./stageExecutions";
 import { decideConnectionRefresh, type ConnectionRefreshState } from "./connectionRefresh";
 import { deleteArtifactUri, deleteWorkspaceArtifactUri } from "./storage";
+import { agentActivitySchema } from "./contracts";
 import { deletionTombstone, retentionDeadline, type DeletionPlan, type WorkspaceDeletionPlan } from "./lifecycle";
 import { decideTickClaim, type TickClaimState } from "./tickClaims";
 import {
@@ -2005,8 +2006,9 @@ export async function appendEvent(
   stage: Stage,
   message: string,
   actor: StageEvent["actor"],
-  metadata: { operationId?: string; traceId?: string; pubsubMessageId?: string } = {},
+  metadata: { operationId?: string; traceId?: string; pubsubMessageId?: string; activity?: StageEvent["activity"] } = {},
 ): Promise<void> {
+  const activity = metadata.activity ? agentActivitySchema.parse(metadata.activity) : undefined;
   const id = newId();
   const traceId = metadata.traceId ?? currentTraceId();
   const operationId = metadata.operationId ?? `${jobId}:${stage}:${id}`;
@@ -2014,6 +2016,7 @@ export async function appendEvent(
     operationId,
     traceId,
     ...(metadata.pubsubMessageId ? { pubsubMessageId: metadata.pubsubMessageId } : {}),
+    ...(activity ? { activity } : {}),
   };
   await jobRef(jobId)
     .collection(EVENTS)
@@ -2042,6 +2045,7 @@ export interface EventLogEntry {
   operationId: string;
   traceId: string;
   pubsubMessageId?: string;
+  activity?: StageEvent["activity"];
 }
 
 export async function listEventLog(limit = 300): Promise<EventLogEntry[]> {
@@ -2061,6 +2065,7 @@ export async function listEventLog(limit = 300): Promise<EventLogEntry[]> {
       operationId: data.operationId,
       traceId: data.traceId,
       ...(data.pubsubMessageId ? { pubsubMessageId: data.pubsubMessageId } : {}),
+      ...(data.activity ? { activity: data.activity } : {}),
     };
   });
 }
@@ -2086,6 +2091,7 @@ export async function listEvents(
       operationId: data.operationId,
       traceId: data.traceId,
       ...(data.pubsubMessageId ? { pubsubMessageId: data.pubsubMessageId } : {}),
+      ...(data.activity ? { activity: data.activity } : {}),
     };
   });
 }

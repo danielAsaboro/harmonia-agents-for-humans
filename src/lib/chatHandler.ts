@@ -446,10 +446,28 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
     default: {
       if (!isMockAi()) {
         try {
-          const answer = await requestAgentAnswer(message);
+          const result = await requestAgentAnswer(message);
+          const askJobId = result.operationId;
+          for (const item of result.activity) {
+            await appendEvent(askJobId, "learn", item.publicMessage, "agent", {
+              operationId: result.operationId,
+              traceId: result.traceId,
+              activity: {
+                kind: "tool_call",
+                status: item.status,
+                role: "nova_liaison",
+                toolName: item.toolName,
+                publicMessage: item.publicMessage,
+                ...(item.code ? { code: item.code } : {}),
+                ...(item.category ? { category: item.category } : {}),
+                ...(item.retryable === undefined ? {} : { retryable: item.retryable }),
+                attempt: item.sequence,
+              },
+            });
+          }
           return { payload: {
             intent: "agent",
-            reply: answer,
+            reply: result.answer,
           } satisfies ChatResponse };
         } catch (error) {
           console.error("agent ask failed; falling back to guidance", error);

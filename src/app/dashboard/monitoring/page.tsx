@@ -6,9 +6,11 @@ import LogsView from "@/components/monitoring/LogsView";
 import JobsTableView from "@/components/monitoring/JobsTableView";
 import AssetsGallery from "@/components/monitoring/AssetsGallery";
 import ReceiptsLedger from "@/components/monitoring/ReceiptsLedger";
+import AgentActivityView from "@/components/monitoring/AgentActivityView";
 
 const TABS = [
   { key: "overview", label: "Overview" },
+  { key: "agents", label: "Agents" },
   { key: "logs", label: "Logs" },
   { key: "jobs", label: "Jobs" },
   { key: "assets", label: "Assets" },
@@ -26,7 +28,7 @@ export default function MonitoringPage() {
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Monitoring</h1>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Pipeline health, searchable logs, jobs, generated assets, and the audit ledger.
+            Pipeline health, agent handoffs, tool calls, jobs, generated assets, and the audit ledger.
           </p>
         </div>
         <nav className="flex gap-1 rounded-full border border-zinc-200 p-1 text-xs dark:border-zinc-800">
@@ -47,6 +49,7 @@ export default function MonitoringPage() {
       </div>
 
       {tab === "overview" && <MonitoringView />}
+      {tab === "agents" && <AgentActivityView />}
       {tab === "logs" && <LogsView />}
       {tab === "jobs" && <JobsTableView />}
       {tab === "assets" && <AssetsGallery />}

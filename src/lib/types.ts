@@ -477,6 +477,7 @@ export interface StageEvent {
   operationId: string;
   traceId: string;
   pubsubMessageId?: string;
+  activity?: import("./contracts").AgentActivity;
 }
 
 export interface Observation {

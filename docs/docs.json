@@ -9,64 +9,53 @@
   },
   "favicon": "/favicon.svg",
   "navigation": {
-    "groups": [
+    "tabs": [
       {
-        "group": "Overview",
-        "pages": [
-          "index",
-          "architecture",
-          "architecture-explorer"
+        "tab": "Documentation",
+        "icon": "book-open",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": ["index", "architecture", "architecture-explorer"]
+          },
+          {
+            "group": "Getting Started",
+            "pages": ["quickstart", "development"]
+          },
+          {
+            "group": "Product",
+            "pages": ["pipeline", "proactive-agent", "a2ui-console", "approval-and-audit", "interfaces"]
+          },
+          {
+            "group": "Agent Platform",
+            "pages": ["agent-platform", "session-memory", "models-cost-evaluation", "tool-contracts"]
+          },
+          {
+            "group": "Reliability",
+            "pages": ["operational-model", "failure-recovery", "state-ownership", "observability"]
+          },
+          {
+            "group": "Integrations",
+            "pages": ["google-calendar", "google-calendar-reference"]
+          },
+          {
+            "group": "Operations",
+            "pages": ["configuration", "deployment", "cloud-proof", "evidence-runbook"]
+          }
         ]
       },
       {
-        "group": "Getting Started",
+        "tab": "Agents",
+        "icon": "people-group",
         "pages": [
-          "quickstart",
-          "development"
-        ]
-      },
-      {
-        "group": "Product",
-        "pages": [
-          "pipeline",
-          "proactive-agent",
-          "a2ui-console",
-          "approval-and-audit",
-          "interfaces"
-        ]
-      },
-      {
-        "group": "Agent Platform",
-        "pages": [
-          "agent-platform",
-          "session-memory",
-          "models-cost-evaluation",
-          "tool-contracts"
-        ]
-      },
-      {
-        "group": "Reliability",
-        "pages": [
-          "operational-model",
-          "failure-recovery",
-          "state-ownership",
-          "observability"
-        ]
-      },
-      {
-        "group": "Integrations",
-        "pages": [
-          "google-calendar",
-          "google-calendar-reference"
-        ]
-      },
-      {
-        "group": "Operations",
-        "pages": [
-          "configuration",
-          "deployment",
-          "cloud-proof",
-          "evidence-runbook"
+          "agents/overview",
+          "agents/nimi",
+          "agents/ryan",
+          "agents/temi",
+          "agents/noni",
+          "agents/dara",
+          "agents/maya",
+          "agents/nova"
         ]
       }
     ]

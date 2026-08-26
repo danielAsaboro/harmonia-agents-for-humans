@@ -16,6 +16,18 @@ interface AgentAskOptions {
   timeoutMs?: number;
 }
 
+export interface AgentToolActivity {
+  sequence: number;
+  toolName: string;
+  status: "succeeded" | "failed";
+  publicMessage: string;
+  code?: string;
+  category?: "validation" | "authorization" | "not_found" | "dependency" | "provider_permanent";
+  retryable?: boolean;
+}
+
+export interface AgentAskResult { answer: string; operationId: string; traceId: string; activity: AgentToolActivity[] }
+
 function normalizedBaseUrl(value: string): string {
   const url = new URL(value);
   if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -42,6 +54,12 @@ function errorDetail(value: unknown, status: number): string {
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
     if (typeof record.detail === "string") return record.detail;
+    if (record.detail && typeof record.detail === "object") {
+      const detail = record.detail as Record<string, unknown>;
+      if (typeof detail.message === "string" && typeof detail.code === "string") {
+        return `${detail.message} [${detail.code}]`;
+      }
+    }
     if (typeof record.error === "string") return record.error;
   }
   return `insight agent failed (${status})`;
@@ -55,7 +73,7 @@ function errorDetail(value: unknown, status: number): string {
 export async function requestAgentAnswer(
   question: string,
   options: AgentAskOptions = {},
-): Promise<string> {
+): Promise<AgentAskResult> {
   const config = options.baseUrl && options.token ? null : getConfig();
   const baseUrl = normalizedBaseUrl(options.baseUrl ?? config?.AGENT_SERVICE_URL ?? "");
   const token = options.token ?? config?.INTERNAL_API_TOKEN ?? "";
@@ -85,13 +103,16 @@ export async function requestAgentAnswer(
         ? await fetch(url, init)
         : await cloudRunFetch(url, init, baseUrl);
     const data = (await response.json().catch(() => null)) as
-      | { answer?: unknown; detail?: string; error?: string }
+      | { answer?: unknown; operationId?: unknown; traceId?: unknown; activity?: unknown; detail?: string; error?: string }
       | null;
     if (!response.ok) throw new Error(errorDetail(data, response.status));
     if (!data || typeof data.answer !== "string" || !data.answer.trim()) {
       throw new Error("insight agent returned no answer");
     }
-    return data.answer.trim();
+    if (typeof data.operationId !== "string" || typeof data.traceId !== "string" || !Array.isArray(data.activity)) {
+      throw new Error("insight agent returned no activity contract");
+    }
+    return { answer: data.answer.trim(), operationId: data.operationId, traceId: data.traceId, activity: data.activity as AgentToolActivity[] };
   } finally {
     clearTimeout(timer);
   }

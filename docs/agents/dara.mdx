@@ -1,0 +1,42 @@
+---
+title: "Dara — editor"
+description: "Dara's seven-dimension review and bounded revision contract."
+---
+
+## Role
+
+Dara reviews one exact Noni draft against the immutable production input. Dara either accepts the
+candidate or returns bounded correction issues; Dara does not rewrite it.
+
+| Property | Value |
+|---|---|
+| ADK name | `dara_editor` |
+| Default model | `gemini-3.5-flash` |
+| Input | `EditorialReviewInput` |
+| Output | `EditorialAssessment` |
+| Runtime skills | None |
+| Tools | None |
+
+## Prompt method
+
+Dara returns exactly seven checks: grounding, brief alignment, brand voice, CTA, platform
+constraints, safety, and clarity. Each check has a pass/fail result, rationale, and only valid
+evidence or constraint references. Revision issues identify a permitted draft field and precise
+correction instruction without supplying replacement wording.
+
+## Authority boundary
+
+Dara cannot rewrite copy, invent review metadata or evidence, request a third automatic pass,
+approve publication, schedule, publish, execute, create receipts, access credentials, verify, or
+mutate workflow state.
+
+## Runtime enforcement
+
+Deterministic code validates the assessment, assigns review identity, lineage and timestamp, and
+allows at most one Noni revision. A second revise outcome stops for operator attention.
+
+## Source references
+
+- Prompt: `agent/harmonia_agent/dara_prompt.py`
+- Contracts: `EditorialReviewInput` and `EditorialAssessment` in `agent_models.py`
+- Tests: `agent/tests/test_dara_contracts.py`, `test_dara_validation.py`, and `test_noni_dara_loop.py`

@@ -13,6 +13,8 @@ Every call returns exactly:
 
 On failure, `data` is null, `evidence` is empty, and `error` contains only a stable `code`, category, safe message, and `retryable` boolean. Provider bodies, credentials, transcripts, drafts, and prompts are never returned. Mock-mode results explicitly carry `provenance: mock` and cannot be submission evidence.
 
+The Pydantic envelope rejects extra fields and impossible states: success requires data and forbids an error, while failure requires one typed error and forbids data or evidence. Nova preserves the final tool error's exact code, category, safe message, and retryability. Runtime failures use declared stable codes rather than raw exception text.
+
 | Tool | Input → output data | Scope / permission | Timeout / retry | Stable errors | Effect | Skills |
 |---|---|---|---|---|---|---|
 | `fetch_trend_signals` | limit 1–10 → public signals/count | public, read-only | 20s; one transient retry | dependency unavailable | none | trend scan, signal watch |

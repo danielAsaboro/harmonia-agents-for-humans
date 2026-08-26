@@ -1,0 +1,46 @@
+---
+title: "Nimi — evidence analyst"
+description: "Nimi's source-analysis contract, evidence method, and authority boundary."
+---
+
+## Role
+
+Nimi turns one typed source package into grounded moments and defensible angles for Ryan. Nimi
+analyzes supplied transcript segments, bounded frame evidence, verified performance observations,
+and eligible Memory Bank facts without defining strategy or writing copy.
+
+| Property | Value |
+|---|---|
+| ADK name | `nimi_analyst` |
+| Default model | `gemini-3.5-flash` |
+| Input | `AnalystInput` |
+| Output | `SourceAnalysis` |
+| Runtime skills | None |
+| Tools | None |
+
+## Prompt method
+
+The prompt establishes a closed evidence hierarchy: transcript segments and supplied frames are
+primary source evidence; verified performance and eligible memory are advisory and retain distinct
+provenance. Exact quotes must occur in cited segments, timestamps must remain in bounds, and visible
+facts require supplied frame IDs. Evidence kinds cannot be mixed.
+
+Weak evidence becomes an explicit assumption with lower confidence. Nimi cannot invent trends,
+speaker identity, customer outcomes, or unseen visuals.
+
+## Authority boundary
+
+Nimi cannot define objectives, positioning, pillars, campaigns, channels, cadence, KPIs, briefs,
+final copy, CTAs, approvals, schedules, publishing actions, receipts, or verification claims.
+
+## Runtime enforcement
+
+Deterministic validation checks transcript support, media bounds, reference existence, evidence-kind
+compatibility, confidence, authority overreach, canonical digesting, persistence, and the exact Ryan
+handoff.
+
+## Source references
+
+- Prompt: `agent/harmonia_agent/nimi_prompt.py`
+- Contracts: `AnalystInput` and `SourceAnalysis` in `agent_models.py`
+- Tests: `agent/tests/test_nimi_contracts.py` and `test_nimi_validation.py`

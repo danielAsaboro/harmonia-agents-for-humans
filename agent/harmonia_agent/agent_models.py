@@ -8,7 +8,7 @@ from typing import Annotated, Any, Callable, Literal
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, field_validator, model_validator
 
 
 class StrictModel(BaseModel):
@@ -1011,7 +1011,9 @@ class LiaisonClaim(StrictModel):
 
 class LiaisonError(StrictModel):
     code: StrictIdentifier
+    category: Literal["validation", "authorization", "not_found", "dependency", "provider_permanent"]
     message: StrictStr = Field(min_length=1, max_length=500)
+    retryable: StrictBool
 
 
 class LiaisonAnswer(StrictModel):

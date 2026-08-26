@@ -11,7 +11,11 @@ export async function POST(req: Request) {
     const digest = editorialPlanDigest(body.plan);
     try {
       const accepted = await acceptEditorialPlan(body.jobId, body.plan, body.revision);
-      await appendEvent(body.jobId, "plan", `Temi editorial plan ${digest} persisted; selected ${accepted.selectedNextItemId}`, "agent");
+      const message = `Temi editorial plan ${digest} persisted; selected ${accepted.selectedNextItemId}`;
+      await appendEvent(body.jobId, "plan", message, "agent", { activity: {
+        kind: "handoff", status: "succeeded", role: "temi_editorial_planner",
+        fromRole: "temi_editorial_planner", toRole: "noni_copywriter", publicMessage: message,
+      } });
       try { await dispatchStageOutboxRecord(accepted.outboxId); } catch { /* durable tick retries */ }
       return Response.json({ ok: true, digest, selectedNextItemId: accepted.selectedNextItemId, triggered: "draft" });
     } catch (error) {

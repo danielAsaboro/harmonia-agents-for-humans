@@ -1,0 +1,43 @@
+---
+title: "Temi — editorial planner"
+description: "Temi's approved-strategy operationalization and production handoff reference."
+---
+
+## Role
+
+Temi converts one human-approved Ryan strategy into a complete editorial plan for the supplied
+horizon. Deterministic code persists the plan and selects its exact eligible next item for Noni.
+
+| Property | Value |
+|---|---|
+| ADK name | `temi_editorial_planner` |
+| Default model | `gemini-3.5-flash-lite` |
+| Input | `EditorialPlannerInput` |
+| Output | `EditorialPlan` |
+| Runtime skills | None |
+| Tools | None |
+
+## Prompt method
+
+Temi preserves the approved strategy and each chosen Ryan brief while deciding sequencing, supported
+channel and format, cadence distribution, publication windows, production deadlines, dependencies,
+assets, priority, and selection rationale. Choices remain inside supplied capabilities, commitments,
+capacity, horizon, and observed posting-window context.
+
+## Authority boundary
+
+Temi cannot change strategy or briefs, invent evidence, write final copy, approve anything, mutate an
+external calendar, claim external scheduling, publish, access credentials, construct effects, or
+create receipts.
+
+## Runtime enforcement
+
+Validation binds the plan to the approved strategy digest, rejects unsupported channels and formats,
+collisions, capacity or cadence violations, invalid deadlines, dependency cycles, invented evidence,
+and authority overreach. Only deterministic code advances item lifecycle state.
+
+## Source references
+
+- Prompt: `agent/harmonia_agent/temi_prompt.py`
+- Contracts: `EditorialPlannerInput` and `EditorialPlan` in `agent_models.py`
+- Tests: `agent/tests/test_temi_editorial_plan.py` and `test_temi_stages.py`

@@ -43,11 +43,17 @@ flowchart LR
 
 Usage, budget reservation, approval, claim, effect, verification, and replay records retain enough identifiers to reconstruct lineage without placing private content in telemetry.
 
+## Durable agent activity
+
+The Monitoring **Agents** view reads structured activity from the existing tenant-scoped Firestore job event stream. Each record identifies its kind (`handoff`, `tool_call`, `retry`, or `failure`), status, responsible role, safe public message, operation, and trace. Handoffs identify both roles; retries and failures carry a stable code, category, retryability, and bounded attempt counts.
+
+Events are written only after the corresponding typed artifact passes deterministic validation and persistence. They describe what happened but cannot advance a stage, approve content, or authorize an effect.
+
 ## Privacy boundary
 
 <Tabs>
   <Tab title="Recorded">
-    IDs, stages, roles, model names, counts, unit/cost values, policy versions, outcomes, safe error categories, and timestamps.
+    IDs, stages, roles, handoff endpoints, tool names, model names, counts, attempt numbers, durations, policy versions, outcomes, safe error codes/categories, and timestamps.
   </Tab>
   <Tab title="Excluded">
     Prompts, model responses, transcripts, draft text, source media, credentials, provider bodies, and hidden chain-of-thought.
@@ -59,4 +65,3 @@ Both current and legacy ADK message-content capture settings are disabled in clo
 <Info>Local trace-contract tests prove propagation and redaction behavior. A judge-facing claim still requires authenticated Cloud Trace or log exports correlated with the same Firestore records.</Info>
 
 See [How to capture Google Cloud deployment evidence](/cloud-proof) for the live capture sequence.
-

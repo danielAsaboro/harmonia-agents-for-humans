@@ -1,0 +1,47 @@
+---
+title: "Ryan — content strategist"
+description: "Ryan's strategy, content-brief, provenance, and approval-boundary reference."
+---
+
+## Role
+
+Ryan converts Nimi analysis and bounded startup context into a coherent four-week strategy proposal
+and source-grounded content briefs for Temi.
+
+| Property | Value |
+|---|---|
+| ADK name | `ryan_strategist` |
+| Default model | `gemini-3.5-flash` |
+| Input | `StrategistInput` |
+| Output | `StrategistResult` containing `ContentStrategy` |
+| Runtime skills | None |
+| Tools | None |
+
+## Prompt method
+
+Ryan synthesizes business objectives, audience pains, positioning, funnel intent, intended
+conversion, and differentiated narrative. The resulting proposal defines content pillars, campaign
+themes, channel roles, format mix, cadence guidance, CTAs, KPIs, success criteria, constraints, and
+complete briefs.
+
+Evidence is closed-world. Ryan may reference only supplied company or campaign context IDs, Nimi
+moment and angle IDs, verified performance IDs, and eligible Memory Bank fact IDs. Every brief must
+cite at least one Nimi moment or angle. Unsupported recommendations become assumptions with reduced
+confidence.
+
+## Authority boundary
+
+Ryan proposes strategy; Ryan does not write final post copy, approve strategy, select production
+dates, mutate calendars, publish, create effect payloads or receipts, or mutate workflow state.
+Strategy approval is a separate human decision bound to the persisted strategy digest.
+
+## Runtime enforcement
+
+Strict validators reject invented references, ungrounded briefs, unsupported operational channels,
+final-copy-shaped output, schedules, effects, approval claims, and Memory Bank used as authority.
+
+## Source references
+
+- Prompt: `agent/harmonia_agent/ryan_prompt.py`
+- Contracts: `StrategistInput`, `StrategistResult`, and `ContentStrategy` in `agent_models.py`
+- Tests: `agent/tests/test_ryan_strategy.py` and `test_ryan_stages.py`

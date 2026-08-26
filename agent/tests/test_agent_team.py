@@ -41,6 +41,7 @@ from harmonia_agent.agents import (
     strategize_with_team,
     RoleModelInstances,
 )
+from harmonia_agent.agent_errors import AgentContractError
 from harmonia_agent.stages import classify_failure
 from harmonia_agent.tenant_context import tenant_scope
 from harmonia_agent.generation_policy import safety_settings
@@ -411,16 +412,16 @@ def test_missing_agent_state_is_a_permanent_protocol_failure():
 
 
 def test_liaison_must_return_grounded_answer_contract():
-    with pytest.raises(AgentProtocolError, match="no answer contract"):
+    with pytest.raises(AgentContractError, match="Nova returned output"):
         _validate_run_output("nova_liaison", LiaisonInput(question="what is pending?"), {})
-    with pytest.raises(AgentProtocolError, match="no answer contract"):
+    with pytest.raises(AgentContractError, match="Nova returned output"):
         _validate_run_output("nova_liaison", LiaisonInput(question="q"), {"liaison_answer": "   "})
     envelope = {"status": "success", "data": {"found": True}, "error": None,
-                "evidence": [{"evidenceId": "ev-job", "source": "harmonia_firestore_job", "provenance": "live"}]}
+                "evidence": [{"evidenceId": "ev-aaaaaaaaaaaaaaaa", "source": "harmonia_firestore_job", "provenance": "live"}]}
     _validate_run_output(
         "nova_liaison",
         LiaisonInput(question="q"),
-        {"liaison_answer": '{"status":"success","answer":"Job exists [ev-job].","skillName":"job-status","claims":[{"text":"Job exists","evidenceIds":["ev-job"]}],"error":null,"uncertainty":[]}',
+        {"liaison_answer": '{"status":"success","answer":"Job exists [ev-aaaaaaaaaaaaaaaa].","skillName":"job-status","claims":[{"text":"Job exists","evidenceIds":["ev-aaaaaaaaaaaaaaaa"]}],"error":null,"uncertainty":[]}',
          "liaison_tool_trace": [
              {"sequence": 1, "name": "load_skill", "args": {"skill_name": "job-status"}, "response": {}},
              {"sequence": 2, "name": "get_job_status", "args": {"job_id": "job-1"}, "response": envelope},
@@ -432,7 +433,7 @@ def test_temi_run_output_rejects_an_unknown_brief():
     supplied = EditorialPlannerInput.model_validate(_planner_input())
     invalid = _temi_plan()
     invalid["items"][0]["briefId"] = "brief-invented"
-    with pytest.raises(AgentProtocolError, match="unknown brief"):
+    with pytest.raises(AgentContractError, match="Temi returned output"):
         _validate_run_output(
             "temi_editorial_planner", supplied, {"editorial_plan": invalid},
         )

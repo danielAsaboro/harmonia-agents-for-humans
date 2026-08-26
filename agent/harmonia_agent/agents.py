@@ -36,6 +36,7 @@ from .agent_models import (
     StrategistResult,
 )
 from .a2ui_models import SurfacePlan, UiContext
+from .agent_errors import AgentContractError
 from .config import settings
 from .gemma_model import VertexGemmaModel
 from .generation_policy import generation_config
@@ -1452,7 +1453,7 @@ def _validated_liaison_state(state: dict[str, Any]) -> LiaisonAnswer:
         raise AgentProtocolError(f"invalid liaison output: {exc}") from exc
 
 
-def _validate_run_output(
+def _validate_run_output_unwrapped(
     specialist: str, payload: BaseModel, state: dict[str, Any],
 ) -> None:
     if specialist == "maya_presenter":
@@ -1489,6 +1490,31 @@ def _validate_run_output(
         )
         return
     raise AgentProtocolError(f"unsupported specialist output: {specialist}")
+
+
+_AGENT_DISPLAY_NAMES = {
+    "nimi_analyst": "Nimi", "ryan_strategist": "Ryan",
+    "temi_editorial_planner": "Temi", "noni_copywriter": "Noni",
+    "dara_editor": "Dara", "maya_presenter": "Maya", "nova_liaison": "Nova",
+}
+
+
+def _validate_run_output(
+    specialist: str, payload: BaseModel, state: dict[str, Any],
+) -> None:
+    """Expose one stable safe error while retaining the causal validator exception."""
+    try:
+        _validate_run_output_unwrapped(specialist, payload, state)
+    except AgentContractError:
+        raise
+    except (AgentProtocolError, ValidationError, ValueError, KeyError) as exc:
+        display = _AGENT_DISPLAY_NAMES.get(specialist, "Agent")
+        raise AgentContractError(
+            role=specialist,
+            code="invalid_agent_output",
+            public_message=f"{display} returned output that did not satisfy its contract.",
+            path="output",
+        ) from exc
 
 
 async def _run_coordinator(
@@ -2055,3 +2081,29 @@ async def ask_with_team(
         return mock_ask(input.question)
     state = await _run_coordinator("nova_liaison", input, invocation=invocation)
     return _validated_liaison_state(state).answer
+
+
+async def ask_with_team_detailed(
+    question: str, *, invocation: InvocationContext | None = None,
+) -> tuple[str, list[dict[str, Any]]]:
+    """Return Nova's answer plus content-free activity derived from its validated trace."""
+    input = LiaisonInput(question=question)
+    if mock_ai_enabled():
+        return mock_ask(input.question), []
+    state = await _run_coordinator("nova_liaison", input, invocation=invocation)
+    answer = _validated_liaison_state(state)
+    trace = state.get(LIAISON_TRACE_KEY) or []
+    activity: list[dict[str, Any]] = []
+    for entry in trace:
+        name = str(entry.get("name") or "unknown_tool")
+        response = entry.get("response") or {}
+        envelope_error = response.get("error") or {}
+        activity.append({
+            "sequence": int(entry.get("sequence") or len(activity) + 1),
+            "toolName": name,
+            "status": "failed" if response.get("status") == "error" else "succeeded",
+            **({"code": envelope_error.get("code"), "category": envelope_error.get("category"),
+                "publicMessage": envelope_error.get("message"), "retryable": envelope_error.get("retryable")}
+               if response.get("status") == "error" else {"publicMessage": f"{name} completed."}),
+        })
+    return answer.answer, activity

@@ -1,0 +1,45 @@
+---
+title: "Noni — copywriter"
+description: "Noni's selected-item writing, claim-grounding, and revision contract."
+---
+
+## Role
+
+Noni writes exactly one platform-native candidate from the deterministically selected Temi item, its
+exact Ryan brief, and only the referenced Nimi evidence.
+
+| Property | Value |
+|---|---|
+| ADK name | `noni_copywriter` |
+| Default model | `gemma-3-12b-it` on the configured Vertex endpoint; explicit Gemini development fallback only when configured |
+| Input | `CopywriterInput` |
+| Output | `ContentDraft` |
+| Runtime skills | None |
+| Tools | None |
+
+## Prompt method
+
+Noni locks to the selected item and brief, builds a closed-world claim ledger from supplied Nimi
+evidence, writes one X candidate of at most 280 characters, maps each factual claim to evidence IDs,
+and preserves the exact CTA intent and intended conversion. Creative assumptions use a deliberately
+bounded grammar and cannot hide factual assertions.
+
+On revision, Noni changes only what Dara requested, retains immutable lineage, links the prior draft,
+and identifies every addressed issue.
+
+## Authority boundary
+
+Noni cannot inspect or choose another plan item, create strategy, invent facts or capabilities,
+approve, schedule, publish, construct effects, create receipts, access credentials, verify results,
+or mutate workflow state.
+
+## Runtime enforcement
+
+Validation checks lineage, item and brief alignment, platform limits, CTA behavior, exact evidence
+support, assumptions, URLs, authority, and issue-bound revision completeness.
+
+## Source references
+
+- Prompt: `agent/harmonia_agent/noni_prompt.py`
+- Contracts: `CopywriterInput` and `ContentDraft` in `agent_models.py`
+- Tests: `agent/tests/test_noni_contracts.py` and `test_noni_dara_loop.py`

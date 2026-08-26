@@ -55,6 +55,8 @@ flowchart LR
 
 <Warning>Agent state, chat history, and Memory Bank are context—not authorization. Only durable policy, approval, claim, receipt, and verification records control effects.</Warning>
 
+Invalid specialist output crosses the coordinator boundary as a structured `AgentContractError` with a role, stable code, safe operator message, and optional schema path. The failure pipeline retains these fields in its typed envelope and durable activity event; model output and validation payloads never become operator-facing error text.
+
 ## Versioned ADK skills
 
 Nova loads exactly one skill before any data tool. The runtime records the real

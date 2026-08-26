@@ -10,7 +10,7 @@ from harmonia_agent.nova_liaison import validate_liaison_answer
 def envelope(*, status="success", retryable=False):
     if status == "success":
         return {"status": "success", "data": {"found": True}, "error": None,
-                "evidence": [{"evidenceId": "ev-job", "source": "harmonia_firestore_job", "provenance": "live", "reference": "job-1"}]}
+                "evidence": [{"evidenceId": "ev-aaaaaaaaaaaaaaaa", "source": "harmonia_firestore_job", "provenance": "live", "reference": "job-1"}]}
     return {"status": "error", "data": None,
             "error": {"code": "dependency_unavailable", "category": "dependency", "message": "Unavailable.", "retryable": retryable}, "evidence": []}
 
@@ -23,8 +23,8 @@ def trace(response=None):
 
 
 def answer():
-    return {"status": "success", "answer": "Job job-1 is available [ev-job].", "skillName": "job-status",
-            "claims": [{"text": "Job job-1 is available", "evidenceIds": ["ev-job"]}],
+    return {"status": "success", "answer": "Job job-1 is available [ev-aaaaaaaaaaaaaaaa].", "skillName": "job-status",
+            "claims": [{"text": "Job job-1 is available", "evidenceIds": ["ev-aaaaaaaaaaaaaaaa"]}],
             "error": None, "uncertainty": []}
 
 
@@ -43,7 +43,7 @@ def test_answer_requires_complete_strict_contract(field):
     (lambda value, calls: value["claims"][0].update(evidenceIds=["invented"]), "unknown evidence"),
     (lambda value, calls: calls.pop(0), "load exactly one skill first"),
     (lambda value, calls: calls[1].update(name="fetch_trend_signals"), "not allowed by skill"),
-    (lambda value, calls: value.update(answer="I approved and published it [ev-job]."), "authority"),
+    (lambda value, calls: value.update(answer="I approved and published it [ev-aaaaaaaaaaaaaaaa]."), "authority"),
 ])
 def test_rejects_invented_evidence_wrong_trajectory_and_authority(mutation, message):
     value, calls = answer(), trace(); mutation(value, calls)
@@ -54,7 +54,7 @@ def test_rejects_invented_evidence_wrong_trajectory_and_authority(mutation, mess
 def test_error_answer_must_report_exact_last_error_and_retry_policy():
     calls = trace(envelope(status="error", retryable=False))
     value = {"status": "error", "answer": "Read failed: dependency_unavailable.", "skillName": "job-status",
-             "claims": [], "error": {"code": "dependency_unavailable", "message": "Unavailable."}, "uncertainty": []}
+             "claims": [], "error": {"code": "dependency_unavailable", "category": "dependency", "message": "Unavailable.", "retryable": False}, "uncertainty": []}
     assert validate_liaison_answer(LiaisonAnswer.model_validate(value), calls).status == "error"
     calls.append({**calls[-1], "sequence": 3})
     with pytest.raises(ValueError, match="retry"):

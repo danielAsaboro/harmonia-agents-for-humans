@@ -757,6 +757,42 @@ export const failureSubmissionSchema = z.object({
   }),
 }).strict();
 
+export const agentActivitySchema = z.object({
+  kind: z.enum(["handoff", "tool_call", "retry", "failure"]),
+  status: z.enum(["succeeded", "retrying", "failed"]),
+  role: z.enum([
+    "nimi_analyst", "ryan_strategist", "temi_editorial_planner",
+    "noni_copywriter", "dara_editor", "maya_trend_researcher", "nova_liaison", "coordinator_system",
+  ]),
+  fromRole: z.string().min(1).max(80).optional(),
+  toRole: z.string().min(1).max(80).optional(),
+  code: z.string().regex(/^[a-z0-9_]+$/).max(80).optional(),
+  category: z.enum([
+    "validation", "authorization", "policy", "budget", "provider_transient",
+    "provider_permanent", "dependency", "protocol", "not_found",
+  ]).optional(),
+  publicMessage: z.string().min(1).max(240),
+  path: z.string().min(1).max(240).optional(),
+  retryable: z.boolean().optional(),
+  attempt: z.number().int().nonnegative().optional(),
+  maxAttempts: z.number().int().positive().max(10).optional(),
+  skillName: z.string().min(1).max(100).optional(),
+  toolName: z.string().min(1).max(100).optional(),
+  durationMs: z.number().int().nonnegative().optional(),
+}).strict().superRefine((activity, ctx) => {
+  if (activity.kind === "handoff" && (!activity.fromRole || !activity.toRole)) {
+    ctx.addIssue({ code: "custom", message: "handoff requires fromRole and toRole" });
+  }
+  if ((activity.kind === "failure" || activity.kind === "retry") && (!activity.code || !activity.category)) {
+    ctx.addIssue({ code: "custom", message: "failure activity requires code and category" });
+  }
+  if (activity.kind === "tool_call" && !activity.toolName) {
+    ctx.addIssue({ code: "custom", message: "tool activity requires toolName" });
+  }
+});
+
+export type AgentActivity = z.infer<typeof agentActivitySchema>;
+
 export const draftsSubmissionSchema = z.discriminatedUnion("operation", [
   draftClaimSubmissionSchema, draftCompletionSubmissionSchema,
 ]);

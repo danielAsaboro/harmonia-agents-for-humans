@@ -9,6 +9,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .agents import AgentProtocolError
+from .agent_errors import AgentContractError
 from .gemma_model import GemmaProtocolError
 from .generative_media import MediaProtocolError, MediaProviderError
 from .memory_bank import MemoryProtocolError, MemoryProviderError
@@ -70,6 +71,8 @@ def _status(exc: Exception) -> int | None:
 
 def _classification(exc: Exception) -> tuple[FailureCategory, str, bool]:
     status = _status(exc)
+    if isinstance(exc, AgentContractError):
+        return FailureCategory.PROTOCOL, exc.code, False
     if isinstance(exc, EffectClaimInProgress):
         return FailureCategory.DEPENDENCY, "effect_claim_in_progress", True
     if isinstance(exc, EffectClaimUncertain):
@@ -122,6 +125,10 @@ def normalize_failure(
         }
     effective_retryable = retryable and attempt + 1 < max_attempts
     safe_details: dict[str, str | int | bool] = {"exceptionType": type(exc).__name__}
+    if isinstance(exc, AgentContractError):
+        safe_details["role"] = exc.role
+        if exc.path:
+            safe_details["path"] = exc.path
     status = _status(exc)
     if status is not None:
         safe_details["status"] = status
@@ -131,10 +138,14 @@ def normalize_failure(
             continue
         if isinstance(value, (str, int, bool)):
             safe_details[key] = value
+    public_message = (
+        exc.public_message if isinstance(exc, AgentContractError)
+        else PUBLIC_MESSAGES[resolved_category]
+    )
     return FailureEnvelope(
         category=resolved_category,
         code=code or inferred_code,
-        public_message=PUBLIC_MESSAGES[resolved_category],
+        public_message=public_message,
         retryable=effective_retryable,
         stage=stage,
         operation_id=operation_id,

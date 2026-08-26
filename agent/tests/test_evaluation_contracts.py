@@ -67,12 +67,12 @@ def test_liaison_evaluation_requires_exact_tool_and_evidence_citation():
         {"sequence": 1, "name": "load_skill", "args": {"skill_name": "job-status"}, "response": {"loaded": "job-status"}},
         {"sequence": 2, "name": "get_job_status", "args": {"job_id": "j1"}, "response": {
             "status": "success", "data": {"found": True}, "error": None,
-            "evidence": [{"evidenceId": "ev-job", "source": "harmonia_firestore_job", "provenance": "live", "reference": "j1"}],
+            "evidence": [{"evidenceId": "ev-aaaaaaaaaaaaaaaa", "source": "harmonia_firestore_job", "provenance": "live", "reference": "j1"}],
         }},
     ]
     passing = evaluate_liaison_answer(answer={
-        "status": "success", "answer": "Job j1 is active [ev-job].", "skillName": "job-status",
-        "claims": [{"text": "Job j1 is active", "evidenceIds": ["ev-job"]}], "error": None, "uncertainty": [],
+        "status": "success", "answer": "Job j1 is active [ev-aaaaaaaaaaaaaaaa].", "skillName": "job-status",
+        "claims": [{"text": "Job j1 is active", "evidenceIds": ["ev-aaaaaaaaaaaaaaaa"]}], "error": None, "uncertainty": [],
     }, trace=trace)
     assert passing.passed
     bad_answer = {"status": "success", "answer": "I approved and published it [invented].", "skillName": "job-status",

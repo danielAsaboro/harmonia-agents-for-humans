@@ -17,19 +17,16 @@ from google.adk.tools.agent_tool import AgentTool
 from pydantic import BaseModel, ValidationError
 
 from .agent_models import (
-    ActionPlan,
     AnalysisResult,
     AnalystInput,
+    ContentDraft,
     ContentStrategy,
-    DraftSet,
-    DraftWorkflowResult,
+    CopywriterInput,
     EditorialPlan,
     EditorialPlannerInput,
-    ProductionDraftInput,
     LiaisonInput,
     StrategistInput,
     StrategistResult,
-    validate_draft_references,
 )
 from .a2ui_models import SurfacePlan, UiContext
 from .config import settings
@@ -48,6 +45,7 @@ from .memory_bank import MemoryFact as RetrievedMemoryFact
 from .agent_models import MemoryFact as StrategyMemoryFact
 from .ryan_prompt import RYAN_STRATEGIST_INSTRUCTION
 from .temi_prompt import TEMI_EDITORIAL_PLANNER_INSTRUCTION
+from .noni_prompt import NONI_COPYWRITER_INSTRUCTION
 from .telemetry import current_trace_id, safe_attributes, tracer
 from .team_runtime import AgentEngineTeamRuntime, TeamRuntime
 from .tenant_context import current_tenant
@@ -302,18 +300,13 @@ def build_agent_team(
         model=resolved.copywriter,
         generate_content_config=generation_config(resolved.config_for("noni_copywriter")),
         name="noni_copywriter",
-        description="Writes platform-native X drafts grounded in supplied moments and angles.",
-        instruction=(
-            "Write only the selected {editorialItem} using its exact {brief}, referenced evidence, "
-            "brand context, and constraints. Produce one platform-native X draft. "
-            "Previously reviewed drafts, when this is a later loop pass, are {reviewed_drafts?}. "
-            "Revise only what needs improvement. Every draft must be at most 280 "
-            "characters and may reference only a supplied momentId or angleId. Preserve useful "
-            "brand context. Return only the DraftSet JSON contract."
-        ),
-        input_schema=ProductionDraftInput,
-        output_schema=DraftSet,
-        output_key="copywriter_drafts",
+        description="Writes one platform-native X draft grounded in supplied moments and angles.",
+        instruction=NONI_COPYWRITER_INSTRUCTION,
+        input_schema=CopywriterInput,
+        output_schema=ContentDraft,
+        output_key="copywriter_draft",
+        tools=[],
+        mode="single_turn",
     )
     editor = Agent(
         model=resolved.editor,
@@ -327,7 +320,6 @@ def build_agent_team(
             "but must preserve each retained draft id, platform, momentId, and angleId. Never add a "
             "new draft. Keep every text at most 280 characters."
         ),
-        output_schema=DraftSet,
         output_key="reviewed_drafts",
     )
     planner = Agent(
@@ -408,6 +400,289 @@ def _validated_state(state: dict[str, Any], key: str, schema: type[T]) -> T:
             return schema.model_validate_json(value) if isinstance(value, str) else schema.model_validate(value)
         except (ValidationError, ValueError, TypeError) as exc:
             raise AgentProtocolError(f"invalid agent output for {key}: {exc}") from exc
+
+
+_NONI_URL_PATTERN = re.compile(r"https?://[^\s\]\[(){}<>,]+", re.IGNORECASE)
+_NONI_WORD_PATTERN = re.compile(r"[a-z0-9]+(?:'[a-z0-9]+)?")
+_NONI_CLAIM_QUALIFIERS = {
+    "a", "an", "and", "according", "as", "at", "by", "could", "describes",
+    "evidence", "from", "in", "indicates", "may", "might", "of", "on", "or",
+    "reported", "reports", "says", "source", "suggests", "that", "the", "their",
+    "this", "to", "was", "we", "were", "with",
+}
+_NONI_AUDIENCE_TERMS = {
+    "consumer", "consumers", "creator", "creators", "customer", "customers",
+    "developer", "developers", "enterprise", "enterprises", "founder", "founders",
+    "investor", "investors", "marketer", "marketers", "operator", "operators",
+}
+_NONI_FUNNEL_TERMS = {
+    "awareness": {"discover", "follow", "guide", "learn", "read"},
+    "consideration": {"compare", "demo", "evaluate", "explore"},
+    "conversion": {"buy", "purchase", "subscribe", "trial"},
+    "retention": {"keep", "renew", "upgrade"},
+    "advocacy": {"recommend", "refer", "share"},
+}
+_NONI_FACTUAL_VERBS = {
+    "are", "changed", "changes", "cut", "cuts", "generate", "generates", "grew",
+    "has", "have", "increased", "increases", "is", "need", "needs", "reduced",
+    "reduces", "rose", "said", "says", "supports", "was", "were",
+}
+_NONI_AUTHORITY_PATTERNS = tuple(re.compile(pattern, re.IGNORECASE) for pattern in (
+    r"\b(?:draft|post|content|campaign|copy)\s+(?:is\s+|was\s+|has been\s+)?approved\b",
+    r"\bapprove\s+(?:this|the|it)\b",
+    r"\bapproved\s+for\s+(?:publication|publishing|release)\b",
+    r"\bschedule\s+(?:this|the|it)\b",
+    r"\bscheduled\s+(?:for|at|on)\b",
+    r"\bpublish\s+(?:this|the|it|now)\b",
+    r"\b(?:published successfully|has been published|was published)\b",
+    r"\b(?:execute|construct|create|send|return)\b.{0,30}\beffect payload\b",
+    r"\beffect payload\b.{0,30}\b(?:ready|executed|created)\b",
+    r"\breceipt(?:\s+|[-_])?id\b",
+    r"\breceipt\b.{0,20}\b(?:created|recorded|issued|attached)\b",
+    r"\b(?:use|access|retrieve|request|include)\b.{0,30}\b(?:api\s+)?credentials?\b",
+    r"\bcredentials?\b.{0,20}\b(?:token|secret|key)\b",
+    r"\b(?:use|access|retrieve|request|include)\b.{0,30}\bapi\s+(?:token|secret|key)\b",
+))
+
+
+def _noni_urls(text: str) -> set[str]:
+    return {match.rstrip(".!?:;'") for match in _NONI_URL_PATTERN.findall(text)}
+
+
+def _noni_terms(text: str) -> set[str]:
+    without_urls = _NONI_URL_PATTERN.sub(" ", text.lower().replace("-", " "))
+    return {
+        term
+        for term in _NONI_WORD_PATTERN.findall(without_urls)
+        if term not in _NONI_CLAIM_QUALIFIERS
+    }
+
+
+def _noni_all_strings(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, BaseModel):
+        return _noni_all_strings(value.model_dump(mode="json"))
+    if isinstance(value, dict):
+        return [text for item in value.values() for text in _noni_all_strings(item)]
+    if isinstance(value, (list, tuple)):
+        return [text for item in value for text in _noni_all_strings(item)]
+    return []
+
+
+def _noni_evidence_text(input: CopywriterInput) -> dict[str, str]:
+    evidence: dict[str, str] = {}
+    for moment in input.referencedMoments:
+        evidence[moment.id] = " ".join(filter(None, (
+            moment.title, moment.hook, moment.quote, moment.visualHook,
+            moment.captionSafeRegion,
+        )))
+    for angle in input.referencedAngles:
+        evidence[angle.id] = f"{angle.kind} {angle.title} {angle.rationale}"
+    return evidence
+
+
+def _noni_unsupported_category(claim: str) -> str | None:
+    lowered = claim.lower()
+    if re.search(r"(?:[$€£]\s*\d|\b\d+(?:\.\d+)?\s*%|\b(?:revenue|roi|conversion rate)\b)", lowered):
+        return "invented metric"
+    if re.search(r"\b(?:trend|trending|viral|fastest growing|fastest-growing)\b", lowered):
+        return "invented trend"
+    if re.search(
+        r"\b(?:customers?|users?|founders?)\s+(?:say|said|love|report|reported)\b|"
+        r"\bchanged their lives\b|\btestimonial\b",
+        lowered,
+    ):
+        return "invented testimonial"
+    if re.search(
+        r"\bharmonia\s+(?:can|does|will|generates?|automates?|supports?|creates?)\b",
+        lowered,
+    ):
+        return "invented product capability"
+    return None
+
+
+def _noni_prohibited_phrases(input: CopywriterInput) -> list[str]:
+    sources = [*input.constraints, *input.brief.constraints, *input.editorialItem.constraints]
+    sources.extend(re.split(r"[\n;]", input.brandContext))
+    phrases: list[str] = []
+    for source in sources:
+        directive = re.search(
+            r"\b(?:never|do not|don't|avoid|exclude|no)\b\s*"
+            r"(?:say|use|mention|claim|promise|include|imply)?\s*(.+)",
+            source,
+            re.IGNORECASE,
+        )
+        labelled = re.search(r"\b(?:exclusions?|safety)\s*:\s*(.+)", source, re.IGNORECASE)
+        phrase = (directive or labelled)
+        if phrase:
+            phrases.extend(part.strip(" .") for part in phrase.group(1).split(","))
+    return [phrase for phrase in phrases if _noni_terms(phrase)]
+
+
+def _noni_validate_lineage(input: CopywriterInput, draft: ContentDraft) -> None:
+    expected = (
+        input.planId, input.planDigest, input.strategyDigest,
+        input.editorialItemId, input.briefId,
+    )
+    actual = (
+        draft.planId, draft.planDigest, draft.strategyDigest,
+        draft.editorialItemId, draft.briefId,
+    )
+    if actual != expected:
+        raise AgentProtocolError("Noni draft lineage does not match the selected input")
+    if draft.platform != input.platform or draft.format != input.format:
+        raise AgentProtocolError("Noni draft platform or format diverges from the selected item")
+    if draft.intendedConversion != input.brief.intendedConversion:
+        raise AgentProtocolError("Noni draft intended conversion diverges from the exact brief")
+    expected_revision = 1 if input.passType == "original" else 2
+    if draft.revision != expected_revision:
+        raise AgentProtocolError("Noni draft revision does not match the requested pass")
+    if input.passType == "revision" and (
+        input.priorDraft is None or draft.priorDraftId != input.priorDraft.id
+    ):
+        raise AgentProtocolError("Noni revision does not link the exact prior draft")
+
+
+def _noni_validate_references(input: CopywriterInput, draft: ContentDraft) -> dict[str, str]:
+    evidence = _noni_evidence_text(input)
+    expected_ids = set(evidence)
+    draft_ids = set(draft.evidenceRefs)
+    unknown = draft_ids - expected_ids
+    if unknown:
+        raise AgentProtocolError(f"Noni draft contains unknown evidence ids: {sorted(unknown)}")
+    missing = expected_ids - draft_ids
+    if missing:
+        raise AgentProtocolError(f"Noni draft is missing selected evidence ids: {sorted(missing)}")
+
+    claim_ids = {reference for claim in draft.claims for reference in claim.evidenceRefs}
+    undeclared = claim_ids - draft_ids
+    if undeclared:
+        raise AgentProtocolError(f"Noni claims contain undeclared evidence ids: {sorted(undeclared)}")
+    unused = draft_ids - claim_ids
+    if unused:
+        raise AgentProtocolError(f"Noni draft contains unused evidence ids: {sorted(unused)}")
+    return evidence
+
+
+def _noni_validate_constraints(input: CopywriterInput, draft: ContentDraft) -> None:
+    applicable = set(input.constraints) | set(input.brief.constraints) | set(input.editorialItem.constraints)
+    applied = set(draft.appliedConstraints)
+    missing = applicable - applied
+    if missing:
+        raise AgentProtocolError(f"Noni draft is missing applicable constraints: {sorted(missing)}")
+    unknown = applied - applicable
+    if unknown:
+        raise AgentProtocolError(f"Noni draft invents constraint references: {sorted(unknown)}")
+
+    authored = "\n".join((
+        draft.text, draft.ctaTreatment, *draft.assumptions,
+        *(claim.text for claim in draft.claims),
+    ))
+    authored_terms = _noni_terms(authored)
+    normalized_authored = " ".join(_NONI_WORD_PATTERN.findall(authored.lower().replace("-", " ")))
+    for phrase in _noni_prohibited_phrases(input):
+        phrase_terms = _noni_terms(phrase)
+        normalized_phrase = " ".join(_NONI_WORD_PATTERN.findall(phrase.lower().replace("-", " ")))
+        if normalized_phrase in normalized_authored or phrase_terms <= authored_terms:
+            raise AgentProtocolError(f"Noni draft contains prohibited constraint language: {phrase}")
+
+
+def _noni_validate_urls_alternatives_and_authority(
+    input: CopywriterInput, draft: ContentDraft,
+) -> None:
+    supplied_urls = _noni_urls("\n".join(_noni_all_strings(input)))
+    authored = "\n".join((
+        draft.text, draft.ctaTreatment, *draft.assumptions,
+        *(claim.text for claim in draft.claims),
+    ))
+    invented_urls = _noni_urls(authored) - supplied_urls
+    if invented_urls:
+        raise AgentProtocolError(f"Noni draft URL was not supplied: {sorted(invented_urls)}")
+    if re.search(
+        r"\b(?:option|alternative)\s*(?:1|one|a)\b.*"
+        r"\b(?:option|alternative)\s*(?:2|two|b)\b",
+        authored,
+        re.IGNORECASE | re.DOTALL,
+    ):
+        raise AgentProtocolError("Noni draft contains multiple final alternatives")
+    if any(pattern.search(authored) for pattern in _NONI_AUTHORITY_PATTERNS):
+        raise AgentProtocolError(
+            "Noni draft contains approval, scheduling, publishing, effect, receipt, "
+            "or credential authority overreach"
+        )
+
+
+def _noni_validate_claim_support(
+    evidence: dict[str, str], draft: ContentDraft,
+) -> None:
+    for claim in draft.claims:
+        cited_text = " ".join(evidence[reference] for reference in claim.evidenceRefs)
+        unsupported = _noni_terms(claim.text) - _noni_terms(cited_text)
+        if unsupported:
+            category = _noni_unsupported_category(claim.text)
+            if category:
+                raise AgentProtocolError(f"Noni draft contains {category}: {claim.text}")
+            raise AgentProtocolError(
+                "cited evidence does not textually support claim terms: "
+                f"{sorted(unsupported)}"
+            )
+
+
+def _noni_validate_brief_alignment(input: CopywriterInput, draft: ContentDraft) -> None:
+    text_terms = _noni_terms(f"{draft.text} {draft.ctaTreatment}")
+    body_terms = _noni_terms(draft.text)
+    expected_audience = _noni_terms(input.brief.audienceId)
+    conflicting_audiences = (body_terms & _NONI_AUDIENCE_TERMS) - expected_audience
+    if conflicting_audiences:
+        raise AgentProtocolError(
+            f"Noni draft audience diverges from {input.brief.audienceId}: "
+            f"{sorted(conflicting_audiences)}"
+        )
+
+    cta_terms = _noni_terms(input.brief.ctaIntent)
+    if not cta_terms or not cta_terms <= text_terms:
+        raise AgentProtocolError("Noni draft CTA diverges from the exact brief")
+
+    expected_stage = input.brief.funnelStage
+    for stage, terms in _NONI_FUNNEL_TERMS.items():
+        if stage != expected_stage and body_terms & terms:
+            raise AgentProtocolError(
+                f"Noni draft funnel language diverges from {expected_stage} toward {stage}"
+            )
+
+    objective_terms = _noni_terms(
+        f"{input.brief.objective} {input.brief.keyMessage} "
+        f"{input.editorialItem.campaignTheme} {input.editorialItem.contentPillar}"
+    )
+    if len(body_terms & objective_terms) < min(2, len(objective_terms)):
+        raise AgentProtocolError("Noni draft objective diverges from the exact brief")
+
+
+def _noni_validate_factual_ledger(draft: ContentDraft) -> None:
+    claim_terms = [_noni_terms(claim.text) for claim in draft.claims]
+    for sentence in re.split(r"[.!?\n]+", _NONI_URL_PATTERN.sub(" ", draft.text)):
+        terms = _noni_terms(sentence)
+        if not terms or not (terms & _NONI_FACTUAL_VERBS or re.search(r"\d", sentence)):
+            continue
+        if not any(terms <= declared for declared in claim_terms):
+            raise AgentProtocolError(f"Noni draft contains uncited factual statement: {sentence.strip()}")
+
+
+def validate_content_draft(
+    input: CopywriterInput, draft: ContentDraft,
+) -> ContentDraft:
+    """Fail closed when one Noni result exceeds its exact production boundary."""
+    input = CopywriterInput.model_validate(input)
+    draft = ContentDraft.model_validate(draft)
+    _noni_validate_lineage(input, draft)
+    evidence = _noni_validate_references(input, draft)
+    _noni_validate_constraints(input, draft)
+    _noni_validate_urls_alternatives_and_authority(input, draft)
+    _noni_validate_claim_support(evidence, draft)
+    _noni_validate_brief_alignment(input, draft)
+    _noni_validate_factual_ledger(draft)
+    return draft
 
 
 def _deterministic_action_plan(reviewed: DraftSet) -> ActionPlan:

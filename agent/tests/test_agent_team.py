@@ -15,18 +15,14 @@ from google.adk.tools.agent_tool import AgentTool
 from google.genai import types
 
 from harmonia_agent.agent_models import (
-    ActionPlan,
     AnalysisResult,
     AnalystInput,
-    Draft,
-    DraftSet,
-    DraftWorkflowResult,
+    ContentDraft,
+    CopywriterInput,
     EditorialPlan,
     EditorialPlannerInput,
     LiaisonInput,
     MediaEvidence,
-    ProductionDraftInput,
-    PublishAction,
     StrategistInput,
     StrategistResult,
 )
@@ -45,13 +41,22 @@ from harmonia_agent.agents import (
     strategize_with_team,
     RoleModelInstances,
 )
-from harmonia_agent.stages import classify_failure
 from harmonia_agent.tenant_context import tenant_scope
 from harmonia_agent.generation_policy import safety_settings
 from harmonia_agent.usage import InvocationContext
 from tests.test_ryan_strategy import strategy as _content_strategy
-from tests.test_temi_editorial_plan import plan as _temi_plan
-from tests.test_temi_editorial_plan import planner_input as _planner_input
+
+
+def _temi_plan():
+    from tests.test_temi_editorial_plan import plan
+
+    return plan()
+
+
+def _planner_input():
+    from tests.test_temi_editorial_plan import planner_input
+
+    return planner_input()
 
 
 class ScriptedDelegationModel(BaseLlm):
@@ -220,6 +225,19 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
     assert isinstance(loop, LoopAgent)
     assert loop.max_iterations == 2
     assert [a.name for a in loop.sub_agents] == ["noni_copywriter", "dara_editor"]
+
+
+def test_noni_is_a_focused_tool_free_typed_specialist():
+    root = build_agent_team()
+    workflow = next(tool.agent for tool in root.tools if tool.name == "flo_content_engine")
+    noni = workflow.sub_agents[0].sub_agents[0]
+
+    assert noni.name == "noni_copywriter"
+    assert noni.input_schema is CopywriterInput
+    assert noni.output_schema is ContentDraft
+    assert noni.output_key == "copywriter_draft"
+    assert noni.mode == "single_turn"
+    assert noni.tools == []
 
 
 def test_team_assigns_the_configured_model_to_each_role():

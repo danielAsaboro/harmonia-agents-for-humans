@@ -16,6 +16,7 @@ from harmonia_agent.agent_models import (
     EditorialReview,
     Moment,
 )
+from harmonia_agent.agents import AgentProtocolError, validate_content_draft
 
 
 def _brief() -> dict:
@@ -85,6 +86,212 @@ def original_input() -> dict:
         "constraints": ["Use an evidence-led voice"], "platform": "x", "format": "text_post", "passType": "original",
         "priorDraft": None, "priorReview": None,
     }
+
+
+def grounded_draft() -> dict:
+    value = original_draft()
+    value.update({
+        "text": (
+            "We cut nine days to forty hours. Founders need verifiable operating proof. "
+            "Request a demo."
+        ),
+        "claims": [
+            {"text": "We cut nine days to forty hours.", "evidenceRefs": ["moment-1"]},
+            {
+                "text": "Founders need verifiable operating proof.",
+                "evidenceRefs": ["angle-1"],
+            },
+        ],
+    })
+    return value
+
+
+def test_grounding_validator_accepts_one_grounded_brief_aligned_draft():
+    supplied = CopywriterInput.model_validate(original_input())
+    draft = ContentDraft.model_validate(grounded_draft())
+
+    assert validate_content_draft(supplied, draft) is draft
+
+
+def _validate(
+    draft_payload: dict | None = None,
+    input_payload: dict | None = None,
+) -> ContentDraft:
+    return validate_content_draft(
+        CopywriterInput.model_validate(input_payload or original_input()),
+        ContentDraft.model_validate(draft_payload or grounded_draft()),
+    )
+
+
+def test_grounding_validator_rejects_unknown_evidence_ids():
+    draft = grounded_draft()
+    draft["evidenceRefs"].append("unknown-1")
+    draft["claims"].append({"text": "Unknown claim.", "evidenceRefs": ["unknown-1"]})
+
+    with pytest.raises(AgentProtocolError, match="unknown evidence"):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_missing_selected_evidence_ids():
+    draft = grounded_draft()
+    draft["evidenceRefs"] = ["moment-1"]
+    draft["claims"] = [draft["claims"][0]]
+
+    with pytest.raises(AgentProtocolError, match="missing selected evidence"):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_declared_but_unused_evidence():
+    draft = grounded_draft()
+    draft["claims"] = [draft["claims"][0]]
+
+    with pytest.raises(AgentProtocolError, match="unused evidence"):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_factual_text_absent_from_claim_ledger():
+    draft = grounded_draft()
+    draft["text"] = f'{draft["text"]} Revenue rose 40%.'
+
+    with pytest.raises(AgentProtocolError, match="uncited factual statement"):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_claim_terms_absent_from_cited_source_text():
+    draft = grounded_draft()
+    draft["claims"][0]["text"] = "We cut nine days to twelve hours."
+    draft["text"] = draft["text"].replace("forty hours", "twelve hours")
+
+    with pytest.raises(AgentProtocolError, match="textually support"):
+        _validate(draft)
+
+
+@pytest.mark.parametrize(("claim", "message"), [
+    ("Harmonia increased revenue by 50%.", "invented metric"),
+    ("Harmonia is the fastest-growing content trend.", "invented trend"),
+    ("Customers say Harmonia changed their lives.", "invented testimonial"),
+    ("Harmonia generates audited tax filings.", "invented product capability"),
+])
+def test_grounding_validator_rejects_invented_factual_categories(claim, message):
+    draft = grounded_draft()
+    draft["claims"][0]["text"] = claim
+    draft["text"] = f"{claim} Founders need verifiable operating proof. Request a demo."
+
+    with pytest.raises(AgentProtocolError, match=message):
+        _validate(draft)
+
+
+@pytest.mark.parametrize(("mutation", "message"), [
+    (lambda draft: draft.update(text="Founders, enjoy a funny office meme. Request a demo."), "objective"),
+    (lambda draft: draft.update(text="Developers need verifiable operating proof. Request a demo."), "audience"),
+    (lambda draft: draft.update(text="Founders, buy Harmonia now for verifiable operating proof."), "funnel"),
+    (lambda draft: draft.update(
+        text=draft["text"].replace("Request a demo.", "Read the blog."),
+        ctaTreatment="Invite founders to read a blog.",
+    ), "CTA"),
+])
+def test_grounding_validator_rejects_objective_audience_funnel_and_cta_drift(mutation, message):
+    draft = grounded_draft()
+    mutation(draft)
+
+    with pytest.raises(AgentProtocolError, match=message):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_platform_or_format_divergence_after_parsing():
+    draft = ContentDraft.model_validate(grounded_draft()).model_copy(update={"format": "thread"})
+
+    with pytest.raises(AgentProtocolError, match="platform or format"):
+        validate_content_draft(CopywriterInput.model_validate(original_input()), draft)
+
+
+def test_grounding_validator_rejects_missing_applicable_constraints():
+    supplied = original_input()
+    for owner in (supplied, supplied["brief"], supplied["editorialItem"]):
+        owner["constraints"].append("Never promise guaranteed outcomes")
+
+    with pytest.raises(AgentProtocolError, match="missing applicable constraints"):
+        _validate(input_payload=supplied)
+
+
+def test_grounding_validator_rejects_exclusion_and_safety_language():
+    supplied = original_input()
+    for owner in (supplied, supplied["brief"], supplied["editorialItem"]):
+        owner["constraints"].append("Never say guaranteed outcomes")
+    draft = grounded_draft()
+    draft["appliedConstraints"].append("Never say guaranteed outcomes")
+    draft["text"] = f'{draft["text"]} Guaranteed outcomes.'
+
+    with pytest.raises(AgentProtocolError, match="prohibited constraint language"):
+        _validate(draft, supplied)
+
+
+def test_grounding_validator_rejects_urls_absent_from_supplied_context():
+    draft = grounded_draft()
+    draft["text"] = f'{draft["text"]} https://invented.example/demo'
+
+    with pytest.raises(AgentProtocolError, match="URL was not supplied"):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_multiple_final_copy_alternatives():
+    draft = grounded_draft()
+    draft["text"] = "Option 1: Request a demo. Option 2: Read the guide."
+
+    with pytest.raises(AgentProtocolError, match="multiple final alternatives"):
+        _validate(draft)
+
+
+@pytest.mark.parametrize("overreach", [
+    "This draft is approved.",
+    "Approved for publication.",
+    "Schedule this post.",
+    "Scheduled for 5 PM.",
+    "Publish this now.",
+    "Published successfully.",
+    "Execute the effect payload now.",
+    "Receipt created.",
+    "Receipt ID: receipt-123.",
+    "Access the API key.",
+    "Use the API credentials.",
+])
+def test_grounding_validator_rejects_approval_schedule_publish_effect_receipt_and_credential_overreach(overreach):
+    draft = grounded_draft()
+    draft["text"] = f'{draft["text"]} {overreach}'
+
+    with pytest.raises(AgentProtocolError, match="authority overreach"):
+        _validate(draft)
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda supplied, draft: draft.update(
+        text=f'Turn operating proof into momentum. {draft["text"]}',
+    ),
+    lambda supplied, draft: draft.update(
+        assumptions=["A concise founder-focused hook may suit this X post."],
+    ),
+    lambda supplied, draft: (
+        draft["claims"][0].update(text="The source says we cut nine days to forty hours."),
+        draft.update(text=draft["text"].replace(
+            "We cut nine days to forty hours.",
+            "The source says we cut nine days to forty hours.",
+        )),
+    ),
+    lambda supplied, draft: (
+        supplied.update(brandContext=f'{supplied["brandContext"]} Use https://harmonia.example/demo'),
+        draft.update(text=f'{draft["text"]} https://harmonia.example/demo'),
+    ),
+    lambda supplied, draft: draft.update(
+        assumptions=["Evidence is limited; this cautious hook may resonate with founders."],
+        confidence="low",
+    ),
+])
+def test_grounding_validator_accepts_allowed_language_boundaries(mutation):
+    supplied = original_input()
+    draft = grounded_draft()
+    mutation(supplied, draft)
+
+    assert _validate(draft, supplied).id == "draft-1"
 
 
 def revision_input() -> dict:

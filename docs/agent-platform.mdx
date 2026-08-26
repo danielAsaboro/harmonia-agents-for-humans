@@ -55,6 +55,12 @@ flowchart LR
 
 <Warning>Agent state, chat history, and Memory Bank are context—not authorization. Only durable policy, approval, claim, receipt, and verification records control effects.</Warning>
 
+## Activity and telemetry
+
+Every specialist invocation emits a strict metadata-only log, trace, and metric projection with tenant, job, operation, agent, stage, model, timing, usage counts, outcome, and real W3C trace/span IDs. Tool activity is projected only when ADK supplies real trace context. Unknown fields fail validation, and the schema cannot carry prompts, model responses, transcripts, drafts, credentials, or provider bodies.
+
+The projection powers **Monitoring → Agent activity**. Native ADK OpenTelemetry signals continue to Cloud Logging, Cloud Monitoring, and Cloud Trace; the projection is a bounded operator view, not a replacement for those backends and never an authority source.
+
 ## Versioned ADK skills
 
 Nova loads exactly one skill before any data tool. The runtime records the real

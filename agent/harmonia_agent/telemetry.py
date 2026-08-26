@@ -73,6 +73,10 @@ def configure_adk_telemetry(*, enabled: bool | None = None) -> None:
         enabled = cfg.telemetry_enabled
     if not enabled:
         return
+    # ADK constructs the SDK provider, which reads the standard OTel sampler
+    # environment at construction time.
+    os.environ["OTEL_TRACES_SAMPLER"] = "parentbased_traceidratio"
+    os.environ["OTEL_TRACES_SAMPLER_ARG"] = str(cfg.telemetry_sample_rate)
     hooks = get_gcp_exporters(
         enable_cloud_logging=True,
         enable_cloud_metrics=True,

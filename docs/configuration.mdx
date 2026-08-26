@@ -38,7 +38,7 @@ description: "Every environment variable Harmonia reads, with defaults and requi
 | `DEFAULT_JOB_BUDGET_USD` | no | `5.00` | Maximum reserved plus observed model cost per job |
 | `DEFAULT_JOB_APPROVAL_THRESHOLD_USD` | no | `0.25` | Cost threshold surfaced for operator policy |
 | `IMAGE_MAX_COST_USD` | no | `0.500000` | Explicit per-image reservation while media pricing is not token-based |
-| `HARMONIA_TELEMETRY_ENABLED` | cloud | `false` | Export metadata-only OpenTelemetry spans |
+| `HARMONIA_TELEMETRY_ENABLED` | cloud | `false` | Enable native ADK exports to Cloud Logging, Cloud Monitoring, and Cloud Trace |
 | `HARMONIA_TELEMETRY_SAMPLE_RATE` | no | `1.0` | Parent-based trace sampling ratio from 0 to 1 |
 | `HARMONIA_EVAL_EVIDENCE_ROOT` | live evaluation only | — | Absolute private directory that contains all live evaluation outputs; public-repository paths are refused |
 | `OTEL_SERVICE_NAME` | no | `harmonia-agent` | Service label used by the trace backend |
@@ -65,6 +65,8 @@ The pricing catalog uses decimal arithmetic and labels estimates with its versio
 Gemini serverless roles use token estimates. Gemma uses an explicit maximum request allocation and records endpoint seconds because endpoint infrastructure cost is not honestly interchangeable with serverless token pricing. Veo 3.1 Fast records one generation at `$0.08`; Lyria 3 Clip records one generation at `$0.04`, using the same immutable pricing version. The dashboard compares these labeled units without manufacturing a fake common unit.
 
 Telemetry contains identifiers, stage and role names, model names, usage units, costs, validation outcomes, and errors. It excludes prompts, responses, transcripts, draft text, and media bytes. These are execution/delegation traces, not private model reasoning.
+
+Cloud telemetry additionally requires Application Default Credentials and worker permissions for Logging, Monitoring, and Trace writes. Harmonia sets both ADK content-capture controls to their safe values at process configuration; do not override them in a deployed revision. The dashboard's safe activity projection is written independently through the authenticated internal API and retained under `workspaces/{workspaceId}/brands/{brandId}/agent_activity`.
 
 ## Dev-only flags
 

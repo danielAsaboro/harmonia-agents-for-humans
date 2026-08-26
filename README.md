@@ -110,7 +110,7 @@ flowchart LR
 - **Cloud Run** hosts both services (web: Next.js standalone build; agent: Python container).
 - **Firestore** persists job state, stage events, approvals, receipts, verifications, and packets.
 - **Pub/Sub** drives every stage transition; transient failures nack for redelivery, permanent failures stay visible.
-- **OpenTelemetry** exports metadata-only, W3C-correlated stage/agent/model/memory/media audit spans; the product does not collect private chain-of-thought.
+- **Google ADK observability + OpenTelemetry** export metadata-only structured logs, standard agent/tool/token metrics, and W3C-correlated traces to Cloud Logging, Cloud Monitoring, and Cloud Trace. A tenant-scoped Firestore projection powers the paginated, filterable **Monitoring → Agent activity** view. The product does not collect prompts, responses, drafts, transcripts, or private chain-of-thought in telemetry.
 
 ## Local spin-up
 

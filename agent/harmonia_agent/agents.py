@@ -1530,8 +1530,8 @@ async def _run_coordinator(
             try:
                 reporter(record)
             except Exception:  # noqa: BLE001 - observability cannot change workflow outcome
-                logger.exception(
-                    "agent activity projection failed for operation %s",
+                logger.warning(
+                    "agent activity projection failed for operation %s; details suppressed",
                     invocation.operation_id if invocation else "proactive",
                 )
     try:

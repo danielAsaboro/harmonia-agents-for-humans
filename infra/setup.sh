@@ -117,6 +117,12 @@ for sa in harmonia-web harmonia-agent; do
     --role roles/cloudtrace.agent >/dev/null
 done
 
+for role in roles/logging.logWriter roles/monitoring.metricWriter; do
+  gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+    --member "serviceAccount:harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --role "${role}" >/dev/null
+done
+
 echo "-- IAM (least privilege)"
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \

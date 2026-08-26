@@ -59,7 +59,9 @@ def fetch_trend_signals(limit: int = 6) -> dict[str, Any]:
         with tracer().start_as_current_span("harmonia.skill.fetch_signals"):
             found = signals.fetch_signals(limit=max(1, min(int(limit), 10)))
         provenance = "mock" if mock_ai_enabled() else "live"
-        return success({"signals": found, "count": len(found)}, evidence_items=[evidence("hacker_news_algolia", provenance=provenance)])
+        items = [evidence("hacker_news_algolia", provenance=provenance)]
+        items.extend(evidence("hacker_news_story", provenance=provenance, reference=item["url"]) for item in found)
+        return success({"signals": found, "count": len(found)}, evidence_items=items)
     except Exception as exc:  # noqa: BLE001 - normalized tool boundary
         return provider_error(exc)
 
@@ -74,7 +76,9 @@ def search_trend_signals(query: str, limit: int = 5) -> dict[str, Any]:
             span.set_attributes(safe_attributes({"query.length": len(normalized)}))
             found = signals.search_signals(normalized, limit=max(1, min(int(limit), 10)))
         provenance = "mock" if mock_ai_enabled() else "live"
-        return success({"query": normalized, "signals": found, "count": len(found)}, evidence_items=[evidence("hacker_news_algolia", provenance=provenance)])
+        items = [evidence("hacker_news_algolia", provenance=provenance)]
+        items.extend(evidence("hacker_news_story", provenance=provenance, reference=item["url"]) for item in found)
+        return success({"query": normalized, "signals": found, "count": len(found)}, evidence_items=items)
     except Exception as exc:  # noqa: BLE001
         return provider_error(exc)
 
@@ -110,7 +114,12 @@ def get_engagement_insights() -> dict[str, Any]:
     """Read measured engagement outcomes for this workspace's published posts."""
     try:
         data, provenance = _engagement_data()
-        return success(data, evidence_items=[evidence("harmonia_firestore_engagement", provenance=provenance)])
+        items = [evidence("harmonia_firestore_engagement", provenance=provenance)]
+        items.extend(
+            evidence("harmonia_measured_post", provenance=provenance, reference=str(post["postId"]))
+            for post in data.get("topPosts") or [] if post.get("postId")
+        )
+        return success(data, evidence_items=items)
     except Exception as exc:  # noqa: BLE001
         return provider_error(exc)
 
@@ -125,13 +134,20 @@ def get_operator_feed() -> dict[str, Any]:
 
 
 _JOB_STATUS_FIELDS = (
-    "id", "title", "sourceType", "stage", "status", "error",
-    "createdAt", "updatedAt",
+    "id", "stage", "status", "error", "createdAt", "updatedAt",
+    "strategyApprovalState", "strategyRevision", "editorialPlanRevision",
+    "selectedNextItemId", "productionTraceDigest",
 )
 
 
 def _summarize_job(job: dict[str, Any]) -> dict[str, Any]:
     summary = {field: job.get(field) for field in _JOB_STATUS_FIELDS}
+    config = job.get("config") or {}
+    summary["title"] = job.get("ingestedTitle") or str(config.get("brief") or "")[:300] or None
+    summary["sourceKind"] = (
+        "video" if config.get("youtubeUrl") or str(config.get("mediaMime") or "").startswith("video/") else
+        "audio" if str(config.get("mediaMime") or "").startswith("audio/") else "written"
+    )
     drafts = job.get("drafts") or []
     actions = job.get("actions") or []
     verifications = job.get("verifications") or []
@@ -141,8 +157,10 @@ def _summarize_job(job: dict[str, Any]) -> dict[str, Any]:
         {
             "id": a.get("id"),
             "type": a.get("type"),
-            "status": a.get("status"),
+            "state": a.get("state"),
+            "approvalState": a.get("approvalState"),
             "requiresApproval": a.get("requiresApproval"),
+            "risk": a.get("risk"),
         }
         for a in actions
     ]
@@ -165,14 +183,15 @@ def get_job_status(job_id: str) -> dict[str, Any]:
     if mock_ai_enabled():
         data = {"found": True, "job": _summarize_job({
             "id": job_id,
-            "title": "Mock launch video",
-            "sourceType": "youtube",
+            "ingestedTitle": "Mock launch video",
+            "config": {"youtubeUrl": "https://example.invalid/mock"},
             "stage": "awaiting_approval",
             "status": "active",
             "drafts": [{"id": "d1"}],
             "actions": [{
                 "id": "act1", "type": "publish_x_post",
-                "status": "proposed", "requiresApproval": True,
+                "state": "planned", "approvalState": "pending", "risk": "high",
+                "requiresApproval": True,
             }],
             "verifications": [], "receipts": [],
         })}
@@ -251,12 +270,22 @@ def suggest_posting_windows() -> dict[str, Any]:
         ],
         "insufficientData": False,
         "measuredPosts": len(measured),
+        "confidence": "low" if len(measured) < 10 else "medium" if len(measured) < 30 else "high",
+        "limitations": [
+            f"Derived from {len(measured)} measured posts in this workspace.",
+            "The ranking compares likes only and does not establish causality.",
+        ],
         "basis": [
             {"postId": s["postId"], "hourUtc": s["at"].hour, "likes": s["likes"]}
             for s in measured
         ],
     }
-    return success(data, evidence_items=[evidence("harmonia_measured_post_history", provenance=provenance)])
+    items = [evidence("harmonia_measured_post_history", provenance=provenance)]
+    items.extend(
+        evidence("harmonia_measured_post", provenance=provenance, reference=str(item["postId"]))
+        for item in data["basis"] if item["postId"]
+    )
+    return success(data, evidence_items=items)
 
 
 _TOOLS = (

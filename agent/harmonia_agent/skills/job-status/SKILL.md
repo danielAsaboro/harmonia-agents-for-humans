@@ -12,11 +12,10 @@ Report job truth from the system of record, never from memory of earlier turns.
 
 ## Workflow
 
-1. To report one job, call `get_job_status` with its id. To survey everything,
-   call `get_operator_feed` for pending items, job health, goals, and recent
-   publications.
-2. Report stage, status, counts of drafts/actions, approval state, receipt
-   presence, and verification outcomes using the exact values returned.
+1. Call `get_job_status` once with the requested id.
+2. Report the returned stage, status, strategy approval state/revision,
+   editorial-plan revision, selected production item, action state and
+   approval state, receipt count, and verification outcomes without inference.
 3. When the operator asks about publishing readiness, distinguish clearly:
    actions proposed vs approved vs executed vs independently verified.
 
@@ -29,4 +28,8 @@ Report job truth from the system of record, never from memory of earlier turns.
 
 ## Tool envelope and escalation
 
-Read only `data` when `status=success` and cite `evidence`. For `status=error`, report the returned code/message; retry once only when explicitly retryable, then escalate to the operator. Never call job retry, credential, budget, or any mutation endpoint.
+Read only `data` when `status=success`; cite each claim with the exact returned
+`evidenceId` and display it in the answer. Return `no_data` only when the tool
+successfully reports no matching job. For errors, preserve the exact code and
+message; retry once only when explicitly retryable. Never call job retry,
+credential, budget, or mutation endpoints.

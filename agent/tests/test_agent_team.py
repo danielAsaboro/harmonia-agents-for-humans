@@ -410,15 +410,21 @@ def test_missing_agent_state_is_a_permanent_protocol_failure():
     assert classify_failure(invalid.value) is True
 
 
-def test_liaison_must_return_nonempty_answer_text():
-    with pytest.raises(AgentProtocolError, match="no answer text"):
+def test_liaison_must_return_grounded_answer_contract():
+    with pytest.raises(AgentProtocolError, match="no answer contract"):
         _validate_run_output("nova_liaison", LiaisonInput(question="what is pending?"), {})
-    with pytest.raises(AgentProtocolError, match="no answer text"):
+    with pytest.raises(AgentProtocolError, match="no answer contract"):
         _validate_run_output("nova_liaison", LiaisonInput(question="q"), {"liaison_answer": "   "})
+    envelope = {"status": "success", "data": {"found": True}, "error": None,
+                "evidence": [{"evidenceId": "ev-job", "source": "harmonia_firestore_job", "provenance": "live"}]}
     _validate_run_output(
         "nova_liaison",
         LiaisonInput(question="q"),
-        {"liaison_answer": "Two jobs await approval."},
+        {"liaison_answer": '{"status":"success","answer":"Job exists [ev-job].","skillName":"job-status","claims":[{"text":"Job exists","evidenceIds":["ev-job"]}],"error":null,"uncertainty":[]}',
+         "liaison_tool_trace": [
+             {"sequence": 1, "name": "load_skill", "args": {"skill_name": "job-status"}, "response": {}},
+             {"sequence": 2, "name": "get_job_status", "args": {"job_id": "job-1"}, "response": envelope},
+         ]},
     )
 
 

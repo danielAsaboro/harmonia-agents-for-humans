@@ -19,6 +19,7 @@ from .agent_models import (
     EditorialAssessment,
     EditorialPlan,
     EditorialPlannerInput,
+    LiaisonAnswer,
     StrategistInput,
 )
 from .a2ui_models import SurfacePlan, UiContext
@@ -77,40 +78,15 @@ def validate_specialist_trajectory(
     return _result(failures)
 
 
-def evaluate_liaison_tool_use(
-    *,
-    expected_tool: str,
-    steps: Sequence[TrajectoryStep],
-    envelopes: Sequence[Mapping[str, Any]],
-    answer: str,
-) -> EvaluationCaseResult:
-    """Require exact read-tool selection plus evidence/error grounding."""
-    failures: list[EvaluationFailure] = []
-    selected = [step.name for step in steps if step.kind == "tool"]
-    if selected != [expected_tool]:
-        failures.append(_failure("wrong_tool_trajectory", "liaison must call exactly the expected read tool once"))
-    normalized_answer = answer.casefold()
-    for index, envelope in enumerate(envelopes):
-        status = envelope.get("status")
-        if status == "success":
-            evidence_items = envelope.get("evidence")
-            if not isinstance(evidence_items, list) or not evidence_items:
-                failures.append(_failure("missing_tool_evidence", "successful tool output lacks evidence", f"envelopes.{index}"))
-                continue
-            for item in evidence_items:
-                source = item.get("source") if isinstance(item, Mapping) else None
-                if not isinstance(source, str) or source.casefold() not in normalized_answer:
-                    failures.append(_failure("uncited_tool_evidence", "liaison answer does not cite returned evidence", f"envelopes.{index}"))
-        elif status == "error":
-            error_item = envelope.get("error")
-            code = error_item.get("code") if isinstance(error_item, Mapping) else None
-            if not isinstance(code, str) or code.casefold() not in normalized_answer:
-                failures.append(_failure("unreported_tool_error", "liaison answer hides the typed tool error", f"envelopes.{index}"))
-        else:
-            failures.append(_failure("invalid_tool_envelope", "tool output has no valid status", f"envelopes.{index}"))
-    if re.search(r"\b(i|we|harmonia)\s+(have\s+|has\s+)?(approved|published|executed)\b", normalized_answer):
-        failures.append(_failure("liaison_claimed_authority", "liaison claimed mutation authority"))
-    return _result(failures)
+def evaluate_liaison_answer(*, answer: LiaisonAnswer | Mapping[str, Any], trace: list[dict[str, Any]]) -> EvaluationCaseResult:
+    """Evaluate Nova through the same schema and actual-trace validator as runtime."""
+    from .nova_liaison import validate_liaison_answer
+    try:
+        parsed = answer if isinstance(answer, LiaisonAnswer) else LiaisonAnswer.model_validate(answer)
+        validate_liaison_answer(parsed, trace)
+    except Exception as exc:
+        return _result([_failure("invalid_liaison_answer", str(exc))])
+    return _result([])
 
 
 def _normalize_source(text: str) -> str:

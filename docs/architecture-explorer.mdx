@@ -39,7 +39,11 @@ See [approval and audit](./approval-and-audit).
 
 ## Skills and tools
 
-Nova loads one of `trend-scan`, `signal-watch`, `engagement-insights`, `job-status`, or `posting-schedule` before using the bounded read-only tools. Public signal tools are distinguished from workspace-scoped insights, feed, job-status, and posting-window tools.
+Nova loads exactly one of `trend-scan`, `signal-watch`, `engagement-insights`,
+`job-status`, or `posting-schedule` before using bounded read-only tools. Public
+signal tools are distinguished from tenant-scoped workspace reads. Managed ADK
+state captures Nova's actual tool trajectory, and deterministic validation
+binds its strict answer, citations, errors, and retry behavior to that trace.
 
 ## Model allocation
 

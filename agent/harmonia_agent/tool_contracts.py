@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from hashlib import sha256
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -26,7 +27,10 @@ class ToolContract(BaseModel):
 
 
 def evidence(source: str, *, provenance: Literal["live", "mock"], reference: str | None = None) -> dict[str, Any]:
+    material = f"{source}|{provenance}|{reference or ''}"
+    evidence_id = f"ev-{sha256(material.encode()).hexdigest()[:16]}"
     return {
+        "evidenceId": evidence_id,
         "source": source,
         "provenance": provenance,
         **({"reference": reference} if reference else {}),

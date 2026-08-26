@@ -993,4 +993,48 @@ class EditorialReviewInput(StrictModel):
 class LiaisonInput(StrictModel):
     """Operator question routed to the skill-enabled insight liaison."""
 
-    question: str = Field(min_length=1, max_length=2000)
+    question: StrictStr = Field(min_length=1, max_length=2000)
+
+
+class LiaisonClaim(StrictModel):
+    text: StrictStr = Field(min_length=1, max_length=1_000)
+    evidenceIds: list[StrictIdentifier] = Field(min_length=1, max_length=8)
+
+    _require_evidence = field_validator("evidenceIds", mode="before")(_require_json_list)
+
+    @model_validator(mode="after")
+    def validate_unique_evidence(self) -> "LiaisonClaim":
+        if len(self.evidenceIds) != len(set(self.evidenceIds)):
+            raise ValueError("claim evidence ids must be unique")
+        return self
+
+
+class LiaisonError(StrictModel):
+    code: StrictIdentifier
+    message: StrictStr = Field(min_length=1, max_length=500)
+
+
+class LiaisonAnswer(StrictModel):
+    status: Literal["success", "no_data", "error"]
+    answer: StrictStr = Field(min_length=1, max_length=4_000)
+    skillName: Literal[
+        "trend-scan", "job-status", "signal-watch", "posting-schedule", "engagement-insights",
+    ]
+    claims: list[LiaisonClaim] = Field(max_length=20)
+    error: LiaisonError | None
+    uncertainty: list[StrictAssumptionText] = Field(max_length=8)
+
+    _require_lists = field_validator("claims", "uncertainty", mode="before")(_require_json_list)
+
+    @model_validator(mode="after")
+    def validate_status_shape(self) -> "LiaisonAnswer":
+        if self.status == "error":
+            if self.error is None or self.claims:
+                raise ValueError("error answer requires one typed error and no claims")
+        elif self.error is not None:
+            raise ValueError("non-error answer cannot contain an error")
+        if self.status == "success" and not self.claims:
+            raise ValueError("successful liaison answer requires grounded claims")
+        if self.status == "no_data" and self.claims:
+            raise ValueError("no-data liaison answer cannot contain factual claims")
+        return self

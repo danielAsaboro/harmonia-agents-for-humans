@@ -15,8 +15,7 @@ Derive windows from the workspace's measured history via
 
 1. Call `suggest_posting_windows` once.
 2. If it returns windows, explain each with its basis (which measured posts
-   support it) and label it as derived from a small sample when the sample is
-   small.
+   support it), the returned confidence, and every returned limitation.
 3. If it returns insufficient data, say exactly that and what is missing
    (published posts with timestamps). Do not substitute generic best practices
    as if they were this workspace's data.
@@ -28,4 +27,8 @@ Derive windows from the workspace's measured history via
 
 ## Tool envelope and escalation
 
-Read only `data` on success and cite `evidence`. Report typed errors exactly; retry once only for a retryable provider/dependency error. Never schedule, approve, publish, change a budget, or mutate history.
+Read only `data` on success. Cite window claims with the exact `evidenceId`s
+for their measured basis and display those IDs. Keep correlation distinct from
+causation and put limitations in `uncertainty`. Report typed errors exactly;
+retry once only for a retryable dependency error. Never schedule, approve,
+publish, change a budget, or mutate history.

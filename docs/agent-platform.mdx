@@ -57,7 +57,11 @@ flowchart LR
 
 ## Versioned ADK skills
 
-Nova loads a skill before calling its associated tools. Every skill constrains tool selection, evidence use, retry, and escalation.
+Nova loads exactly one skill before any data tool. The runtime records the real
+skill/tool envelopes in managed ADK state and rejects answers whose selected
+skill, tool sequence, retry behavior, status, errors, claims, or evidence IDs
+do not match that trace. Skill prose guides reasoning; deterministic validation
+enforces the boundary.
 
 | Skill | Purpose | Allowed tools |
 |---|---|---|

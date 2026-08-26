@@ -12,8 +12,8 @@ Search public startup-tech discussion for a watch topic and report honestly.
 
 ## Workflow
 
-1. Call `search_trend_signals` with the topic keywords (try two variants if
-   the first returns little).
+1. Call `search_trend_signals` with the topic keywords. A second call is only
+   a retry after a retryable error, not a speculative query expansion.
 2. Summarize: what is being discussed, which stories get traction
    (points/comments), and whether there is a gap our voice could fill.
 3. Propose at most one follow-up idea per credible finding, framed as a
@@ -26,4 +26,7 @@ Search public startup-tech discussion for a watch topic and report honestly.
 
 ## Tool envelope and escalation
 
-Use only `data` from successful envelopes and cite `evidence`. If the first call returns a retryable error, retry once; otherwise report the typed error and stop. Never approve, publish, modify credentials/budgets, or cause another external effect.
+Use only successful tool data. Cite each story claim with its exact
+`evidenceId` and display the ID. Return `no_data` for a successful empty search.
+Retry once only after a retryable error; otherwise preserve the typed error and
+stop. Never approve, publish, modify credentials or budgets, or cause effects.

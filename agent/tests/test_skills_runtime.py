@@ -48,6 +48,9 @@ def test_fetch_trend_signals_returns_mock_fixtures_offline():
     assert result["data"]["count"] == 3
     assert result["evidence"][0]["provenance"] == "mock"
     assert all(s["title"] and s["url"].startswith("http") for s in result["data"]["signals"])
+    assert {item["reference"] for item in result["evidence"][1:]} == {
+        signal["url"] for signal in result["data"]["signals"]
+    }
 
 
 def test_search_trend_signals_ignores_blank_queries():
@@ -62,6 +65,10 @@ def test_job_status_summary_never_leaks_internal_fields():
     assert summary["stage"] == "awaiting_approval"
     assert "accessToken" not in str(summary)
     assert summary["actions"][0]["requiresApproval"] is True
+    assert summary["actions"][0]["approvalState"] == "pending"
+    assert summary["actions"][0]["state"] == "planned"
+    assert summary["title"] == "Mock launch video"
+    assert summary["sourceKind"] == "video"
 
 
 def test_job_status_reports_missing_jobs_honestly():
@@ -79,6 +86,11 @@ def test_posting_windows_derive_only_from_measured_history():
     hours = [w["hourUtc"] for w in result["data"]["windows"]]
     assert hours[0] == 14  # two measured posts at 14:UTC outperform one at 9:UTC
     assert all(w["sampleSize"] >= 1 for w in result["data"]["windows"])
+    assert result["data"]["confidence"] == "low"
+    assert result["data"]["limitations"]
+    assert {item["reference"] for item in result["evidence"][1:]} == {
+        item["postId"] for item in result["data"]["basis"]
+    }
 
 
 def test_posting_windows_fail_closed_without_measured_posts(monkeypatch):
@@ -98,6 +110,9 @@ def test_insight_reads_stay_within_workspace_tools():
     insights = skills_runtime.get_engagement_insights()
     assert "recentPublished" in feed["data"]
     assert insights["data"]["topPosts"][0]["likes"] > insights["data"]["topPosts"][1]["likes"]
+    assert {item["reference"] for item in insights["evidence"][1:]} == {
+        post["postId"] for post in insights["data"]["topPosts"]
+    }
 
 
 def test_tool_provider_failures_are_typed_and_do_not_leak(monkeypatch):

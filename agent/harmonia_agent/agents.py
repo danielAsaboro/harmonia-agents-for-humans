@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import asyncio
 import hashlib
+import json
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -30,6 +31,7 @@ from .agent_models import (
     EditorialReview,
     EditorialReviewInput,
     LiaisonInput,
+    LiaisonAnswer,
     StrategistInput,
     StrategistResult,
 )
@@ -52,6 +54,14 @@ from .temi_prompt import TEMI_EDITORIAL_PLANNER_INSTRUCTION
 from .noni_prompt import NONI_COPYWRITER_INSTRUCTION
 from .nimi_prompt import NIMI_ANALYST_INSTRUCTION
 from .maya_prompt import MAYA_PRESENTER_INSTRUCTION
+from .nova_prompt import NOVA_LIAISON_INSTRUCTION
+from .nova_liaison import (
+    TRACE_KEY as LIAISON_TRACE_KEY,
+    record_liaison_tool,
+    record_liaison_tool_error,
+    reset_liaison_trace,
+    validate_liaison_answer,
+)
 from .dara_prompt import DARA_EDITOR_INSTRUCTION
 from .telemetry import current_trace_id, safe_attributes, tracer
 from .team_runtime import AgentEngineTeamRuntime, TeamRuntime
@@ -337,19 +347,12 @@ def build_agent_team(
             "Answers operator questions about jobs, engagement, trends, and posting "
             "windows using its loaded Harmonia skills and read-only live tools."
         ),
-        instruction=(
-            "You are Harmonia's insight liaison for operators. Use your load_skill "
-            "tool first, follow the triggered skill's instructions exactly, and ground "
-            "every factual claim in tool output from this conversation. If a tool "
-            "returns status=success, use only its data and cite its evidence source. "
-            "If it returns status=error, report the typed error; retry at most once only "
-            "when retryable=true. If a tool fails or returns no data, say exactly that - never substitute recalled "
-            "facts or invented numbers. You are strictly read-only: never offer to "
-            "publish, approve, delete, or modify anything; point operators to their "
-            "approval queue instead."
-        ),
+        instruction=NOVA_LIAISON_INSTRUCTION,
         tools=[build_insight_skillset()],
         output_key="liaison_answer",
+        before_agent_callback=reset_liaison_trace,
+        after_tool_callback=record_liaison_tool,
+        on_tool_error_callback=record_liaison_tool_error,
     )
     return Agent(
         model=resolved.coordinator,
@@ -1435,6 +1438,20 @@ def validate_source_analysis(
     return analysis
 
 
+def _validated_liaison_state(state: dict[str, Any]) -> LiaisonAnswer:
+    raw = state.get("liaison_answer")
+    if not isinstance(raw, str) or not raw.strip():
+        raise AgentProtocolError("liaison returned no answer contract")
+    try:
+        answer = LiaisonAnswer.model_validate(json.loads(raw))
+        trace = state.get(LIAISON_TRACE_KEY)
+        if not isinstance(trace, list):
+            raise ValueError("Nova returned no actual tool trace")
+        return validate_liaison_answer(answer, trace)
+    except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+        raise AgentProtocolError(f"invalid liaison output: {exc}") from exc
+
+
 def _validate_run_output(
     specialist: str, payload: BaseModel, state: dict[str, Any],
 ) -> None:
@@ -1442,9 +1459,7 @@ def _validate_run_output(
         _validated_state(state, "surface_plan", SurfacePlan)
         return
     if specialist == "nova_liaison":
-        answer = state.get("liaison_answer")
-        if not isinstance(answer, str) or not answer.strip():
-            raise AgentProtocolError("liaison returned no answer text")
+        _validated_liaison_state(state)
         return
     if specialist == "nimi_analyst":
         result = _validated_state(state, "source_analysis", SourceAnalysis)
@@ -2039,7 +2054,4 @@ async def ask_with_team(
         print("[MOCK-AI] coordinator -> nova_liaison", flush=True)
         return mock_ask(input.question)
     state = await _run_coordinator("nova_liaison", input, invocation=invocation)
-    answer = state.get("liaison_answer")
-    if not isinstance(answer, str) or not answer.strip():
-        raise AgentProtocolError("liaison returned no answer text")
-    return answer.strip()
+    return _validated_liaison_state(state).answer

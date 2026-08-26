@@ -22,7 +22,13 @@ On failure, `data` is null, `evidence` is empty, and `error` contains only a sta
 | `get_job_status` | workspace job ID → redacted status summary | active workspace, read-only | 30s; one transient retry | invalid ID, not found, authorization, dependency unavailable | none | job status |
 | `suggest_posting_windows` | none → UTC windows and measured basis | active workspace, read-only | 30s; one transient retry | insufficient history, authorization, dependency unavailable | none | posting schedule |
 
-Skills require the liaison to load the matching skill, call only its named tools, use `data` only on success, cite returned `evidence`, report typed absence/failure, retry no more than once when explicitly retryable, and escalate to the operator without inventing an answer.
+Skills require Nova to load exactly one matching skill first, call only its
+allow-listed read tools, use `data` only on success, and cite exact
+`evidenceId` values returned during that invocation. Deterministic callbacks
+record the actual sequence and envelopes; the output validator rejects unknown
+references, false `no_data`, hidden errors, invalid retries, and mutation or
+approval claims. Story and measured-post claims use record-level evidence;
+dataset evidence supports only aggregate claims.
 
 ## MCP decision
 

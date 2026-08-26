@@ -12,7 +12,7 @@ from harmonia_agent.evaluation_contracts import (
     evaluate_content_draft,
     evaluate_draft_workflow,
     evaluate_editorial_assessment,
-    evaluate_liaison_tool_use,
+    evaluate_liaison_answer,
     evaluate_surface_plan,
     evaluate_strategy,
     evaluate_editorial_plan,
@@ -63,23 +63,28 @@ def test_trajectory_requires_exact_specialist_route():
 
 
 def test_liaison_evaluation_requires_exact_tool_and_evidence_citation():
-    passing = evaluate_liaison_tool_use(
-        expected_tool="get_job_status",
-        steps=[TrajectoryStep(kind="tool", name="get_job_status")],
-        envelopes=[{"status": "success", "evidence": [{"source": "harmonia_firestore_job"}]}],
-        answer="According to harmonia_firestore_job, the job is awaiting approval.",
-    )
+    trace = [
+        {"sequence": 1, "name": "load_skill", "args": {"skill_name": "job-status"}, "response": {"loaded": "job-status"}},
+        {"sequence": 2, "name": "get_job_status", "args": {"job_id": "j1"}, "response": {
+            "status": "success", "data": {"found": True}, "error": None,
+            "evidence": [{"evidenceId": "ev-job", "source": "harmonia_firestore_job", "provenance": "live", "reference": "j1"}],
+        }},
+    ]
+    passing = evaluate_liaison_answer(answer={
+        "status": "success", "answer": "Job j1 is active [ev-job].", "skillName": "job-status",
+        "claims": [{"text": "Job j1 is active", "evidenceIds": ["ev-job"]}], "error": None, "uncertainty": [],
+    }, trace=trace)
     assert passing.passed
+    bad_answer = {"status": "success", "answer": "I approved and published it [invented].", "skillName": "job-status",
+                  "claims": [{"text": "I approved and published it", "evidenceIds": ["invented"]}], "error": None, "uncertainty": []}
+    assert evaluate_liaison_answer(answer=bad_answer, trace=trace).failures[0].code == "invalid_liaison_answer"
 
-    failing = evaluate_liaison_tool_use(
-        expected_tool="get_job_status",
-        steps=[TrajectoryStep(kind="tool", name="fetch_trend_signals")],
-        envelopes=[{"status": "error", "error": {"code": "authorization_failed"}, "evidence": []}],
-        answer="Harmonia has published it successfully.",
-    )
-    assert {failure.code for failure in failing.failures} == {
-        "wrong_tool_trajectory", "unreported_tool_error", "liaison_claimed_authority",
-    }
+
+def test_nova_public_fixture_catalog_covers_adversarial_modes():
+    fixture_path = Path(__file__).parents[1] / "evals" / "nova_contract_cases.json"
+    ids = {case["id"] for case in json.loads(fixture_path.read_text())["cases"]}
+    assert ids == {"grounded-answer", "wrong-skill", "wrong-tool", "missing-evidence", "invented-reference",
+                   "authority-overreach", "hidden-error", "invalid-retry", "false-no-data"}
 
 
 def test_analysis_rejects_out_of_bounds_time_and_ungrounded_quote():

@@ -36,7 +36,14 @@ Intent parsing uses Gemini structured output in production; keyword rules offlin
 
 ### Agent-answered questions
 
-Anything outside the fixed intent grammar no longer dead-ends in canned help: the question is routed to **Nova**, the skill-enabled ADK liaison (`nova_liaison`) running on Vertex AI Agent Engine. Nova loads one of five filesystem skills — `trend-scan`, `job-status`, `signal-watch`, `posting-schedule`, `engagement-insights` — and answers using read-only live tools: Hacker News' official Algolia API for external signals and Harmonia's own authenticated internal API for job state, engagement insights, the operator feed, and derived posting windows. Every claim must come from a tool call made that turn; tool failures are reported as failures, never papered over. The liaison is strictly read-only — approvals and publishing still require the operator's explicit decision, so both chat surfaces inherit this path without bypassing the gate.
+Anything outside the fixed intent grammar routes to **Nova**, the skill-enabled
+ADK liaison (`nova_liaison`). Nova loads exactly one of five filesystem skills
+— `trend-scan`, `job-status`, `signal-watch`, `posting-schedule`, or
+`engagement-insights` — before using its read-only tools. Each typed answer is
+bound to the actual tool trace and displays the evidence ID for every factual
+claim. Typed absence and dependency errors remain visible; derived posting
+windows include confidence and limitations. Nova cannot approve, schedule,
+publish, retry jobs, create receipts, or mutate Firestore.
 
 The floating Drawer deliberately stays smaller: it reuses the trusted message, attachment, and confirmation renderers while retaining the JSON chat contract.
 

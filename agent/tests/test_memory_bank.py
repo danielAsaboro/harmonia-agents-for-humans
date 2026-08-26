@@ -152,5 +152,5 @@ def test_agent_entrypoint_retrieves_scoped_memory_before_mock_normalization(monk
         memory=(bank, scope),
     ))
 
-    assert result.summary
+    assert result.analysis.summary
     assert bank.calls == [{"scope": scope, "query": "Activation interview", "top_k": 3}]

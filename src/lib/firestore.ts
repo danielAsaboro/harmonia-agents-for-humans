@@ -991,6 +991,9 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
     transcriptLanguage: data.transcriptLanguage,
     sourceAnalysis: data.sourceAnalysis,
     analysisDigest: data.analysisDigest,
+    analysisResearchRequest: data.analysisResearchRequest,
+    analysisSearchEvidence: data.analysisSearchEvidence,
+    analysisGroundingMetadata: data.analysisGroundingMetadata,
     drafts: data.drafts ?? [],
     contentPack: data.contentPack,
     actions: data.actions ?? [],
@@ -1484,10 +1487,16 @@ export async function saveAnalysis(
   jobId: string,
   sourceAnalysis: import("./types").SourceAnalysis,
   analysisDigest: string,
+  analysisResearchRequest: import("./types").AnalysisResearchRequest | null,
+  analysisSearchEvidence: import("./types").AnalysisSearchEvidence[],
+  analysisGroundingMetadata: Record<string, unknown> | null,
 ) {
   await jobRef(jobId).update({
     sourceAnalysis,
     analysisDigest,
+    analysisResearchRequest,
+    analysisSearchEvidence,
+    analysisGroundingMetadata,
     updatedAt: new Date().toISOString(),
   });
 }

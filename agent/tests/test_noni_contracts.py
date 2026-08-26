@@ -49,7 +49,7 @@ def _evidence() -> tuple[list[dict], list[dict]]:
         "transcriptSegmentRefs": ["segment-1"], "visualEvidenceIds": [],
         "assumptions": [], "confidence": "high",
     }], [{
-        "id": "angle-1", "kind": "source", "title": "Evidence-led execution",
+        "id": "angle-1", "angleType": "source_insight", "evidenceKind": "source", "title": "Evidence-led execution",
         "rationale": "Founders need verifiable operating proof.",
         "evidenceRefs": ["moment-1"], "assumptions": [], "confidence": "high",
     }])
@@ -1124,7 +1124,7 @@ def test_complete_original_and_revision_contracts_preserve_single_item_lineage()
     (original_input, lambda value: value.update(unexpected="no"), "extra_forbidden"),
     (original_draft, lambda value: value.update(alternatives=["Second post"]), "extra_forbidden"),
     (original_input, lambda value: value["brief"].update(id="brief-other"), "exact selected brief"),
-    (original_input, lambda value: value["referencedAngles"].append({"id": "extra", "kind": "trend", "title": "Extra", "rationale": "Extra"}), "evidence"),
+    (original_input, lambda value: value["referencedAngles"].append({"id": "extra", "angleType": "trend", "evidenceKind": "public_context", "title": "Extra", "rationale": "Extra", "evidenceRefs": ["analysis-search-1"], "assumptions": [], "confidence": "medium"}), "evidence"),
     (original_input, lambda value: value.update(priorDraft=original_draft()), "original"),
     (revision_input, lambda value: value.update(priorDraft=None), "prior draft"),
     (revision_input, lambda value: value.update(priorReview=None), "prior review"),

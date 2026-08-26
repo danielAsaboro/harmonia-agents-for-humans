@@ -27,7 +27,7 @@ const analysis = {
   sourceDigest: "c".repeat(64),
   summary: "Activation time fell from nine days to forty hours.",
   moments: [{ id: "m1", title: "Activation", startSec: 2, endSec: 8, hook: "Nine days to forty hours", quote: "we cut nine days to forty hours", transcriptSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }],
-  angles: [{ id: "a1", kind: "source", title: "Operational speed", rationale: "The source demonstrates measurable improvement.", evidenceRefs: ["m1"], assumptions: [], confidence: "high" }],
+  angles: [{ id: "a1", angleType: "source_insight", evidenceKind: "source", title: "Operational speed", rationale: "The source demonstrates measurable improvement.", evidenceRefs: ["m1"], assumptions: [], confidence: "high" }],
   assumptions: [], confidence: "high",
 };
 

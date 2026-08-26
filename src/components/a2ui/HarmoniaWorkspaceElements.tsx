@@ -37,7 +37,7 @@ export interface CampaignBriefProps extends FrameProps {
   brief: string;
   sourceKind: "written" | "video" | "audio" | "mixed";
   platforms: string[];
-  angles: Array<{ id: string; kind: "source" | "trend" | "meme" | "performance" | "memory"; title: string; rationale: string }>;
+  angles: Array<{ id: string; angleType: "source_insight" | "trend" | "meme" | "performance_learning" | "memory_learning"; evidenceKind: "source" | "public_context" | "private_context" | "performance" | "memory"; title: string; rationale: string }>;
 }
 
 export function CampaignBrief({ title, brief, sourceKind, platforms, angles, agentFraming, emphasis, children }: CampaignBriefProps) {
@@ -50,7 +50,7 @@ export function CampaignBrief({ title, brief, sourceKind, platforms, angles, age
         <div><dt>Destinations</dt><dd>{platforms.join(", ") || "Not selected"}</dd></div>
         <div><dt>Angles</dt><dd>{angles.length}</dd></div>
       </dl>
-      {angles.length > 0 && <ul className={styles.angleList}>{angles.map((angle) => <li key={angle.id}><span>{angle.kind}</span><strong>{angle.title}</strong><p>{angle.rationale}</p></li>)}</ul>}
+      {angles.length > 0 && <ul className={styles.angleList}>{angles.map((angle) => <li key={angle.id}><span>{angle.angleType} · {angle.evidenceKind}</span><strong>{angle.title}</strong><p>{angle.rationale}</p></li>)}</ul>}
       <Nested>{children}</Nested>
     </article>
   );

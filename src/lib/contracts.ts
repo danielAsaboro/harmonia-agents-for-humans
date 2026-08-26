@@ -132,7 +132,8 @@ export const momentSchema = z.object({
 
 export const angleSchema = z.object({
   id: z.string().min(1).max(100),
-  kind: z.enum(["source", "trend", "meme", "performance", "memory"]),
+  angleType: z.enum(["source_insight", "trend", "meme", "performance_learning", "memory_learning"]),
+  evidenceKind: z.enum(["source", "public_context", "private_context", "performance", "memory"]),
   title: z.string().min(1).max(300),
   rationale: z.string().min(1).max(1000),
   evidenceRefs: z.array(z.string().min(1).max(100)).min(1).max(12),
@@ -141,6 +142,16 @@ export const angleSchema = z.object({
 }).strict().superRefine((angle, context) => {
   if (new Set(angle.evidenceRefs).size !== angle.evidenceRefs.length) context.addIssue({ code: "custom", message: "angle evidence references must be unique" });
   if (angle.confidence === "high" && angle.assumptions.length) context.addIssue({ code: "custom", message: "high-confidence angle cannot contain assumptions" });
+  const allowed = {
+    source_insight: ["source"],
+    trend: ["public_context", "private_context"],
+    meme: ["public_context", "private_context"],
+    performance_learning: ["performance"],
+    memory_learning: ["memory"],
+  } as const;
+  if (!(allowed[angle.angleType] as readonly string[]).includes(angle.evidenceKind)) {
+    context.addIssue({ code: "custom", message: `${angle.angleType} requires compatible evidence kind` });
+  }
 });
 
 export const sourceAnalysisSchema = z.object({
@@ -166,7 +177,23 @@ export const analysisSubmissionSchema = z.object({
   analysis: sourceAnalysisSchema,
   analysisDigest: z.string().regex(/^[0-9a-f]{64}$/),
   modelUsed: z.string().min(1),
+  researchRequest: z.object({
+    id: z.string().regex(/^analysis-research-[A-Za-z0-9][A-Za-z0-9._:-]{0,80}$/),
+    mode: z.enum(["public_web", "private_index"]),
+    question: z.string().min(10).max(500),
+    justification: z.string().min(10).max(500),
+  }).strict().nullable(),
+  searchEvidence: z.array(z.object({
+    evidenceId: z.string().regex(/^analysis-search-[A-Za-z0-9][A-Za-z0-9._:-]{0,82}$/),
+    evidenceKind: z.enum(["public_context", "private_context"]),
+    supportedText: z.string().min(1).max(1000),
+    title: z.string().min(1).max(300),
+    url: z.string().min(3).max(2000),
+  }).strict()).max(8),
+  groundingMetadata: z.record(z.string(), z.unknown()).nullable(),
 }).strict();
+
+export const analysisResearchRequestSchema = analysisSubmissionSchema.shape.researchRequest.unwrap();
 
 const evidenceRefs = z.array(z.string().min(1).max(100)).min(1).max(12);
 const funnelStage = z.enum(["awareness", "consideration", "conversion", "retention", "advocacy"]);

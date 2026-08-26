@@ -101,6 +101,9 @@ describe("internal contracts", () => {
       },
       analysisDigest: "b".repeat(64),
       modelUsed: "gemini-3.5-flash",
+      researchRequest: null,
+      searchEvidence: [],
+      groundingMetadata: null,
     });
 
     expect(parsed.analysis.moments[0].visualEvidenceIds).toEqual(["f1"]);

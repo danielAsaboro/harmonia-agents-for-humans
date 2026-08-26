@@ -95,7 +95,7 @@ def _validate_copywriter_moment(value: object) -> None:
 def _validate_copywriter_angle(value: object) -> None:
     angle = _boundary_mapping(value, "referenced angle")
     _require_json_identifier(_required_json_field(angle, "id"))
-    for field in ("kind", "title", "rationale"):
+    for field in ("angleType", "evidenceKind", "title", "rationale"):
         _require_json_string(_required_json_field(angle, field))
 
 
@@ -213,7 +213,8 @@ class Moment(StrictModel):
 
 class Angle(StrictModel):
     id: StrictIdentifier
-    kind: Literal["source", "trend", "meme", "performance", "memory"]
+    angleType: Literal["source_insight", "trend", "meme", "performance_learning", "memory_learning"]
+    evidenceKind: Literal["source", "public_context", "private_context", "performance", "memory"]
     title: StrictStr = Field(min_length=1, max_length=300)
     rationale: StrictStr = Field(min_length=1, max_length=1_000)
     evidenceRefs: list[StrictIdentifier] = Field(min_length=1, max_length=12)
@@ -230,6 +231,15 @@ class Angle(StrictModel):
             raise ValueError("angle evidence references must be unique")
         if self.confidence == "high" and self.assumptions:
             raise ValueError("high-confidence angle cannot contain assumptions")
+        allowed = {
+            "source_insight": {"source"},
+            "trend": {"public_context", "private_context"},
+            "meme": {"public_context", "private_context"},
+            "performance_learning": {"performance"},
+            "memory_learning": {"memory"},
+        }
+        if self.evidenceKind not in allowed[self.angleType]:
+            raise ValueError(f"{self.angleType} angle type requires compatible evidence kind")
         return self
 
 
@@ -288,6 +298,13 @@ class AnalystMemoryFact(StrictModel):
     firestoreEvidenceRef: StrictStr = Field(min_length=1, max_length=500)
 
 
+class AnalystResearchRequest(StrictModel):
+    id: StrictStr = Field(pattern=r"^analysis-research-[A-Za-z0-9][A-Za-z0-9._:-]{0,80}$")
+    mode: Literal["public_web", "private_index"]
+    question: StrictStr = Field(min_length=10, max_length=500)
+    justification: StrictStr = Field(min_length=10, max_length=500)
+
+
 class AnalystInput(StrictModel):
     sourceId: StrictIdentifier
     sourceKind: Literal["brief", "media"]
@@ -298,6 +315,7 @@ class AnalystInput(StrictModel):
     mediaEvidence: MediaEvidence | None = None
     performanceObservations: list[AnalystPerformanceObservation] = Field(max_length=5)
     memoryFacts: list[AnalystMemoryFact] = Field(max_length=5)
+    researchRequest: AnalystResearchRequest | None = None
 
     _require_lists = field_validator(
         "transcriptSegments", "performanceObservations", "memoryFacts", mode="before",

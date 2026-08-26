@@ -30,6 +30,7 @@ def analyst_input() -> dict:
             "id": "memory-1", "kind": "preference", "content": "Operators prefer concise proof.",
             "firestoreEvidenceRef": "jobs/job-0/learnings/memory-1",
         }],
+        "researchRequest": None,
     }
 
 
@@ -47,7 +48,7 @@ def source_analysis() -> dict:
             "visualEvidenceIds": ["frame-1"], "assumptions": [], "confidence": "high",
         }],
         "angles": [{
-            "id": "angle-1", "kind": "source", "title": "Compress time to value",
+            "id": "angle-1", "angleType": "source_insight", "evidenceKind": "source", "title": "Compress time to value",
             "rationale": "Use the source's measured before-and-after result.",
             "evidenceRefs": ["moment-1", "segment-1"], "assumptions": [], "confidence": "high",
         }],

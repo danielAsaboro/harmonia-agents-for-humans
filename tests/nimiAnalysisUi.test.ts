@@ -13,6 +13,8 @@ describe("Nimi persisted analysis UI", () => {
       config: { platforms: ["x"] }, drafts: [], actions: [],
       transcriptSegments: [{ id: "segment-1", startSec: 2, endSec: 8, text: "We cut nine days to forty hours." }],
       analysisDigest: "b".repeat(64),
+      analysisResearchRequest: { id: "analysis-research-market", mode: "public_web", question: "What current public context qualifies this source?", justification: "Current context was explicitly requested." },
+      analysisSearchEvidence: [{ evidenceId: "analysis-search-source-1", evidenceKind: "public_context", title: "Primary source", url: "https://example.com/source", supportedText: "Current context qualifies the source." }],
       sourceAnalysis: {
         sourceDigest: "a".repeat(64), summary: "A grounded activation result.", confidence: "medium",
         assumptions: ["The result applies only to the described workflow."],
@@ -21,13 +23,14 @@ describe("Nimi persisted analysis UI", () => {
           transcriptSegmentRefs: ["segment-1"], visualHook: "Founder shows the chart",
           cropSuitability: "good", captionSafeRegion: "lower third", visualEvidenceIds: ["frame-1"],
           assumptions: [], confidence: "high" }],
-        angles: [{ id: "angle-1", kind: "memory", title: "Concise proof", rationale: "Use eligible prior learning.",
+        angles: [{ id: "angle-1", angleType: "memory_learning", evidenceKind: "memory", title: "Concise proof", rationale: "Use eligible prior learning.",
           evidenceRefs: ["memory-1"], assumptions: ["Preference remains applicable."], confidence: "medium" }],
       },
     } as JobFull;
     const html = renderToStaticMarkup(createElement(SourcesWorkspace, { job, receipts: [] }));
     for (const value of ["Nimi source analysis", "A grounded activation result", "segment-1", "frame-1",
-      "memory-1", "medium", "The result applies only", "Preference remains applicable", "a".repeat(64), "b".repeat(64)]) {
+      "memory-1", "medium", "The result applies only", "Preference remains applicable", "a".repeat(64), "b".repeat(64),
+      "Grounded public context", "analysis-search-source-1", "Primary source", "Current context qualifies"]) {
       expect(html).toContain(value);
     }
   });

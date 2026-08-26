@@ -21,7 +21,7 @@ Edge semantics never rely on color alone. Labels, marker words, and line pattern
 
 ## Agent hierarchy and authority
 
-Harmonia delegates bounded evidence analysis to Nimi, strategy to Ryan, and editorial operationalization to Temi. Deterministic code validates and persists Temi's complete plan, selects one eligible item, and runs separate typed Noni and Dara calls with at most one issue-bound revision. Maya provides bounded A2UI presentation and Nova provides skill-first read-only answers. The coordinator delegates; it cannot approve or publish. No cognitive role can approve, publish, mutate credentials or external calendars, perform destructive work, or execute a paid effect.
+Harmonia delegates bounded evidence analysis to Nimi, strategy to Ryan, and editorial operationalization to Temi. Nimi loads one allow-listed filesystem analysis skill; when an exact research request exists, public Google Search or private Vertex AI Search runs in an isolated child agent and retains native grounding metadata. Deterministic code validates and persists Temi's complete plan, selects one eligible item, and runs separate typed Noni and Dara calls with at most one issue-bound revision. Maya provides bounded A2UI presentation and Nova provides skill-first read-only answers. The coordinator delegates; it cannot approve or publish. No cognitive role can approve, publish, mutate credentials or external calendars, perform destructive work, or execute a paid effect.
 
 See [ADK agent platform](./agent-platform) and [tool contracts](./tool-contracts).
 
@@ -37,7 +37,15 @@ Every external effect passes through an action-specific human approval receipt, 
 
 See [approval and audit](./approval-and-audit).
 
-## Skills and tools
+## Skill system
+
+Filesystem skills contain reusable project-owned methods. They are loaded through ADK
+`SkillToolset` loaders, have explicit resource allow-lists, and never count as factual evidence.
+
+## Tool system
+
+Runtime tools retrieve or ground data. Google Search and Vertex AI Search are tools inside isolated
+research agents, not skills. Their outputs require request binding and native provenance validation.
 
 Dara loads `dara-editing-skills` once and at least one allow-listed editing-method reference. Its
 filesystem loaders are read-only, the actual trace is validated fail closed, and skill guidance is

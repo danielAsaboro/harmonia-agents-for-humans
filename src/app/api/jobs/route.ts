@@ -5,7 +5,7 @@ import { currentTenant } from "@/lib/tenancy";
 import { parseYouTubeUrl } from "@/lib/youtubeUrl";
 import { sourceRightsAuthorization } from "@/lib/sourceRights";
 import { z } from "zod";
-import { strategyContextSchema } from "@/lib/contracts";
+import { analysisResearchRequestSchema, strategyContextSchema } from "@/lib/contracts";
 
 const createJobSchema = z.object({
   youtubeUrl: z.string().url().optional(),
@@ -13,6 +13,7 @@ const createJobSchema = z.object({
   platforms: z.array(z.enum(["x"])).default(["x"]),
   rightsAttested: z.boolean().default(false),
   strategyContext: strategyContextSchema.optional(),
+  analysisResearchRequest: analysisResearchRequestSchema.optional(),
 });
 
 async function get(_req: Request) {
@@ -39,7 +40,7 @@ async function post(req: Request) {
       { status: 400 },
     );
   }
-  const { youtubeUrl, brief, platforms, rightsAttested, strategyContext } = parsed.data;
+  const { youtubeUrl, brief, platforms, rightsAttested, strategyContext, analysisResearchRequest } = parsed.data;
   if (youtubeUrl) {
     if (!rightsAttested) return Response.json({ error: "source-rights attestation required" }, { status: 400 });
     const videoId = parseYouTubeUrl(youtubeUrl);
@@ -47,7 +48,7 @@ async function post(req: Request) {
       return Response.json({ error: "invalid YouTube URL" }, { status: 400 });
     }
     const job = await createJob(
-      { youtubeUrl, platforms, strategyContext, sourceRights: sourceRightsAuthorization(currentTenant(), "youtube") },
+      { youtubeUrl, platforms, strategyContext, analysisResearchRequest, sourceRights: sourceRightsAuthorization(currentTenant(), "youtube") },
       "ingest",
     );
     await appendEvent(job.id, "queued", `job created for video ${videoId}`, "operator");
@@ -59,7 +60,7 @@ async function post(req: Request) {
     // Concept job: research/ideation from an operator brief skips ingest+transcribe
     // and enters the pipeline at the understand stage.
     const title = brief.length > 60 ? `${brief.slice(0, 57)}...` : brief;
-    const job = await createJob({ brief, platforms, strategyContext }, "understand");
+    const job = await createJob({ brief, platforms, strategyContext, analysisResearchRequest }, "understand");
     await saveIngestMeta(job.id, {
       videoId: "brief",
       title,

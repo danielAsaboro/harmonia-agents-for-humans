@@ -4,6 +4,7 @@ import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { advance } from "@/lib/advance";
 import { sourceAnalysisDigest } from "@/lib/sourceAnalysis";
+import { validateAnalysisSearchGrounding } from "@/lib/analysisGrounding";
 
 export async function POST(req: Request) {
   if (!isInternalAuthorized(req)) return unauthorized();
@@ -11,7 +12,11 @@ export async function POST(req: Request) {
     if (sourceAnalysisDigest(body.analysis) !== body.analysisDigest) {
       throw new Error("source analysis digest mismatch");
     }
-    await saveAnalysis(body.jobId, body.analysis, body.analysisDigest);
+    validateAnalysisSearchGrounding(body.researchRequest, body.searchEvidence, body.groundingMetadata);
+    await saveAnalysis(
+      body.jobId, body.analysis, body.analysisDigest,
+      body.researchRequest, body.searchEvidence, body.groundingMetadata,
+    );
     const message = `analysis: ${body.analysis.moments.length} grounded moment(s), ${body.analysis.angles.length} grounded angle(s), with ${body.modelUsed}`;
     await appendEvent(body.jobId, "understand", message, "agent", { activity: {
       kind: "handoff", status: "succeeded", role: "nimi_analyst",

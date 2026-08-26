@@ -33,17 +33,37 @@ def test_rejects_invented_or_misaligned_source_evidence(mutation, message):
         validate(output_value=output)
 
 
-@pytest.mark.parametrize(("kind", "reference"), [
+@pytest.mark.parametrize(("evidence_kind", "reference"), [
     ("performance", "memory-1"),
     ("memory", "performance-1"),
     ("source", "performance-1"),
-    ("trend", "memory-1"),
+    ("public_context", "memory-1"),
 ])
-def test_rejects_cross_kind_angle_grounding(kind, reference):
+def test_rejects_cross_kind_angle_grounding(evidence_kind, reference):
     output = source_analysis()
-    output["angles"][0].update(kind=kind, evidenceRefs=[reference])
+    angle_type = {
+        "source": "source_insight", "public_context": "trend",
+        "performance": "performance_learning", "memory": "memory_learning",
+    }[evidence_kind]
+    output["angles"][0].update(
+        angleType=angle_type, evidenceKind=evidence_kind, evidenceRefs=[reference],
+    )
     with pytest.raises(AgentProtocolError, match="evidence kind"):
         validate(output_value=output)
+
+
+@pytest.mark.parametrize(("angle_type", "evidence_kind"), [
+    ("trend", "source"),
+    ("meme", "memory"),
+    ("source_insight", "public_context"),
+    ("performance_learning", "memory"),
+    ("memory_learning", "performance"),
+])
+def test_rejects_incompatible_angle_type_and_evidence_kind(angle_type, evidence_kind):
+    output = source_analysis()
+    output["angles"][0].update(angleType=angle_type, evidenceKind=evidence_kind)
+    with pytest.raises(ValueError, match="angle type requires"):
+        SourceAnalysis.model_validate(output)
 
 
 @pytest.mark.parametrize("text", [

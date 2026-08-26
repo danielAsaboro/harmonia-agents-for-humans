@@ -9,7 +9,7 @@ import pytest
 
 from harmonia_agent import stages
 from harmonia_agent.agent_models import SourceAnalysis
-from harmonia_agent.agents import StrategyRunResult
+from harmonia_agent.agents import AnalysisRunResult, StrategyRunResult
 from tests.test_ryan_strategy import strategy
 
 
@@ -21,7 +21,7 @@ def job() -> dict:
         "sourceAnalysis": {
             "sourceDigest": "a" * 64, "summary": "Activation time fell.",
             "moments": [{"id": "m1", "title": "Activation", "startSec": 2, "endSec": 8, "hook": "Nine days to forty hours", "quote": "we cut nine days to forty hours", "transcriptSegmentRefs": ["segment-1"], "visualEvidenceIds": [], "assumptions": [], "confidence": "high"}],
-            "angles": [{"id": "a1", "kind": "source", "title": "Operational speed", "rationale": "The source demonstrates a measurable operational improvement.", "evidenceRefs": ["m1"], "assumptions": [], "confidence": "high"}],
+            "angles": [{"id": "a1", "angleType": "source_insight", "evidenceKind": "source", "title": "Operational speed", "rationale": "The source demonstrates a measurable operational improvement.", "evidenceRefs": ["m1"], "assumptions": [], "confidence": "high"}],
             "assumptions": [], "confidence": "high",
         },
         "analysisDigest": "b" * 64,
@@ -47,7 +47,9 @@ def test_understand_persists_nimi_analysis_without_running_ryan(monkeypatch):
         value["moments"][0].update(startSec=0, endSec=5, quote="hello", transcriptSegmentRefs=["s1"])
         result = SourceAnalysis.model_validate(value)
         returned.append(result.model_dump(mode="json"))
-        return result
+        return AnalysisRunResult(
+            analysis=result, searchEvidence={}, groundingMetadata=None,
+        )
     source = job()
     source["transcriptSegments"] = [{"id": "s1", "startSec": 0, "endSec": 5, "text": "hello"}]
     monkeypatch.setattr(stages, "get_job", lambda _id: source)

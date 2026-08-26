@@ -34,8 +34,24 @@ export interface JobConfig {
   /** Operator-supplied topic/brief for concept jobs that skip ingest+transcribe. */
   brief?: string;
   strategyContext?: StrategyContext;
+  analysisResearchRequest?: AnalysisResearchRequest;
   platforms: string[];
   sourceRights?: import("./sourceRights").SourceRightsAuthorization;
+}
+
+export interface AnalysisResearchRequest {
+  id: string;
+  mode: "public_web" | "private_index";
+  question: string;
+  justification: string;
+}
+
+export interface AnalysisSearchEvidence {
+  evidenceId: string;
+  evidenceKind: "public_context" | "private_context";
+  supportedText: string;
+  title: string;
+  url: string;
 }
 
 export interface StrategyContext {
@@ -265,6 +281,9 @@ export interface Job {
   mediaDigest?: string;
   sourceAnalysis?: SourceAnalysis;
   analysisDigest?: string;
+  analysisResearchRequest?: AnalysisResearchRequest | null;
+  analysisSearchEvidence?: AnalysisSearchEvidence[];
+  analysisGroundingMetadata?: Record<string, unknown> | null;
   contentStrategy?: ContentStrategy;
   strategyDigest?: string;
   strategyRevision?: number;
@@ -516,7 +535,8 @@ export interface Moment {
 
 export interface Angle {
   id: string;
-  kind: "source" | "trend" | "meme" | "performance" | "memory";
+  angleType: "source_insight" | "trend" | "meme" | "performance_learning" | "memory_learning";
+  evidenceKind: "source" | "public_context" | "private_context" | "performance" | "memory";
   title: string;
   rationale: string;
   evidenceRefs: string[];

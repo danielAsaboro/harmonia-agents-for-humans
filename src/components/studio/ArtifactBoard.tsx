@@ -12,7 +12,7 @@ export function ArtifactBoard({ job, model, onSelect }: { job: JobFull; model: S
   const visual = model.visual[0];
   const audio = model.audio[0];
   const decisions = [
-    ...(job.sourceAnalysis?.angles ?? []).slice(0, 2).map((angle) => ({ label: angle.title, source: angle.kind })),
+    ...(job.sourceAnalysis?.angles ?? []).slice(0, 2).map((angle) => ({ label: angle.title, source: `${angle.angleType} · ${angle.evidenceKind}` })),
     ...(job.sourceAnalysis?.moments ?? []).slice(0, 3).map((moment) => ({ label: moment.hook || moment.title, source: `${moment.startSec}s` })),
   ].slice(0, 3);
 

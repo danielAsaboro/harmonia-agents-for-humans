@@ -7,7 +7,7 @@ describe("architecture explorer documentation", () => {
   it("is present in docs navigation", () => expect(JSON.parse(read("docs/docs.json")).navigation.tabs[0].groups[0].pages).toContain("architecture-explorer"));
   it("documents operation, semantics, maintenance, and accessibility", () => {
     const doc = read("docs/architecture-explorer.mdx").toLowerCase();
-    for (const term of ["open the explorer", "edge semantics", "authority", "workflow", "state ownership", "human approval", "skills and tools", "model allocation", "route families", "observability", "status vocabulary", "update the dataset", "validation", "keyboard", "narrow screens"]) expect(doc).toContain(term);
+    for (const term of ["open the explorer", "edge semantics", "authority", "workflow", "state ownership", "human approval", "skill system", "tool system", "model allocation", "route families", "observability", "status vocabulary", "update the dataset", "validation", "keyboard", "narrow screens"]) expect(doc).toContain(term);
     for (const link of ["architecture", "pipeline", "agent-platform", "state-ownership", "approval-and-audit", "tool-contracts", "observability", "models-cost-evaluation"]) expect(doc).toContain(`./${link}`);
   });
 });

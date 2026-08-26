@@ -34,7 +34,7 @@ flowchart LR
 | Role | Responsibility | Allowed context | Prohibited authority |
 |---|---|---|---|
 | Harmonia | exact specialist routing | typed invocation state | answer the specialist task, approve, publish |
-| Nimi | source evidence analysis: exact moments and qualified source/performance/memory angles | typed transcript segments, bounded media/frame evidence, verified performance IDs, and eligible Memory Bank facts with Firestore provenance | invent evidence or trends, define strategy, write final copy, approve, schedule, publish, or treat memory as authority |
+| Nimi | source evidence analysis: exact moments and qualified source/context/performance/memory angles | typed transcript/frame evidence, verified performance, eligible Memory Bank facts, one bounded method skill, and optional request-bound grounded context | use skill prose as evidence, invent evidence or trends, define strategy, write final copy, approve, schedule, publish, or treat memory/search as authority |
 | Ryan | agentic strategy and source-grounded content briefs | typed Nimi analysis, company/campaign context, verified performance, eligible Memory Bank facts | write final copy, mutate calendars, approve, publish |
 | Temi | agentic editorial operationalization: sequencing, cadence, supported channels/formats, windows, deadlines, dependencies, and priorities | exact human-approved Ryan strategy, Nimi evidence, capabilities, commitments, capacity, and observed posting windows | invent strategy/evidence, write final copy, use tools, approve, mutate external calendars, schedule externally, publish |
 | Noni | platform-native writing and revision | one selected Temi item, its exact Ryan brief, referenced Nimi evidence, local writing guidance, verified prior publications, and brief-scoped public sources | redefine strategy, search trend feeds, access Memory Bank, inspect the rest of the plan, create facts, approve, publish |
@@ -65,6 +65,9 @@ The projection powers **Monitoring → Agent activity**. Native ADK OpenTelemetr
 
 ## Versioned ADK skills
 
+Nimi loads exactly one `nimi-analysis-skills` skill and at least one relevant allow-listed analysis
+reference. This filesystem skill contains method guidance only.
+
 Dara loads exactly one `dara-editing-skills` skill and at least one approved editing reference before
 review. The seven references route editorial triage, grounding and claims, structure and clarity,
 brief/voice/audience fit, platform/CTA usability, safety and inclusion, and bounded feedback. Dara
@@ -74,7 +77,15 @@ unapproved resources. The guidance can shape editorial judgment but cannot serve
 evidence, a brand constraint, or authority.
 
 Noni loads exactly one `noni-writing-skills` skill and at least one approved writing reference before
-drafting. Skill activation then exposes exactly two additional reads:
+drafting.
+
+## Runtime research tools
+
+Search and internal-data reads are tools, not skills. Nimi's optional native Google Search and
+Vertex AI Search tools run in isolated request-bound child agents. The runtime validates a separate
+research trace and native grounding metadata before persistence.
+
+Noni has two separate read capabilities:
 `search_verified_publications` for tenant-scoped posts with applied receipts and successful
 verification, and native ADK `google_search` through an isolated brief-bound research agent.
 It has no trend-feed, Memory Bank, approval, or effect tool. The ten references cover thought leadership,

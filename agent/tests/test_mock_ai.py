@@ -62,10 +62,10 @@ def test_analyze_shape_and_timestamp_bounds():
     for m in result["moments"]:
         assert set(m) == {"id", "title", "startSec", "endSec", "hook", "quote", "transcriptSegmentRefs", "visualEvidenceIds", "assumptions", "confidence"}
         assert 0 <= m["startSec"] < m["endSec"] <= bound
-    kinds = [a["kind"] for a in result["angles"]]
-    assert kinds == ["source"]
+    kinds = [(a["angleType"], a["evidenceKind"]) for a in result["angles"]]
+    assert kinds == [("source_insight", "source")]
     for a in result["angles"]:
-        assert set(a) == {"id", "kind", "title", "rationale", "evidenceRefs", "assumptions", "confidence"}
+        assert set(a) == {"id", "angleType", "evidenceKind", "title", "rationale", "evidenceRefs", "assumptions", "confidence"}
 
 
 def test_drafts_reference_ids_and_fit_limit():

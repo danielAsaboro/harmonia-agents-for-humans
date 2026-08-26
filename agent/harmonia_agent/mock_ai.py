@@ -67,7 +67,7 @@ def mock_analyze(input) -> dict:
         "assumptions": [], "confidence": "high",
     } for i, segment in enumerate(segments)]
     angles = [{
-        "id": "mock-a1", "kind": "source", "title": "Source-backed lesson",
+        "id": "mock-a1", "angleType": "source_insight", "evidenceKind": "source", "title": "Source-backed lesson",
         "rationale": f"Develop the explicit lesson in {input.title} without adding outside facts.",
         "evidenceRefs": [moments[0]["id"]], "assumptions": [], "confidence": "high",
     }]

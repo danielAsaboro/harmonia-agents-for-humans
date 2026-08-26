@@ -1,0 +1,85 @@
+"""Project-owned filesystem analysis skill for Nimi."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from google.adk.agents.context import Context
+from google.adk.skills import load_skill_from_dir
+from google.adk.tools import skill_toolset
+from google.adk.tools.base_tool import BaseTool
+
+NIMI_SKILL_NAME = "nimi-analysis-skills"
+NIMI_SKILL_TRACE_KEY = "nimi_analysis_skill_trace"
+NIMI_SKILL_ROOT = Path(__file__).parent / "skills" / NIMI_SKILL_NAME
+NIMI_SKILL_REFERENCES = (
+    "references/evidence-observation-and-provenance.md",
+    "references/moment-and-quote-extraction.md",
+    "references/visual-and-clip-analysis.md",
+    "references/themes-tensions-and-patterns.md",
+    "references/angle-development.md",
+    "references/performance-and-memory-interpretation.md",
+    "references/uncertainty-and-analysis-critique.md",
+)
+_LOAD_TOOLS = frozenset({"load_skill", "load_skill_resource"})
+
+
+def build_nimi_analysis_skillset() -> skill_toolset.SkillToolset:
+    skill = load_skill_from_dir(NIMI_SKILL_ROOT)
+    if skill.frontmatter.name != NIMI_SKILL_NAME:
+        raise RuntimeError("Nimi analysis skill name does not match its runtime contract")
+    return skill_toolset.SkillToolset(skills=[skill], tool_filter=sorted(_LOAD_TOOLS))
+
+
+def reset_nimi_skill_trace(context: Context) -> None:
+    context.state[NIMI_SKILL_TRACE_KEY] = []
+
+
+def _skill_name(args: dict[str, Any]) -> str | None:
+    value = args.get("skill_name") or args.get("name")
+    return value if isinstance(value, str) else None
+
+
+def _resource_path(args: dict[str, Any]) -> str | None:
+    value = args.get("file_path")
+    return value if isinstance(value, str) else None
+
+
+def guard_nimi_skill_tool(tool: BaseTool, args: dict[str, Any]) -> None:
+    if tool.name not in _LOAD_TOOLS:
+        raise ValueError(f"Nimi used a prohibited skill tool: {tool.name}")
+    if _skill_name(args) != NIMI_SKILL_NAME:
+        raise ValueError("Nimi may load only nimi-analysis-skills")
+    if tool.name == "load_skill_resource" and _resource_path(args) not in NIMI_SKILL_REFERENCES:
+        raise ValueError(f"Nimi loaded an unapproved resource: {_resource_path(args)}")
+
+
+def record_nimi_skill_tool(tool: BaseTool, args: dict[str, Any], context: Context) -> None:
+    trace = list(context.state.get(NIMI_SKILL_TRACE_KEY) or [])
+    trace.append({"sequence": len(trace) + 1, "name": tool.name, "args": dict(args)})
+    context.state[NIMI_SKILL_TRACE_KEY] = trace
+
+
+def validate_nimi_skill_trace(trace: list[dict[str, Any]]) -> None:
+    if not trace or trace[0].get("name") != "load_skill" or sum(item.get("name") == "load_skill" for item in trace) != 1:
+        raise ValueError("Nimi must load nimi-analysis-skills exactly once first")
+    if [item.get("sequence") for item in trace] != list(range(1, len(trace) + 1)):
+        raise ValueError("Nimi analysis-skill trace sequence is invalid")
+    if _skill_name(trace[0].get("args") or {}) != NIMI_SKILL_NAME:
+        raise ValueError("Nimi may load only nimi-analysis-skills")
+    resources: list[str] = []
+    for item in trace[1:]:
+        if item.get("name") != "load_skill_resource":
+            raise ValueError(f"Nimi used a prohibited skill tool: {item.get('name')}")
+        args = item.get("args") or {}
+        if _skill_name(args) != NIMI_SKILL_NAME:
+            raise ValueError("Nimi may load resources only from nimi-analysis-skills")
+        path = _resource_path(args)
+        if path not in NIMI_SKILL_REFERENCES:
+            raise ValueError(f"Nimi loaded an unapproved resource: {path}")
+        resources.append(path)
+    if not resources:
+        raise ValueError("Nimi must load at least one analysis reference")
+    if len(resources) != len(set(resources)):
+        raise ValueError("Nimi loaded a duplicate analysis reference")

@@ -15,18 +15,30 @@ and eligible Memory Bank facts without defining strategy or writing copy.
 | Default model | `gemini-3.5-flash` |
 | Input | `AnalystInput` |
 | Output | `SourceAnalysis` |
-| Runtime skills | None |
-| Tools | None |
+| Runtime skills | `nimi-analysis-skills` with seven allow-listed method references |
+| Skill interface | ADK filesystem `SkillToolset` exposing `load_skill` and `load_skill_resource` |
+| Research tools | Native `google_search` in an isolated public-search agent; optional `VertexAiSearchTool` in an isolated private-search agent |
 
 ## Prompt method
 
-The prompt establishes a closed evidence hierarchy: transcript segments and supplied frames are
+The prompt requires the skill exactly once and only the references relevant to the analytical
+problem. The skill establishes an evidence hierarchy: transcript segments and supplied frames are
 primary source evidence; verified performance and eligible memory are advisory and retain distinct
 provenance. Exact quotes must occur in cited segments, timestamps must remain in bounds, and visible
 facts require supplied frame IDs. Evidence kinds cannot be mixed.
 
-Weak evidence becomes an explicit assumption with lower confidence. Nimi cannot invent trends,
+Skill guidance shapes method but is never evidence. Weak evidence becomes an explicit assumption with lower confidence. Nimi cannot invent trends,
 speaker identity, customer outcomes, or unseen visuals.
+
+## Research boundary
+
+The filesystem skill and search tools are separate runtime capabilities. Nimi principally analyzes
+typed source evidence, verified performance, and eligible memory. Public or private research is
+available only when application code supplies an exact `researchRequest`.
+Public queries run in an isolated `nimi_google_search_agent`; private indexed retrieval runs in an
+isolated `nimi_agent_search_agent` configured with a real Vertex AI Search datastore. Neither search
+tool shares a model request with Nimi's filesystem tools. Chunks, supports, queries, source metadata,
+and the public search entry point are preserved and validated before `analysis-search-*` IDs can be cited.
 
 ## Authority boundary
 
@@ -35,12 +47,13 @@ final copy, CTAs, approvals, schedules, publishing actions, receipts, or verific
 
 ## Runtime enforcement
 
-Deterministic validation checks transcript support, media bounds, reference existence, evidence-kind
-compatibility, confidence, authority overreach, canonical digesting, persistence, and the exact Ryan
-handoff.
+Deterministic validation checks the independent skill-loader and research-tool traces, the exact
+request binding, native grounding metadata, transcript support, media bounds, reference existence, evidence-kind compatibility,
+confidence, authority overreach, canonical digesting, persistence, and the exact Ryan handoff.
 
 ## Source references
 
 - Prompt: `agent/harmonia_agent/nimi_prompt.py`
 - Contracts: `AnalystInput` and `SourceAnalysis` in `agent_models.py`
-- Tests: `agent/tests/test_nimi_contracts.py` and `test_nimi_validation.py`
+- Skill: `agent/harmonia_agent/skills/nimi-analysis-skills/SKILL.md`
+- Tests: `agent/tests/test_nimi_contracts.py`, `test_nimi_validation.py`, and `test_nimi_skills.py`

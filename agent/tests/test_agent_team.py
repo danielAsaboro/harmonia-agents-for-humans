@@ -95,7 +95,7 @@ class ScriptedDelegationModel(BaseLlm):
                 if part.file_data is not None
             )
             yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text=(
-                '{"sourceDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","summary":"Delegated analysis","moments":[{"id":"m1","title":"Proof","startSec":0,"endSec":30,"hook":"hello","quote":"hello","transcriptSegmentRefs":["segment-1"],"visualEvidenceIds":[],"assumptions":[],"confidence":"high"}],"angles":[{"id":"a1","kind":"source","title":"Source proof","rationale":"The source contains proof.","evidenceRefs":["m1"],"assumptions":[],"confidence":"high"}],"assumptions":[],"confidence":"high"}'
+                '{"sourceDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","summary":"Delegated analysis","moments":[{"id":"m1","title":"Proof","startSec":0,"endSec":30,"hook":"hello","quote":"hello","transcriptSegmentRefs":["segment-1"],"visualEvidenceIds":[],"assumptions":[],"confidence":"high"}],"angles":[{"id":"a1","angleType":"source_insight","evidenceKind":"source","title":"Source proof","rationale":"The source contains proof.","evidenceRefs":["m1"],"assumptions":[],"confidence":"high"}],"assumptions":[],"confidence":"high"}'
             ))]))
             return
         if llm_request.tools_dict and not function_responses:
@@ -172,7 +172,7 @@ def _analysis() -> SourceAnalysis:
             "assumptions": [], "confidence": "high",
         }],
         "angles": [{
-            "id": "a1", "kind": "source", "title": "Speed wins",
+            "id": "a1", "angleType": "source_insight", "evidenceKind": "source", "title": "Speed wins",
             "rationale": "The source describes activation speed.",
             "evidenceRefs": ["m1"], "assumptions": [], "confidence": "high",
         }],
@@ -192,10 +192,22 @@ class ManagedRuntime:
     async def invoke(self, **kwargs):
         self.calls.append(kwargs)
         if kwargs["specialist"] == "nimi_analyst":
-            return {"source_analysis": {
-                **_analysis().model_dump(mode="json"),
-                "summary": "Delegated analysis",
-            }}
+            return {
+                "source_analysis": {
+                    **_analysis().model_dump(mode="json"),
+                    "summary": "Delegated analysis",
+                },
+                "nimi_analysis_skill_trace": [
+                    {"sequence": 1, "name": "load_skill", "args": {
+                        "skill_name": "nimi-analysis-skills",
+                    }},
+                    {"sequence": 2, "name": "load_skill_resource", "args": {
+                        "skill_name": "nimi-analysis-skills",
+                        "file_path": "references/evidence-observation-and-provenance.md",
+                    }},
+                ],
+                "nimi_analysis_research_trace": [],
+            }
         if kwargs["specialist"] == "temi_editorial_planner":
             return {"editorial_plan": _temi_plan()}
         from tests.test_noni_contracts import editorial_checks, grounded_draft
@@ -363,6 +375,8 @@ def test_team_applies_each_roles_generation_and_safety_policy():
     analyst = next(agent for agent in root.sub_agents if agent.name == "nimi_analyst")
     assert analyst.generate_content_config.temperature == 0.2
     assert analyst.generate_content_config.max_output_tokens == 2048
+    assert len(analyst.tools) == 2
+    assert analyst.tools[1].name == "nimi_google_search_agent"
 
     planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
     copywriter = next(agent for agent in root.sub_agents if agent.name == "noni_copywriter")
@@ -370,6 +384,19 @@ def test_team_applies_each_roles_generation_and_safety_policy():
     assert copywriter.generate_content_config.max_output_tokens == 2048
     assert planner.generate_content_config.temperature == 0.1
     assert planner.generate_content_config.max_output_tokens == 1024
+
+
+def test_nimi_private_agent_search_requires_configured_datastore(monkeypatch):
+    monkeypatch.setenv(
+        "NIMI_AGENT_SEARCH_DATASTORE_ID",
+        "projects/project-1/locations/global/collections/default_collection/dataStores/nimi-docs",
+    )
+    root = build_agent_team()
+    analyst = next(agent for agent in root.sub_agents if agent.name == "nimi_analyst")
+    assert len(analyst.tools) == 3
+    assert [tool.name for tool in analyst.tools[1:]] == [
+        "nimi_google_search_agent", "nimi_agent_search_agent",
+    ]
 
 
 def test_unknown_safety_profile_is_rejected():
@@ -508,7 +535,9 @@ def test_temi_run_output_rejects_an_unknown_brief():
 def test_mock_team_routes_all_roles_and_returns_validated_shapes(monkeypatch, capsys):
     monkeypatch.setenv("HARMONIA_MOCK_AI", "1")
     analysis = asyncio.run(analyze_with_team(_analyst_input()))
-    assert analysis.summary
+    assert analysis.analysis.summary
+    assert analysis.searchEvidence == {}
+    assert analysis.groundingMetadata is None
     with pytest.raises(RuntimeError, match="no mock editorial-plan path"):
         asyncio.run(plan_with_team(EditorialPlannerInput.model_validate(_planner_input())))
     trace = capsys.readouterr().out

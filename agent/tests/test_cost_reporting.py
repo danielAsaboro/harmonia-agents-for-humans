@@ -451,6 +451,14 @@ def test_managed_runtime_finalizes_explicit_estimated_usage_for_every_reserved_r
                                  "visualEvidenceIds": [], "assumptions": [], "confidence": "high"}],
                     "angles": [], "assumptions": [], "confidence": "high",
                 },
+                "nimi_analysis_skill_trace": [
+                    {"sequence": 1, "name": "load_skill", "args": {"skill_name": "nimi-analysis-skills"}},
+                    {"sequence": 2, "name": "load_skill_resource", "args": {
+                        "skill_name": "nimi-analysis-skills",
+                        "file_path": "references/evidence-observation-and-provenance.md",
+                    }},
+                ],
+                "nimi_analysis_research_trace": [],
             }
 
     reservations: list[dict] = []

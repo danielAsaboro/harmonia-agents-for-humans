@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -71,6 +72,24 @@ from .noni_skills import (
     validate_noni_skill_trace,
 )
 from .nimi_prompt import NIMI_ANALYST_INSTRUCTION
+from .nimi_skills import (
+    NIMI_SKILL_TRACE_KEY,
+    build_nimi_analysis_skillset,
+    guard_nimi_skill_tool,
+    record_nimi_skill_tool,
+    reset_nimi_skill_trace,
+    validate_nimi_skill_trace,
+)
+from .nimi_research import (
+    NIMI_RESEARCH_TRACE_KEY,
+    build_nimi_agent_search_tool,
+    build_nimi_google_search_tool,
+    guard_nimi_research_tool,
+    is_nimi_research_tool,
+    record_nimi_research_tool,
+    reset_nimi_research_trace,
+    validate_nimi_research_trace,
+)
 from .maya_prompt import MAYA_PRESENTER_INSTRUCTION
 from .nova_prompt import NOVA_LIAISON_INSTRUCTION
 from .nova_liaison import (
@@ -130,6 +149,35 @@ _MAX_OUTPUT_TOKENS = {
 
 class AgentProtocolError(RuntimeError):
     """The agent team returned missing or contract-invalid structured output."""
+
+
+def _reset_nimi_capability_traces(context: Any) -> None:
+    reset_nimi_skill_trace(context)
+    reset_nimi_research_trace(context)
+
+
+def _guard_nimi_capability(tool: Any, args: dict[str, Any], context: Any) -> None:
+    del context
+    if is_nimi_research_tool(tool):
+        guard_nimi_research_tool(tool)
+    else:
+        guard_nimi_skill_tool(tool, args)
+
+
+def _record_nimi_capability(
+    tool: Any, args: dict[str, Any], context: Any, tool_response: dict[str, Any],
+) -> None:
+    if is_nimi_research_tool(tool):
+        record_nimi_research_tool(tool, args, context, tool_response)
+    else:
+        record_nimi_skill_tool(tool, args, context)
+
+
+@dataclass(frozen=True)
+class AnalysisRunResult:
+    analysis: SourceAnalysis
+    searchEvidence: dict[str, tuple[str, ...]]
+    groundingMetadata: dict[str, Any] | None
 
 
 @dataclass(frozen=True)
@@ -312,6 +360,12 @@ def build_agent_team(
         before_tool_callback=guard_ryan_skill_tool,
         after_tool_callback=record_ryan_skill_tool,
     )
+    analyst_tools = [
+        build_nimi_analysis_skillset(),
+        build_nimi_google_search_tool(resolved.analyst),
+    ]
+    if nimi_data_store := os.environ.get("NIMI_AGENT_SEARCH_DATASTORE_ID", "").strip():
+        analyst_tools.append(build_nimi_agent_search_tool(resolved.analyst, nimi_data_store))
     analyst = Agent(
         model=resolved.analyst,
         generate_content_config=generation_config(resolved.config_for("nimi_analyst")),
@@ -321,7 +375,11 @@ def build_agent_team(
         input_schema=AnalystInput,
         output_schema=SourceAnalysis,
         output_key="source_analysis",
+        tools=analyst_tools,
         mode="single_turn",
+        before_agent_callback=_reset_nimi_capability_traces,
+        before_tool_callback=_guard_nimi_capability,
+        after_tool_callback=_record_nimi_capability,
         before_model_callback=attach_media_evidence,
     )
     presenter = Agent(
@@ -1428,6 +1486,8 @@ _NIMI_AUTHORITY_OVERREACH = re.compile(
 def validate_source_analysis(
     input: AnalystInput,
     analysis: SourceAnalysis,
+    *,
+    research_evidence: dict[str, tuple[str, ...]] | None = None,
 ) -> SourceAnalysis:
     """Fail closed when Nimi exceeds the supplied source and advisory evidence."""
     input = AnalystInput.model_validate(input)
@@ -1446,7 +1506,16 @@ def validate_source_analysis(
     memory_ids = {item.id for item in input.memoryFacts}
     moment_ids = {moment.id for moment in analysis.moments}
     source_ids = set(segments) | set(frames) | moment_ids
-    all_ids = source_ids | performance_ids | memory_ids
+    research_evidence = research_evidence or {}
+    public_ids = {
+        evidence_id for evidence_id, values in research_evidence.items()
+        if values and values[0] == "public_context"
+    }
+    private_ids = {
+        evidence_id for evidence_id, values in research_evidence.items()
+        if values and values[0] == "private_context"
+    }
+    all_ids = source_ids | public_ids | private_ids | performance_ids | memory_ids
 
     for moment in analysis.moments:
         unknown_segments = set(moment.transcriptSegmentRefs) - set(segments)
@@ -1472,8 +1541,8 @@ def validate_source_analysis(
 
     allowed_by_kind = {
         "source": source_ids,
-        "trend": source_ids,
-        "meme": source_ids,
+        "public_context": public_ids,
+        "private_context": private_ids,
         "performance": performance_ids,
         "memory": memory_ids,
     }
@@ -1483,9 +1552,9 @@ def validate_source_analysis(
             raise AgentProtocolError(
                 f"Nimi angle contains unknown evidence ids: {sorted(unknown)}"
             )
-        if not set(angle.evidenceRefs).issubset(allowed_by_kind[angle.kind]):
+        if not set(angle.evidenceRefs).issubset(allowed_by_kind[angle.evidenceKind]):
             raise AgentProtocolError(
-                f"Nimi {angle.kind} angle uses the wrong evidence kind"
+                f"Nimi {angle.evidenceKind} angle uses the wrong evidence kind"
             )
 
     semantic_text = " ".join([
@@ -1528,8 +1597,26 @@ def _validate_run_output_unwrapped(
         _validated_liaison_state(state)
         return
     if specialist == "nimi_analyst":
+        skill_trace = state.get(NIMI_SKILL_TRACE_KEY)
+        research_trace = state.get(NIMI_RESEARCH_TRACE_KEY)
+        if not isinstance(skill_trace, list):
+            raise AgentProtocolError("Nimi returned no actual analysis-skill trace")
+        if not isinstance(research_trace, list):
+            raise AgentProtocolError("Nimi returned no actual grounded-research trace")
+        try:
+            validate_nimi_skill_trace(skill_trace)
+            research_evidence = validate_nimi_research_trace(
+                research_trace,
+                research_request=getattr(payload, "researchRequest", None),
+                grounding_metadata=state.get("_adk_grounding_metadata"),
+            )
+        except ValueError as exc:
+            raise AgentProtocolError(f"invalid Nimi skill or grounded-research trace: {exc}") from exc
         result = _validated_state(state, "source_analysis", SourceAnalysis)
-        validate_source_analysis(AnalystInput.model_validate(payload), result)
+        validate_source_analysis(
+            AnalystInput.model_validate(payload), result, research_evidence=research_evidence,
+        )
+        state["_nimi_search_evidence"] = research_evidence
         return
     if specialist == "ryan_strategist":
         trace = state.get(RYAN_SKILL_TRACE_KEY)
@@ -1814,7 +1901,7 @@ async def _run_coordinator(
 async def analyze_with_team(
     input: AnalystInput, *, invocation: InvocationContext | None = None,
     memory: tuple[MemoryBank, MemoryScope] | None = None,
-) -> SourceAnalysis:
+) -> AnalysisRunResult:
     input = AnalystInput.model_validate(input)
     resolved_memory = configured_memory(invocation) if memory is None else memory
     facts = await _retrieve_memory(query=input.title, memory=resolved_memory)
@@ -1836,12 +1923,26 @@ async def analyze_with_team(
     if mock_ai_enabled():
         print("[MOCK-AI] coordinator -> nimi_analyst", flush=True)
         raw = mock_analyze(input)
-        return validate_source_analysis(
-            input, SourceAnalysis.model_validate({k: v for k, v in raw.items() if k != "mock"}),
+        return AnalysisRunResult(
+            analysis=validate_source_analysis(
+                input, SourceAnalysis.model_validate({k: v for k, v in raw.items() if k != "mock"}),
+            ),
+            searchEvidence={}, groundingMetadata=None,
         )
     state = await _run_coordinator("nimi_analyst", input, invocation=invocation)
-    return validate_source_analysis(
-        input, _validated_state(state, "source_analysis", SourceAnalysis),
+    research_evidence = state.get("_nimi_search_evidence") or {}
+    if not isinstance(research_evidence, dict):
+        raise AgentProtocolError("Nimi returned invalid grounded research evidence")
+    metadata = state.get("_adk_grounding_metadata")
+    if metadata is not None and hasattr(metadata, "model_dump"):
+        metadata = metadata.model_dump(mode="json", by_alias=True)
+    return AnalysisRunResult(
+        analysis=validate_source_analysis(
+            input, _validated_state(state, "source_analysis", SourceAnalysis),
+            research_evidence=research_evidence,
+        ),
+        searchEvidence=research_evidence,
+        groundingMetadata=metadata if isinstance(metadata, dict) else None,
     )
 
 

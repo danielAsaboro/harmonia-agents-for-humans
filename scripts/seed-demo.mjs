@@ -86,8 +86,8 @@ const MOMENTS = [
   { id: "m2", title: "Nine days to forty hours", startSec: 14, endSec: 23, hook: "Activation time collapsed when we deleted instead of added.", quote: "nine days to forty hours", cropSuitability: "excellent", captionSafeRegion: "lower-third center", visualEvidenceIds: ["s3"] },
 ];
 const ANGLES = [
-  { id: "a1", kind: "trend", title: "Deletion as strategy", rationale: "Founders love 'we removed things' stories; contrarian vs feature-dump launches." },
-  { id: "a2", kind: "meme", title: "Onboarding obstacle course meme", rationale: "Relatable joke format about 14-step signups with a confetti screen." },
+  { id: "a1", angleType: "trend", evidenceKind: "public_context", title: "Deletion as strategy", rationale: "Founders love 'we removed things' stories; contrarian vs feature-dump launches." },
+  { id: "a2", angleType: "meme", evidenceKind: "public_context", title: "Onboarding obstacle course meme", rationale: "Relatable joke format about 14-step signups with a confetti screen." },
 ];
 
 function draft(id, text, extra = {}) {

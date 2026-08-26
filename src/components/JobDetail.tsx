@@ -292,11 +292,11 @@ export default function JobDetail({
               )}
               {(job.sourceAnalysis?.angles.length ?? 0) > 0 && (
                 <div className="mt-4">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Trend & meme angles</h3>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Grounded analytical angles</h3>
                   <ul className="mt-2 space-y-1.5">
                     {job.sourceAnalysis!.angles.map((a) => (
                       <li key={a.id} className="text-xs leading-5">
-                        <span className={`mr-2 rounded px-1.5 py-px text-[10px] font-semibold uppercase ${a.kind === "trend" ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" : "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900 dark:text-fuchsia-200"}`}>{a.kind}</span>
+                        <span className="mr-2 rounded bg-blue-100 px-1.5 py-px text-[10px] font-semibold uppercase text-blue-800 dark:bg-blue-900 dark:text-blue-200">{a.angleType} · {a.evidenceKind}</span>
                         <span className="font-medium">{a.title}</span> — <span className="text-zinc-600 dark:text-zinc-400">{a.rationale}</span>
                       </li>
                     ))}

@@ -16,7 +16,7 @@ describe("architecture projection", () => {
     expect(searchArchitecture(architectureDefinition, "/api/chat/stream")).toContain("api-chat");
     const projection = projectArchitecture(architectureDefinition, { ...createDefaultExplorerState(architectureDefinition), expanded: [], query: "suggest_posting_windows" });
     expect(projection.nodes.some((node) => node.id === "tool-suggest-posting-windows")).toBe(true);
-    expect(projection.nodes.some((node) => node.id === "group-skills")).toBe(true);
+    expect(projection.nodes.some((node) => node.id === "group-tools")).toBe(true);
   });
 
   it("filters by layer and lifts hidden edge endpoints", () => {

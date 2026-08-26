@@ -8,6 +8,7 @@ import pytest
 
 from harmonia_agent import stages
 from harmonia_agent.agent_models import SourceAnalysis
+from harmonia_agent.agents import AnalysisRunResult
 from harmonia_agent.web_client import EffectClaimInProgress, EffectClaimUncertain
 from tests.test_ryan_strategy import strategy as _content_strategy
 from tests.test_temi_editorial_plan import plan as _editorial_plan
@@ -25,7 +26,7 @@ def _analysis() -> dict:
             "assumptions": [], "confidence": "high",
         }],
         "angles": [{
-            "id": "a1", "kind": "source", "title": "Speed wins",
+            "id": "a1", "angleType": "source_insight", "evidenceKind": "source", "title": "Speed wins",
             "rationale": "The source describes activation speed.",
             "evidenceRefs": ["m1"], "assumptions": [], "confidence": "high",
         }],
@@ -57,7 +58,10 @@ def test_understand_brief_routes_through_nimi_without_strategy(monkeypatch):
             quote=request.transcriptSegments[0].text,
             transcriptSegmentRefs=[request.transcriptSegments[0].id],
         )
-        return SourceAnalysis.model_validate(result)
+        return AnalysisRunResult(
+            analysis=SourceAnalysis.model_validate(result),
+            searchEvidence={}, groundingMetadata=None,
+        )
 
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
         "config": {"brief": "Explain our activation win"},
@@ -79,7 +83,13 @@ def test_understand_brief_routes_through_nimi_without_strategy(monkeypatch):
     assert invocation.operation_id == "job-1:understand:0"
     path, payload = posts[0]
     assert path == "/api/internal/analysis"
-    assert set(payload) == {"jobId", "stage", "analysis", "analysisDigest", "modelUsed"}
+    assert set(payload) == {
+        "jobId", "stage", "analysis", "analysisDigest", "modelUsed",
+        "researchRequest", "searchEvidence", "groundingMetadata",
+    }
+    assert payload["researchRequest"] is None
+    assert payload["searchEvidence"] == []
+    assert payload["groundingMetadata"] is None
 
 
 def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypatch):
@@ -137,7 +147,10 @@ def test_understand_video_passes_direct_source_media_evidence(monkeypatch):
             startSec=0, endSec=5, quote="hello",
             transcriptSegmentRefs=["s1"],
         )
-        return SourceAnalysis.model_validate(result)
+        return AnalysisRunResult(
+            analysis=SourceAnalysis.model_validate(result),
+            searchEvidence={}, groundingMetadata=None,
+        )
 
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
         "config": {"youtubeUrl": "https://www.youtube.com/watch?v=abc12345678"},

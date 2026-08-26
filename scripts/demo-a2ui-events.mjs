@@ -32,8 +32,8 @@ export function buildDemoChatRunEvents(input) {
       sourceKind: "video",
       platforms: ["x"],
       angles: [
-        { id: "a1", kind: "trend", title: "Deletion as strategy", rationale: "A contrarian alternative to feature-dump launches." },
-        { id: "a2", kind: "meme", title: "Onboarding obstacle course meme", rationale: "A relatable format grounded in the persisted signup story." },
+        { id: "a1", angleType: "trend", evidenceKind: "public_context", title: "Deletion as strategy", rationale: "A contrarian alternative to feature-dump launches." },
+        { id: "a2", angleType: "meme", evidenceKind: "public_context", title: "Onboarding obstacle course meme", rationale: "A relatable format grounded in the persisted signup story." },
       ],
     },
     {

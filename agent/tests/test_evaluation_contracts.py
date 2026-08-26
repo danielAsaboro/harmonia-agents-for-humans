@@ -52,7 +52,7 @@ def _analysis(**moment_overrides) -> SourceAnalysis:
         "summary": "A useful result.",
         "moments": [moment],
         "angles": [{
-            "id": "a1", "kind": "source", "title": "Speed",
+            "id": "a1", "angleType": "source_insight", "evidenceKind": "source", "title": "Speed",
             "rationale": "The source describes speed.", "evidenceRefs": ["m1"],
             "assumptions": [], "confidence": "high",
         }],
@@ -118,7 +118,7 @@ def test_nimi_evaluation_covers_grounding_authority_and_completeness(mutation, c
 def test_nimi_evaluation_accepts_memory_with_provenance_and_uncertainty():
     candidate = source_analysis()
     candidate["angles"].append({
-        "id": "angle-memory", "kind": "memory", "title": "Concise proof",
+        "id": "angle-memory", "angleType": "memory_learning", "evidenceKind": "memory", "title": "Concise proof",
         "rationale": "Eligible prior learning suggests concise proof.",
         "evidenceRefs": ["memory-1"], "assumptions": ["The preference remains applicable."],
         "confidence": "medium",
@@ -130,6 +130,30 @@ def test_nimi_public_fixture_catalog_covers_required_modes():
     fixture_path = Path(__file__).parents[1] / "evals" / "nimi_contract_cases.json"
     ids = {case["id"] for case in json.loads(fixture_path.read_text())["cases"]}
     assert ids == {"grounded-analysis", "missing-evidence", "invented-reference", "authority-overreach", "incomplete-analysis", "memory-with-provenance", "memory-as-authorization", "uncertain-analysis"}
+
+
+def test_nimi_analysis_skill_catalog_covers_methods_research_and_boundaries():
+    fixture_path = Path(__file__).parents[1] / "evals" / "nimi_analysis_skill_cases.json"
+    cases = json.loads(fixture_path.read_text())["cases"]
+    references = {case.get("reference") for case in cases if case.get("reference")}
+    assert references == {
+        "references/evidence-observation-and-provenance.md",
+        "references/moment-and-quote-extraction.md",
+        "references/visual-and-clip-analysis.md",
+        "references/themes-tensions-and-patterns.md",
+        "references/angle-development.md",
+        "references/performance-and-memory-interpretation.md",
+        "references/uncertainty-and-analysis-critique.md",
+    }
+    ids = {case["id"] for case in cases}
+    assert {"public-search-grounding", "private-search-grounding", "cross-request-research",
+            "skill-as-evidence", "memory-as-authorization", "authority-overreach"} <= ids
+    research_cases = {case["id"]: case for case in cases if case.get("capability") == "research_tool"}
+    assert set(research_cases) == {
+        "public-search-grounding", "private-search-grounding", "cross-request-research",
+        "irrelevant-research", "missing-native-metadata",
+    }
+    assert all("skill" not in case["expected"] for case in research_cases.values())
 
 
 def test_noni_writing_skill_fixture_catalog_covers_all_methods_and_boundaries():

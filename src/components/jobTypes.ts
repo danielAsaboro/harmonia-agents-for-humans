@@ -1,4 +1,4 @@
-import type { EvidenceRef, Angle, ContentStrategy, DraftWorkflowResult, EditorialPlan, EffectClaimSummary, Moment, PlannedAction, PostDraft, Receipt, SourceAnalysis, Stage, StrategyApproval } from "@/lib/types";
+import type { AnalysisResearchRequest, AnalysisSearchEvidence, EvidenceRef, Angle, ContentStrategy, DraftWorkflowResult, EditorialPlan, EffectClaimSummary, Moment, PlannedAction, PostDraft, Receipt, SourceAnalysis, Stage, StrategyApproval } from "@/lib/types";
 
 export interface JobSummary {
   id: string;
@@ -38,6 +38,9 @@ export interface JobFull extends JobSummary {
   transcriptSegments: Array<{ id: string; startSec: number; endSec: number; text: string }>;
   sourceAnalysis?: SourceAnalysis;
   analysisDigest?: string;
+  analysisResearchRequest?: AnalysisResearchRequest | null;
+  analysisSearchEvidence?: AnalysisSearchEvidence[];
+  analysisGroundingMetadata?: Record<string, unknown> | null;
   drafts: PostDraft[];
   contentPack?: { markdown: string; digest: string; generatedAt: string };
   actions: PlannedAction[];

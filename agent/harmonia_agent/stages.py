@@ -332,9 +332,11 @@ async def run_understand(job_id: str) -> None:
         mediaEvidence=media_evidence,
         performanceObservations=performance,
         memoryFacts=[],
+        researchRequest=(job.get("config") or {}).get("analysisResearchRequest"),
     )
+    run_result = await analyze_with_team(analyst_input, invocation=invocation)
     result = validate_source_analysis(
-        analyst_input, await analyze_with_team(analyst_input, invocation=invocation),
+        analyst_input, run_result.analysis, research_evidence=run_result.searchEvidence,
     ).model_dump(mode="json")
     digest = hashlib.sha256(
         _canonical_typed_bytes(result).encode("utf-8")
@@ -344,6 +346,18 @@ async def run_understand(job_id: str) -> None:
         "analysis": result,
         "analysisDigest": digest,
         "modelUsed": content.model_used(),
+        "researchRequest": (
+            analyst_input.researchRequest.model_dump(mode="json")
+            if analyst_input.researchRequest else None
+        ),
+        "searchEvidence": [
+            {
+                "evidenceId": evidence_id, "evidenceKind": values[0],
+                "supportedText": values[1], "title": values[2], "url": values[3],
+            }
+            for evidence_id, values in run_result.searchEvidence.items()
+        ],
+        "groundingMetadata": run_result.groundingMetadata,
     })
 
 

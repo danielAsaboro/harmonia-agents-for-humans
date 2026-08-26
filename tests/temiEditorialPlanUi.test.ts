@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import PipelineStepper from "@/components/PipelineStepper";
 import type { JobFull } from "@/components/jobTypes";
 import { SourcesWorkspace } from "@/components/studio/SourcesWorkspace";
+import { ApprovalDock } from "@/components/studio/ApprovalDock";
 
 const selected = {
   id: "item-selected", briefId: "brief-proof", campaignTheme: "Proof week", contentPillar: "Customer outcomes",
@@ -61,5 +62,23 @@ describe("Temi persisted editorial-plan UI", () => {
     const html = renderToStaticMarkup(createElement(PipelineStepper, { stage: "plan", status: "running" }));
     expect(html).toContain("Plan");
     expect(html).toContain("Draft");
+  });
+
+  it("describes strategy approval as preceding a bounded plan proposal without calendar authority", () => {
+    const approvalJob = {
+      ...job,
+      stage: "awaiting_strategy_approval" as const,
+      strategyApprovalState: "pending" as const,
+      strategyDigest: "a".repeat(64),
+      contentStrategy: { version: 1, thesis: "Lead with proof" },
+    } as JobFull;
+    const html = renderToStaticMarkup(createElement(ApprovalDock, {
+      job: approvalJob, jobId: job.id, actions: [], verifications: [], receipts: [],
+      busy: false, onDecide: () => undefined,
+    }));
+
+    expect(html).toContain("Temi&#x27;s bounded editorial-plan proposal");
+    expect(html).toContain("no external-calendar authority");
+    expect(html).not.toContain("creates calendar work");
   });
 });

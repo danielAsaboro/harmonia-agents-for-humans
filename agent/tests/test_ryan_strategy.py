@@ -16,6 +16,7 @@ from harmonia_agent.agent_models import (
     StrategistInput,
 )
 from harmonia_agent.agents import AgentProtocolError, validate_strategy_grounding
+from harmonia_agent.ryan_prompt import RYAN_STRATEGIST_INSTRUCTION
 
 
 def strategist_input() -> StrategistInput:
@@ -132,3 +133,9 @@ def test_strategy_schema_rejects_incomplete_briefs_and_final_copy_fields():
     payload["briefs"][0]["finalPostCopy"] = "Buy now"
     with pytest.raises(ValidationError, match="extra_forbidden"):
         ContentStrategy.model_validate(payload)
+
+
+def test_ryan_prompt_separates_temi_editorial_timing_from_external_scheduling():
+    assert "Temi proposes editorial timing and publication windows" in RYAN_STRATEGIST_INSTRUCTION
+    assert "deterministic code owns scheduling and external calendar effects" in RYAN_STRATEGIST_INSTRUCTION
+    assert "Temi owns calendar dates" not in RYAN_STRATEGIST_INSTRUCTION

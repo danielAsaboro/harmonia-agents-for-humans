@@ -6,6 +6,7 @@ const FLOW = [
   { key: "understand", label: "Understand" },
   { key: "strategize", label: "Strategy" },
   { key: "awaiting_strategy_approval", label: "Strategy approval" },
+  { key: "plan", label: "Plan" },
   { key: "draft", label: "Draft" },
   { key: "awaiting_approval", label: "Approval" },
   { key: "publish", label: "Publish" },

@@ -5,7 +5,7 @@ import type { MetricsResponse } from "@/app/api/metrics/route";
 
 const STAGE_ORDER = [
   "queued", "ingest", "transcribe", "understand", "strategize", "awaiting_strategy_approval",
-  "draft", "awaiting_approval", "publish", "verify", "learn", "packet", "complete",
+  "plan", "draft", "awaiting_approval", "publish", "verify", "learn", "packet", "complete",
 ];
 
 const STAGE_COLORS: Record<string, string> = {
@@ -14,6 +14,7 @@ const STAGE_COLORS: Record<string, string> = {
   awaiting_approval: "#f59e0b",
   awaiting_strategy_approval: "#f59e0b",
   strategize: "#8b5cf6",
+  plan: "#2563eb",
 };
 
 function stageColor(stage: string): string {

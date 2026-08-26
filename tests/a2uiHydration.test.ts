@@ -50,6 +50,25 @@ function plan(slot: "canvas" | "conversation" | "approval", node: SurfacePlan["s
 }
 
 describe("A2UI trusted hydration", () => {
+  it("hydrates plan as the active durable stage from persisted job truth", () => {
+    const result = hydrateSurfacePlan({
+      runId: "run-plan",
+      plan: plan("conversation", {
+        id: "progress",
+        component: "JobProgress",
+        emphasis: "primary",
+        refs: { jobId: "job-1", draftIds: [], momentIds: [], sourceIds: [], assetActionIds: [], actionIds: [], receiptIds: [] },
+        children: [],
+      }),
+      job: { ...job, stage: "plan", status: "running" },
+      receipts,
+    });
+
+    const serialized = JSON.stringify(result.conversation);
+    expect(serialized).toContain('"id":"plan","label":"plan","status":"active"');
+    expect(serialized).toContain('"id":"draft","label":"draft","status":"pending"');
+  });
+
   it("hydrates approval risk and content from the persisted action", () => {
     const result = hydrateSurfacePlan({
       runId: "run-1",

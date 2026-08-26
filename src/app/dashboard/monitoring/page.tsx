@@ -6,10 +6,12 @@ import LogsView from "@/components/monitoring/LogsView";
 import JobsTableView from "@/components/monitoring/JobsTableView";
 import AssetsGallery from "@/components/monitoring/AssetsGallery";
 import ReceiptsLedger from "@/components/monitoring/ReceiptsLedger";
+import AgentActivityView from "@/components/monitoring/AgentActivityView";
 
 const TABS = [
   { key: "overview", label: "Overview" },
   { key: "logs", label: "Logs" },
+  { key: "activity", label: "Agent activity" },
   { key: "jobs", label: "Jobs" },
   { key: "assets", label: "Assets" },
   { key: "receipts", label: "Receipts" },
@@ -21,7 +23,7 @@ export default function MonitoringPage() {
   const [tab, setTab] = useState<Tab>("overview");
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-6 sm:px-6">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-6 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Monitoring</h1>
@@ -48,6 +50,7 @@ export default function MonitoringPage() {
 
       {tab === "overview" && <MonitoringView />}
       {tab === "logs" && <LogsView />}
+      {tab === "activity" && <AgentActivityView />}
       {tab === "jobs" && <JobsTableView />}
       {tab === "assets" && <AssetsGallery />}
       {tab === "receipts" && <ReceiptsLedger />}

@@ -154,4 +154,40 @@ describe("Noni and Dara contracts", () => {
   ])("accepts each supported UTC ISO timestamp form", (reviewedAt) => {
     expect(editorialReviewSchema.safeParse({ ...reviseReview, reviewedAt }).success).toBe(true);
   });
+
+  it.each([
+    ["visualHook", null],
+    ["cropSuitability", null],
+    ["captionSafeRegion", null],
+    ["visualEvidenceIds", null],
+  ])("allows omitted nested optional fields but rejects explicit null", (field, value) => {
+    const payload = structuredClone(originalInput) as unknown as Record<string, unknown>;
+    (payload.referencedMoments as Array<Record<string, unknown>>)[0][field] = value;
+    expect(copywriterInputSchema.safeParse(payload).success).toBe(false);
+  });
+
+  it.each([
+    ["referencedMoments", 0],
+    ["referencedAngles", 0],
+  ])("bounds nested evidence ids at 100 characters", (collection, index) => {
+    const accepted = structuredClone(originalInput) as unknown as Record<string, unknown>;
+    (accepted[collection] as Array<Record<string, unknown>>)[index].id = "x".repeat(100);
+    if (collection === "referencedMoments") {
+      (accepted.editorialItem as Record<string, unknown>).evidenceRefs = ["x".repeat(100), "angle-1"];
+      (accepted.brief as Record<string, unknown>).evidenceRefs = ["x".repeat(100), "angle-1"];
+    } else {
+      (accepted.editorialItem as Record<string, unknown>).evidenceRefs = ["moment-1", "x".repeat(100)];
+      (accepted.brief as Record<string, unknown>).evidenceRefs = ["moment-1", "x".repeat(100)];
+    }
+    expect(copywriterInputSchema.safeParse(accepted).success).toBe(true);
+    (accepted[collection] as Array<Record<string, unknown>>)[index].id = "x".repeat(101);
+    if (collection === "referencedMoments") {
+      (accepted.editorialItem as Record<string, unknown>).evidenceRefs = ["x".repeat(101), "angle-1"];
+      (accepted.brief as Record<string, unknown>).evidenceRefs = ["x".repeat(101), "angle-1"];
+    } else {
+      (accepted.editorialItem as Record<string, unknown>).evidenceRefs = ["moment-1", "x".repeat(101)];
+      (accepted.brief as Record<string, unknown>).evidenceRefs = ["moment-1", "x".repeat(101)];
+    }
+    expect(copywriterInputSchema.safeParse(accepted).success).toBe(false);
+  });
 });

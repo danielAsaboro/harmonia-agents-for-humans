@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Callable, Literal
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -42,6 +42,103 @@ def _require_iso_utc_timestamp(value: object) -> object:
     ):
         raise ValueError("timestamp must be an ISO-8601 UTC string")
     return value
+
+
+def _require_json_string(value: object, *, maximum: int | None = None) -> None:
+    if not isinstance(value, str) or (maximum is not None and len(value) > maximum):
+        raise ValueError("JSON boundary strings must be bounded strings")
+
+
+def _require_json_identifier(value: object) -> None:
+    _require_json_string(value, maximum=100)
+    if not value:
+        raise ValueError("JSON boundary identifiers cannot be blank")
+
+
+def _boundary_mapping(value: object, name: str) -> dict[str, Any]:
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json", exclude_none=True)
+    if not isinstance(value, dict):
+        raise ValueError(f"{name} must be a JSON object or typed contract model")
+    return value
+
+
+def _required_json_field(value: dict[str, Any], field: str) -> object:
+    if field not in value:
+        raise ValueError(f"JSON boundary requires {field}")
+    return value[field]
+
+
+def _require_json_array_items(value: object, item_validator: Callable[[object], None]) -> None:
+    _require_json_list(value)
+    for item in value:
+        item_validator(item)
+
+
+def _validate_copywriter_moment(value: object) -> None:
+    moment = _boundary_mapping(value, "referenced moment")
+    _require_json_identifier(_required_json_field(moment, "id"))
+    for field in ("title", "hook", "quote"):
+        _require_json_string(_required_json_field(moment, field))
+    for field in ("startSec", "endSec"):
+        _require_json_number(_required_json_field(moment, field))
+    if "visualHook" in moment:
+        _require_json_string(moment["visualHook"], maximum=500)
+    if "cropSuitability" in moment:
+        _require_json_string(moment["cropSuitability"])
+    if "captionSafeRegion" in moment:
+        _require_json_string(moment["captionSafeRegion"], maximum=200)
+    if "visualEvidenceIds" in moment:
+        _require_json_array_items(moment["visualEvidenceIds"], _require_json_identifier)
+
+
+def _validate_copywriter_angle(value: object) -> None:
+    angle = _boundary_mapping(value, "referenced angle")
+    _require_json_identifier(_required_json_field(angle, "id"))
+    for field in ("kind", "title", "rationale"):
+        _require_json_string(_required_json_field(angle, field))
+
+
+def _validate_copywriter_brief(value: object) -> None:
+    brief = _boundary_mapping(value, "content brief")
+    for field in ("id", "audienceId"):
+        _require_json_identifier(_required_json_field(brief, field))
+    for field in ("title", "objective", "funnelStage", "keyMessage", "ctaIntent", "intendedConversion", "kpi"):
+        _require_json_string(_required_json_field(brief, field))
+    _require_json_number(_required_json_field(brief, "priority"))
+    if isinstance(brief["priority"], bool) or not isinstance(brief["priority"], int):
+        raise ValueError("brief priority must be a JSON integer")
+    for field, item_validator in (
+        ("channelCandidates", _require_json_identifier),
+        ("formatCandidates", _require_json_identifier),
+        ("dependencies", lambda item: _require_json_string(item, maximum=300)),
+        ("constraints", lambda item: _require_json_string(item, maximum=300)),
+        ("evidenceRefs", _require_json_identifier),
+    ):
+        _require_json_array_items(_required_json_field(brief, field), item_validator)
+
+
+def _validate_copywriter_item(value: object) -> None:
+    item = _boundary_mapping(value, "editorial item")
+    for field in ("id", "briefId", "audienceId", "channel", "format"):
+        _require_json_identifier(_required_json_field(item, field))
+    for field in ("campaignTheme", "contentPillar", "objective", "funnelStage", "intendedConversion", "ctaIntent", "kpi", "productionStatus", "planningRationale", "selectionRationale", "confidence"):
+        _require_json_string(_required_json_field(item, field))
+    for field in ("priority",):
+        _require_json_number(_required_json_field(item, field))
+        if isinstance(item[field], bool) or not isinstance(item[field], int):
+            raise ValueError("editorial item priority must be a JSON integer")
+    _require_json_number(_required_json_field(item, "selectionScore"))
+    for field in ("publicationWindowStartAt", "publicationWindowEndAt", "productionDeadlineAt"):
+        _require_iso_utc_timestamp(_required_json_field(item, field))
+    for field, item_validator in (
+        ("evidenceRefs", _require_json_identifier),
+        ("dependencies", _require_json_identifier),
+        ("constraints", lambda entry: _require_json_string(entry, maximum=300)),
+        ("requiredAssets", lambda entry: _require_json_string(entry, maximum=300)),
+    ):
+        if field in item:
+            _require_json_array_items(item[field], item_validator)
 
 
 class FrameEvidence(StrictModel):
@@ -560,97 +657,16 @@ class EditorialReview(StrictModel):
     _require_issues_list = field_validator("issues", mode="before")(_require_json_list)
 
 
-class CopywriterMoment(Moment):
-    id: StrictIdentifier
-    title: StrictStr = Field(min_length=1)
-    startSec: float = Field(ge=0)
-    endSec: float = Field(ge=0)
-    hook: StrictStr = Field(min_length=1)
-    quote: StrictStr = Field(min_length=1)
-    visualHook: StrictStr | None = Field(default=None, max_length=500)
-    cropSuitability: Literal["poor", "fair", "good", "excellent"] | None = None
-    captionSafeRegion: StrictStr | None = Field(default=None, max_length=200)
-    visualEvidenceIds: list[StrictIdentifier] = Field(default_factory=list, max_length=12)
-
-    _require_numbers = field_validator("startSec", "endSec", mode="before")(_require_json_number)
-    _require_visual_evidence_list = field_validator("visualEvidenceIds", mode="before")(_require_json_list)
-
-
-class CopywriterAngle(Angle):
-    id: StrictIdentifier
-    kind: Literal["trend", "meme"]
-    title: StrictStr = Field(min_length=1)
-    rationale: StrictStr = Field(min_length=1)
-
-
-class CopywriterContentBrief(ContentBrief):
-    id: StrictIdentifier
-    title: StrictStr = Field(min_length=1, max_length=300)
-    objective: StrictStr = Field(min_length=1, max_length=600)
-    audienceId: StrictIdentifier
-    funnelStage: Literal["awareness", "consideration", "conversion", "retention", "advocacy"]
-    keyMessage: StrictStr = Field(min_length=1, max_length=600)
-    channelCandidates: list[StrictIdentifier] = Field(min_length=1, max_length=8)
-    formatCandidates: list[StrictIdentifier] = Field(min_length=1, max_length=8)
-    ctaIntent: StrictStr = Field(min_length=1, max_length=300)
-    intendedConversion: StrictStr = Field(min_length=1, max_length=300)
-    kpi: StrictStr = Field(min_length=1, max_length=200)
-    priority: StrictInt = Field(ge=1, le=5)
-    dependencies: list[StrictConstraintText] = Field(max_length=8)
-    constraints: list[StrictConstraintText] = Field(max_length=12)
-    evidenceRefs: list[StrictIdentifier] = Field(min_length=1, max_length=12)
-
-    _require_lists = field_validator(
-        "channelCandidates", "formatCandidates", "dependencies", "constraints", "evidenceRefs", mode="before",
-    )(_require_json_list)
-
-
-class CopywriterEditorialPlanItem(EditorialPlanItem):
-    id: StrictIdentifier
-    briefId: StrictIdentifier
-    campaignTheme: StrictStr = Field(min_length=1, max_length=200)
-    contentPillar: StrictStr = Field(min_length=1, max_length=200)
-    objective: StrictStr = Field(min_length=1, max_length=600)
-    audienceId: StrictIdentifier
-    funnelStage: Literal["awareness", "consideration", "conversion", "retention", "advocacy"]
-    intendedConversion: StrictStr = Field(min_length=1, max_length=300)
-    ctaIntent: StrictStr = Field(min_length=1, max_length=300)
-    kpi: StrictStr = Field(min_length=1, max_length=200)
-    channel: StrictIdentifier
-    format: StrictIdentifier
-    evidenceRefs: list[StrictIdentifier] = Field(min_length=1, max_length=12)
-    publicationWindowStartAt: datetime
-    publicationWindowEndAt: datetime
-    productionDeadlineAt: datetime
-    priority: StrictInt = Field(ge=1, le=5)
-    selectionScore: float = Field(ge=0, le=1)
-    dependencies: list[StrictIdentifier] = Field(default_factory=list, max_length=8)
-    productionStatus: Literal["planned"]
-    constraints: list[StrictConstraintText] = Field(default_factory=list, max_length=12)
-    requiredAssets: list[StrictConstraintText] = Field(default_factory=list, max_length=12)
-    planningRationale: StrictStr = Field(min_length=1, max_length=600)
-    selectionRationale: StrictStr = Field(min_length=1, max_length=600)
-    confidence: Literal["low", "medium", "high"]
-
-    _require_lists = field_validator(
-        "evidenceRefs", "dependencies", "constraints", "requiredAssets", mode="before",
-    )(_require_json_list)
-    _require_selection_score = field_validator("selectionScore", mode="before")(_require_json_number)
-    _require_timestamps = field_validator(
-        "publicationWindowStartAt", "publicationWindowEndAt", "productionDeadlineAt", mode="before",
-    )(_require_iso_utc_timestamp)
-
-
 class CopywriterInput(StrictModel):
     planId: StrictIdentifier
     planDigest: StrictDigest
     strategyDigest: StrictDigest
     editorialItemId: StrictIdentifier
     briefId: StrictIdentifier
-    editorialItem: CopywriterEditorialPlanItem
-    brief: CopywriterContentBrief
-    referencedMoments: list[CopywriterMoment] = Field(..., max_length=12)
-    referencedAngles: list[CopywriterAngle] = Field(..., max_length=12)
+    editorialItem: EditorialPlanItem
+    brief: ContentBrief
+    referencedMoments: list[Moment] = Field(..., max_length=12)
+    referencedAngles: list[Angle] = Field(..., max_length=12)
     brandContext: StrictStr = Field(min_length=1, max_length=4_000)
     constraints: list[StrictConstraintText] = Field(..., max_length=24)
     platform: Literal["x"]
@@ -660,6 +676,18 @@ class CopywriterInput(StrictModel):
     priorReview: EditorialReview | None = Field(...)
 
     _require_lists = field_validator("referencedMoments", "referencedAngles", "constraints", mode="before")(_require_json_list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_json_handoff_boundary(cls, value: object) -> object:
+        if isinstance(value, BaseModel) or not isinstance(value, dict):
+            return value
+        _validate_copywriter_item(_required_json_field(value, "editorialItem"))
+        _validate_copywriter_brief(_required_json_field(value, "brief"))
+        _require_json_array_items(_required_json_field(value, "referencedMoments"), _validate_copywriter_moment)
+        _require_json_array_items(_required_json_field(value, "referencedAngles"), _validate_copywriter_angle)
+        _require_json_array_items(_required_json_field(value, "constraints"), lambda entry: _require_json_string(entry, maximum=300))
+        return value
 
     @model_validator(mode="after")
     def validate_selected_authority_and_revision(self) -> "CopywriterInput":

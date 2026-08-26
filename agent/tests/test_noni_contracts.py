@@ -8,9 +8,13 @@ import pytest
 from pydantic import ValidationError
 
 from harmonia_agent.agent_models import (
+    Angle,
+    ContentBrief,
     ContentDraft,
     CopywriterInput,
+    EditorialPlanItem,
     EditorialReview,
+    Moment,
 )
 
 
@@ -269,3 +273,62 @@ def test_review_timestamp_accepts_the_same_utc_iso_forms_as_zod(timestamp):
     payload = revise_review()
     payload["reviewedAt"] = timestamp
     assert EditorialReview.model_validate(payload).reviewedAt.isoformat().endswith("+00:00")
+
+
+def test_copywriter_input_accepts_existing_typed_handoff_models_without_reparsing():
+    payload = original_input()
+    payload.update({
+        "editorialItem": EditorialPlanItem.model_validate(payload["editorialItem"]),
+        "brief": ContentBrief.model_validate(payload["brief"]),
+        "referencedMoments": [Moment.model_validate(item) for item in payload["referencedMoments"]],
+        "referencedAngles": [Angle.model_validate(item) for item in payload["referencedAngles"]],
+    })
+
+    result = CopywriterInput.model_validate(payload)
+    assert isinstance(result.editorialItem, EditorialPlanItem)
+    assert isinstance(result.brief, ContentBrief)
+    assert isinstance(result.referencedMoments[0], Moment)
+    assert isinstance(result.referencedAngles[0], Angle)
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("visualHook", None),
+    ("cropSuitability", None),
+    ("captionSafeRegion", None),
+    ("visualEvidenceIds", None),
+])
+def test_nested_moment_optional_fields_reject_explicit_null_but_allow_omission(field, value):
+    with_null = original_input()
+    with_null["referencedMoments"][0][field] = value
+    with pytest.raises(ValidationError):
+        CopywriterInput.model_validate(with_null)
+
+    omitted = original_input()
+    assert CopywriterInput.model_validate(omitted).referencedMoments[0].id == "moment-1"
+
+
+@pytest.mark.parametrize(("collection", "index"), [
+    ("referencedMoments", 0),
+    ("referencedAngles", 0),
+])
+def test_nested_evidence_ids_are_bounded_to_100_characters(collection, index):
+    accepted = original_input()
+    accepted[collection][index]["id"] = "x" * 100
+    if collection == "referencedMoments":
+        accepted["editorialItem"]["evidenceRefs"] = ["x" * 100, "angle-1"]
+        accepted["brief"]["evidenceRefs"] = ["x" * 100, "angle-1"]
+    else:
+        accepted["editorialItem"]["evidenceRefs"] = ["moment-1", "x" * 100]
+        accepted["brief"]["evidenceRefs"] = ["moment-1", "x" * 100]
+    assert CopywriterInput.model_validate(accepted)
+
+    rejected = deepcopy(accepted)
+    rejected[collection][index]["id"] = "x" * 101
+    if collection == "referencedMoments":
+        rejected["editorialItem"]["evidenceRefs"] = ["x" * 101, "angle-1"]
+        rejected["brief"]["evidenceRefs"] = ["x" * 101, "angle-1"]
+    else:
+        rejected["editorialItem"]["evidenceRefs"] = ["moment-1", "x" * 101]
+        rejected["brief"]["evidenceRefs"] = ["moment-1", "x" * 101]
+    with pytest.raises(ValidationError):
+        CopywriterInput.model_validate(rejected)

@@ -55,6 +55,7 @@ from .temi_prompt import TEMI_EDITORIAL_PLANNER_INSTRUCTION
 from .noni_prompt import NONI_COPYWRITER_INSTRUCTION
 from .noni_skills import (
     NONI_SKILL_TRACE_KEY,
+    build_noni_google_search_tool,
     build_noni_writing_skillset,
     record_noni_skill_tool,
     reset_noni_skill_trace,
@@ -314,7 +315,10 @@ def build_agent_team(
         input_schema=CopywriterInput,
         output_schema=ContentDraft,
         output_key="copywriter_draft",
-        tools=[build_noni_writing_skillset()],
+        tools=[
+            build_noni_writing_skillset(),
+            build_noni_google_search_tool(resolved.copywriter),
+        ],
         mode="single_turn",
         before_agent_callback=reset_noni_skill_trace,
         after_tool_callback=record_noni_skill_tool,
@@ -752,14 +756,17 @@ def _noni_validate_lineage(input: CopywriterInput, draft: ContentDraft) -> None:
 
 def _noni_validate_references(
     input: CopywriterInput, draft: ContentDraft,
+    research_evidence: dict[str, tuple[str, ...]],
 ) -> dict[str, tuple[str, ...]]:
     evidence = _noni_evidence_fields(input)
+    selected_ids = set(evidence)
+    evidence.update(research_evidence)
     expected_ids = set(evidence)
     draft_ids = set(draft.evidenceRefs)
     unknown = draft_ids - expected_ids
     if unknown:
         raise AgentProtocolError(f"Noni draft contains unknown evidence ids: {sorted(unknown)}")
-    missing = expected_ids - draft_ids
+    missing = selected_ids - draft_ids
     if missing:
         raise AgentProtocolError(f"Noni draft is missing selected evidence ids: {sorted(missing)}")
 
@@ -798,8 +805,12 @@ def _noni_validate_constraints(input: CopywriterInput, draft: ContentDraft) -> N
 
 def _noni_validate_urls_alternatives_and_authority(
     input: CopywriterInput, draft: ContentDraft,
+    research_evidence: dict[str, tuple[str, ...]],
 ) -> None:
-    supplied_urls = _noni_urls("\n".join(_noni_all_strings(input)))
+    supplied_urls = _noni_urls("\n".join([
+        *_noni_all_strings(input),
+        *(field for fields in research_evidence.values() for field in fields),
+    ]))
     authored = "\n".join((
         draft.text, draft.ctaTreatment, *draft.assumptions,
         *(claim.text for claim in draft.claims),
@@ -1121,16 +1132,18 @@ def _noni_validate_claim_expression(draft: ContentDraft) -> None:
 
 
 def validate_content_draft(
-    input: CopywriterInput, draft: ContentDraft,
+    input: CopywriterInput, draft: ContentDraft, *,
+    research_evidence: dict[str, tuple[str, ...]] | None = None,
 ) -> ContentDraft:
     """Fail closed when one Noni result exceeds its exact production boundary."""
     input = CopywriterInput.model_validate(input)
     draft = ContentDraft.model_validate(draft)
     _validate_ascii_only_boundary(draft, "Noni draft")
     _noni_validate_lineage(input, draft)
-    evidence = _noni_validate_references(input, draft)
+    research_evidence = dict(research_evidence or {})
+    evidence = _noni_validate_references(input, draft, research_evidence)
     _noni_validate_constraints(input, draft)
-    _noni_validate_urls_alternatives_and_authority(input, draft)
+    _noni_validate_urls_alternatives_and_authority(input, draft, research_evidence)
     _noni_validate_claim_support(evidence, draft)
     _noni_validate_brief_alignment(input, draft)
     _noni_validate_claim_expression(draft)
@@ -1485,11 +1498,21 @@ def _validate_run_output_unwrapped(
         if not isinstance(trace, list):
             raise AgentProtocolError("Noni returned no actual writing-skill trace")
         try:
-            validate_noni_skill_trace(trace)
+            research_evidence = validate_noni_skill_trace(
+                trace,
+                brief_id=writer_input.briefId,
+                brief_text=json.dumps({
+                    "brief": writer_input.brief.model_dump(mode="json"),
+                    "item": writer_input.editorialItem.model_dump(mode="json"),
+                    "brandContext": writer_input.brandContext,
+                }, sort_keys=True),
+                grounding_metadata=state.get("_adk_grounding_metadata"),
+            )
         except ValueError as exc:
             raise AgentProtocolError(f"invalid Noni writing-skill trace: {exc}") from exc
         draft = _validated_state(state, "copywriter_draft", ContentDraft)
-        validate_content_draft(writer_input, draft)
+        validate_content_draft(writer_input, draft, research_evidence=research_evidence)
+        state["_noni_research_evidence"] = research_evidence
         return
     if specialist == "dara_editor":
         review_input = EditorialReviewInput.model_validate(payload)
@@ -2129,7 +2152,12 @@ async def draft_with_team(
         }) if invocation else None
         state = await _run_coordinator("noni_copywriter", writer_input, invocation=pass_invocation)
         draft = _validated_state(state, "copywriter_draft", ContentDraft)
-        return validate_content_draft(writer_input, draft)
+        research_evidence = state.get("_noni_research_evidence")
+        if not isinstance(research_evidence, dict):
+            raise AgentProtocolError("Noni returned no validated research evidence catalog")
+        return validate_content_draft(
+            writer_input, draft, research_evidence=research_evidence,
+        )
 
     async def dara(writer_input: CopywriterInput, draft: ContentDraft, pass_number: int) -> EditorialReview:
         review_input = EditorialReviewInput(copywriterInput=writer_input, draft=draft)

@@ -88,6 +88,14 @@ def get_job(job_id: str) -> dict[str, Any]:
     return res.json()["job"]
 
 
+def search_verified_publications(query: str, limit: int = 5) -> dict[str, Any]:
+    with _client() as c:
+        res = c.get("/api/internal/published-content", params={"q": query, "limit": limit})
+    if res.status_code != 200:
+        raise WebApiError(f"verified publication search failed: {res.status_code}", res.status_code)
+    return dict(res.json())
+
+
 def get_effect_commands(job_id: str) -> list[dict[str, Any]]:
     with _client() as c:
         res = c.get(f"/api/internal/job/{job_id}/commands")

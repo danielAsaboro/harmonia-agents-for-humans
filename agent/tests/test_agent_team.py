@@ -253,7 +253,61 @@ def test_noni_is_a_focused_skill_backed_typed_specialist():
     assert noni.output_schema is ContentDraft
     assert noni.output_key == "copywriter_draft"
     assert noni.mode == "single_turn"
-    assert len(noni.tools) == 1
+    assert len(noni.tools) == 2
+    assert noni.tools[1].name == "google_search_agent"
+
+
+def test_noni_validated_state_retains_native_grounded_research_for_revalidation():
+    from tests.test_noni_contracts import grounded_draft
+
+    supplied = _production_input()
+    draft = grounded_draft()
+    draft["text"] = (
+        "We cut nine days to forty hours. Founders need verifiable operating proof. "
+        "Ground responses with Google Search. Request a demo."
+    )
+    draft["evidenceRefs"].append("web-1")
+    draft["claims"].append({
+        "text": "Ground responses with Google Search.",
+        "evidenceRefs": ["web-1"],
+    })
+    state = {
+        "copywriter_draft": draft,
+        "noni_writing_skill_trace": [
+            {"sequence": 1, "name": "load_skill", "args": {"skill_name": "noni-writing-skills"}},
+            {"sequence": 2, "name": "load_skill_resource", "args": {
+                "skill_name": "noni-writing-skills", "file_path": "references/persuasion.md",
+            }},
+            {"sequence": 3, "name": "google_search_agent", "args": {
+                "request": f"For brief {supplied.briefId}, research operating proof terminology.",
+            }, "response": {
+                "briefId": supplied.briefId,
+                "query": "operating proof terminology",
+                "sources": [{
+                    "evidenceId": "web-1", "title": "Google Search Grounding",
+                    "url": "https://adk.dev/grounding/google_search_grounding/",
+                    "supportedText": "Ground responses with Google Search.",
+                }],
+            }},
+        ],
+        "_adk_grounding_metadata": {
+            "webSearchQueries": ["operating proof terminology"],
+            "groundingChunks": [{"web": {
+                "title": "Google Search Grounding",
+                "uri": "https://adk.dev/grounding/google_search_grounding/",
+            }}],
+            "groundingSupports": [{
+                "segment": {"text": "Ground responses with Google Search."},
+                "groundingChunkIndices": [0],
+            }],
+        },
+    }
+
+    _validate_run_output("noni_copywriter", supplied, state)
+
+    assert state["_noni_research_evidence"]["web-1"][0] == (
+        "Ground responses with Google Search."
+    )
 
 
 def test_dara_is_a_focused_tool_free_review_only_specialist():

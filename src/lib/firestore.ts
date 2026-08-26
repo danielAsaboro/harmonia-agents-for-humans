@@ -1837,6 +1837,66 @@ export async function listReceipts(jobId: string): Promise<Receipt[]> {
   return snaps.docs.map((d) => d.data() as Receipt);
 }
 
+export interface VerifiedPublication {
+  publicationId: string;
+  jobId: string;
+  actionId: string;
+  platform: "x";
+  text: string;
+  canonicalUrl: string;
+  publishedAt: string;
+  receiptId: string;
+  verificationId: string;
+}
+
+export async function listVerifiedPublications(
+  query: string,
+  limit = 10,
+): Promise<VerifiedPublication[]> {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return [];
+  const jobs = await listJobs(100);
+  const publications: VerifiedPublication[] = [];
+  for (const job of jobs) {
+    const jobData = job as Job & {
+      drafts?: PostDraft[];
+      actions: PlannedAction[];
+      verifications: VerificationResult[];
+    };
+    const receipts = await listReceipts(job.id);
+    for (const receipt of receipts) {
+      if (receipt.actionType !== "publish_x_post" || receipt.outcome !== "applied") continue;
+      const verification = (jobData.verifications ?? []).find(
+        (candidate) => candidate.receiptId === receipt.id && candidate.actionId === receipt.actionId,
+      );
+      if (!verification || !verification.verified) continue;
+      const canonicalUrl = typeof receipt.detail.url === "string" ? receipt.detail.url : "";
+      if (!canonicalUrl.startsWith("https://x.com/")) continue;
+      const action = jobData.actions.find((candidate) => candidate.id === receipt.actionId);
+      const actionText = action && typeof (action.payload as { text?: unknown }).text === "string"
+        ? (action.payload as { text: string }).text
+        : "";
+      const draft = jobData.drafts?.find((candidate) => candidate.text === actionText);
+      const text = actionText || draft?.text || action?.title || "";
+      if (!text.toLowerCase().includes(normalized)) continue;
+      publications.push({
+        publicationId: String(receipt.detail.id ?? receipt.id),
+        jobId: job.id,
+        actionId: receipt.actionId,
+        platform: "x",
+        text,
+        canonicalUrl,
+        publishedAt: receipt.performedAt,
+        receiptId: receipt.id,
+        verificationId: verification.id,
+      });
+    }
+  }
+  return publications
+    .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt))
+    .slice(0, Math.max(1, Math.min(limit, 10)));
+}
+
 export async function findReceiptByIdempotencyKey(
   jobId: string,
   key: string,

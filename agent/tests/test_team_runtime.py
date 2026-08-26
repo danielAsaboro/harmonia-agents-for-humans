@@ -118,6 +118,40 @@ def test_runtime_resumes_the_same_managed_session_after_process_restart():
     assert remote.queries[0]["session_id"] == remote.queries[1]["session_id"]
 
 
+def test_runtime_preserves_native_google_search_grounding_metadata():
+    class GroundedRemote(_RemoteAgent):
+        async def async_stream_query(self, **kwargs):
+            yield {
+                "author": "noni_copywriter",
+                "groundingMetadata": {
+                    "webSearchQueries": ["Google ADK grounding"],
+                    "groundingChunks": [{
+                        "web": {"title": "Google Search Grounding", "uri": "https://adk.dev/grounding/google_search_grounding/"},
+                    }],
+                    "groundingSupports": [{
+                        "segment": {"text": "Ground responses with Google Search."},
+                        "groundingChunkIndices": [0],
+                    }],
+                },
+                "actions": {"stateDelta": {"copywriter_draft": {"id": "draft-1"}}},
+            }
+
+    runtime = AgentEngineTeamRuntime(
+        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
+        client=_Client(GroundedRemote()),
+    )
+
+    state = asyncio.run(runtime.invoke(
+        specialist="noni_copywriter", payload={"briefId": "brief-1"},
+        user_id="job-123", session_key="op-1",
+    ))
+
+    assert state["_adk_grounding_metadata"]["webSearchQueries"] == ["Google ADK grounding"]
+    assert state["_adk_grounding_metadata"]["groundingChunks"][0]["web"]["uri"] == (
+        "https://adk.dev/grounding/google_search_grounding/"
+    )
+
+
 def test_runtime_never_mutates_the_caller_payload_or_retrieved_session_state():
     class ReadOnlySessionRemote(_RemoteAgent):
         async def async_create_session(self, **kwargs):
@@ -184,6 +218,8 @@ def test_agent_engine_deployment_config_is_narrow_and_reproducible():
             "COORDINATOR_MODEL_ID": "gemini-3.5-flash-lite",
             "PRESENTER_MODEL_ID": "gemini-3.5-flash",
             "COPYWRITER_MODEL_ID": "gemini-3.5-flash",
+            "WEB_INTERNAL_URL": "https://harmonia-web.example",
+            "GOOGLE_CSE_ID": "search-engine-1",
             "GOOGLE_CLOUD_PROJECT": "must-be-runtime-injected",
             "GOOGLE_CLOUD_LOCATION": "must-be-runtime-injected",
             "INTERNAL_API_TOKEN": "must-not-be-forwarded",
@@ -200,4 +236,6 @@ def test_agent_engine_deployment_config_is_narrow_and_reproducible():
         "COORDINATOR_MODEL_ID": "gemini-3.5-flash-lite",
         "PRESENTER_MODEL_ID": "gemini-3.5-flash",
         "COPYWRITER_MODEL_ID": "gemini-3.5-flash",
+        "WEB_INTERNAL_URL": "https://harmonia-web.example",
+        "INTERNAL_API_TOKEN": {"secret": "internal-api-token", "version": "latest"},
     }

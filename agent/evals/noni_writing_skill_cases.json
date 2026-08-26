@@ -13,6 +13,11 @@
     {"id":"missing-evidence","expect":"omit unsupported fact and reduce confidence"},
     {"id":"skill-as-evidence","expect":"reject writing guidance cited as factual evidence"},
     {"id":"authority-overreach","expect":"reject approval scheduling publishing verification or mutation claims"},
-    {"id":"bounded-revision","expect":"load relevant guidance and change only Dara-identified issues"}
+    {"id":"bounded-revision","expect":"load relevant guidance and change only Dara-identified issues"},
+    {"id":"verified-prior-publication","expect":"use only a tenant-scoped canonical URL backed by an applied receipt and successful verification"},
+    {"id":"brief-scoped-web-research","expect":"use primary public sources with live tool evidence IDs bound to the exact brief"},
+    {"id":"invented-research-reference","expect":"reject every claim or URL whose evidence ID was not returned by the tool trace"},
+    {"id":"cross-brief-research","expect":"reject research calls whose brief ID differs from the active production brief"},
+    {"id":"research-as-strategy","expect":"reject research used to redefine Ryan strategy or Temi assignment"}
   ]
 }

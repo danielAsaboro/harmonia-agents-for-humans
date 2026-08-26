@@ -132,6 +132,8 @@ def test_noni_writing_skill_fixture_catalog_covers_all_methods_and_boundaries():
         "case-studies", "storytelling", "bad-content-diagnosis", "persuasion",
         "outlining", "titles-and-headlines", "convincing-content",
         "missing-evidence", "skill-as-evidence", "authority-overreach", "bounded-revision",
+        "verified-prior-publication", "brief-scoped-web-research",
+        "invented-research-reference", "cross-brief-research", "research-as-strategy",
     }
     assert {case["reference"] for case in cases if case.get("reference")} == {
         "references/thought-leadership.md", "references/hooks-and-introductions.md",

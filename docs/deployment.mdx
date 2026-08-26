@@ -60,6 +60,10 @@ Set the [configuration](/configuration) secrets as Cloud Run environment variabl
 
 The deployment script sends each role model ID separately, including `COPYWRITER_MODEL_ID` for Noni and `PRESENTER_MODEL_ID` for Maya. Noni defaults to Gemini 3.5 Flash because ADK skill loading is part of the writing contract.
 
+Noni's brief-scoped public research uses ADK's native Google Search grounding and
+does not require Programmable Search credentials. Verified prior-publication
+search remains available through the authenticated tenant-scoped internal API.
+
 Deploy a fresh cognitive-hierarchy revision for every rollout that changes ADK agents, schemas, **or skill definitions** (`agent/harmonia_agent/skills/` — the liaison's skills load from the deployed package at import time), then point the Cloud Run worker at the returned resource:
 
 ```bash

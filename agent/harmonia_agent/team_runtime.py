@@ -45,6 +45,15 @@ def _state_delta(event: Any) -> dict[str, Any]:
     return dict(delta) if isinstance(delta, dict) else {}
 
 
+def _grounding_metadata(event: Any) -> dict[str, Any] | None:
+    if not isinstance(event, dict):
+        event = event.model_dump(mode="json", by_alias=True) if hasattr(event, "model_dump") else {}
+    metadata = event.get("grounding_metadata") or event.get("groundingMetadata")
+    if hasattr(metadata, "model_dump"):
+        metadata = metadata.model_dump(mode="json", by_alias=True)
+    return dict(metadata) if isinstance(metadata, dict) else None
+
+
 class AgentEngineTeamRuntime:
     """Managed runtime adapter with deterministic, restart-resumable sessions."""
 
@@ -114,6 +123,8 @@ class AgentEngineTeamRuntime:
                 )
                 async for event in events:
                     state.update(_state_delta(event))
+                    if metadata := _grounding_metadata(event):
+                        state["_adk_grounding_metadata"] = metadata
             except AgentEngineProtocolError:
                 raise
             except Exception as exc:  # noqa: BLE001 - normalized at provider boundary

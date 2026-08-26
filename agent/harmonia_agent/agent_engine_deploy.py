@@ -22,6 +22,7 @@ _FORWARDED_ENV = {
     "OTEL_SERVICE_NAME",
     "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
     "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS",
+    "WEB_INTERNAL_URL",
 }
 
 
@@ -62,6 +63,8 @@ def build_deployment_config(
         "env_vars": {
             key: value for key, value in environment.items()
             if key in _FORWARDED_ENV and value
+        } | {
+            "INTERNAL_API_TOKEN": {"secret": "internal-api-token", "version": "latest"},
         },
     }
 

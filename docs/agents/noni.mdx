@@ -6,7 +6,7 @@ description: "Noni's selected-item writing, claim-grounding, and revision contra
 ## Role
 
 Noni writes exactly one platform-native candidate from the deterministically selected Temi item, its
-exact Ryan brief, and only the referenced Nimi evidence.
+exact Ryan brief, referenced Nimi evidence, and optional provenance-bearing research.
 
 | Property | Value |
 |---|---|
@@ -15,7 +15,7 @@ exact Ryan brief, and only the referenced Nimi evidence.
 | Input | `CopywriterInput` |
 | Output | `ContentDraft` |
 | Runtime skills | `noni-writing-skills` |
-| Tools | `load_skill` and `load_skill_resource` only |
+| Tools | `load_skill`, `load_skill_resource`, `search_verified_publications`, and native ADK `google_search` through `google_search_agent` |
 
 ## Prompt method
 
@@ -24,6 +24,12 @@ locks to the selected item and brief, builds a closed-world claim ledger from su
 evidence, writes one X candidate of at most 280 characters, maps each factual claim to evidence IDs,
 and preserves the exact CTA intent and intended conversion. Creative assumptions use a deliberately
 bounded grammar and cannot hide factual assertions.
+
+After loading the writing skill, Noni may search independently verified prior Harmonia publications
+for continuity and canonical internal links. It may also use native ADK Google Search grounding to
+verify or strengthen execution of the exact brief. Both calls must carry the exact brief ID. Every
+used claim or URL must cite a live evidence ID returned by the tool; unavailable configuration,
+unknown references, and invented URLs fail closed.
 
 On revision, Noni changes only what Dara requested, retains immutable lineage, links the prior draft,
 and identifies every addressed issue.
@@ -36,14 +42,15 @@ never factual evidence for a draft.
 
 ## Authority boundary
 
-Noni cannot research, search trends, access Memory Bank independently, inspect or choose another
-plan item, create strategy, invent facts or capabilities,
+Noni cannot conduct open-ended strategy research, search trend feeds, access Memory Bank
+independently, inspect or choose another plan item, create strategy, invent facts or capabilities,
 approve, schedule, publish, construct effects, create receipts, access credentials, verify results,
 or mutate workflow state.
 
 ## Runtime enforcement
 
-Validation checks the actual skill-first trace, approved reference paths, lineage, item and brief
+Validation checks the actual skill-first trace, exact brief binding, live research provenance,
+approved reference paths, lineage, item and brief
 alignment, platform limits, CTA behavior, exact evidence support, assumptions, URLs, authority, and
 issue-bound revision completeness. Missing, invented, duplicated, or out-of-order skill calls fail
 closed.

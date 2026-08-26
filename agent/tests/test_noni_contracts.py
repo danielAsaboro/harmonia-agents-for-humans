@@ -133,6 +133,46 @@ def test_grounding_validator_accepts_one_grounded_brief_aligned_draft():
     assert validate_content_draft(supplied, draft) is draft
 
 
+def test_grounding_validator_accepts_provenance_bound_research_claim_and_url():
+    supplied = CopywriterInput.model_validate(original_input())
+    payload = grounded_draft()
+    payload["text"] = (
+        "We cut nine days to forty hours. Founders need verifiable operating proof. "
+        "Google documents structured search results. "
+        "https://developers.google.com/custom-search/v1/overview Request a demo."
+    )
+    payload["evidenceRefs"].append("ev-1111111111111111")
+    payload["claims"].append({
+        "text": "Google documents structured search results.",
+        "evidenceRefs": ["ev-1111111111111111"],
+    })
+    draft = ContentDraft.model_validate(payload)
+
+    assert validate_content_draft(
+        supplied,
+        draft,
+        research_evidence={
+            "ev-1111111111111111": (
+                "Google documents structured search results.",
+                "https://developers.google.com/custom-search/v1/overview",
+            ),
+        },
+    ) is draft
+
+
+def test_grounding_validator_rejects_research_reference_not_returned_by_tool():
+    payload = grounded_draft()
+    payload["evidenceRefs"].append("ev-1111111111111111")
+    payload["claims"].append({"text": "An invented research claim.", "evidenceRefs": ["ev-1111111111111111"]})
+
+    with pytest.raises(AgentProtocolError, match="unknown evidence"):
+        validate_content_draft(
+            CopywriterInput.model_validate(original_input()),
+            ContentDraft.model_validate(payload),
+            research_evidence={},
+        )
+
+
 @pytest.mark.parametrize("copy", [
     "𝐋𝐚𝐮𝐧𝐜𝐡 𝐧𝐨𝐰, Request a demo.",
     "开发者, Request a demo.",

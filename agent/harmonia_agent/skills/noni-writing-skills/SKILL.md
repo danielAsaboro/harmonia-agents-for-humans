@@ -1,6 +1,9 @@
 ---
 name: noni-writing-skills
 description: Use when Noni must turn an approved Harmonia content brief and supplied evidence into credible platform-native writing or an issue-bound revision.
+metadata:
+  adk_additional_tools:
+    - search_verified_publications
 ---
 
 # Noni Writing Skills
@@ -35,10 +38,14 @@ two years of content-marketing work for brands.
 
 ## Non-negotiable boundary
 
-Writing guidance is never factual evidence. Use only the Nimi evidence and
-approved production context supplied in `CopywriterInput`. Never invent an
+Writing guidance is never factual evidence. Use the Nimi evidence, approved
+production context, and provenance-bearing results from bounded
+research tools. Never invent an
 experience, customer, quote, metric, trend, capability, result, urgency, or
-endorsement. Never research, retrieve memory, approve, schedule, publish,
+endorsement. Use `search_verified_publications` only for verified prior Harmonia
+posts. Use the native `google_search_agent` only to execute the exact brief,
+prefer primary sources, and cite every grounded result's evidence ID. Never retrieve
+Memory Bank, approve, schedule, publish,
 verify, create receipts, or mutate workflow state. When evidence cannot support
 the requested treatment, omit the claim or return the existing bounded
 insufficient-evidence behavior.

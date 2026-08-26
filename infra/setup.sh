@@ -152,6 +152,12 @@ if [[ -n "${YOUTUBE_API_KEY:-}" ]]; then
 else
   echo "  YOUTUBE_API_KEY not provided; ingest falls back to oEmbed."
 fi
+if [[ -n "${GOOGLE_CSE_API_KEY:-}" ]]; then
+  printf '%s' "${GOOGLE_CSE_API_KEY}" | gcloud secrets create google-cse-api-key --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
+    || printf '%s' "${GOOGLE_CSE_API_KEY}" | gcloud secrets versions add google-cse-api-key --data-file=- --project "${PROJECT_ID}"
+else
+  echo "  GOOGLE_CSE_API_KEY not provided; Noni web research will fail closed."
+fi
 if [[ -n "${GOOGLE_CLIENT_ID:-}" || -n "${GOOGLE_CLIENT_SECRET:-}" ]]; then
   : "${GOOGLE_CLIENT_ID:?set GOOGLE_CLIENT_ID together with GOOGLE_CLIENT_SECRET}"
   : "${GOOGLE_CLIENT_SECRET:?set GOOGLE_CLIENT_SECRET together with GOOGLE_CLIENT_ID}"
@@ -190,6 +196,9 @@ gcloud secrets add-iam-policy-binding malware-scanner-token \
   --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
 gcloud secrets add-iam-policy-binding youtube-api-key \
+  --member "serviceAccount:harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
+gcloud secrets add-iam-policy-binding google-cse-api-key \
   --member "serviceAccount:harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
 

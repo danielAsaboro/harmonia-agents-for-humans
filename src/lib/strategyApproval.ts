@@ -69,7 +69,7 @@ export function applyStrategyDecision(
     actorSubjectId, decidedAt: now.toISOString(), expiresAt: current.approvalExpiresAt,
     ...(input.feedback?.trim() ? { feedback: input.feedback.trim() } : {}),
   };
-  if (input.decision === "approved") return { approval, nextStage: "draft" as const };
+  if (input.decision === "approved") return { approval, nextStage: "plan" as const };
   if (current.revision === 1) return { approval, nextStage: "strategize" as const, nextRevision: 2 as const };
   return { approval, nextStage: "complete" as const, terminalOutcome: "rejected" as const };
 }

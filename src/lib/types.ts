@@ -5,6 +5,7 @@ export const STAGES = [
   "understand",
   "strategize",
   "awaiting_strategy_approval",
+  "plan",
   "draft",
   "awaiting_approval",
   "publish",
@@ -176,6 +177,13 @@ export interface Job {
   strategyEvidenceLineage?: string[];
   strategyHistory?: Record<string, { strategy: ContentStrategy; digest: string; revision: number; evidenceLineage: string[]; invocationContext: StrategyInvocationContext; proposedAt: string; expiresAt: string; approval?: StrategyApproval }>;
   strategyInvocationContext?: StrategyInvocationContext;
+  editorialPlan?: EditorialPlan;
+  editorialPlanDigest?: string;
+  editorialPlanRevision?: number;
+  editorialPlanEvidenceLineage?: string[];
+  selectedNextItemId?: string;
+  editorialItemStates?: Record<string, { status: "planned" | "selected"; updatedAt: string }>;
+  editorialPlanHistory?: Record<string, { plan: EditorialPlan; digest: string; revision: number; strategyId: string; strategyDigest: string; evidenceLineage: string[]; selectedNextItemId: string; acceptedAt: string }>;
   videoId?: string;
   budget?: JobBudget;
   failure?: {

@@ -9,6 +9,7 @@ const NEXT_STAGE: Partial<Record<Stage, Stage>> = {
   transcribe: "understand",
   understand: "strategize",
   strategize: "awaiting_strategy_approval",
+  plan: "draft",
   draft: "awaiting_approval",
 };
 
@@ -24,6 +25,7 @@ export function isKnownStage(stage: string): stage is Stage {
     "understand",
     "strategize",
     "awaiting_strategy_approval",
+    "plan",
     "draft",
     "awaiting_approval",
     "publish",

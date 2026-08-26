@@ -10,7 +10,7 @@ import uuid
 import secrets
 from pathlib import Path
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
 
 import httpx
@@ -24,6 +24,7 @@ from .agent_models import (
     CampaignContext,
     CompanyContext,
     DraftWorkflowInput,
+    EditorialPlannerInput,
     MediaEvidence,
     PerformanceObservation,
     StrategistInput,
@@ -33,6 +34,7 @@ from .agents import (
     analyze_with_team,
     configured_memory,
     draft_with_team,
+    plan_with_team,
     prepare_strategist_input,
     strategize_with_team,
 )
@@ -84,6 +86,12 @@ Handler = Callable[[str], Awaitable[None]]
 
 class ClipRenderError(RuntimeError):
     pass
+
+
+def editorial_plan_digest(plan: dict[str, Any]) -> str:
+    """Canonical SHA-256 shared with the TypeScript persistence boundary."""
+    encoded = json.dumps(plan, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def deterministic_generative_media_actions(job: dict[str, Any]) -> list[dict[str, Any]]:
@@ -358,6 +366,66 @@ async def run_strategize(job_id: str) -> None:
     web_post("/api/internal/strategy", {
         "jobId": job_id, "stage": "strategize", "revision": revision,
         "strategy": result.strategy.model_dump(mode="json"), "modelUsed": content.model_used(),
+    })
+
+
+async def run_plan(job_id: str) -> None:
+    job = get_job(job_id)
+    strategy = job.get("contentStrategy")
+    digest = job.get("strategyDigest")
+    approval = job.get("strategyApproval") or {}
+    revision = int(job.get("editorialPlanRevision") or 1)
+    if not isinstance(strategy, dict) or not digest:
+        raise AgentProtocolError("persisted approved strategy required before Temi")
+    if (
+        job.get("strategyApprovalState") != "approved"
+        or approval.get("decision") != "approved"
+        or approval.get("payloadDigest") != digest
+        or approval.get("revision") != job.get("strategyRevision")
+    ):
+        raise AgentProtocolError("digest-bound approved strategy required before Temi")
+    horizon_start = datetime.fromisoformat(str(approval["decidedAt"]).replace("Z", "+00:00"))
+    horizon_end = horizon_start + timedelta(weeks=int(strategy["horizonWeeks"]))
+    supported_roles = [role for role in strategy["channelRoles"] if role["operationallySupported"]]
+    if not supported_roles:
+        raise AgentProtocolError("approved strategy has no supported planning channel")
+    planner_input = EditorialPlannerInput.model_validate({
+        "strategy": strategy,
+        "strategyDigest": digest,
+        "strategyVersion": strategy["version"],
+        "strategyApproval": approval,
+        "analysis": {
+            "summary": job.get("summary") or "Content analysis completed.",
+            "moments": job.get("moments") or [],
+            "angles": job.get("angles") or [],
+        },
+        "horizonStartAt": horizon_start,
+        "horizonEndAt": horizon_end,
+        "timezone": "UTC",
+        "channelCapabilities": [
+            {"channel": role["channel"], "formats": role["formats"]}
+            for role in supported_roles
+        ],
+        "existingCommitments": [],
+        "productionCapacity": {
+            "maxItems": min(48, max(1, len(strategy["briefs"]))),
+            "maxItemsPerWeek": min(12, max(1, len(strategy["briefs"]))),
+        },
+        "cadenceConstraints": {
+            "minimumHoursBetweenItems": 24,
+            "maxItemsPerChannelPerWeek": min(12, max(1, len(strategy["briefs"]))),
+        },
+        "postingWindowObservations": [],
+        "revision": revision,
+    })
+    result = await plan_with_team(planner_input, invocation=InvocationContext(
+        job_id=job_id, workspace_id=job["workspaceId"], brand_id=job["brandId"],
+        user_id=job["createdByUserId"], stage="plan",
+        operation_id=f"{job_id}:plan:{revision - 1}",
+    ))
+    web_post("/api/internal/editorial-plan", {
+        "jobId": job_id, "stage": "plan", "revision": revision,
+        "plan": result.model_dump(mode="json"), "modelUsed": content.model_used(),
     })
 
 
@@ -910,6 +978,7 @@ HANDLERS: dict[str, Handler] = {
     "transcribe": run_transcribe,
     "understand": run_understand,
     "strategize": run_strategize,
+    "plan": run_plan,
     "draft": run_draft,
     "publish": run_publish,
     "verify": run_verify,

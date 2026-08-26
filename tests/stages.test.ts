@@ -13,6 +13,11 @@ describe("stage pipeline", () => {
     expect(path).toEqual(["ingest", "transcribe", "understand", "strategize", "awaiting_strategy_approval"]);
   });
 
+  it("places durable planning before production drafting", () => {
+    expect(nextStage("plan")).toBe("draft");
+    expect(isKnownStage("plan")).toBe(true);
+  });
+
   it("has no successor for terminal stages", () => {
     expect(nextStage("publish")).toBeNull();
     expect(nextStage("verify")).toBeNull();

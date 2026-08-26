@@ -28,6 +28,7 @@ import { parseBudgetConfig } from "./config";
 import { actionPayloadDigest, newId } from "./idempotency";
 import type { ApprovalActor } from "./decisions";
 import { applyStrategyDecision, assertStrategyProposalRevision, validatePersistedStrategy, type StrategyDecisionInput } from "./strategyApproval";
+import { assertEditorialPlanSubmission, editorialPlanDigest, editorialPlanEvidenceLineage } from "./editorialPlan";
 import {
   assertResourceWorkspace,
   currentTenant,
@@ -980,6 +981,13 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
     strategyEvidenceLineage: data.strategyEvidenceLineage,
     strategyHistory: data.strategyHistory,
     strategyInvocationContext: data.strategyInvocationContext,
+    editorialPlan: data.editorialPlan,
+    editorialPlanDigest: data.editorialPlanDigest,
+    editorialPlanRevision: data.editorialPlanRevision,
+    editorialPlanEvidenceLineage: data.editorialPlanEvidenceLineage,
+    selectedNextItemId: data.selectedNextItemId,
+    editorialItemStates: data.editorialItemStates,
+    editorialPlanHistory: data.editorialPlanHistory,
     videoId: data.videoId,
     transcriptSegments: data.transcriptSegments ?? [],
     transcriptLanguage: data.transcriptLanguage,
@@ -1540,6 +1548,47 @@ export async function saveStrategyInvocationContext(jobId: string, context: impo
   });
 }
 
+export async function acceptEditorialPlan(
+  jobId: string,
+  plan: import("./types").EditorialPlan,
+  revision: number,
+) {
+  const tenant = currentTenant();
+  return db().runTransaction(async (tx) => {
+    const ref = jobRef(jobId);
+    const outboxId = stageOutboxId(jobId, "draft", 0);
+    const outboxRef = stageOutboxRef(outboxId);
+    const [snap, existingOutbox] = await Promise.all([tx.get(ref), tx.get(outboxRef)]);
+    const job = requireJobDoc(snap);
+    assertEditorialPlanSubmission(job, plan, revision);
+    if (existingOutbox.exists) throw new Error("editorial plan draft dispatch already exists");
+    const digest = editorialPlanDigest(plan);
+    const evidenceLineage = editorialPlanEvidenceLineage(plan);
+    const acceptedAt = new Date().toISOString();
+    const itemStates = Object.fromEntries(plan.items.map((item) => [item.id, {
+      status: item.id === plan.selectedNextItemId ? "selected" : "planned", updatedAt: acceptedAt,
+    }]));
+    tx.update(ref, {
+      editorialPlan: plan, editorialPlanDigest: digest, editorialPlanRevision: revision,
+      editorialPlanEvidenceLineage: evidenceLineage, selectedNextItemId: plan.selectedNextItemId,
+      editorialItemStates: itemStates,
+      [`editorialPlanHistory.v${revision}`]: {
+        plan, digest, revision, strategyId: job.contentStrategy!.strategyId,
+        strategyDigest: job.strategyDigest!, evidenceLineage,
+        selectedNextItemId: plan.selectedNextItemId, acceptedAt,
+      },
+      stage: "draft", status: "running", updatedAt: acceptedAt,
+    });
+    tx.create(outboxRef, {
+      id: outboxId, workspaceId: tenant.workspaceId, brandId: tenant.brandId,
+      jobId, stage: "draft", attempt: 0, completedStage: "plan",
+      note: `editorial plan ${digest} accepted; selected ${plan.selectedNextItemId}`,
+      state: "pending", createdAt: acceptedAt,
+    } satisfies StageOutboxRecord);
+    return { digest, evidenceLineage, selectedNextItemId: plan.selectedNextItemId, outboxId };
+  });
+}
+
 export async function decideStrategy(jobId: string, input: StrategyDecisionInput) {
   const tenant = currentTenant();
   const actorSubjectId = tenantSubjectId(tenant);
@@ -1569,13 +1618,13 @@ export async function decideStrategy(jobId: string, input: StrategyDecisionInput
     if (result.nextStage === "complete") update.terminalOutcome = "rejected";
     tx.update(ref, update);
     let outboxId: string | undefined;
-    if (result.nextStage === "draft" || result.nextStage === "strategize") {
+    if (result.nextStage === "plan" || result.nextStage === "strategize") {
       const attempt = result.nextStage === "strategize" ? 1 : 0;
       outboxId = stageOutboxId(jobId, result.nextStage, attempt);
       tx.create(stageOutboxRef(outboxId), {
         id: outboxId, workspaceId: tenant.workspaceId, brandId: tenant.brandId,
         jobId, stage: result.nextStage, attempt, completedStage: "awaiting_strategy_approval",
-        note: result.nextStage === "draft" ? "strategy approved" : "strategy revision requested",
+        note: result.nextStage === "plan" ? "strategy approved; editorial planning dispatched" : "strategy revision requested",
         state: "pending", createdAt: new Date().toISOString(),
       } satisfies StageOutboxRecord);
     }

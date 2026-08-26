@@ -12,7 +12,7 @@ describe("strategy approval", () => {
     const digest = strategyDigest(strategy);
     const current = { revision: 1, strategyDigest: digest, approvalExpiresAt: "2026-08-28T00:00:00.000Z" };
     const result = applyStrategyDecision(current, { decision: "approved", payloadDigest: digest }, "operator-1", new Date("2026-08-27T00:00:00Z"));
-    expect(result).toMatchObject({ nextStage: "draft", approval: { decision: "approved", payloadDigest: digest, revision: 1 } });
+    expect(result).toMatchObject({ nextStage: "plan", approval: { decision: "approved", payloadDigest: digest, revision: 1 } });
     expect(() => applyStrategyDecision(current, { decision: "approved", payloadDigest: "a".repeat(64) }, "operator-1", new Date("2026-08-27T00:00:00Z"))).toThrow("strategy payload changed");
     expect(() => applyStrategyDecision(current, { decision: "approved", payloadDigest: digest }, "operator-1", new Date("2026-08-29T00:00:00Z"))).toThrow("strategy approval expired");
   });

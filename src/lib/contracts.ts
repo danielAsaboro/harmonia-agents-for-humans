@@ -305,6 +305,11 @@ export const strategySubmissionSchema = z.object({
   strategy: contentStrategySchema, modelUsed: z.string().min(1),
 }).strict();
 
+export const editorialPlanSubmissionSchema = z.object({
+  jobId: z.string().min(1), stage: z.literal("plan"), revision: z.number().int().min(1).max(2),
+  plan: editorialPlanSchema, modelUsed: z.string().min(1),
+}).strict();
+
 export const strategyInvocationContextSchema = z.object({
   jobId: z.string().min(1), stage: z.literal("strategize"), revision: z.number().int().min(1).max(2),
   sourceIds: z.array(z.string().min(1).max(100)).min(1).max(24),

@@ -24,7 +24,8 @@ const editorialItem = {
 
 const originalDraft: ContentDraft = {
   id: "draft-1", planId: "plan-1", planDigest: "a".repeat(64), strategyDigest: "b".repeat(64), editorialItemId: "item-1", briefId: "brief-1",
-  revision: 1, platform: "x", format: "text_post", text: "Evidence-led teams cut the gap between a content decision and its governed execution. Request a demo.",
+  revision: 1, platform: "x", format: "text_post", audienceId: "founders", objective: "Show verified operating proof",
+  funnelStage: "consideration", ctaIntent: "request a demo", text: "Evidence-led teams cut the gap between a content decision and its governed execution. Request a demo.",
   ctaTreatment: "Invite founders to request a demo.", intendedConversion: "qualified demo request", evidenceRefs: ["moment-1", "angle-1"],
   claims: [{ text: "The source describes reducing a nine-day delay to forty hours.", evidenceRefs: ["moment-1"] }],
   assumptions: ["A direct founder-focused hook suits the selected X item."], confidence: "high", appliedConstraints: ["Use an evidence-led voice"],
@@ -46,6 +47,18 @@ const originalInput: CopywriterInput = {
 };
 
 describe("Noni and Dara contracts", () => {
+  it("carries exact draft alignment metadata", () => {
+    const alignedDraft = {
+      ...originalDraft,
+      audienceId: "founders",
+      objective: "Show verified operating proof",
+      funnelStage: "consideration",
+      ctaIntent: "request a demo",
+    };
+
+    expect(contentDraftSchema.parse(alignedDraft).audienceId).toBe("founders");
+  });
+
   it("accepts one complete original and revision chain", () => {
     const revision: CopywriterInput = { ...originalInput, passType: "revision", priorDraft: originalDraft, priorReview: reviseReview };
     const revisionDraft: ContentDraft = { ...originalDraft, id: "draft-2", revision: 2, priorDraftId: "draft-1", addressedIssueIds: ["issue-1"] };
@@ -83,6 +96,10 @@ describe("Noni and Dara contracts", () => {
 
   it.each([
     [contentDraftSchema, originalDraft, "claims"],
+    [contentDraftSchema, originalDraft, "audienceId"],
+    [contentDraftSchema, originalDraft, "objective"],
+    [contentDraftSchema, originalDraft, "funnelStage"],
+    [contentDraftSchema, originalDraft, "ctaIntent"],
     [contentDraftSchema, originalDraft, "assumptions"],
     [contentDraftSchema, originalDraft, "priorDraftId"],
     [contentDraftSchema, originalDraft, "addressedIssueIds"],

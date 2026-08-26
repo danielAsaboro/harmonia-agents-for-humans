@@ -577,6 +577,10 @@ class ContentDraft(StrictModel):
     revision: StrictInt = Field(ge=1, le=2)
     platform: Literal["x"]
     format: Literal["text_post"]
+    audienceId: StrictIdentifier
+    objective: StrictStr = Field(min_length=1, max_length=300)
+    funnelStage: Literal["awareness", "consideration", "conversion", "retention", "advocacy"]
+    ctaIntent: StrictStr = Field(min_length=1, max_length=300)
     text: StrictStr = Field(min_length=1, max_length=280)
     ctaTreatment: StrictStr = Field(min_length=1, max_length=300)
     intendedConversion: StrictStr = Field(min_length=1, max_length=300)

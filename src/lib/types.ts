@@ -147,6 +147,10 @@ export interface ContentDraft {
   revision: 1 | 2;
   platform: "x";
   format: "text_post";
+  audienceId: string;
+  objective: string;
+  funnelStage: "awareness" | "consideration" | "conversion" | "retention" | "advocacy";
+  ctaIntent: string;
   text: string;
   ctaTreatment: string;
   intendedConversion: string;

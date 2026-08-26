@@ -56,6 +56,8 @@ def original_draft() -> dict:
     return {
         "id": "draft-1", "planId": "plan-1", "planDigest": "a" * 64, "strategyDigest": "b" * 64,
         "editorialItemId": "item-1", "briefId": "brief-1", "revision": 1, "platform": "x", "format": "text_post",
+        "audienceId": "founders", "objective": "Show verified operating proof", "funnelStage": "consideration",
+        "ctaIntent": "request a demo",
         "text": "Evidence-led teams cut the gap between a content decision and its governed execution. Request a demo.",
         "ctaTreatment": "Invite founders to request a demo.", "intendedConversion": "qualified demo request",
         "evidenceRefs": ["moment-1", "angle-1"],
@@ -418,13 +420,28 @@ def test_grounding_validator_rejects_noncontiguous_nonmetric_claim_support():
         _validate(draft)
 
 
-def test_grounding_validator_accepts_explicit_ordered_metric_relation():
+def test_grounding_validator_requires_contiguous_metric_relation():
     supplied = original_input()
     supplied["referencedMoments"][0]["quote"] = (
         "We cut the delay from nine days down to forty hours."
     )
 
-    assert _validate(input_payload=supplied).id == "draft-1"
+    with pytest.raises(AgentProtocolError, match="contiguous|relation"):
+        _validate(input_payload=supplied)
+
+
+@pytest.mark.parametrize("connector", ["and", "or", "and/or"])
+def test_grounding_validator_preserves_metric_relation_connectors(connector):
+    draft = grounded_draft()
+    conflicting = f"We cut nine days {connector} forty hours."
+    draft["claims"][0]["text"] = conflicting
+    draft["text"] = draft["text"].replace(
+        "We cut nine days to forty hours.",
+        conflicting,
+    )
+
+    with pytest.raises(AgentProtocolError, match="relation|connector"):
+        _validate(draft)
 
 
 def test_grounding_validator_rejects_undeclared_creative_clause():
@@ -461,6 +478,57 @@ def test_grounding_validator_rejects_spelled_metric_creative_assumption():
     draft["assumptions"].append("Nine days sounds fast.")
 
     with pytest.raises(AgentProtocolError, match="non-factual"):
+        _validate(draft)
+
+
+@pytest.mark.parametrize("factual_fragment", [
+    "Sales double.",
+    "Trusted worldwide.",
+    "Founders win.",
+])
+def test_grounding_validator_rejects_factual_fragments_declared_as_creative(
+    factual_fragment,
+):
+    draft = grounded_draft()
+    draft["text"] = f'{factual_fragment} {draft["text"]}'
+    draft["assumptions"].append(factual_fragment)
+
+    with pytest.raises(AgentProtocolError, match="non-factual"):
+        _validate(draft)
+
+
+def test_grounding_validator_accepts_declared_stylistic_question():
+    draft = grounded_draft()
+    draft["text"] = f'Ready to stop guessing? {draft["text"]}'
+    draft["assumptions"].append("Ready to stop guessing?")
+
+    assert _validate(draft).id == "draft-1"
+
+
+def test_grounding_validator_rejects_authority_imperative_in_assumptions():
+    draft = grounded_draft()
+    draft["assumptions"].append("Launch this now.")
+
+    with pytest.raises(AgentProtocolError, match="authority overreach"):
+        _validate(draft)
+
+
+@pytest.mark.parametrize("conflicting_action", [
+    "Buy now.",
+    "Do not request a demo.",
+    "Sign up.",
+    "Join now.",
+    "Subscribe.",
+    "Download the guide.",
+])
+def test_grounding_validator_rejects_conflicting_cta_even_if_declared_creative(
+    conflicting_action,
+):
+    draft = grounded_draft()
+    draft["text"] = f'{draft["text"]} {conflicting_action}'
+    draft["assumptions"].append(conflicting_action)
+
+    with pytest.raises(AgentProtocolError, match="CTA|funnel"):
         _validate(draft)
 
 
@@ -543,6 +611,68 @@ def test_grounding_validator_rejects_conflicting_direct_audience_even_if_supplie
         _validate(draft, supplied)
 
 
+def test_content_draft_contract_carries_exact_alignment_metadata():
+    payload = original_draft()
+    payload.update({
+        "audienceId": "founders",
+        "objective": "Show verified operating proof",
+        "funnelStage": "consideration",
+        "ctaIntent": "request a demo",
+    })
+
+    assert ContentDraft.model_validate(payload).audienceId == "founders"
+
+
+@pytest.mark.parametrize(("field", "value", "message"), [
+    ("audienceId", "developers", "audience"),
+    ("objective", "Sell subscriptions", "objective"),
+    ("funnelStage", "conversion", "funnel"),
+    ("ctaIntent", "join the waitlist", "CTA"),
+])
+def test_grounding_validator_binds_exact_alignment_metadata(field, value, message):
+    draft = grounded_draft()
+    draft[field] = value
+
+    with pytest.raises(AgentProtocolError, match=message):
+        _validate(draft)
+
+
+def test_grounding_validator_allows_copy_without_internal_audience_id_literal():
+    supplied = original_input()
+    supplied["brief"]["audienceId"] = "aud-founders"
+    supplied["editorialItem"]["audienceId"] = "aud-founders"
+    supplied["referencedAngles"][0]["rationale"] = "Verifiable operating proof matters."
+    draft = grounded_draft()
+    draft.update({
+        "audienceId": "aud-founders",
+        "objective": "Show verified operating proof",
+        "funnelStage": "consideration",
+        "ctaIntent": "request a demo",
+    })
+    draft["claims"][1]["text"] = "Verifiable operating proof matters."
+    draft["text"] = draft["text"].replace(
+        "Founders need verifiable operating proof.",
+        "Verifiable operating proof matters.",
+    )
+
+    assert _validate(draft, supplied).audienceId == "aud-founders"
+
+
+def test_grounding_validator_rejects_conflicting_comma_vocative():
+    draft = grounded_draft()
+    draft.update({
+        "audienceId": "founders",
+        "objective": "Show verified operating proof",
+        "funnelStage": "consideration",
+        "ctaIntent": "request a demo",
+    })
+    draft["text"] = f'Developers, stop guessing. {draft["text"]}'
+    draft["assumptions"].append("Developers, stop guessing.")
+
+    with pytest.raises(AgentProtocolError, match="audience"):
+        _validate(draft)
+
+
 @pytest.mark.parametrize("overreach", [
     "Publication approved.",
     "Send this live now.",
@@ -588,6 +718,14 @@ def test_grounding_validator_rejects_slash_separated_alternatives():
         _validate(draft)
 
 
+def test_grounding_validator_rejects_numbered_final_alternatives():
+    draft = grounded_draft()
+    draft["text"] = "1) Request a demo. 2) Join the waitlist."
+
+    with pytest.raises(AgentProtocolError, match="multiple final alternatives"):
+        _validate(draft)
+
+
 @pytest.mark.parametrize("prohibited_copy", [
     "Competitors.",
     "Guaranteed outcomes.",
@@ -613,6 +751,20 @@ def test_grounding_validator_splits_nor_exclusions():
     draft = grounded_draft()
     draft["appliedConstraints"].append(exclusion)
     draft["text"] = f'{draft["text"]} Competitors.'
+
+    with pytest.raises(AgentProtocolError, match="prohibited constraint language"):
+        _validate(draft, supplied)
+
+
+@pytest.mark.parametrize("prohibited_copy", ["Competitors.", "Guarantees."])
+def test_grounding_validator_normalizes_either_nor_exclusions(prohibited_copy):
+    supplied = original_input()
+    exclusion = "Never mention either competitors nor guarantees"
+    for owner in (supplied, supplied["brief"], supplied["editorialItem"]):
+        owner["constraints"].append(exclusion)
+    draft = grounded_draft()
+    draft["appliedConstraints"].append(exclusion)
+    draft["text"] = f'{draft["text"]} {prohibited_copy}'
 
     with pytest.raises(AgentProtocolError, match="prohibited constraint language"):
         _validate(draft, supplied)
@@ -718,6 +870,10 @@ def test_noni_dara_contracts_enforce_nonblank_lists_and_utc_fields(factory, muta
 
 @pytest.mark.parametrize(("factory", "field"), [
     (original_draft, "claims"),
+    (original_draft, "audienceId"),
+    (original_draft, "objective"),
+    (original_draft, "funnelStage"),
+    (original_draft, "ctaIntent"),
     (original_draft, "assumptions"),
     (original_draft, "priorDraftId"),
     (original_draft, "addressedIssueIds"),

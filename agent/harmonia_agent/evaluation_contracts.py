@@ -120,8 +120,14 @@ def evaluate_analysis(
 
 def evaluate_strategy(
     *, strategist_input: StrategistInput, strategy: ContentStrategy | Mapping[str, Any],
+    skill_trace: list[dict[str, Any]],
 ) -> EvaluationCaseResult:
     """Run Ryan's schema, grounding, and authority boundary as an eval contract."""
+    from .ryan_skills import validate_ryan_skill_trace
+    try:
+        validate_ryan_skill_trace(skill_trace)
+    except ValueError as exc:
+        return _result([_failure("invalid_skill_trace", str(exc))])
     try:
         parsed = strategy if isinstance(strategy, ContentStrategy) else ContentStrategy.model_validate(strategy)
     except Exception:
@@ -131,8 +137,14 @@ def evaluate_strategy(
         validate_strategy_grounding(strategist_input, parsed)
     except AgentProtocolError as exc:
         message = str(exc)
-        code = "invented_reference" if "unknown evidence" in message else (
-            "authority_overreach" if "authority overreach" in message else "missing_grounding"
+        code = (
+            "invented_reference" if "unknown evidence" in message else
+            "authority_overreach" if "authority overreach" in message else
+            "incoherent_strategy" if "coherent thesis" in message else
+            "unsupported_performance" if "performance claim" in message else
+            "invalid_confidence" if "high confidence" in message else
+            "final_copy" if "final-copy-shaped" in message else
+            "missing_grounding"
         )
         return _result([_failure(code, message)])
     memory_ids = {fact.id for fact in strategist_input.memoryFacts}

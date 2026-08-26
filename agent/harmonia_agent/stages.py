@@ -374,6 +374,7 @@ def _strategy_input(job: dict[str, Any], insights: dict[str, Any]) -> Strategist
             horizonWeeks=int(context.get("horizonWeeks") or 4),
         ),
         analysis=analysis, performance=performance, revision=revision,
+        researchRequest=context.get("researchRequest"),
         revisionFeedback=job.get("strategyRevisionFeedback"),
     )
 
@@ -401,11 +402,21 @@ async def run_strategize(job_id: str) -> None:
         "requestedChannels": prepared.campaign.requestedChannels,
         "supportedChannels": prepared.campaign.supportedChannels,
         "horizonWeeks": prepared.campaign.horizonWeeks,
+        "researchRequest": (
+            prepared.researchRequest.model_dump(mode="json")
+            if prepared.researchRequest else None
+        ),
+        "searchEvidence": [],
     })
     result = await strategize_with_team(prepared, invocation=invocation, prepared=True)
     web_post("/api/internal/strategy", {
         "jobId": job_id, "stage": "strategize", "revision": revision,
         "strategy": result.strategy.model_dump(mode="json"), "modelUsed": content.model_used(),
+        "searchEvidence": [
+            {"evidenceId": evidence_id, "supportedText": values[0], "title": values[1], "url": values[2]}
+            for evidence_id, values in result.searchEvidence.items()
+        ],
+        "groundingMetadata": result.groundingMetadata,
     })
 
 
@@ -525,7 +536,7 @@ async def run_draft(job_id: str) -> None:
     if claim.get("outcome") != "execute":
         raise AgentProtocolError("selected editorial item drafting claim was not granted")
     brand_context = json.dumps({
-        "strategicThesis": strategy.get("strategicThesis"),
+        "strategicThesis": strategy.get("thesis"),
         "differentiatedNarrative": strategy.get("differentiatedNarrative"),
         "brandSafety": strategy.get("brandSafety") or [],
     }, sort_keys=True)[:4000]

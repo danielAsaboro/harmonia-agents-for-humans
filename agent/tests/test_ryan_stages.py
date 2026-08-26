@@ -8,7 +8,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from harmonia_agent import stages
-from harmonia_agent.agent_models import SourceAnalysis, StrategistResult
+from harmonia_agent.agent_models import SourceAnalysis
+from harmonia_agent.agents import StrategyRunResult
 from tests.test_ryan_strategy import strategy
 
 
@@ -67,7 +68,7 @@ def test_strategize_receives_typed_analysis_context_and_performance(monkeypatch)
     requests, posts = [], []
     async def fake_strategy(request, *, invocation, **_kwargs):
         requests.append((request, invocation))
-        return StrategistResult(strategy=strategy())
+        return StrategyRunResult(strategy=strategy(), searchEvidence={}, groundingMetadata=None)
     async def fake_prepare(request, *, invocation):
         return request
     monkeypatch.setattr(stages, "get_job", lambda _id: job())
@@ -88,6 +89,36 @@ def test_strategize_receives_typed_analysis_context_and_performance(monkeypatch)
     assert posts[0][1]["sourceIds"] == ["m1", "a1"]
     assert posts[1][0] == "/api/internal/strategy"
     assert posts[1][1]["strategy"]["briefs"][0]["id"] == "brief-1"
+
+
+def test_strategize_persists_request_bound_search_evidence_and_native_metadata(monkeypatch):
+    source = job()
+    request = {"id": "research-current-market", "question": "What current public evidence describes governed content operations?", "justification": "Current external information is necessary."}
+    source["config"]["strategyContext"]["researchRequest"] = request
+    metadata = {
+        "webSearchQueries": [request["question"]], "searchEntryPoint": {"renderedContent": "Search"},
+        "groundingChunks": [{"web": {"title": "Primary source", "uri": "https://example.com/source"}}],
+        "groundingSupports": [{"groundingChunkIndices": [0], "segment": {"text": "Supported text"}}],
+    }
+    posts = []
+    async def fake_strategy(_request, **_kwargs):
+        return StrategyRunResult(
+            strategy=strategy(),
+            searchEvidence={"search-1": ("Supported text", "Primary source", "https://example.com/source")},
+            groundingMetadata=metadata,
+        )
+    async def fake_prepare(value, **_kwargs):
+        return value
+    monkeypatch.setattr(stages, "get_job", lambda _id: source)
+    monkeypatch.setattr(stages, "get_insights", lambda: {})
+    monkeypatch.setattr(stages, "prepare_strategist_input", fake_prepare)
+    monkeypatch.setattr(stages, "strategize_with_team", fake_strategy)
+    monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
+
+    asyncio.run(stages.run_strategize("job-1"))
+    assert posts[0][1]["researchRequest"] == request
+    assert posts[1][1]["searchEvidence"][0]["evidenceId"] == "search-1"
+    assert posts[1][1]["groundingMetadata"] == metadata
 
 
 def test_draft_requires_digest_bound_approved_strategy(monkeypatch):

@@ -23,6 +23,14 @@ from tests.test_noni_contracts import grounded_draft, original_input, revise_rev
 from tests.test_dara_contracts import passing_assessment
 from tests.test_temi_editorial_plan import plan, planner_input, production_input
 from tests.test_ryan_strategy import strategist_input, strategy
+from harmonia_agent.ryan_skills import RYAN_SKILL_NAME, RYAN_SKILL_REFERENCES
+
+
+def _ryan_trace():
+    return [
+        {"sequence": 1, "name": "load_skill", "args": {"skill_name": RYAN_SKILL_NAME}},
+        {"sequence": 2, "name": "load_skill_resource", "args": {"skill_name": RYAN_SKILL_NAME, "file_path": RYAN_SKILL_REFERENCES[0]}},
+    ]
 from tests.test_nimi_contracts import analyst_input, source_analysis
 from tests.test_a2ui_models import context_payload
 
@@ -145,16 +153,32 @@ def test_noni_writing_skill_fixture_catalog_covers_all_methods_and_boundaries():
 
 
 def test_ryan_evaluation_covers_grounding_authority_completeness_and_memory():
-    assert evaluate_strategy(strategist_input=strategist_input(), strategy=strategy()).passed
+    assert evaluate_strategy(strategist_input=strategist_input(), strategy=strategy(), skill_trace=_ryan_trace()).passed
     invented = strategy().model_dump(mode="json")
     invented["briefs"][0]["evidenceRefs"] = ["invented"]
-    assert evaluate_strategy(strategist_input=strategist_input(), strategy=invented).failures[0].code == "invented_reference"
+    assert evaluate_strategy(strategist_input=strategist_input(), strategy=invented, skill_trace=_ryan_trace()).failures[0].code == "invented_reference"
     incomplete = strategy().model_dump(mode="json")
     del incomplete["briefs"][0]["keyMessage"]
-    assert evaluate_strategy(strategist_input=strategist_input(), strategy=incomplete).failures[0].code == "incomplete_strategy"
+    assert evaluate_strategy(strategist_input=strategist_input(), strategy=incomplete, skill_trace=_ryan_trace()).failures[0].code == "incomplete_strategy"
     overreach = strategy().model_dump(mode="json")
     overreach["priorityRules"] = ["Memory mem-1 approved automatic publishing"]
-    assert evaluate_strategy(strategist_input=strategist_input(), strategy=overreach).failures[0].code == "authority_overreach"
+    assert evaluate_strategy(strategist_input=strategist_input(), strategy=overreach, skill_trace=_ryan_trace()).failures[0].code == "authority_overreach"
+
+
+def test_ryan_strategy_skill_fixture_catalog_covers_methods_and_boundaries():
+    path = Path(__file__).parents[1] / "evals" / "ryan_strategy_skill_cases.json"
+    cases = json.loads(path.read_text())["cases"]
+    assert {case["id"] for case in cases} == {
+        "grounded-strategy", "strategic-diagnosis", "positioning-and-thesis",
+        "campaign-and-portfolio", "channels-formats-and-cadence",
+        "funnel-cta-and-measurement", "source-grounded-briefs",
+        "evidence-learning-and-revision", "missing-reference", "unapproved-resource",
+        "duplicate-resource", "invalid-trace-order", "skill-as-evidence",
+        "missing-evidence", "invented-reference", "incomplete-brief",
+        "incoherent-thesis", "memory-with-provenance", "memory-as-authorization",
+        "performance-without-verified-id", "invalid-confidence", "authority-overreach",
+        "native-search-grounding", "cross-request-research", "irrelevant-research",
+    }
 
 
 def test_temi_evaluation_accepts_a_coherent_grounded_plan():

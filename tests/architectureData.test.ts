@@ -34,6 +34,8 @@ describe("Harmonia architecture dataset", () => {
   it("represents Temi planning as agentic cognition inside deterministic controls", () => {
     expect(byId("stage-plan").summary).toMatch(/persist.*select/i);
     expect(byId("agent-temi").summary).toMatch(/approved Ryan strategy/i);
+    expect(byId("agent-ryan").promptResponsibility).toMatch(/allow-listed filesystem method skill/i);
+    expect(byId("agent-ryan").skills).toEqual(["ryan-strategy-skills"]);
     expect(byId("agent-temi").promptResponsibility).toMatch(/no tools.*final copy.*external scheduling.*effects/i);
     expect(buildArchitectureDetail(byId("agent-temi")).authorityNote).toMatch(/editorial-plan proposal.*no external calendar authority/i);
     expect(byId("agent-noni").summary).toBe(

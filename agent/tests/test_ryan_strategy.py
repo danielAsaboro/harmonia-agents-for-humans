@@ -125,6 +125,45 @@ def test_strategy_rejects_memory_as_authority_and_effect_language():
         validate_strategy_grounding(strategist_input(), overreach)
 
 
+def test_strategy_rejects_performance_claim_without_verified_performance_reference():
+    invalid = strategy(pillars=[strategy().pillars[0].model_copy(update={
+        "purpose": "Repeat the prior high-performing approach",
+        "evidenceRefs": ["m1"],
+    })])
+    with pytest.raises(AgentProtocolError, match="performance claim requires verified performance evidence"):
+        validate_strategy_grounding(strategist_input(), invalid)
+
+
+def test_strategy_rejects_incoherent_thesis_final_copy_and_unexplained_high_confidence():
+    incoherent = strategy(thesis="Own a completely unrelated category narrative.")
+    with pytest.raises(AgentProtocolError, match="coherent thesis"):
+        validate_strategy_grounding(strategist_input(), incoherent)
+
+    final_copy = strategy(briefs=[strategy().briefs[0].model_copy(update={
+        "keyMessage": "Buy now at https://example.com #startup",
+    })])
+    with pytest.raises(AgentProtocolError, match="final-copy-shaped"):
+        validate_strategy_grounding(strategist_input(), final_copy)
+
+    weak_input = strategist_input().model_copy(update={
+        "analysis": strategist_input().analysis.model_copy(update={"confidence": "low"}),
+    })
+    with pytest.raises(AgentProtocolError, match="high confidence"):
+        validate_strategy_grounding(weak_input, strategy())
+
+
+def test_strategy_accepts_only_deterministically_validated_search_evidence():
+    searched = strategy(pillars=[strategy().pillars[0].model_copy(update={
+        "evidenceRefs": ["m1", "search-1"],
+    })])
+    with pytest.raises(AgentProtocolError, match="unknown evidence references"):
+        validate_strategy_grounding(strategist_input(), searched)
+    assert validate_strategy_grounding(
+        strategist_input(), searched,
+        research_evidence={"search-1": ("Supported text", "Primary source", "https://example.com/source")},
+    ) == searched
+
+
 def test_strategy_schema_rejects_incomplete_briefs_and_final_copy_fields():
     payload = strategy().model_dump(mode="json")
     del payload["briefs"][0]["ctaIntent"]

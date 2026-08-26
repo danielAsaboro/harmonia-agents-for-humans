@@ -27,7 +27,7 @@ import { markReservationFinalized, markReservationReleased, markReservationUncer
 import { parseBudgetConfig } from "./config";
 import { actionPayloadDigest, newId } from "./idempotency";
 import type { ApprovalActor } from "./decisions";
-import { applyStrategyDecision, assertStrategyProposalRevision, validatePersistedStrategy, type StrategyDecisionInput } from "./strategyApproval";
+import { applyStrategyDecision, assertStrategyProposalRevision, validatePersistedStrategy, validateStrategySearchGrounding, type StrategyDecisionInput } from "./strategyApproval";
 import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialDraftCompletionPatch, editorialPlanDigest, editorialPlanEvidenceLineage, isMatchingCompletedProduction } from "./editorialPlan";
 import {
   assertResourceWorkspace,
@@ -1494,13 +1494,20 @@ export async function saveAnalysis(
 
 export async function acceptStrategyProposal(
   jobId: string, strategy: import("./types").ContentStrategy, digest: string, revision: number,
+  searchEvidence: import("./types").StrategySearchEvidence[], groundingMetadata: Record<string, unknown> | null,
 ) {
   return db().runTransaction(async (tx) => {
     const ref = jobRef(jobId);
     const snap = await tx.get(ref);
     const job = requireJobDoc(snap);
     assertStrategyProposalRevision(job.stage, job.strategyRevision, revision, strategy.version);
-    validatePersistedStrategy(job, strategy);
+    const invocationContext = {
+      ...job.strategyInvocationContext,
+      searchEvidence,
+      groundingMetadata,
+    } as import("./types").StrategyInvocationContext;
+    validateStrategySearchGrounding(invocationContext.researchRequest, searchEvidence, groundingMetadata);
+    validatePersistedStrategy({ ...job, strategyInvocationContext: invocationContext }, strategy);
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     const evidenceLineage = [...new Set([
       ...strategy.objectives.flatMap((item) => item.evidenceRefs),
@@ -1517,7 +1524,8 @@ export async function acceptStrategyProposal(
       contentStrategy: strategy, strategyDigest: digest, strategyRevision: revision,
       strategyApprovalState: "pending", strategyApproval: FieldValue.delete(),
       strategyApprovalExpiresAt: expiresAt, strategyEvidenceLineage: evidenceLineage,
-      [historyKey]: { strategy, digest, revision, evidenceLineage, invocationContext: job.strategyInvocationContext, proposedAt: new Date().toISOString(), expiresAt },
+      strategyInvocationContext: invocationContext,
+      [historyKey]: { strategy, digest, revision, evidenceLineage, invocationContext, proposedAt: new Date().toISOString(), expiresAt },
       stage: "awaiting_strategy_approval", status: "waiting_for_approval", updatedAt: new Date().toISOString(),
     });
     return { digest, expiresAt, evidenceLineage };
@@ -1540,6 +1548,8 @@ export async function saveStrategyInvocationContext(jobId: string, context: impo
     if (JSON.stringify([...context.requestedChannels].sort()) !== JSON.stringify([...configured.requestedChannels].sort())) throw new Error("strategy requested channels mismatch");
     if (JSON.stringify([...context.supportedChannels].sort()) !== JSON.stringify([...configured.supportedChannels].sort())) throw new Error("strategy supported channels mismatch");
     if (context.horizonWeeks !== (configured.horizonWeeks ?? 4)) throw new Error("strategy horizon mismatch");
+    if (JSON.stringify(context.researchRequest) !== JSON.stringify(configured.researchRequest ?? null)) throw new Error("strategy research request mismatch");
+    if (context.searchEvidence.length) throw new Error("strategy search evidence cannot exist before Ryan runs");
     tx.update(ref, { strategyInvocationContext: context, updatedAt: new Date().toISOString() });
   });
 }

@@ -14,12 +14,18 @@ and source-grounded content briefs for Temi.
 | Default model | `gemini-3.5-flash` |
 | Input | `StrategistInput` |
 | Output | `StrategistResult` containing `ContentStrategy` |
-| Runtime skills | None |
-| Tools | None |
+| Runtime skill | `ryan-strategy-skills` |
+| Tools | `load_skill`, `load_skill_resource`, and isolated `ryan_google_search_agent` |
 
 ## Prompt method
 
-Ryan synthesizes business objectives, audience pains, positioning, funnel intent, intended
+Ryan first loads the strategy skill exactly once and at least one problem-relevant approved
+reference. A deterministic callback trace rejects missing, duplicate, out-of-order, or unapproved
+loads. The seven focused references cover diagnosis; positioning and thesis; campaign portfolio;
+channels, formats, and cadence; funnel, CTA, and measurement; brief construction; and
+evidence-informed learning and revision.
+
+Ryan then synthesizes business objectives, audience pains, positioning, funnel intent, intended
 conversion, and differentiated narrative. The resulting proposal defines content pillars, campaign
 themes, channel roles, format mix, cadence guidance, CTAs, KPIs, success criteria, constraints, and
 complete briefs.
@@ -29,6 +35,9 @@ moment and angle IDs, verified performance IDs, and eligible Memory Bank fact ID
 cite at least one Nimi moment or angle. Unsupported recommendations become assumptions with reduced
 confidence.
 
+Skill guidance changes Ryan's method, not the typed contract, and can never be cited as evidence.
+The source-coverage ledger is development documentation and is excluded from the runtime allow-list.
+
 ## Authority boundary
 
 Ryan proposes strategy; Ryan does not write final post copy, approve strategy, select production
@@ -37,11 +46,19 @@ Strategy approval is a separate human decision bound to the persisted strategy d
 
 ## Runtime enforcement
 
-Strict validators reject invented references, ungrounded briefs, unsupported operational channels,
-final-copy-shaped output, schedules, effects, approval claims, and Memory Bank used as authority.
+Strict validators reject an invalid skill trace, invented references, ungrounded briefs, unsupported
+operational channels, performance claims without verified IDs, incoherent theses where mechanically
+detectable, unexplained high confidence, final-copy-shaped output, effects, approval claims, and
+Memory Bank used as authority. Ryan never receives `google_search` directly. When an exact typed
+`researchRequest` establishes that current external information is necessary, an isolated ADK
+search agent runs native Google Search and returns a request-bound typed result. Deterministic code
+requires matching chunks, supports, queries, titles, URLs, and search-entry-point metadata before
+its `search-*` IDs can ground the strategy. Without that request, any search call fails closed.
 
 ## Source references
 
 - Prompt: `agent/harmonia_agent/ryan_prompt.py`
+- Skill runtime: `agent/harmonia_agent/ryan_skills.py`
+- Skill: `agent/harmonia_agent/skills/ryan-strategy-skills/SKILL.md`
 - Contracts: `StrategistInput`, `StrategistResult`, and `ContentStrategy` in `agent_models.py`
-- Tests: `agent/tests/test_ryan_strategy.py` and `test_ryan_stages.py`
+- Tests: `agent/tests/test_ryan_skills.py`, `test_ryan_strategy.py`, and `test_ryan_stages.py`

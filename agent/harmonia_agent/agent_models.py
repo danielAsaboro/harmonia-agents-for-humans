@@ -365,6 +365,12 @@ class MemoryFact(StrictModel):
     firestoreEvidenceRef: str = Field(min_length=1, max_length=500)
 
 
+class StrategyResearchRequest(StrictModel):
+    id: str = Field(pattern=r"^research-[A-Za-z0-9][A-Za-z0-9._:-]{0,90}$")
+    question: str = Field(min_length=10, max_length=500)
+    justification: str = Field(min_length=10, max_length=500)
+
+
 class StrategistInput(StrictModel):
     source_title: str = Field(min_length=1, max_length=300)
     company: CompanyContext
@@ -372,6 +378,7 @@ class StrategistInput(StrictModel):
     analysis: SourceAnalysis
     performance: list[PerformanceObservation] = Field(default_factory=list, max_length=12)
     memoryFacts: list[MemoryFact] = Field(default_factory=list, max_length=5)
+    researchRequest: StrategyResearchRequest | None = None
     revision: int = Field(default=1, ge=1, le=2)
     revisionFeedback: str | None = Field(default=None, max_length=2_000)
 

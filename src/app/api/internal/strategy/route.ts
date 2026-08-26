@@ -12,7 +12,9 @@ export async function POST(req: Request) {
     const digest = strategyDigest(body.strategy);
     let accepted: Awaited<ReturnType<typeof acceptStrategyProposal>>;
     try {
-      accepted = await acceptStrategyProposal(body.jobId, body.strategy, digest, body.revision);
+      accepted = await acceptStrategyProposal(
+        body.jobId, body.strategy, digest, body.revision, body.searchEvidence, body.groundingMetadata,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return Response.json({ error: message }, { status: 409 });

@@ -51,6 +51,15 @@ from .memory_bank import MemoryBank, MemoryScope, VertexMemoryBank
 from .memory_bank import MemoryFact as RetrievedMemoryFact
 from .agent_models import MemoryFact as StrategyMemoryFact
 from .ryan_prompt import RYAN_STRATEGIST_INSTRUCTION
+from .ryan_skills import (
+    RYAN_SKILL_TRACE_KEY,
+    build_ryan_strategy_skillset,
+    build_ryan_google_search_tool,
+    guard_ryan_skill_tool,
+    record_ryan_skill_tool,
+    reset_ryan_skill_trace,
+    validate_ryan_skill_trace,
+)
 from .temi_prompt import TEMI_EDITORIAL_PLANNER_INSTRUCTION
 from .noni_prompt import NONI_COPYWRITER_INSTRUCTION
 from .noni_skills import (
@@ -113,6 +122,13 @@ _MAX_OUTPUT_TOKENS = {
 
 class AgentProtocolError(RuntimeError):
     """The agent team returned missing or contract-invalid structured output."""
+
+
+@dataclass(frozen=True)
+class StrategyRunResult:
+    strategy: ContentStrategy
+    searchEvidence: dict[str, tuple[str, ...]]
+    groundingMetadata: dict[str, Any] | None
 
 
 @dataclass(frozen=True)
@@ -279,7 +295,14 @@ def build_agent_team(
         input_schema=StrategistInput,
         output_schema=StrategistResult,
         output_key="strategist_result",
+        tools=[
+            build_ryan_strategy_skillset(),
+            build_ryan_google_search_tool(resolved.strategist),
+        ],
         mode="single_turn",
+        before_agent_callback=reset_ryan_skill_trace,
+        before_tool_callback=guard_ryan_skill_tool,
+        after_tool_callback=record_ryan_skill_tool,
     )
     analyst = Agent(
         model=resolved.analyst,
@@ -1484,8 +1507,23 @@ def _validate_run_output_unwrapped(
         validate_source_analysis(AnalystInput.model_validate(payload), result)
         return
     if specialist == "ryan_strategist":
+        trace = state.get(RYAN_SKILL_TRACE_KEY)
+        if not isinstance(trace, list):
+            raise AgentProtocolError("Ryan returned no actual strategy-skill trace")
+        try:
+            research_evidence = validate_ryan_skill_trace(
+                trace,
+                research_request=getattr(payload, "researchRequest", None),
+                grounding_metadata=state.get("_adk_grounding_metadata"),
+            )
+        except ValueError as exc:
+            raise AgentProtocolError(f"invalid Ryan strategy-skill trace: {exc}") from exc
         result = _validated_state(state, "strategist_result", StrategistResult)
-        _validate_strategy_result(StrategistInput.model_validate(payload), result)
+        _validate_strategy_result(
+            StrategistInput.model_validate(payload), result,
+            research_evidence=research_evidence,
+        )
+        state["_ryan_search_evidence"] = research_evidence
         return
     if specialist == "temi_editorial_planner":
         planner_input = EditorialPlannerInput.model_validate(payload)
@@ -1778,6 +1816,7 @@ async def analyze_with_team(
 def validate_strategy_grounding(
     input: StrategistInput,
     strategy: ContentStrategy,
+    *, research_evidence: dict[str, tuple[str, ...]] | None = None,
 ) -> ContentStrategy:
     """Fail closed when Ryan exceeds supplied evidence or authority."""
     source_ids = {item.id for item in [*input.analysis.moments, *input.analysis.angles]}
@@ -1788,6 +1827,7 @@ def validate_strategy_grounding(
         *source_ids,
         *(item.id for item in input.performance),
         *(item.id for item in input.memoryFacts),
+        *(research_evidence or {}).keys(),
     }
     referenced: set[str] = set()
     for group in (
@@ -1817,18 +1857,53 @@ def validate_strategy_grounding(
             raise AgentProtocolError(f"incorrect operational support for channel: {role.channel}")
     if strategy.horizonWeeks != input.campaign.horizonWeeks or strategy.version != input.revision:
         raise AgentProtocolError("strategy horizon or version does not match input")
+    performance_ids = {item.id for item in input.performance}
+    evidence_items = [
+        *strategy.objectives, *strategy.audiencePriorities, *strategy.pillars,
+        *strategy.campaignThemes, *strategy.channelRoles, *strategy.kpis,
+        *strategy.briefs, *strategy.assumptions,
+    ]
+    performance_language = re.compile(
+        r"\b(performance|performing|outperform|engagement|likes?|reposts?|replies|prior winner)\b",
+        re.IGNORECASE,
+    )
+    for item in evidence_items:
+        text = " ".join(
+            str(value) for name, value in item.model_dump(mode="python").items()
+            if name != "evidenceRefs"
+        )
+        if performance_language.search(text) and not performance_ids.intersection(item.evidenceRefs):
+            raise AgentProtocolError("performance claim requires verified performance evidence")
+    thesis_tokens = {
+        token for token in re.findall(r"[a-z0-9]+", strategy.thesis.casefold())
+        if len(token) > 4 and token not in {"with", "their", "about", "content"}
+    }
+    strategy_body = " ".join([
+        *(item.name + " " + item.purpose for item in strategy.pillars),
+        *(item.name + " " + item.message for item in strategy.campaignThemes),
+        *(item.title + " " + item.keyMessage for item in strategy.briefs),
+    ]).casefold()
+    if thesis_tokens and not thesis_tokens.intersection(re.findall(r"[a-z0-9]+", strategy_body)):
+        raise AgentProtocolError("strategy requires one coherent thesis reflected in themes or briefs")
+    if any(re.search(r"https?://|#[a-z0-9_]", brief.keyMessage, re.IGNORECASE) for brief in strategy.briefs):
+        raise AgentProtocolError("brief contains final-copy-shaped output")
+    if input.analysis.confidence == "low" and strategy.confidence == "high":
+        raise AgentProtocolError("strategy cannot claim high confidence from low-confidence analysis")
     serialized = strategy.model_dump_json().lower()
     if re.search(
-        r"\b(memory|ryan|i|we|harmonia)\b.{0,40}\b(approved|published|executed|authorized)\b"
-        r"|\bautomatic publishing\b|\breceipt(?:id)?\b|\beffect payload\b",
+        r"\b(memory|ryan|i|we|harmonia)\b.{0,50}\b(approve[ds]?|reject(?:ed)?|publish(?:ed)?|executed|authoriz(?:e[ds]?|ation)|permits?|allows?|verified|scheduled)\b"
+        r"|\bautomatic publishing\b|\breceipt(?:id)?\b|\beffect payload\b|\bpolicy exception\b|\bcredential(?:s)?\b",
         serialized,
     ):
         raise AgentProtocolError("strategy authority overreach")
     return strategy
 
 
-def _validate_strategy_result(input: StrategistInput, result: StrategistResult) -> StrategistResult:
-    validate_strategy_grounding(input, result.strategy)
+def _validate_strategy_result(
+    input: StrategistInput, result: StrategistResult,
+    *, research_evidence: dict[str, tuple[str, ...]] | None = None,
+) -> StrategistResult:
+    validate_strategy_grounding(input, result.strategy, research_evidence=research_evidence)
     return result
 
 
@@ -2115,7 +2190,7 @@ async def prepare_strategist_input(
 async def strategize_with_team(
     input: StrategistInput, *, invocation: InvocationContext | None = None,
     memory: tuple[MemoryBank, MemoryScope] | None = None, prepared: bool = False,
-) -> StrategistResult:
+) -> StrategyRunResult:
     input = StrategistInput.model_validate(input)
     if not prepared:
         input = await prepare_strategist_input(input, invocation=invocation, memory=memory)
@@ -2124,7 +2199,18 @@ async def strategize_with_team(
         raise RuntimeError("Ryan has no mock strategy path; inject a TeamRuntime in tests")
     state = await _run_coordinator("ryan_strategist", input, invocation=invocation)
     result = _validated_state(state, "strategist_result", StrategistResult)
-    return _validate_strategy_result(input, result)
+    research_evidence = state.get("_ryan_search_evidence") or {}
+    if not isinstance(research_evidence, dict):
+        raise AgentProtocolError("Ryan returned invalid grounded research evidence")
+    validated = _validate_strategy_result(input, result, research_evidence=research_evidence)
+    metadata = state.get("_adk_grounding_metadata")
+    if metadata is not None and hasattr(metadata, "model_dump"):
+        metadata = metadata.model_dump(mode="json", by_alias=True)
+    return StrategyRunResult(
+        strategy=validated.strategy,
+        searchEvidence=research_evidence,
+        groundingMetadata=metadata if isinstance(metadata, dict) else None,
+    )
 
 
 async def plan_with_team(

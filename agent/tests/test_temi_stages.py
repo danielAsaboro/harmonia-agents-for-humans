@@ -221,6 +221,7 @@ def test_draft_uses_immutable_approved_strategy_history_not_mutable_current_stra
 
     asyncio.run(stages.run_draft("job-1"))
     assert captured[0].brief.keyMessage == "Governed workflows reduce activation delay"
+    assert '"strategicThesis": "Lead with verified operating proof."' in captured[0].brandContext
 
 
 def test_draft_rejects_plan_not_bound_to_job_strategy_digest(monkeypatch):

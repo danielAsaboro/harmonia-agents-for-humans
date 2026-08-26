@@ -46,7 +46,11 @@ export interface StrategyContext {
   funnelStage: "awareness" | "consideration" | "conversion" | "retention" | "advocacy";
   intendedConversion: string; requestedChannels: string[]; supportedChannels: string[];
   horizonWeeks?: number;
+  researchRequest?: StrategyResearchRequest;
 }
+
+export interface StrategyResearchRequest { id: string; question: string; justification: string }
+export interface StrategySearchEvidence { evidenceId: string; supportedText: string; title: string; url: string }
 
 export interface ContentStrategy {
   strategyId: string; version: number; horizonWeeks: number; thesis: string; differentiatedNarrative: string;
@@ -237,6 +241,9 @@ export interface StrategyInvocationContext {
   performance: Array<{ id: string; firestoreEvidenceRef: string }>;
   memoryFacts: Array<{ id: string; firestoreEvidenceRef: string }>;
   audienceIds: string[]; requestedChannels: string[]; supportedChannels: string[]; horizonWeeks: number;
+  researchRequest: StrategyResearchRequest | null;
+  searchEvidence: StrategySearchEvidence[];
+  groundingMetadata?: Record<string, unknown> | null;
 }
 
 export interface Job {

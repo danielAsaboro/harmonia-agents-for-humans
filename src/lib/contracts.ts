@@ -170,6 +170,10 @@ export const analysisSubmissionSchema = z.object({
 
 const evidenceRefs = z.array(z.string().min(1).max(100)).min(1).max(12);
 const funnelStage = z.enum(["awareness", "consideration", "conversion", "retention", "advocacy"]);
+const strategyResearchRequestSchema = z.object({
+  id: z.string().regex(/^research-[A-Za-z0-9][A-Za-z0-9._:-]{0,90}$/),
+  question: z.string().min(10).max(500), justification: z.string().min(10).max(500),
+}).strict();
 export const strategyContextSchema = z.object({
   company: z.string().min(1).max(200), product: z.string().min(1).max(500), positioning: z.string().min(1).max(500),
   differentiators: z.array(z.string().min(1).max(300)).min(1).max(8), brandVoice: z.array(z.string().min(1).max(120)).min(1).max(8),
@@ -178,6 +182,7 @@ export const strategyContextSchema = z.object({
   audiences: z.array(z.object({ id: z.string().min(1).max(100), name: z.string().min(1).max(200), pains: z.array(z.string().min(1).max(300)).min(1).max(8) }).strict()).min(1).max(6),
   funnelStage, intendedConversion: z.string().min(1).max(300), requestedChannels: z.array(z.string().min(1).max(100)).min(1).max(8),
   supportedChannels: z.array(z.string().min(1).max(100)).min(1).max(8), horizonWeeks: z.number().int().min(1).max(12).default(4),
+  researchRequest: strategyResearchRequestSchema.optional(),
 }).strict();
 export const contentStrategySchema = z.object({
   strategyId: z.string().min(1).max(100), version: z.number().int().min(1).max(2), horizonWeeks: z.number().int().min(1).max(12),
@@ -531,9 +536,22 @@ export const copywriterInputSchema = z.object({
   }
 });
 
+const strategySearchEvidenceSchema = z.object({
+  evidenceId: z.string().regex(/^search-[A-Za-z0-9][A-Za-z0-9._:-]{0,92}$/),
+  supportedText: z.string().min(1).max(1000), title: z.string().min(1).max(300),
+  url: z.string().url().refine((value) => value.startsWith("https://") || value.startsWith("http://")),
+}).strict();
+
+const nativeGroundingMetadataSchema = z.object({
+  groundingChunks: z.array(z.unknown()).min(1), groundingSupports: z.array(z.unknown()).min(1),
+  webSearchQueries: z.array(z.string().min(1)).min(1), searchEntryPoint: z.record(z.string(), z.unknown()),
+}).passthrough();
+
 export const strategySubmissionSchema = z.object({
   jobId: z.string().min(1), stage: z.literal("strategize"), revision: z.number().int().min(1).max(2),
   strategy: contentStrategySchema, modelUsed: z.string().min(1),
+  searchEvidence: z.array(strategySearchEvidenceSchema).max(8),
+  groundingMetadata: nativeGroundingMetadataSchema.nullable(),
 }).strict();
 
 export const editorialPlanSubmissionSchema = z.object({
@@ -551,6 +569,8 @@ export const strategyInvocationContextSchema = z.object({
   requestedChannels: z.array(z.string().min(1).max(100)).min(1).max(8),
   supportedChannels: z.array(z.string().min(1).max(100)).min(1).max(8),
   horizonWeeks: z.number().int().min(1).max(12),
+  researchRequest: strategyResearchRequestSchema.nullable(),
+  searchEvidence: z.array(strategySearchEvidenceSchema).max(8),
 }).strict();
 
 export const draftClaimSubmissionSchema = z.object({

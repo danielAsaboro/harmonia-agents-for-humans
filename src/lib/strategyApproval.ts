@@ -1,5 +1,33 @@
 import { createHash } from "node:crypto";
-import type { ContentStrategy, JobConfig, SourceAnalysis, StrategyInvocationContext } from "./types";
+import type { ContentStrategy, JobConfig, SourceAnalysis, StrategyInvocationContext, StrategySearchEvidence } from "./types";
+
+export function validateStrategySearchGrounding(
+  request: StrategyInvocationContext["researchRequest"], evidence: StrategySearchEvidence[], metadata: Record<string, unknown> | null,
+): void {
+  if (!request) {
+    if (evidence.length || metadata) throw new Error("strategy search requires an exact research request");
+    return;
+  }
+  if (!evidence.length || !metadata) throw new Error("requested strategy research requires grounded search evidence");
+  const chunks = metadata.groundingChunks;
+  const supports = metadata.groundingSupports;
+  const queries = metadata.webSearchQueries;
+  if (!Array.isArray(chunks) || !Array.isArray(supports) || !Array.isArray(queries) || !queries.length || !metadata.searchEntryPoint) throw new Error("native grounding metadata incomplete");
+  const seen = new Set<string>();
+  for (const source of evidence) {
+    if (seen.has(source.evidenceId)) throw new Error("duplicate strategy search evidence");
+    seen.add(source.evidenceId);
+    const indices = chunks.flatMap((chunk, index) => {
+      const web = (chunk as { web?: { uri?: string; title?: string } })?.web;
+      return web?.uri === source.url && web.title === source.title ? [index] : [];
+    });
+    const supported = supports.some((support) => {
+      const value = support as { groundingChunkIndices?: number[]; segment?: { text?: string } };
+      return value.groundingChunkIndices?.some((index) => indices.includes(index)) && value.segment?.text?.includes(source.supportedText);
+    });
+    if (!indices.length || !supported) throw new Error("strategy source absent from native grounding metadata");
+  }
+}
 
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
@@ -34,6 +62,7 @@ export function validatePersistedStrategy(job: { config: JobConfig; sourceAnalys
   const exactEvidenceIds = new Set([
     ...invocation.sourceIds, ...invocation.operatorContextIds,
     ...invocation.performance.map((item) => item.id), ...invocation.memoryFacts.map((item) => item.id),
+    ...invocation.searchEvidence.map((item) => item.evidenceId),
   ]);
   const invalidRefs = references.filter((ref) => !exactEvidenceIds.has(ref));
   if (invalidRefs.length) throw new Error(`unknown persisted evidence references: ${[...new Set(invalidRefs)].join(", ")}`);

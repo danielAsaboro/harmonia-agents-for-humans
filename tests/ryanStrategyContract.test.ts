@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { contentStrategySchema } from "@/lib/contracts";
-import { validatePersistedStrategy } from "@/lib/strategyApproval";
+import { validatePersistedStrategy, validateStrategySearchGrounding } from "@/lib/strategyApproval";
 
 const refs = ["m1"];
 const valid = {
@@ -53,6 +53,7 @@ describe("Ryan strategy wire contract", () => {
       revision: 1, sourceIds: ["m1"], operatorContextIds: ["context:company", "context:campaign"],
       performance: [], memoryFacts: [], audienceIds: ["aud-founders"],
       requestedChannels: ["x"], supportedChannels: ["x"], horizonWeeks: 4,
+      researchRequest: null, searchEvidence: [],
     } };
     expect(() => validatePersistedStrategy(job as never, strategy)).not.toThrow();
     const forged = structuredClone(strategy);
@@ -64,5 +65,18 @@ describe("Ryan strategy wire contract", () => {
     const wrongChannel = structuredClone(strategy);
     wrongChannel.briefs[0].channelCandidates = ["linkedin"];
     expect(() => validatePersistedStrategy(job as never, wrongChannel)).toThrow("unrequested channel");
+  });
+
+  it("requires request-bound native grounding for strategy search evidence", () => {
+    const request = { id: "research-current-market", question: "What current public evidence describes governed content operations?", justification: "Current external information is necessary." };
+    const evidence = [{ evidenceId: "search-1", title: "ADK grounding", url: "https://adk.dev/grounding/google_search_grounding/", supportedText: "Grounded responses connect claims to sources." }];
+    const metadata = {
+      webSearchQueries: [request.question], searchEntryPoint: { renderedContent: "Search" },
+      groundingChunks: [{ web: { title: evidence[0].title, uri: evidence[0].url } }],
+      groundingSupports: [{ groundingChunkIndices: [0], segment: { text: evidence[0].supportedText } }],
+    };
+    expect(() => validateStrategySearchGrounding(request, evidence, metadata)).not.toThrow();
+    expect(() => validateStrategySearchGrounding(null, evidence, metadata)).toThrow("exact research request");
+    expect(() => validateStrategySearchGrounding(request, evidence, { ...metadata, groundingSupports: [] })).toThrow("absent from native grounding metadata");
   });
 });

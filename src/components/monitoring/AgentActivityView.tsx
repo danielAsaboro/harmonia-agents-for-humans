@@ -12,6 +12,26 @@ export interface ActivityPagination { cursor: string | null; history: Array<stri
 export const emptyActivityFilters = (): ActivityFiltersState => ({ types: [], agent: "", stage: "", outcome: "", severity: "", model: "", tool: "", jobId: "", traceId: "", since: "", until: "", q: "" });
 export const resetPagination = (_pagination: ActivityPagination): ActivityPagination => ({ cursor: null, history: [] });
 
+export function parseActivityFilters(params: URLSearchParams): ActivityFiltersState {
+  const empty = emptyActivityFilters();
+  const types = params.getAll("type").filter((value): value is SignalType => value === "log" || value === "trace" || value === "metric");
+  return {
+    ...empty,
+    types,
+    agent: params.get("agent") ?? "",
+    stage: params.get("stage") ?? "",
+    outcome: params.get("outcome") ?? "",
+    severity: params.get("severity") ?? "",
+    model: params.get("model") ?? "",
+    tool: params.get("tool") ?? "",
+    jobId: params.get("jobId") ?? "",
+    traceId: params.get("traceId") ?? "",
+    since: params.get("since")?.slice(0, 16) ?? "",
+    until: params.get("until")?.slice(0, 16) ?? "",
+    q: params.get("q") ?? "",
+  };
+}
+
 export function buildActivityQuery(filters: ActivityFiltersState, cursor: string | null): URLSearchParams {
   const query = new URLSearchParams({ limit: "25" });
   for (const type of filters.types) query.append("type", type);
@@ -24,7 +44,7 @@ export function buildActivityQuery(filters: ActivityFiltersState, cursor: string
 const modes: Array<{ label: string; type: SignalType }> = [{ label: "Logs", type: "log" }, { label: "Traces", type: "trace" }, { label: "Metrics", type: "metric" }];
 
 export default function AgentActivityView() {
-  const [filters, setFilters] = useState<ActivityFiltersState>(emptyActivityFilters);
+  const [filters, setFilters] = useState<ActivityFiltersState>(() => typeof window === "undefined" ? emptyActivityFilters() : parseActivityFilters(new URL(window.location.href).searchParams));
   const [pagination, setPagination] = useState<ActivityPagination>({ cursor: null, history: [] });
   const [page, setPage] = useState<ObservabilityPage | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,12 +59,17 @@ export default function AgentActivityView() {
         const response = await fetch(`/api/observability?${query}`, { signal: controller.signal });
         if (!response.ok) throw new Error(`Activity request failed (${response.status})`);
         setPage(await response.json() as ObservabilityPage);
-        const url = new URL(window.location.href); url.searchParams.set("activity", query); window.history.replaceState(null, "", url);
+        const url = new URL(window.location.href);
+        for (const key of ["type", "agent", "stage", "outcome", "severity", "model", "tool", "jobId", "traceId", "since", "until", "q"]) url.searchParams.delete(key);
+        const shareable = buildActivityQuery(filters, null); shareable.delete("limit");
+        shareable.forEach((value, key) => url.searchParams.append(key, value));
+        url.searchParams.set("tab", "activity");
+        window.history.replaceState(null, "", url);
       } catch (cause) { if (!(cause instanceof DOMException && cause.name === "AbortError")) setError(cause instanceof Error ? cause.message : "Activity request failed"); }
       finally { if (!controller.signal.aborted) setLoading(false); }
     }, filters.q ? 250 : 0);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, filters.q]);
+  }, [query, filters]);
 
   const changeFilters = useCallback((next: ActivityFiltersState) => { setFilters(next); setPagination(resetPagination); }, []);
   const selectMode = (type: SignalType) => changeFilters({ ...filters, types: [type] });
@@ -55,6 +80,7 @@ export default function AgentActivityView() {
       <div className="flex rounded-full border border-zinc-200 p-1 text-xs dark:border-zinc-800">{modes.map((mode) => <button key={mode.type} className={`rounded-full px-3 py-1.5 ${filters.types[0] === mode.type && filters.types.length === 1 ? "bg-zinc-900 text-white dark:bg-white dark:text-black" : "text-zinc-500"}`} onClick={() => selectMode(mode.type)}>{mode.label}</button>)}</div>
     </div>
     <ActivityFilters filters={filters} onChange={changeFilters} />
+    <div className="flex justify-end"><button className="text-xs text-zinc-500 underline" onClick={() => changeFilters(emptyActivityFilters())}>Reset filters</button></div>
     {error && <div role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error} <button className="underline" onClick={() => setPagination((v) => ({ ...v }))}>Retry</button></div>}
     {loading ? <p className="p-8 text-center text-sm text-zinc-500">Loading agent activity…</p> : filters.types[0] === "metric" && filters.types.length === 1 ? <ActivityMetrics records={items} /> : filters.types[0] === "trace" && filters.types.length === 1 ? <TraceTree records={items} /> : <ActivityTable records={items} />}
     <div className="flex items-center justify-between text-xs"><span className="text-zinc-500">{items.length} records on this page</span><div className="flex gap-2"><button disabled={!pagination.history.length || loading} className="rounded-full border px-3 py-1.5 disabled:opacity-40 dark:border-zinc-700" onClick={() => setPagination((current) => ({ cursor: current.history.at(-1) ?? null, history: current.history.slice(0, -1) }))}>Previous</button><button disabled={!page?.hasMore || !page.nextCursor || loading} className="rounded-full border px-3 py-1.5 disabled:opacity-40 dark:border-zinc-700" onClick={() => setPagination((current) => ({ cursor: page!.nextCursor, history: [...current.history, current.cursor] }))}>Next</button></div></div>

@@ -33,6 +33,9 @@ describe("Harmonia architecture dataset", () => {
     expect(byId("stage-plan").summary).toMatch(/persist.*select/i);
     expect(byId("agent-temi").summary).toMatch(/approved Ryan strategy/i);
     expect(byId("agent-temi").promptResponsibility).toMatch(/no tools.*final copy.*external scheduling.*effects/i);
+    expect(byId("agent-noni").summary).toBe(
+      "Creates and revises typed platform-native drafts from the selected item, exact Ryan brief, and referenced Nimi evidence.",
+    );
     expect(byId("firestore").summary).toMatch(/editorial plan.*item lifecycle/i);
     expect(architectureDefinition.edges).toContainEqual(expect.objectContaining({
       source: "stage-plan", target: "agent-temi", kind: "delegation",

@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, field_validator, model_validator
 
 
 class StrictModel(BaseModel):
@@ -17,6 +17,10 @@ class StrictModel(BaseModel):
 Identifier = Annotated[str, Field(min_length=1, max_length=100)]
 ConstraintText = Annotated[str, Field(min_length=1, max_length=300)]
 AssumptionText = Annotated[str, Field(min_length=1, max_length=500)]
+StrictIdentifier = Annotated[StrictStr, Field(min_length=1, max_length=100)]
+StrictConstraintText = Annotated[StrictStr, Field(min_length=1, max_length=300)]
+StrictAssumptionText = Annotated[StrictStr, Field(min_length=1, max_length=500)]
+StrictDigest = Annotated[StrictStr, Field(pattern=r"^[0-9a-f]{64}$")]
 
 
 class FrameEvidence(StrictModel):
@@ -439,30 +443,30 @@ class EditorialPlan(StrictModel):
 
 
 class ContentClaim(StrictModel):
-    text: str = Field(min_length=1, max_length=600)
-    evidenceRefs: list[Identifier] = Field(min_length=1, max_length=12)
+    text: StrictStr = Field(min_length=1, max_length=600)
+    evidenceRefs: list[StrictIdentifier] = Field(min_length=1, max_length=12)
 
 
 class ContentDraft(StrictModel):
-    id: Identifier
-    planId: Identifier
-    planDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    strategyDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    editorialItemId: Identifier
-    briefId: Identifier
-    revision: int = Field(ge=1, le=2)
+    id: StrictIdentifier
+    planId: StrictIdentifier
+    planDigest: StrictDigest
+    strategyDigest: StrictDigest
+    editorialItemId: StrictIdentifier
+    briefId: StrictIdentifier
+    revision: StrictInt = Field(ge=1, le=2)
     platform: Literal["x"]
     format: Literal["text_post"]
-    text: str = Field(min_length=1, max_length=280)
-    ctaTreatment: str = Field(min_length=1, max_length=300)
-    intendedConversion: str = Field(min_length=1, max_length=300)
-    evidenceRefs: list[Identifier] = Field(min_length=1, max_length=12)
-    claims: list[ContentClaim] = Field(default_factory=list, max_length=12)
-    assumptions: list[AssumptionText] = Field(default_factory=list, max_length=8)
+    text: StrictStr = Field(min_length=1, max_length=280)
+    ctaTreatment: StrictStr = Field(min_length=1, max_length=300)
+    intendedConversion: StrictStr = Field(min_length=1, max_length=300)
+    evidenceRefs: list[StrictIdentifier] = Field(min_length=1, max_length=12)
+    claims: list[ContentClaim] = Field(..., max_length=12)
+    assumptions: list[StrictAssumptionText] = Field(..., max_length=8)
     confidence: Literal["low", "medium", "high"]
-    appliedConstraints: list[ConstraintText] = Field(min_length=1, max_length=24)
-    priorDraftId: Identifier | None = None
-    addressedIssueIds: list[Identifier] = Field(default_factory=list, max_length=12)
+    appliedConstraints: list[StrictConstraintText] = Field(min_length=1, max_length=24)
+    priorDraftId: StrictIdentifier | None = Field(...)
+    addressedIssueIds: list[StrictIdentifier] = Field(..., max_length=12)
 
     @model_validator(mode="after")
     def validate_revision_linkage(self) -> "ContentDraft":
@@ -471,6 +475,8 @@ class ContentDraft(StrictModel):
                 raise ValueError("original draft cannot contain revision linkage")
         elif self.priorDraftId is None or not self.addressedIssueIds:
             raise ValueError("revision draft requires prior draft linkage and addressed issue ids")
+        elif self.id == self.priorDraftId:
+            raise ValueError("revision draft id must be distinct from its prior draft and cannot self-link")
         if len(self.evidenceRefs) != len(set(self.evidenceRefs)):
             raise ValueError("draft evidence references must be unique")
         if len(self.addressedIssueIds) != len(set(self.addressedIssueIds)):
@@ -479,27 +485,34 @@ class ContentDraft(StrictModel):
 
 
 class EditorialReviewIssue(StrictModel):
-    id: Identifier
+    id: StrictIdentifier
     category: Literal["grounding", "brief_alignment", "brand_voice", "platform_constraints", "cta", "safety", "clarity"]
     severity: Literal["low", "medium", "high"]
-    fieldPath: str = Field(min_length=1, max_length=300)
-    instruction: str = Field(min_length=1, max_length=1_000)
-    evidenceRefs: list[Identifier] = Field(default_factory=list, max_length=12)
-    constraintRefs: list[ConstraintText] = Field(default_factory=list, max_length=24)
+    fieldPath: StrictStr = Field(min_length=1, max_length=300)
+    instruction: StrictStr = Field(min_length=1, max_length=1_000)
+    evidenceRefs: list[StrictIdentifier] = Field(..., max_length=12)
+    constraintRefs: list[StrictConstraintText] = Field(..., max_length=24)
 
 
 class EditorialReview(StrictModel):
-    id: Identifier
-    planId: Identifier
-    planDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    strategyDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    editorialItemId: Identifier
-    briefId: Identifier
-    draftId: Identifier
-    revision: int = Field(ge=1, le=2)
+    id: StrictIdentifier
+    planId: StrictIdentifier
+    planDigest: StrictDigest
+    strategyDigest: StrictDigest
+    editorialItemId: StrictIdentifier
+    briefId: StrictIdentifier
+    draftId: StrictIdentifier
+    revision: StrictInt = Field(ge=1, le=2)
     verdict: Literal["accepted", "revise"]
     reviewedAt: datetime
-    issues: list[EditorialReviewIssue] = Field(default_factory=list, max_length=12)
+    issues: list[EditorialReviewIssue] = Field(..., max_length=12)
+
+    @field_validator("reviewedAt", mode="before")
+    @classmethod
+    def require_serialized_timestamp(cls, value: object) -> object:
+        if not isinstance(value, str):
+            raise ValueError("reviewedAt must be an ISO-8601 UTC string")
+        return value
 
     @field_validator("reviewedAt")
     @classmethod
@@ -519,22 +532,22 @@ class EditorialReview(StrictModel):
 
 
 class CopywriterInput(StrictModel):
-    planId: Identifier
-    planDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    strategyDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    editorialItemId: Identifier
-    briefId: Identifier
+    planId: StrictIdentifier
+    planDigest: StrictDigest
+    strategyDigest: StrictDigest
+    editorialItemId: StrictIdentifier
+    briefId: StrictIdentifier
     editorialItem: EditorialPlanItem
     brief: ContentBrief
-    referencedMoments: list[Moment] = Field(default_factory=list, max_length=12)
-    referencedAngles: list[Angle] = Field(default_factory=list, max_length=12)
-    brandContext: str = Field(min_length=1, max_length=4_000)
-    constraints: list[ConstraintText] = Field(default_factory=list, max_length=24)
+    referencedMoments: list[Moment] = Field(..., max_length=12)
+    referencedAngles: list[Angle] = Field(..., max_length=12)
+    brandContext: StrictStr = Field(min_length=1, max_length=4_000)
+    constraints: list[StrictConstraintText] = Field(..., max_length=24)
     platform: Literal["x"]
     format: Literal["text_post"]
     passType: Literal["original", "revision"]
-    priorDraft: ContentDraft | None = None
-    priorReview: EditorialReview | None = None
+    priorDraft: ContentDraft | None = Field(...)
+    priorReview: EditorialReview | None = Field(...)
 
     @model_validator(mode="after")
     def validate_selected_authority_and_revision(self) -> "CopywriterInput":
@@ -564,6 +577,8 @@ class CopywriterInput(StrictModel):
                 raise ValueError("revision pass requires a prior review")
             if self.priorReview.verdict != "revise":
                 raise ValueError("revision pass requires a revise review")
+            if self.priorDraft.revision != 1 or self.priorReview.revision != 1:
+                raise ValueError("revision pass must target the original revision-1 draft and review")
             if self.priorReview.draftId != self.priorDraft.id or self.priorReview.revision != self.priorDraft.revision:
                 raise ValueError("revision context must review the exact prior draft")
             lineage = (self.planId, self.planDigest, self.strategyDigest, self.editorialItemId, self.briefId)

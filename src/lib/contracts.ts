@@ -330,6 +330,9 @@ export const contentDraftSchema = z.object({
   if (draft.revision === 2 && (draft.priorDraftId === null || draft.addressedIssueIds.length === 0)) {
     context.addIssue({ code: "custom", message: "revision draft requires prior draft linkage and addressed issue ids" });
   }
+  if (draft.revision === 2 && draft.id === draft.priorDraftId) {
+    context.addIssue({ code: "custom", message: "revision draft id must be distinct from its prior draft and cannot self-link" });
+  }
   if (new Set(draft.evidenceRefs).size !== draft.evidenceRefs.length) {
     context.addIssue({ code: "custom", message: "draft evidence references must be unique" });
   }
@@ -425,6 +428,9 @@ export const copywriterInputSchema = z.object({
     if (input.priorReview === null) issue("revision pass requires a prior review");
     if (input.priorDraft !== null && input.priorReview !== null) {
       if (input.priorReview.verdict !== "revise") issue("revision pass requires a revise review");
+      if (input.priorDraft.revision !== 1 || input.priorReview.revision !== 1) {
+        issue("revision pass must target the original revision-1 draft and review");
+      }
       if (input.priorReview.draftId !== input.priorDraft.id || input.priorReview.revision !== input.priorDraft.revision) {
         issue("revision context must review the exact prior draft");
       }

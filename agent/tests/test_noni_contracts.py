@@ -146,3 +146,64 @@ def test_noni_dara_contracts_enforce_nonblank_lists_and_utc_fields(factory, muta
     model = CopywriterInput if factory is original_input else ContentDraft if factory is original_draft else EditorialReview
     with pytest.raises(ValidationError):
         model.model_validate(payload)
+
+
+@pytest.mark.parametrize(("factory", "field"), [
+    (original_draft, "claims"),
+    (original_draft, "assumptions"),
+    (original_draft, "priorDraftId"),
+    (original_draft, "addressedIssueIds"),
+    (original_input, "referencedMoments"),
+    (original_input, "referencedAngles"),
+    (original_input, "constraints"),
+    (original_input, "priorDraft"),
+    (original_input, "priorReview"),
+    (revise_review, "issues"),
+    (revise_review, "issues.0.evidenceRefs"),
+    (revise_review, "issues.0.constraintRefs"),
+])
+def test_new_boundary_lists_and_nullable_fields_are_required(factory, field):
+    payload = deepcopy(factory())
+    if field.startswith("issues.0."):
+        del payload["issues"][0][field.rsplit(".", maxsplit=1)[-1]]
+    else:
+        del payload[field]
+    model = CopywriterInput if factory is original_input else ContentDraft if factory is original_draft else EditorialReview
+    with pytest.raises(ValidationError, match=field):
+        model.model_validate(payload)
+
+
+@pytest.mark.parametrize(("factory", "mutation"), [
+    (original_draft, lambda value: value.update(revision="1")),
+    (original_draft, lambda value: value["claims"][0].update(text=1)),
+    (original_draft, lambda value: value.update(assumptions=[1])),
+    (original_input, lambda value: value.update(planId=1)),
+    (original_input, lambda value: value.update(constraints=[1])),
+    (revise_review, lambda value: value.update(revision="1")),
+    (revise_review, lambda value: value.update(reviewedAt=1)),
+    (revise_review, lambda value: value["issues"][0].update(instruction=1)),
+    (revise_review, lambda value: value["issues"][0].update(evidenceRefs=[1])),
+    (revise_review, lambda value: value["issues"][0].update(constraintRefs=[1])),
+])
+def test_new_boundary_scalars_do_not_coerce(factory, mutation):
+    payload = deepcopy(factory())
+    mutation(payload)
+    model = CopywriterInput if factory is original_input else ContentDraft if factory is original_draft else EditorialReview
+    with pytest.raises(ValidationError):
+        model.model_validate(payload)
+
+
+@pytest.mark.parametrize(("factory", "mutation", "message"), [
+    (revision_draft, lambda value: value.update(id="draft-1"), "distinct"),
+    (revision_draft, lambda value: value.update(priorDraftId="draft-2"), "self"),
+    (revision_input, lambda value: value.update(
+        priorDraft=revision_draft(),
+        priorReview={**revise_review(), "draftId": "draft-2", "revision": 2},
+    ), "original revision-1"),
+])
+def test_one_revision_boundary_rejects_id_reuse_and_third_pass_targets(factory, mutation, message):
+    payload = deepcopy(factory())
+    mutation(payload)
+    model = CopywriterInput if factory is revision_input else ContentDraft
+    with pytest.raises(ValidationError, match=message):
+        model.model_validate(payload)

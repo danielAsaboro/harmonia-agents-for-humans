@@ -80,4 +80,55 @@ describe("Noni and Dara contracts", () => {
   ])("enforces blank/list limits and strict UTC fields", (schema, payload) => {
     expect(schema.safeParse(payload).success).toBe(false);
   });
+
+  it.each([
+    [contentDraftSchema, originalDraft, "claims"],
+    [contentDraftSchema, originalDraft, "assumptions"],
+    [contentDraftSchema, originalDraft, "priorDraftId"],
+    [contentDraftSchema, originalDraft, "addressedIssueIds"],
+    [copywriterInputSchema, originalInput, "referencedMoments"],
+    [copywriterInputSchema, originalInput, "referencedAngles"],
+    [copywriterInputSchema, originalInput, "constraints"],
+    [copywriterInputSchema, originalInput, "priorDraft"],
+    [copywriterInputSchema, originalInput, "priorReview"],
+    [editorialReviewSchema, reviseReview, "issues"],
+    [editorialReviewSchema, reviseReview, "issues.0.evidenceRefs"],
+    [editorialReviewSchema, reviseReview, "issues.0.constraintRefs"],
+  ])("requires every nullable and list boundary field", (schema, fixture, field) => {
+    const payload = structuredClone(fixture) as unknown as Record<string, unknown>;
+    if (field.startsWith("issues.0.")) {
+      delete (payload.issues as Array<Record<string, unknown>>)[0][field.split(".").at(-1)!];
+    } else {
+      delete payload[field];
+    }
+    expect(schema.safeParse(payload).success).toBe(false);
+  });
+
+  it.each([
+    [contentDraftSchema, { ...originalDraft, revision: "1" }],
+    [contentDraftSchema, { ...originalDraft, claims: [{ ...originalDraft.claims[0], text: 1 }] }],
+    [contentDraftSchema, { ...originalDraft, assumptions: [1] }],
+    [copywriterInputSchema, { ...originalInput, planId: 1 }],
+    [copywriterInputSchema, { ...originalInput, constraints: [1] }],
+    [editorialReviewSchema, { ...reviseReview, revision: "1" }],
+    [editorialReviewSchema, { ...reviseReview, reviewedAt: 1 }],
+    [editorialReviewSchema, { ...reviseReview, issues: [{ ...reviseReview.issues[0], instruction: 1 }] }],
+    [editorialReviewSchema, { ...reviseReview, issues: [{ ...reviseReview.issues[0], evidenceRefs: [1] }] }],
+    [editorialReviewSchema, { ...reviseReview, issues: [{ ...reviseReview.issues[0], constraintRefs: [1] }] }],
+  ])("does not coerce new boundary scalars", (schema, payload) => {
+    expect(schema.safeParse(payload).success).toBe(false);
+  });
+
+  it.each([
+    [contentDraftSchema, { ...originalDraft, id: "draft-1", revision: 2, priorDraftId: "draft-1", addressedIssueIds: ["issue-1"] }],
+    [contentDraftSchema, { ...originalDraft, id: "draft-2", revision: 2, priorDraftId: "draft-2", addressedIssueIds: ["issue-1"] }],
+    [copywriterInputSchema, {
+      ...originalInput,
+      passType: "revision",
+      priorDraft: { ...originalDraft, id: "draft-2", revision: 2, priorDraftId: "draft-1", addressedIssueIds: ["issue-1"] },
+      priorReview: { ...reviseReview, draftId: "draft-2", revision: 2 },
+    }],
+  ])("rejects reused draft ids and third-pass revision targets", (schema, payload) => {
+    expect(schema.safeParse(payload).success).toBe(false);
+  });
 });

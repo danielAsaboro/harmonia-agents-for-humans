@@ -37,7 +37,7 @@ flowchart LR
 | Nimi | source evidence analysis: exact moments and qualified source/performance/memory angles | typed transcript segments, bounded media/frame evidence, verified performance IDs, and eligible Memory Bank facts with Firestore provenance | invent evidence or trends, define strategy, write final copy, approve, schedule, publish, or treat memory as authority |
 | Ryan | agentic strategy and source-grounded content briefs | typed Nimi analysis, company/campaign context, verified performance, eligible Memory Bank facts | write final copy, mutate calendars, approve, publish |
 | Temi | agentic editorial operationalization: sequencing, cadence, supported channels/formats, windows, deadlines, dependencies, and priorities | exact human-approved Ryan strategy, Nimi evidence, capabilities, commitments, capacity, and observed posting windows | invent strategy/evidence, write final copy, use tools, approve, mutate external calendars, schedule externally, publish |
-| Noni | platform-native writing and revision | one deterministically selected Temi item, its exact Ryan brief, and referenced Nimi evidence | inspect the rest of the plan, create facts, approve, publish |
+| Noni | platform-native writing and revision | one deterministically selected Temi item, its exact Ryan brief, referenced Nimi evidence, and the local `noni-writing-skills` guidance | research, search trends, access Memory Bank, inspect the rest of the plan, create facts, approve, publish |
 | Maya | reference-only interface composition | exact typed job/entity catalog; deterministic host hydration from Firestore | invent IDs or state, emit lifecycle placeholders, expose payloads, approve, publish, verify, or mutate workflow |
 | Dara | complete seven-dimension assessment and bounded correction issues | exact Noni draft and immutable production input | author workflow metadata, rewrite copy, replace evidence, request a third pass, or create authority |
 | Maya | A2UI layout selection | typed entity references and UI context | emit executable UI or mutate records |
@@ -64,6 +64,13 @@ Every specialist invocation emits a strict metadata-only log, trace, and metric 
 The projection powers **Monitoring → Agent activity**. Native ADK OpenTelemetry signals continue to Cloud Logging, Cloud Monitoring, and Cloud Trace; the projection is a bounded operator view, not a replacement for those backends and never an authority source.
 
 ## Versioned ADK skills
+
+Noni loads exactly one `noni-writing-skills` skill and at least one approved writing reference before
+drafting. Its toolset exposes only `load_skill` and `load_skill_resource`; it has no research, trend,
+Memory Bank, workspace-data, approval, or effect tool. The ten references cover thought leadership,
+hooks and introductions, MECE structure, case studies, storytelling, bad-content diagnosis,
+persuasion, outlining, titles and headlines, and convincing content. Skill guidance shapes writing
+but never counts as evidence for a factual claim.
 
 Nova loads exactly one skill before any data tool. The runtime records the real
 skill/tool envelopes in managed ADK state and rejects answers whose selected

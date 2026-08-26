@@ -9,16 +9,17 @@ describe("Harmonia architecture dataset", () => {
     expect(byId("agent-harmonia").model?.name).toBe("Gemini 3.5 Flash-Lite");
     expect(byId("agent-ryan").model?.name).toBe("Gemini 3.5 Flash");
     expect(byId("agent-nimi").model?.name).toBe("Gemini 3.5 Flash");
-    expect(byId("agent-noni").model?.name).toBe("Gemma 3 12B IT");
+    expect(byId("agent-noni").model?.name).toBe("Gemini 3.5 Flash");
     expect(byId("agent-dara").model?.name).toBe("Gemini 3.5 Flash");
     expect(byId("agent-temi").model?.name).toBe("Gemini 3.5 Flash-Lite");
     expect(byId("agent-maya").model?.name).toBe("Gemini 3.5 Flash");
     expect(byId("agent-nova").model?.name).toBe("Gemini 3.5 Flash");
   });
 
-  it("contains the eleven stages, five skills, and six read-only tools", () => {
+  it("contains the eleven stages, six skills, and six read-only data tools", () => {
     for (const id of ["ingest", "transcribe", "analyze", "strategize", "strategy-approval", "plan", "draft", "await-approval", "publish-render", "verify", "learn"]) expect(byId(`stage-${id}`)).toBeTruthy();
     for (const id of ["trend-scan", "signal-watch", "engagement-insights", "job-status", "posting-schedule"]) expect(byId(`skill-${id}`)).toBeTruthy();
+    expect(byId("skill-noni-writing-skills")).toBeTruthy();
     for (const id of ["fetch-trend-signals", "search-trend-signals", "get-engagement-insights", "get-operator-feed", "get-job-status", "suggest-posting-windows"]) {
       expect(byId(`tool-${id}`).authorities).toEqual(["read"]);
     }

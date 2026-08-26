@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .agents import AgentProtocolError
 from .agent_errors import AgentContractError
-from .gemma_model import GemmaProtocolError
 from .generative_media import MediaProtocolError, MediaProviderError
 from .memory_bank import MemoryProtocolError, MemoryProviderError
 from .model_catalog import UnknownModelPrice
@@ -81,7 +80,7 @@ def _classification(exc: Exception) -> tuple[FailureCategory, str, bool]:
         if isinstance(exc, UnknownModelPrice):
             return FailureCategory.BUDGET, "unknown_model_price", False
         return FailureCategory.VALIDATION, "contract_validation_failed", False
-    if isinstance(exc, (AgentProtocolError, AgentEngineProtocolError, GemmaProtocolError, MediaProtocolError, MemoryProtocolError)):
+    if isinstance(exc, (AgentProtocolError, AgentEngineProtocolError, MediaProtocolError, MemoryProtocolError)):
         return FailureCategory.PROTOCOL, "invalid_provider_response", False
     if isinstance(exc, (WebApiError, XError)):
         if status in (401, 403):

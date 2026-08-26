@@ -62,7 +62,6 @@ Paid runtime exclusions:
   Agent worker:       not deployed
   Agent Engine:       not deployed
   Memory Bank:        not deployed
-  Gemma endpoint:     not deployed
   Gemini API secret:  not mounted
   Pub/Sub subscriber: not created
 DONE

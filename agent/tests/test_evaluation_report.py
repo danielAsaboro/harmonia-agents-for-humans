@@ -103,10 +103,7 @@ def test_record_derives_metrics_from_case_and_usage_evidence():
     assert candidate.p95_latency_ms == 321
 
 
-def test_loader_verifies_artifact_usage_and_catalog_linkage(tmp_path, monkeypatch):
-    monkeypatch.setenv(
-        "GEMMA_VERTEX_ENDPOINT", "projects/p/locations/us-central1/endpoints/123",
-    )
+def test_loader_verifies_artifact_usage_and_catalog_linkage(tmp_path):
     artifact = tmp_path / "eval.json"
     usage = tmp_path / "usage.json"
     artifact.write_text(json.dumps({
@@ -133,10 +130,7 @@ def test_loader_verifies_artifact_usage_and_catalog_linkage(tmp_path, monkeypatc
     assert loaded.usage_records[0].record_id == "usage-1"
 
 
-def test_loader_rejects_tampered_artifact_digest(tmp_path, monkeypatch):
-    monkeypatch.setenv(
-        "GEMMA_VERTEX_ENDPOINT", "projects/p/locations/us-central1/endpoints/123",
-    )
+def test_loader_rejects_tampered_artifact_digest(tmp_path):
     artifact = tmp_path / "eval.json"
     usage = tmp_path / "usage.json"
     artifact.write_text("{}")

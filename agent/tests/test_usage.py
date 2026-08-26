@@ -57,7 +57,7 @@ def test_endpoint_usage_records_elapsed_seconds_without_fake_token_pricing():
             job_id="j1", stage="draft", operation_id="j1:draft:0",
         ),
         role="noni_copywriter",
-        model="gemma-3-12b-it",
+        model="custom-endpoint-model",
         elapsed_seconds=1.2,
         estimated_cost_usd="0.100000",
         trace_id="0" * 32,

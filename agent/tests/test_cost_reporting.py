@@ -11,7 +11,6 @@ from harmonia_agent import content
 from harmonia_agent.agent_models import AnalystInput, ContentDraft, EditorialReviewInput, MediaEvidence
 from harmonia_agent.agents import _run_coordinator
 from harmonia_agent.agents import RoleModelInstances
-from harmonia_agent.gemma_model import VertexGemmaModel
 from harmonia_agent.role_models import RoleModelConfig
 from harmonia_agent.usage import InvocationContext, run_metered
 from harmonia_agent.telemetry import configure_telemetry
@@ -367,24 +366,15 @@ def test_agent_trace_has_safe_delegation_model_and_validation_spans():
     assert "Reviewed" not in serialized
 
 
-def test_heterogeneous_draft_usage_keeps_each_actual_role_model():
+def test_heterogeneous_draft_usage_keeps_each_actual_gemini_role_model():
     reservations: list[dict] = []
     reports: list[dict] = []
-
-    async def gemma_predict(_endpoint, _instances, _parameters):
-        return {"predictions": [{
-            "content": '{"drafts":[{"id":"d1","platform":"x","momentId":"m1","text":"Original"}]}',
-        }]}
 
     models = RoleModelInstances(
         coordinator=ScriptedDraftModel(model="gemini-3.5-flash-lite"),
         strategist=ScriptedDraftModel(model="gemini-3.5-flash"),
         analyst=ScriptedDraftModel(model="gemini-3.5-flash"),
-        copywriter=VertexGemmaModel(
-            model="gemma-3-12b-it",
-            endpoint="projects/p/locations/us-central1/endpoints/1",
-            predict=gemma_predict,
-        ),
+        copywriter=ScriptedDraftModel(model="gemini-3.5-flash"),
         editor=ScriptedDraftModel(model="gemini-3.5-flash"),
         planner=ScriptedDraftModel(model="gemini-3.5-flash-lite"),
         presenter=ScriptedDraftModel(model="gemini-3.5-flash"),
@@ -392,11 +382,9 @@ def test_heterogeneous_draft_usage_keeps_each_actual_role_model():
         configs={
             "noni_copywriter": RoleModelConfig(
                 role="noni_copywriter",
-                provider="vertex_endpoint",
-                model_id="gemma-3-12b-it",
-                endpoint="projects/p/locations/us-central1/endpoints/1",
+                provider="gemini",
+                model_id="gemini-3.5-flash",
                 max_output_tokens=2048,
-                reservation_usd="0.100000",
             ),
         },
     )
@@ -421,12 +409,11 @@ def test_heterogeneous_draft_usage_keeps_each_actual_role_model():
         budget_reserver=reservations.append, usage_reporter=reports.append,
     ))
 
-    expected = {"harmonia_coordinator": "gemini-3.5-flash-lite", "noni_copywriter": "gemma-3-12b-it", "dara_editor": "gemini-3.5-flash"}
+    expected = {"harmonia_coordinator": "gemini-3.5-flash-lite", "noni_copywriter": "gemini-3.5-flash", "dara_editor": "gemini-3.5-flash"}
     assert {item["role"]: item["model"] for item in reservations} == expected
     assert {item["role"]: item["model"] for item in reports} == expected
-    gemma_usage = next(item for item in reports if item["role"] == "noni_copywriter")
-    assert gemma_usage["unitType"] == "endpoint_seconds"
-    assert gemma_usage["estimatedCostUsd"] == "0.100000"
+    noni_usage = next(item for item in reports if item["role"] == "noni_copywriter")
+    assert noni_usage["unitType"] == "tokens"
 
 
 def test_multimodal_source_uri_is_not_exported_in_trace_content():

@@ -129,17 +129,16 @@ All cognitive roles use policy `gear-2026-08-24`, pricing catalog `2026-08-23`, 
 | Ryan strategist | Gemini 3.5 Flash | 0.4 / 4,096 | grounded four-week strategy and content briefs | typed Nimi/company/campaign/performance/memory context; no tools | invent evidence, schedule, approve, publish |
 | Nimi analyst | Gemini 3.5 Flash multimodal | 0.2 / 2,048 | strict source analysis with quote/time/frame and evidence-kind provenance | typed source package, verified performance IDs, eligible Memory Bank facts; no tools | invent evidence/trends, define strategy, write copy, approve, schedule, publish |
 | Temi editorial planner | Gemini 3.5 Flash-Lite | 0.1 / 1,024 | coherent sequencing, cadence, supported channel/format, windows, deadlines, dependencies, priority | exact approved Ryan strategy, Nimi evidence, capabilities, commitments, capacity; no tools | invent evidence/strategy, write final copy, approve, schedule externally, publish |
-| Noni copywriter | Gemma 3 12B IT Vertex endpoint | 0.8 / 2,048 | references and X length | selected Temi item + exact Ryan brief + referenced Nimi evidence | inspect the rest of the plan, create facts, approve, publish |
+| Noni copywriter | Gemini 3.5 Flash | 0.8 / 2,048 | skill trace, references, grounding, and X length | selected Temi item + exact Ryan brief + referenced Nimi evidence + local writing skill | research, access Memory Bank, inspect the rest of the plan, create facts, approve, publish |
 | Dara editor | Gemini 3.5 Flash | 0.2 / 2,048 | complete grounding, brief, brand, platform, CTA, safety, and clarity checks | exact Noni draft + immutable production input; no tools | author review metadata, rewrite copy, create facts or authority, approve, publish |
 | Maya presenter | Gemini 3.5 Flash | 0.2 / 2,048 | exact-context component/entity graph | typed `UiContext`; no tools; host hydrates Firestore truth | invent state/IDs, emit lifecycle states, approve, publish, verify, execute actions |
 | Nova liaison | Gemini 3.5 Flash | 0.2 / 2,048 | grounded read-only answers | insight skills + read-only tools | mutate, approve, publish |
 
-Serverless roles record input/output tokens. Noni records endpoint seconds plus its configured
-maximum allocation because endpoint infrastructure cost is not interchangeable with token cost.
+All cognitive roles record input/output tokens under the immutable pricing catalog.
 The public ADK evalset and deterministic authority/grounding evaluators are committed; real-model
 quality, latency, and cost evidence remains pending until an authenticated private run is captured.
 
-The role catalog is strict: an unavailable configured target fails the stage. Noni does not switch to Gemini when the Gemma endpoint is absent or unavailable.
+The role catalog is strict: an unavailable configured target fails the stage.
 
 Model promotion is evaluation-gated. Candidates below the role quality floor or without known
 pricing are rejected before ranking; eligible candidates rank by pass rate, then cost, then p95
@@ -169,7 +168,7 @@ Harmonia does not claim a general-purpose enterprise compliance certification. I
 - Firestore is a shared SaaS database: IAM separates services, while workspace isolation inside that database is enforced by verified application context, nested paths, ownership checks, and cross-tenant tests. It is not represented as per-tenant IAM isolation.
 - Service accounts separate the public control plane from the private worker. Publishing still requires an action-specific human approval receipt.
 - OpenTelemetry spans contain identifiers, stages, role/model labels, counts, outcomes, and trace correlation only. Prompts, responses, transcripts, drafts, media, and private reasoning are excluded.
-- The deployment selects one `REGION` and rejects mismatched Agent Engine, Memory Bank, Gemma, Veo, Firestore, or storage locations. Pub/Sub persistence and in-transit processing are restricted to that region. Because Lyria uses a global endpoint, generative media fails closed unless an operator explicitly acknowledges an approved global-processing policy exception.
+- The deployment selects one `REGION` and rejects mismatched Agent Engine, Memory Bank, Veo, Firestore, or storage locations. Pub/Sub persistence and in-transit processing are restricted to that region. Because Lyria uses a global endpoint, generative media fails closed unless an operator explicitly acknowledges an approved global-processing policy exception.
 - Memory Bank accepts only typed eligible facts. Raw sources, creative text, failures, and unverified claims cannot be written by the normal learn path.
 
 Terminal job retention, per-job holds, administrator-confirmed job erasure, owner-confirmed workspace erasure, binary artifact cleanup, and metadata-only deletion tombstones are implemented. Tenant-wide export, customer-managed encryption, organization-policy integration, and formal regulatory certification remain deployment-specific work and must not be implied by these controls.
@@ -224,5 +223,5 @@ Verification never trusts the executor. Published posts are re-fetched from the 
 The learn stage measures published posts via public metrics and stores evidence-linked takeaways per job. Eligible learnings re-enter Ryan's single strategy contract on a future job or revision—closing the governed learning loop without granting Memory Bank authority.
 
 <Warning>
-  Distinct role routing, the Gemma adapter, direct video attachment, managed-runtime adapter, exact-scope memory contracts, paid-media adapters, budget enforcement, usage normalization, and metadata-only trace behavior are verified offline. Authenticated Gemini/Gemma team execution, Agent Engine, Memory Bank, Veo, Lyria, and exported Cloud Trace correlation remain unverified until separate live evidence is captured.
+  Distinct role routing, Noni's skill-first writing trace, direct video attachment, managed-runtime adapter, exact-scope memory contracts, paid-media adapters, budget enforcement, usage normalization, and metadata-only trace behavior are verified offline. Authenticated Gemini team execution, Agent Engine, Memory Bank, Veo, Lyria, and exported Cloud Trace correlation remain unverified until separate live evidence is captured.
 </Warning>

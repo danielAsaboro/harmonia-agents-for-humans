@@ -183,7 +183,7 @@ def test_agent_engine_deployment_config_is_narrow_and_reproducible():
         environment={
             "COORDINATOR_MODEL_ID": "gemini-3.5-flash-lite",
             "PRESENTER_MODEL_ID": "gemini-3.5-flash",
-            "GEMMA_VERTEX_ENDPOINT": "projects/p/locations/us-central1/endpoints/1",
+            "COPYWRITER_MODEL_ID": "gemini-3.5-flash",
             "GOOGLE_CLOUD_PROJECT": "must-be-runtime-injected",
             "GOOGLE_CLOUD_LOCATION": "must-be-runtime-injected",
             "INTERNAL_API_TOKEN": "must-not-be-forwarded",
@@ -199,5 +199,5 @@ def test_agent_engine_deployment_config_is_narrow_and_reproducible():
     assert config["env_vars"] == {
         "COORDINATOR_MODEL_ID": "gemini-3.5-flash-lite",
         "PRESENTER_MODEL_ID": "gemini-3.5-flash",
-        "GEMMA_VERTEX_ENDPOINT": "projects/p/locations/us-central1/endpoints/1",
+        "COPYWRITER_MODEL_ID": "gemini-3.5-flash",
     }

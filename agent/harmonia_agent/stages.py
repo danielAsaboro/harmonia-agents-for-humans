@@ -45,7 +45,6 @@ from .agents import (
     validate_source_analysis,
 )
 from .config import settings
-from .gemma_model import GemmaProtocolError
 from .generative_media import (
     LYRIA_MODEL,
     VEO_MODEL,

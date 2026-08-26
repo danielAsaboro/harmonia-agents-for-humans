@@ -39,7 +39,6 @@ from .agent_models import (
 from .a2ui_models import SurfacePlan, UiContext
 from .agent_errors import AgentContractError
 from .config import settings
-from .gemma_model import VertexGemmaModel
 from .generation_policy import generation_config
 from .model_catalog import PRICING_VERSION, estimate_text_cost
 from .mock_ai import (
@@ -54,6 +53,13 @@ from .agent_models import MemoryFact as StrategyMemoryFact
 from .ryan_prompt import RYAN_STRATEGIST_INSTRUCTION
 from .temi_prompt import TEMI_EDITORIAL_PLANNER_INSTRUCTION
 from .noni_prompt import NONI_COPYWRITER_INSTRUCTION
+from .noni_skills import (
+    NONI_SKILL_TRACE_KEY,
+    build_noni_writing_skillset,
+    record_noni_skill_tool,
+    reset_noni_skill_trace,
+    validate_noni_skill_trace,
+)
 from .nimi_prompt import NIMI_ANALYST_INSTRUCTION
 from .maya_prompt import MAYA_PRESENTER_INSTRUCTION
 from .nova_prompt import NOVA_LIAISON_INSTRUCTION
@@ -185,14 +191,7 @@ def _resolve_role_models(
         coordinator=catalog.coordinator.model_id,
         strategist=catalog.strategist.model_id,
         analyst=catalog.analyst.model_id,
-        copywriter=(
-            catalog.copywriter.model_id
-            if catalog.copywriter.provider == "gemini"
-            else VertexGemmaModel(
-                model=catalog.copywriter.model_id,
-                endpoint=catalog.copywriter.endpoint or "",
-            )
-        ),
+        copywriter=catalog.copywriter.model_id,
         editor=catalog.editor.model_id,
         planner=catalog.planner.model_id,
         presenter=catalog.presenter.model_id,
@@ -315,8 +314,10 @@ def build_agent_team(
         input_schema=CopywriterInput,
         output_schema=ContentDraft,
         output_key="copywriter_draft",
-        tools=[],
+        tools=[build_noni_writing_skillset()],
         mode="single_turn",
+        before_agent_callback=reset_noni_skill_trace,
+        after_tool_callback=record_noni_skill_tool,
     )
     editor = Agent(
         model=resolved.editor,
@@ -1480,6 +1481,13 @@ def _validate_run_output_unwrapped(
         return
     if specialist == "noni_copywriter":
         writer_input = CopywriterInput.model_validate(payload)
+        trace = state.get(NONI_SKILL_TRACE_KEY)
+        if not isinstance(trace, list):
+            raise AgentProtocolError("Noni returned no actual writing-skill trace")
+        try:
+            validate_noni_skill_trace(trace)
+        except ValueError as exc:
+            raise AgentProtocolError(f"invalid Noni writing-skill trace: {exc}") from exc
         draft = _validated_state(state, "copywriter_draft", ContentDraft)
         validate_content_draft(writer_input, draft)
         return

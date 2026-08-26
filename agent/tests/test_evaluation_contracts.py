@@ -124,6 +124,24 @@ def test_nimi_public_fixture_catalog_covers_required_modes():
     assert ids == {"grounded-analysis", "missing-evidence", "invented-reference", "authority-overreach", "incomplete-analysis", "memory-with-provenance", "memory-as-authorization", "uncertain-analysis"}
 
 
+def test_noni_writing_skill_fixture_catalog_covers_all_methods_and_boundaries():
+    fixture_path = Path(__file__).parents[1] / "evals" / "noni_writing_skill_cases.json"
+    cases = json.loads(fixture_path.read_text())["cases"]
+    assert {case["id"] for case in cases} == {
+        "thought-leadership", "hooks-and-introductions", "structure-and-mece",
+        "case-studies", "storytelling", "bad-content-diagnosis", "persuasion",
+        "outlining", "titles-and-headlines", "convincing-content",
+        "missing-evidence", "skill-as-evidence", "authority-overreach", "bounded-revision",
+    }
+    assert {case["reference"] for case in cases if case.get("reference")} == {
+        "references/thought-leadership.md", "references/hooks-and-introductions.md",
+        "references/structure-and-mece.md", "references/case-studies.md",
+        "references/storytelling.md", "references/bad-content-diagnosis.md",
+        "references/persuasion.md", "references/outlining.md",
+        "references/titles-and-headlines.md", "references/convincing-content.md",
+    }
+
+
 def test_ryan_evaluation_covers_grounding_authority_completeness_and_memory():
     assert evaluate_strategy(strategist_input=strategist_input(), strategy=strategy()).passed
     invented = strategy().model_dump(mode="json")

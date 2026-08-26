@@ -11,15 +11,16 @@ exact Ryan brief, and only the referenced Nimi evidence.
 | Property | Value |
 |---|---|
 | ADK name | `noni_copywriter` |
-| Default model | `gemma-3-12b-it` on the configured Vertex endpoint; explicit Gemini development fallback only when configured |
+| Default model | `gemini-3.5-flash` |
 | Input | `CopywriterInput` |
 | Output | `ContentDraft` |
-| Runtime skills | None |
-| Tools | None |
+| Runtime skills | `noni-writing-skills` |
+| Tools | `load_skill` and `load_skill_resource` only |
 
 ## Prompt method
 
-Noni locks to the selected item and brief, builds a closed-world claim ledger from supplied Nimi
+Noni first loads `noni-writing-skills` and at least one relevant writing-method reference. It then
+locks to the selected item and brief, builds a closed-world claim ledger from supplied Nimi
 evidence, writes one X candidate of at most 280 characters, maps each factual claim to evidence IDs,
 and preserves the exact CTA intent and intended conversion. Creative assumptions use a deliberately
 bounded grammar and cannot hide factual assertions.
@@ -27,19 +28,30 @@ bounded grammar and cannot hide factual assertions.
 On revision, Noni changes only what Dara requested, retains immutable lineage, links the prior draft,
 and identifies every addressed issue.
 
+The skill contains ten writing methods: thought leadership, hooks and introductions, MECE
+structure, case studies, storytelling, bad-content diagnosis, persuasion, outlining, titles and
+headlines, and convincing content. These methods distill practical lessons supplied by Harmonia's
+creator from two years of content-marketing work for brands. They guide writing judgment; they are
+never factual evidence for a draft.
+
 ## Authority boundary
 
-Noni cannot inspect or choose another plan item, create strategy, invent facts or capabilities,
+Noni cannot research, search trends, access Memory Bank independently, inspect or choose another
+plan item, create strategy, invent facts or capabilities,
 approve, schedule, publish, construct effects, create receipts, access credentials, verify results,
 or mutate workflow state.
 
 ## Runtime enforcement
 
-Validation checks lineage, item and brief alignment, platform limits, CTA behavior, exact evidence
-support, assumptions, URLs, authority, and issue-bound revision completeness.
+Validation checks the actual skill-first trace, approved reference paths, lineage, item and brief
+alignment, platform limits, CTA behavior, exact evidence support, assumptions, URLs, authority, and
+issue-bound revision completeness. Missing, invented, duplicated, or out-of-order skill calls fail
+closed.
 
 ## Source references
 
 - Prompt: `agent/harmonia_agent/noni_prompt.py`
+- Skill: `agent/harmonia_agent/skills/noni-writing-skills/SKILL.md`
+- Skill runtime: `agent/harmonia_agent/noni_skills.py`
 - Contracts: `CopywriterInput` and `ContentDraft` in `agent_models.py`
-- Tests: `agent/tests/test_noni_contracts.py` and `test_noni_dara_loop.py`
+- Tests: `agent/tests/test_noni_skills.py`, `test_noni_contracts.py`, and `test_noni_dara_loop.py`

@@ -87,7 +87,6 @@ describe("Google Cloud deployment automation", () => {
         ...fake.env,
         FIREBASE_API_KEY: "firebase-api-key",
         FIREBASE_APP_ID: "firebase-app-id",
-        GEMMA_VERTEX_ENDPOINT: "projects/p/locations/us-central1/endpoints/1",
         AGENT_ENGINE_RESOURCE: "projects/p/locations/us-central1/reasoningEngines/2",
       },
     });
@@ -107,7 +106,6 @@ describe("Google Cloud deployment automation", () => {
         ...fake.env,
         FIREBASE_API_KEY: "firebase-api-key",
         FIREBASE_APP_ID: "firebase-app-id",
-        GEMMA_VERTEX_ENDPOINT: "projects/p/locations/us-central1/endpoints/1",
         AGENT_ENGINE_RESOURCE: "projects/p/locations/us-central1/reasoningEngines/2",
       },
     });
@@ -152,7 +150,6 @@ describe("Google Cloud deployment automation", () => {
         ...fake.env,
         FIREBASE_API_KEY: "firebase-api-key",
         FIREBASE_APP_ID: "firebase-app-id",
-        GEMMA_VERTEX_ENDPOINT: "projects/p/locations/us-central1/endpoints/1",
         AGENT_ENGINE_RESOURCE: "projects/p/locations/us-central1/reasoningEngines/2",
       },
     });
@@ -170,7 +167,6 @@ describe("Google Cloud deployment automation", () => {
         ...fake.env,
         FIREBASE_API_KEY: "firebase-api-key",
         FIREBASE_APP_ID: "firebase-app-id",
-        GEMMA_VERTEX_ENDPOINT: "projects/p/locations/us-central1/endpoints/1",
         AGENT_ENGINE_RESOURCE: "projects/p/locations/us-central1/reasoningEngines/2",
       },
     });

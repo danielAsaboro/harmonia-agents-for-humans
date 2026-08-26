@@ -208,7 +208,16 @@ class ManagedRuntime:
             draft["objective"] = payload["brief"]["objective"]
             draft["funnelStage"] = payload["brief"]["funnelStage"]
             draft["ctaIntent"] = payload["brief"]["ctaIntent"]
-            return {"copywriter_draft": draft}
+            return {
+                "copywriter_draft": draft,
+                "noni_writing_skill_trace": [
+                    {"sequence": 1, "name": "load_skill", "args": {"skill_name": "noni-writing-skills"}},
+                    {"sequence": 2, "name": "load_skill_resource", "args": {
+                        "skill_name": "noni-writing-skills",
+                        "file_path": "references/hooks-and-introductions.md",
+                    }},
+                ],
+            }
         if kwargs["specialist"] == "dara_editor":
             return {"editorial_assessment": {
                 "verdict": "accepted", "checks": editorial_checks(),
@@ -235,7 +244,7 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
     assert "noni_dara_revision_loop" not in tool_names
 
 
-def test_noni_is_a_focused_tool_free_typed_specialist():
+def test_noni_is_a_focused_skill_backed_typed_specialist():
     root = build_agent_team()
     noni = next(agent for agent in root.sub_agents if agent.name == "noni_copywriter")
 
@@ -244,7 +253,7 @@ def test_noni_is_a_focused_tool_free_typed_specialist():
     assert noni.output_schema is ContentDraft
     assert noni.output_key == "copywriter_draft"
     assert noni.mode == "single_turn"
-    assert noni.tools == []
+    assert len(noni.tools) == 1
 
 
 def test_dara_is_a_focused_tool_free_review_only_specialist():
@@ -265,7 +274,7 @@ def test_team_assigns_the_configured_model_to_each_role():
         coordinator=scripted("coordinator-fake"),
         strategist=scripted("strategist-fake"),
         analyst=scripted("analyst-fake"),
-        copywriter=scripted("gemma-fake"),
+        copywriter=scripted("copywriter-fake"),
         editor=scripted("editor-fake"),
         planner=scripted("planner-fake"),
         presenter=scripted("presenter-fake"),
@@ -274,16 +283,12 @@ def test_team_assigns_the_configured_model_to_each_role():
 
     assert root.model.model == "coordinator-fake"
     assert [agent.model.model for agent in root.sub_agents] == [
-        "strategist-fake", "analyst-fake", "planner-fake", "gemma-fake",
+        "strategist-fake", "analyst-fake", "planner-fake", "copywriter-fake",
         "editor-fake", "presenter-fake", "liaison-fake",
     ]
 
 
-def test_team_applies_each_roles_generation_and_safety_policy(monkeypatch):
-    monkeypatch.setenv(
-        "GEMMA_VERTEX_ENDPOINT",
-        "projects/p/locations/us-central1/endpoints/123",
-    )
+def test_team_applies_each_roles_generation_and_safety_policy():
     root = build_agent_team()
 
     assert root.generate_content_config.temperature == 0.1
@@ -307,11 +312,7 @@ def test_unknown_safety_profile_is_rejected():
         safety_settings("not-a-policy")
 
 
-def test_agent_reservations_record_exact_model_policy(monkeypatch):
-    monkeypatch.setenv(
-        "GEMMA_VERTEX_ENDPOINT",
-        "projects/p/locations/us-central1/endpoints/123",
-    )
+def test_agent_reservations_record_exact_model_policy():
     invocation = InvocationContext(
         workspace_id="w1", brand_id="b1", user_id="u1", job_id="j1",
         stage="understand", operation_id="j1:understand:0",

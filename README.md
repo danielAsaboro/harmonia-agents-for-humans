@@ -61,7 +61,7 @@ flowchart LR
     TICK[Cloud Scheduler<br/>OIDC durable tick]
     FS[(Firestore<br/>jobs · events · receipts)]
     MB[(Memory Bank<br/>workspace + brand scope)]
-    GEMC[Role-aware ADK team<br/>Flash-Lite · Flash · Gemma 3 endpoint]
+    GEMC[Role-aware ADK team<br/>Gemini 3.5 Flash-Lite · Flash]
     MEDIA[Veo 3.1 Fast · Lyria 3 Clip]
     YT[YouTube]
     X[X API v2]
@@ -92,7 +92,7 @@ flowchart LR
 | Concern | Where | Interface |
 |---|---|---|
 | Ingestion | `agent/harmonia_agent/youtube.py` | metadata fetch + bounded audio download |
-| Transcription / understanding / drafting | `agent/harmonia_agent/content.py`, `agents.py`, `gemma_model.py` | Gemini transcription, multimodal Nimi, Ryan strategy, Temi planning, Gemma Noni, and Dara review |
+| Transcription / understanding / drafting | `agent/harmonia_agent/content.py`, `agents.py`, `noni_skills.py` | Gemini transcription, multimodal Nimi, Ryan strategy, Temi planning, skill-backed Noni writing, and Dara review |
 | Intent parsing (chat + Telegram) | web `src/lib/chatIntent.ts` | Gemini structured output: `{intent, youtubeUrl?, jobId?}` |
 | Generative interface composition | ADK `maya_presenter` + web `src/lib/a2ui/` | exact-context, reference-only `SurfacePlan`; deterministic validation and server hydration from authenticated Firestore records |
 | Approval gate | web `src/lib/policy.ts`, `src/lib/decisions.ts` | deterministic risk rules; single decision writer shared by REST, chat, and Telegram |
@@ -102,7 +102,8 @@ flowchart LR
 
 ## Technology
 
-- **Heterogeneous Google models**: Gemini 3.5 Flash-Lite for routing/planning, Gemini 3.5 Flash for strategy/multimodal analysis/editing/transcription, and Gemma 3 12B IT on a Vertex endpoint for copywriting.
+- **Role-aware Google models**: Gemini 3.5 Flash-Lite for routing/planning and Gemini 3.5 Flash for strategy, multimodal analysis, skill-backed copywriting, editing, and transcription.
+- **Bounded Noni writing skill**: Noni can load only `noni-writing-skills` and its approved local references covering thought leadership, introductions, MECE structure, case studies, storytelling, diagnosis, persuasion, outlines, titles, and convincing content. The guidance never counts as source evidence.
 - **Google generative media**: Veo 3.1 Fast for 4-second vertical b-roll and Lyria 3 Clip for 30-second music, both individually priced and always approval-gated.
 - **Google ADK** (Python) for the worker service and agent scaffolding.
 - **Google A2UI v0.9** for streamed, durable generative interfaces. Maya chooses a graph from Harmonia’s fixed campaign vocabulary; the web server resolves every draft, moment, action, asset, and receipt reference from authenticated persisted state before the official A2UI React renderer sees it.
@@ -177,7 +178,7 @@ deterministic grounding/authority checks, and a quality-cost-latency comparison 
 evaluation requires `HARMONIA_REAL_EVAL=1`, refuses mock mode, and must write authorized source
 inputs and results to the private parent evidence workspace. See
 [`docs/configuration.mdx`](./docs/configuration.mdx) for the exact commands. Passing offline tests
-is not presented as authenticated Gemini, Gemma, Agent Engine, or deployment proof.
+is not presented as authenticated Gemini, Agent Engine, or deployment proof.
 
 Authenticated demo claims follow the fail-closed
 [`docs/evidence-runbook.mdx`](./docs/evidence-runbook.mdx): read-only preflight, a capture at the
@@ -193,7 +194,6 @@ One-time bootstrap, then repeatable deploys:
 gcloud auth login
 export PROJECT_ID=your-project-id
 export REGION=us-central1
-export GEMMA_VERTEX_ENDPOINT=projects/.../locations/.../endpoints/...
 export FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
 export FIREBASE_APP_ID=your-web-app-id
 
@@ -210,7 +210,7 @@ cd ..
 
 Deploy a fresh Agent Engine revision before each Cloud Run rollout that changes the ADK hierarchy; `infra/deploy.sh` deliberately refuses to invent or silently reuse a resource. This is how a rollout guarantees that specialists such as `maya_presenter` exist in the configured managed runtime.
 
-Google sign-in creates an isolated owner workspace. Customer jobs, memory, connections, Telegram configuration, budgets, logs, and artifacts remain workspace-scoped. The agent accepts only Pub/Sub push invocations authenticated through Cloud Run IAM and invokes the deployed Agent Engine resource for every judgment step; there is no local cognitive runtime. Deployment rejects Agent Engine, Memory Bank, Gemma, Veo, Firestore, storage, or Pub/Sub persistence outside the selected region. Lyria's global endpoint remains disabled unless an approved policy exception is explicitly acknowledged.
+Google sign-in creates an isolated owner workspace. Customer jobs, memory, connections, Telegram configuration, budgets, logs, and artifacts remain workspace-scoped. The agent accepts only Pub/Sub push invocations authenticated through Cloud Run IAM and invokes the deployed Agent Engine resource for every judgment step; there is no local cognitive runtime. Deployment rejects Agent Engine, Memory Bank, Veo, Firestore, storage, or Pub/Sub persistence outside the selected region. Lyria's global endpoint remains disabled unless an approved policy exception is explicitly acknowledged.
 
 ## Security and reliability model
 

@@ -47,12 +47,10 @@ description: "Every environment variable Harmonia reads, with defaults and requi
 | `COORDINATOR_MODEL_ID` | no | `gemini-3.5-flash-lite` | Low-cost coordinator routing model |
 | `STRATEGIST_MODEL_ID` | no | `gemini-3.5-flash` | Ryan's synthesis model |
 | `ANALYST_MODEL_ID` | no | `gemini-3.5-flash` | Nimi's multimodal video/audio/text model |
-| `COPYWRITER_MODEL_ID` | no | `gemma-3-12b-it` | Noni's open-model endpoint label |
+| `COPYWRITER_MODEL_ID` | no | `gemini-3.5-flash` | Noni's skill-capable writing model |
 | `EDITOR_MODEL_ID` | no | `gemini-3.5-flash` | Dara's constraint-preserving editor model |
 | `PLANNER_MODEL_ID` | no | `gemini-3.5-flash-lite` | Temi's typed editorial-planning model |
 | `PRESENTER_MODEL_ID` | no | `gemini-3.5-flash` | Maya's reference-only A2UI composition model |
-| `GEMMA_VERTEX_ENDPOINT` | real drafting | — | Full Vertex endpoint resource backing Noni; no fallback when absent |
-| `GEMMA_MAX_COST_USD` | no | `0.100000` | Maximum allocation reserved for one Gemma endpoint request |
 | `AGENT_ENGINE_RESOURCE` | yes | — | Full `projects/.../locations/.../reasoningEngines/...` resource; Agent Engine is the only runtime |
 | `MEMORY_BANK_ENABLED` | managed deploy | `true` | Exact-scope Memory Bank retrieval and eligible-fact generation; cloud deploy fixes this to `true` |
 | `MEMORY_BANK_RESOURCE` | managed deploy | Agent Engine resource | Reasoning-engine resource that owns the Memory Bank |
@@ -62,7 +60,7 @@ description: "Every environment variable Harmonia reads, with defaults and requi
 
 The pricing catalog uses decimal arithmetic and labels estimates with its version. A configured model without a catalog entry is not budget-authorized. Image calls reserve the configured maximum instead of being represented as free.
 
-Gemini serverless roles use token estimates. Gemma uses an explicit maximum request allocation and records endpoint seconds because endpoint infrastructure cost is not honestly interchangeable with serverless token pricing. Veo 3.1 Fast records one generation at `$0.08`; Lyria 3 Clip records one generation at `$0.04`, using the same immutable pricing version. The dashboard compares these labeled units without manufacturing a fake common unit.
+Gemini roles use token estimates. Veo 3.1 Fast records one generation at `$0.08`; Lyria 3 Clip records one generation at `$0.04`, using the same immutable pricing version. The dashboard compares these labeled units without manufacturing a fake common unit.
 
 Telemetry contains identifiers, stage and role names, model names, usage units, costs, validation outcomes, and errors. It excludes prompts, responses, transcripts, draft text, and media bytes. These are execution/delegation traces, not private model reasoning.
 

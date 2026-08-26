@@ -96,6 +96,25 @@ def test_draft_run_reserves_and_reports_each_participating_role():
     assert "0" * 32 not in trace_ids
 
 
+def test_managed_agent_run_projects_log_trace_and_metric_activity():
+    activity = []
+    invocation = InvocationContext(
+        workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
+        job_id="job-1", stage="understand", operation_id="job-1:understand:0",
+    )
+    asyncio.run(_run_coordinator(
+        "nimi_analyst", _analyst_input(), model="gemini-3.5-flash",
+        team_runtime=ManagedRuntime(), invocation=invocation,
+        budget_reserver=lambda _item: None, usage_reporter=lambda _item: None,
+        activity_reporter=activity.append,
+    ))
+
+    assert {item.signalType for item in activity} == {"log", "trace", "metric"}
+    assert all(item.agent == "nimi_analyst" for item in activity)
+    assert all(item.workspaceId == "workspace-test" for item in activity)
+    assert all(item.outcome == "success" for item in activity)
+
+
 def test_team_releases_prior_reservations_when_reservation_fails_before_dispatch():
     resolutions: list[dict] = []
     calls = 0

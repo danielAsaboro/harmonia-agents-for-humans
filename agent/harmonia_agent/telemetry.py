@@ -137,6 +137,11 @@ def current_trace_id() -> str:
     return f"{context.trace_id:032x}" if context.is_valid else "0" * 32
 
 
+def current_span_id() -> str:
+    context = trace.get_current_span().get_span_context()
+    return f"{context.span_id:016x}" if context.is_valid else "0" * 16
+
+
 def safe_attributes(values: Mapping[str, Any]) -> dict[str, Any]:
     """Return low-cardinality metadata while excluding content-bearing fields."""
     safe: dict[str, Any] = {}

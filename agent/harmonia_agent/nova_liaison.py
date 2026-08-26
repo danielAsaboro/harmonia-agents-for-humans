@@ -10,6 +10,7 @@ from google.adk.tools.base_tool import BaseTool
 
 from .agent_models import LiaisonAnswer
 from .skills_runtime import _TOOL_CONTRACTS
+from .telemetry import current_span_id, current_trace_id
 
 TRACE_KEY = "liaison_tool_trace"
 _AUTHORITY = re.compile(
@@ -28,7 +29,14 @@ def record_liaison_tool(
     tool: BaseTool, args: dict[str, Any], context: Context, tool_response: dict[str, Any],
 ) -> None:
     trace = list(context.state.get(TRACE_KEY) or [])
-    trace.append({"sequence": len(trace) + 1, "name": tool.name, "args": dict(args), "response": tool_response})
+    trace.append({
+        "sequence": len(trace) + 1,
+        "name": tool.name,
+        "args": dict(args),
+        "response": tool_response,
+        "traceId": current_trace_id(),
+        "spanId": current_span_id(),
+    })
     context.state[TRACE_KEY] = trace
 
 

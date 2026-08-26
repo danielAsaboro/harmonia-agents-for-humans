@@ -52,6 +52,8 @@ describe("Temi persisted editorial-plan UI", () => {
       "moment-proof", "angle-how", "Founder availability remains stable", "high confidence",
       "Aug 31, 2026", "Sep 1, 2026", "item-selected", "item-followup",
       "No unverified metrics", "Product capture",
+      "Sep 1, 2026, 5:00 PM GMT+1", "Sep 1, 2026, 7:00 PM GMT+1", "Aug 31, 2026, 7:00 PM GMT+1",
+      "Priority 1", "Selection score 0.93", "high item confidence", "Priority 2", "Selection score 0.72", "medium item confidence",
     ]) expect(html).toContain(value);
   });
 

@@ -8,6 +8,12 @@ function planDate(value: string, timezone: string) {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: timezone }).format(new Date(value));
 }
 
+function planDateTime(value: string, timezone: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: timezone, timeZoneName: "short",
+  }).format(new Date(value));
+}
+
 function EditorialPlanSection({ job }: { job: JobFull }) {
   const plan = job.editorialPlan;
   if (!plan) return null;
@@ -31,9 +37,10 @@ function EditorialPlanSection({ job }: { job: JobFull }) {
             <div className="flex items-start justify-between gap-2"><div><strong>{item.id}</strong><span className="ml-2 text-black/45">{item.campaignTheme} · {item.contentPillar}</span></div><span className="rounded-full bg-white px-2 py-1 font-mono text-[8px]">{state}</span></div>
             <p className="mt-2 text-black/65">{item.planningRationale}</p>
             {isSelected ? <p className="mt-1 font-medium text-[#3157ff]">Selected next: {item.selectionRationale}</p> : null}
+            <p className="mt-1 text-[10px] text-black/50">Priority {item.priority} · Selection score {item.selectionScore} · {item.confidence} item confidence</p>
             <dl className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-black/60">
-              <div><dt className="text-black/35">Window</dt><dd>{planDate(item.publicationWindowStartAt, plan.timezone)} – {planDate(item.publicationWindowEndAt, plan.timezone)}</dd></div>
-              <div><dt className="text-black/35">Production deadline</dt><dd>{planDate(item.productionDeadlineAt, plan.timezone)}</dd></div>
+              <div><dt className="text-black/35">Posting window</dt><dd>{planDateTime(item.publicationWindowStartAt, plan.timezone)} – {planDateTime(item.publicationWindowEndAt, plan.timezone)}</dd></div>
+              <div><dt className="text-black/35">Production deadline</dt><dd>{planDateTime(item.productionDeadlineAt, plan.timezone)}</dd></div>
               <div><dt className="text-black/35">Channel / format</dt><dd>{item.channel} · {item.format}</dd></div>
               <div><dt className="text-black/35">Dependencies</dt><dd>{item.dependencies.length ? item.dependencies.join(" · ") : "None"}</dd></div>
             </dl>

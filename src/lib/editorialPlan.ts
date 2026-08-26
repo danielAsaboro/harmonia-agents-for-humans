@@ -1,22 +1,27 @@
 import { createHash } from "node:crypto";
 import type { EditorialPlan } from "./types";
 
-function canonical(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonical);
+function canonicalBytes(value: unknown): string {
+  if (value === null) return "n;";
+  if (typeof value === "boolean") return value ? "b1;" : "b0;";
   if (typeof value === "number") {
     if (!Number.isFinite(value)) throw new Error("editorial plan digest requires finite numbers");
-    return Object.is(value, -0) ? 0 : value;
+    const bytes = Buffer.allocUnsafe(8);
+    bytes.writeDoubleBE(Object.is(value, -0) ? 0 : value);
+    return `d${bytes.toString("hex")};`;
   }
+  if (typeof value === "string") return `s${Buffer.byteLength(value, "utf8")}:${value}`;
+  if (Array.isArray(value)) return `a${value.length}[${value.map(canonicalBytes).join("")}]`;
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entry]) => [key, canonical(entry)]));
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+    return `o${entries.length}{${entries.map(([key, entry]) => canonicalBytes(key) + canonicalBytes(entry)).join("")}}`;
   }
-  return value;
+  throw new Error("editorial plan digest contains an unsupported value");
 }
 
 export function editorialPlanDigest(plan: unknown): string {
-  return createHash("sha256").update(JSON.stringify(canonical(plan)), "utf8").digest("hex");
+  return createHash("sha256").update(canonicalBytes(plan), "utf8").digest("hex");
 }
 
 export function editorialPlanEvidenceLineage(plan: EditorialPlan): string[] {

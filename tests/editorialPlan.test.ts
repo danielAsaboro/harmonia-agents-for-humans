@@ -45,11 +45,13 @@ describe("editorial plan persistence boundary", () => {
         constraints: [], requiredAssets: [], planningRationale: "r", selectionRationale: "r", confidence: "high",
       }], selectedNextItemId: "i",
     };
-    expect(editorialPlanDigest(boundary)).toBe("cffb8018ff7a322277d5461d6b77b46ef923371a97c977a7549b74706a10bea1");
     const fractional = structuredClone(boundary);
     fractional.items[0].selectionScore = 0.5;
     expect(editorialPlanDigest(fractional)).not.toBe(editorialPlanDigest(boundary));
     expect(editorialPlanDigest({ score: -0, priority: 1.0 })).toBe(editorialPlanDigest({ score: 0, priority: 1 }));
+    expect(editorialPlanDigest({ score: 0.000001 })).toBe("5202ed6a6376c41e3da111657d47f780e6a251a7e8cfa384fd0d59054f36f545");
+    expect(editorialPlanDigest({ score: 0.0000001 })).toBe("27539988ad05838b3afeeae74e238d5130e3560aaf93a71be1d2fb494bee95fd");
+    expect(editorialPlanDigest({ score: 0.5 })).toBe("e4ddae75dae7f08e3fe435a9366ad4b206916d510e4de005c1481c71816b938c");
   });
 
   it("binds a fresh plan to the exact approved strategy and revision", () => {

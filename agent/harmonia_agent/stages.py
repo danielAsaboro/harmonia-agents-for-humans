@@ -8,6 +8,7 @@ import logging
 import os
 import uuid
 import secrets
+import struct
 from pathlib import Path
 import asyncio
 import math
@@ -89,22 +90,35 @@ class ClipRenderError(RuntimeError):
     pass
 
 
-def _canonical_plan_value(value: Any) -> Any:
-    """Normalize to JSON/JavaScript number semantics before hashing."""
-    if isinstance(value, dict):
-        return {key: _canonical_plan_value(value[key]) for key in sorted(value)}
-    if isinstance(value, list):
-        return [_canonical_plan_value(item) for item in value]
-    if isinstance(value, float):
-        if not math.isfinite(value):
+def _canonical_plan_bytes(value: Any) -> str:
+    """Typed canonical encoding with IEEE-754 numbers shared with TypeScript."""
+    if value is None:
+        return "n;"
+    if isinstance(value, bool):
+        return "b1;" if value else "b0;"
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+        if not math.isfinite(numeric):
             raise ValueError("editorial plan digest requires finite numbers")
-        return int(value) if value.is_integer() else value
-    return value
+        if numeric == 0:
+            numeric = 0.0
+        return f"d{struct.pack('>d', numeric).hex()};"
+    if isinstance(value, str):
+        return f"s{len(value.encode('utf-8'))}:{value}"
+    if isinstance(value, list):
+        return f"a{len(value)}[{''.join(_canonical_plan_bytes(item) for item in value)}]"
+    if isinstance(value, dict):
+        entries = "".join(
+            _canonical_plan_bytes(key) + _canonical_plan_bytes(value[key])
+            for key in sorted(value)
+        )
+        return f"o{len(value)}{{{entries}}}"
+    raise ValueError("editorial plan digest contains an unsupported value")
 
 
 def editorial_plan_digest(plan: dict[str, Any]) -> str:
-    """Canonical SHA-256 using sorted keys and JavaScript JSON-number spelling."""
-    encoded = json.dumps(_canonical_plan_value(plan), separators=(",", ":"), ensure_ascii=False)
+    """Canonical SHA-256 over typed values and IEEE-754 numeric bits."""
+    encoded = _canonical_plan_bytes(plan)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 

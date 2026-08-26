@@ -28,7 +28,7 @@ def approved_job() -> dict:
 
 def test_editorial_plan_digest_is_canonical_and_matches_typescript():
     assert stages.editorial_plan_digest({"b": 2, "a": 1}) == stages.editorial_plan_digest({"a": 1, "b": 2})
-    assert stages.editorial_plan_digest({"a": 1, "b": 2}) == "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"
+    assert stages.editorial_plan_digest({"a": 1, "b": 2}) == "ff458d69501fbb5e708688638e6cb1fc345db8a935540a1dfaa9f6666c2415b9"
 
 
 def test_editorial_plan_digest_matches_typescript_json_number_semantics():
@@ -44,10 +44,12 @@ def test_editorial_plan_digest_matches_typescript_json_number_semantics():
             "constraints": [], "requiredAssets": [], "planningRationale": "r", "selectionRationale": "r", "confidence": "high",
         }], "selectedNextItemId": "i",
     }
-    assert stages.editorial_plan_digest(boundary) == "cffb8018ff7a322277d5461d6b77b46ef923371a97c977a7549b74706a10bea1"
     fractional = {**boundary, "items": [{**boundary["items"][0], "selectionScore": 0.5}]}
     assert stages.editorial_plan_digest(fractional) != stages.editorial_plan_digest(boundary)
     assert stages.editorial_plan_digest({"score": -0.0, "priority": 1.0}) == stages.editorial_plan_digest({"score": 0, "priority": 1})
+    assert stages.editorial_plan_digest({"score": 0.000001}) == "5202ed6a6376c41e3da111657d47f780e6a251a7e8cfa384fd0d59054f36f545"
+    assert stages.editorial_plan_digest({"score": 0.0000001}) == "27539988ad05838b3afeeae74e238d5130e3560aaf93a71be1d2fb494bee95fd"
+    assert stages.editorial_plan_digest({"score": 0.5}) == "e4ddae75dae7f08e3fe435a9366ad4b206916d510e4de005c1481c71816b938c"
 
 
 def test_plan_runs_temi_and_persists_complete_plan_before_any_draft(monkeypatch):

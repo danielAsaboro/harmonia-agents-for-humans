@@ -209,7 +209,20 @@ class ManagedRuntime:
                 "nimi_analysis_research_trace": [],
             }
         if kwargs["specialist"] == "temi_editorial_planner":
-            return {"editorial_plan": _temi_plan()}
+            snapshot_id = kwargs["payload"]["planningSnapshot"]["snapshotId"]
+            return {
+                "editorial_plan": _temi_plan(),
+                "temi_editorial_planning_trace": [
+                    {"sequence": 1, "name": "load_skill", "args": {"skill_name": "temi-editorial-planning-skills"}},
+                    {"sequence": 2, "name": "load_skill_resource", "args": {
+                        "skill_name": "temi-editorial-planning-skills",
+                        "file_path": "references/strategy-to-editorial-plan.md",
+                    }},
+                    {"sequence": 3, "name": "read_editorial_commitments", "args": {
+                        "snapshot_id": snapshot_id,
+                    }, "response": {"snapshotId": snapshot_id, "commitments": []}},
+                ],
+            }
         from tests.test_noni_contracts import editorial_checks, grounded_draft
         payload = kwargs["payload"]
         if kwargs["specialist"] == "noni_copywriter":
@@ -470,13 +483,13 @@ def test_analyst_receives_source_video_as_a_real_multimodal_part():
     assert runtime.calls[0]["payload"]["mediaEvidence"]["video_uri"] == source
 
 
-def test_temi_runs_as_a_distinct_tool_free_typed_specialist():
+def test_temi_runs_as_a_distinct_skill_backed_typed_specialist():
     root = build_agent_team()
     planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
 
     assert planner.input_schema is EditorialPlannerInput
     assert planner.output_schema is EditorialPlan
-    assert planner.tools == []
+    assert len(planner.tools) == 1
     assert "write final post" in " ".join(planner.instruction.split())
 
 

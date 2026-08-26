@@ -37,7 +37,8 @@ describe("Harmonia architecture dataset", () => {
     expect(byId("agent-temi").summary).toMatch(/approved Ryan strategy/i);
     expect(byId("agent-ryan").promptResponsibility).toMatch(/allow-listed filesystem method skill/i);
     expect(byId("agent-ryan").skills).toEqual(["ryan-strategy-skills"]);
-    expect(byId("agent-temi").promptResponsibility).toMatch(/no tools.*final copy.*external scheduling.*effects/i);
+    expect(byId("agent-temi").promptResponsibility).toMatch(/planning-method skill.*request-bound snapshot.*no final copy.*external scheduling.*effects/i);
+    expect(byId("agent-temi").skills).toEqual(["temi-editorial-planning-skills"]);
     expect(buildArchitectureDetail(byId("agent-temi")).authorityNote).toMatch(/editorial-plan proposal.*no external calendar authority/i);
     expect(byId("agent-noni").summary).toBe(
       "Creates one grounded platform-native draft and at most one issue-bound revision from the selected item, exact Ryan brief, referenced Nimi evidence, and provenance-bound research.",

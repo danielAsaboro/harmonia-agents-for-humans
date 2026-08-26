@@ -74,6 +74,7 @@ from .web_client import (
     get_asset,
     get_connection,
     get_effect_commands,
+    get_editorial_planning_snapshot,
     get_insights,
     get_job,
     get_media_operation,
@@ -449,34 +450,19 @@ async def run_plan(job_id: str) -> None:
         or approval.get("revision") != job.get("strategyRevision")
     ):
         raise AgentProtocolError("digest-bound approved strategy required before Temi")
-    horizon_start = datetime.fromisoformat(str(approval["decidedAt"]).replace("Z", "+00:00"))
-    horizon_end = horizon_start + timedelta(weeks=int(strategy["horizonWeeks"]))
-    supported_roles = [role for role in strategy["channelRoles"] if role["operationallySupported"]]
-    if not supported_roles:
-        raise AgentProtocolError("approved strategy has no supported planning channel")
+    snapshot_result = get_editorial_planning_snapshot(job_id)
+    snapshot = snapshot_result.get("snapshot")
+    snapshot_digest = snapshot_result.get("digest")
+    if not isinstance(snapshot, dict) or not isinstance(snapshot_digest, str):
+        raise AgentProtocolError("persisted editorial planning snapshot required before Temi")
     planner_input = EditorialPlannerInput.model_validate({
         "strategy": strategy,
         "strategyDigest": digest,
         "strategyVersion": strategy["version"],
         "strategyApproval": approval,
         "analysis": job.get("sourceAnalysis"),
-        "horizonStartAt": horizon_start,
-        "horizonEndAt": horizon_end,
-        "timezone": "UTC",
-        "channelCapabilities": [
-            {"channel": role["channel"], "formats": role["formats"]}
-            for role in supported_roles
-        ],
-        "existingCommitments": [],
-        "productionCapacity": {
-            "maxItems": min(48, max(1, len(strategy["briefs"]))),
-            "maxItemsPerWeek": min(12, max(1, len(strategy["briefs"]))),
-        },
-        "cadenceConstraints": {
-            "minimumHoursBetweenItems": 24,
-            "maxItemsPerChannelPerWeek": min(12, max(1, len(strategy["briefs"]))),
-        },
-        "postingWindowObservations": [],
+        "planningSnapshot": snapshot,
+        "planningSnapshotDigest": snapshot_digest,
         "revision": revision,
     })
     result = await plan_with_team(planner_input, invocation=InvocationContext(

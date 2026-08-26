@@ -96,14 +96,8 @@ export interface EditorialPlannerInput {
   strategyVersion: number;
   strategyApproval: StrategyApproval & { decision: "approved" };
   analysis: SourceAnalysis;
-  horizonStartAt: string;
-  horizonEndAt: string;
-  timezone: string;
-  channelCapabilities: Array<{ channel: string; formats: string[] }>;
-  existingCommitments: Array<{ id: string; channel: string; publicationWindowStartAt: string; publicationWindowEndAt: string }>;
-  productionCapacity: { maxItems: number; maxItemsPerWeek: number };
-  cadenceConstraints: { minimumHoursBetweenItems: number; maxItemsPerChannelPerWeek: number };
-  postingWindowObservations: Array<{ id: string; channel: string; format: string; observedAt: string; evidenceRefs: string[] }>;
+  planningSnapshot: EditorialPlanningSnapshot;
+  planningSnapshotDigest: string;
   revision: number;
   replanningFeedback?: string;
 }
@@ -140,6 +134,8 @@ export interface EditorialPlan {
   planId: string;
   version: number;
   approvedStrategyDigest: string;
+  planningSnapshotId: string;
+  planningSnapshotDigest: string;
   horizonStartAt: string;
   horizonEndAt: string;
   timezone: string;
@@ -150,6 +146,23 @@ export interface EditorialPlan {
   confidence: "low" | "medium" | "high";
   items: EditorialPlanItem[];
   selectedNextItemId: string;
+}
+
+export interface EditorialPlanningSnapshot {
+  snapshotId: string;
+  asOf: string;
+  horizonStartAt: string;
+  horizonEndAt: string;
+  timezone: string;
+  channelCapabilities: Array<{ channel: string; formats: string[] }>;
+  existingCommitments: Array<{ id: string; channel: string; publicationWindowStartAt: string; publicationWindowEndAt: string }>;
+  productionCapacity: { maxItems: number; maxItemsPerWeek: number };
+  cadenceConstraints: { minimumHoursBetweenItems: number; maxItemsPerChannelPerWeek: number };
+  postingWindowObservations: Array<{ id: string; channel: string; format: string; observedAt: string; evidenceRefs: string[] }>;
+  assetReadiness: Array<{ id: string; briefId: string; assetType: string; status: "ready" | "missing" | "blocked"; evidenceRefs: string[] }>;
+  blockedDependencies: Array<{ id: string; briefId: string; reason: string; evidenceRefs: string[] }>;
+  calendarProjection: Array<{ id: string; contentItemId: string; state: "not_projected" | "synced" | "update_required" | "removed" | "failed"; externalEventId?: string; evidenceRefs: string[] }>;
+  provenanceIds: string[];
 }
 
 export interface ContentClaim {
@@ -295,6 +308,9 @@ export interface Job {
   strategyHistory?: Record<string, { strategy: ContentStrategy; digest: string; revision: number; evidenceLineage: string[]; invocationContext: StrategyInvocationContext; proposedAt: string; expiresAt: string; approval?: StrategyApproval }>;
   strategyInvocationContext?: StrategyInvocationContext;
   editorialPlan?: EditorialPlan;
+  editorialPlanningSnapshot?: EditorialPlanningSnapshot;
+  editorialPlanningSnapshotDigest?: string;
+  editorialPlanningSnapshotHistory?: Record<string, { snapshot: EditorialPlanningSnapshot; digest: string; revision: number; capturedAt: string }>;
   editorialPlanDigest?: string;
   editorialPlanRevision?: number;
   editorialPlanEvidenceLineage?: string[];

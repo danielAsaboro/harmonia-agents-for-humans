@@ -59,6 +59,7 @@ def analysis() -> dict:
 def plan() -> dict:
     return {
         "planId": "plan-job-1-v1", "version": 1, "approvedStrategyDigest": "a" * 64,
+        "planningSnapshotId": "planning-job-1-v1", "planningSnapshotDigest": "d" * 64,
         "horizonStartAt": "2026-08-31T00:00:00Z", "horizonEndAt": "2026-09-28T00:00:00Z",
         "timezone": "America/Los_Angeles", "summary": "A four-week proof-led campaign.",
         "sequencingRationale": "Start with the strongest source proof.",
@@ -83,14 +84,31 @@ def planner_input() -> dict:
     return {
         "strategy": strategy(), "strategyDigest": "a" * 64, "strategyVersion": 1,
         "strategyApproval": {"decision": "approved", "payloadDigest": "a" * 64, "revision": 1, "actorSubjectId": "operator-1", "decidedAt": "2026-08-30T00:00:00Z", "expiresAt": "2026-08-31T00:00:00Z"},
-        "analysis": analysis(), "horizonStartAt": "2026-08-31T00:00:00Z", "horizonEndAt": "2026-09-28T00:00:00Z", "timezone": "America/Los_Angeles",
-        "channelCapabilities": [{"channel": "x", "formats": ["text_post"]}],
-        "existingCommitments": [{"id": "commitment-1", "channel": "x", "publicationWindowStartAt": "2026-09-03T16:00:00Z", "publicationWindowEndAt": "2026-09-03T18:00:00Z"}],
-        "productionCapacity": {"maxItems": 8, "maxItemsPerWeek": 2},
-        "cadenceConstraints": {"minimumHoursBetweenItems": 24, "maxItemsPerChannelPerWeek": 2},
-        "postingWindowObservations": [{"id": "window-1", "channel": "x", "format": "text_post", "observedAt": "2026-08-29T00:00:00Z", "evidenceRefs": ["perf-1"]}],
+        "analysis": analysis(),
+        "planningSnapshot": {
+            "snapshotId": "planning-job-1-v1", "asOf": "2026-08-30T00:00:00Z",
+            "horizonStartAt": "2026-08-31T00:00:00Z", "horizonEndAt": "2026-09-28T00:00:00Z", "timezone": "America/Los_Angeles",
+            "channelCapabilities": [{"channel": "x", "formats": ["text_post"]}],
+            "existingCommitments": [{"id": "commitment-1", "channel": "x", "publicationWindowStartAt": "2026-09-03T16:00:00Z", "publicationWindowEndAt": "2026-09-03T18:00:00Z"}],
+            "productionCapacity": {"maxItems": 8, "maxItemsPerWeek": 2},
+            "cadenceConstraints": {"minimumHoursBetweenItems": 24, "maxItemsPerChannelPerWeek": 2},
+            "postingWindowObservations": [{"id": "window-1", "channel": "x", "format": "text_post", "observedAt": "2026-08-29T00:00:00Z", "evidenceRefs": ["perf-1"]}],
+            "assetReadiness": [], "blockedDependencies": [], "calendarProjection": [],
+            "provenanceIds": ["policy:editorial-planning-v1"],
+        },
+        "planningSnapshotDigest": "d" * 64,
         "revision": 1,
     }
+
+
+def test_plan_is_bound_to_the_exact_deterministic_planning_snapshot():
+    supplied = planner_input()
+    candidate = plan()
+    assert validate(candidate, supplied).planningSnapshotId == "planning-job-1-v1"
+
+    candidate["planningSnapshotDigest"] = "e" * 64
+    with pytest.raises(AgentProtocolError, match="planning snapshot digest"):
+        validate(candidate, supplied)
 
 
 def production_input() -> dict:
@@ -168,7 +186,7 @@ def test_temi_contracts_reject_copy_and_external_effect_authority(payload, field
 
 def test_temi_contracts_require_utc_horizon_boundaries_and_an_iana_timezone():
     invalid = planner_input()
-    invalid["horizonStartAt"] = "2026-08-31T00:00:00+01:00"
+    invalid["planningSnapshot"]["horizonStartAt"] = "2026-08-31T00:00:00+01:00"
     with pytest.raises(ValidationError, match="UTC"):
         EditorialPlannerInput.model_validate(invalid)
 
@@ -179,10 +197,10 @@ def test_temi_contracts_require_utc_horizon_boundaries_and_an_iana_timezone():
 
 
 @pytest.mark.parametrize(("factory", "path", "value"), [
-    (planner_input, ("channelCapabilities", 0, "formats", 0), ""),
-    (planner_input, ("channelCapabilities", 0, "formats", 0), "x" * 101),
-    (planner_input, ("postingWindowObservations", 0, "evidenceRefs", 0), ""),
-    (planner_input, ("postingWindowObservations", 0, "evidenceRefs", 0), "x" * 101),
+    (planner_input, ("planningSnapshot", "channelCapabilities", 0, "formats", 0), ""),
+    (planner_input, ("planningSnapshot", "channelCapabilities", 0, "formats", 0), "x" * 101),
+    (planner_input, ("planningSnapshot", "postingWindowObservations", 0, "evidenceRefs", 0), ""),
+    (planner_input, ("planningSnapshot", "postingWindowObservations", 0, "evidenceRefs", 0), "x" * 101),
     (plan, ("items", 0, "evidenceRefs", 0), ""),
     (plan, ("items", 0, "evidenceRefs", 0), "x" * 101),
     (plan, ("items", 0, "dependencies"), ["x" * 101]),
@@ -208,8 +226,8 @@ def test_python_rejects_the_same_new_list_item_boundaries_as_zod(factory, path, 
 
 def test_temporal_ordering_compares_equal_utc_instants_not_timestamp_spelling():
     invalid_input = planner_input()
-    invalid_input["horizonStartAt"] = "2026-08-31T00:00:00+00:00"
-    invalid_input["horizonEndAt"] = "2026-08-31T00:00:00Z"
+    invalid_input["planningSnapshot"]["horizonStartAt"] = "2026-08-31T00:00:00+00:00"
+    invalid_input["planningSnapshot"]["horizonEndAt"] = "2026-08-31T00:00:00Z"
     with pytest.raises(ValidationError, match="horizon"):
         EditorialPlannerInput.model_validate(invalid_input)
 
@@ -333,7 +351,7 @@ def test_dependencies_must_finish_before_the_dependent_window_starts():
         "operationallySupported": True, "formats": ["text_post"],
         "cadence": "1 post per week", "evidenceRefs": ["ctx-campaign"],
     })
-    supplied["channelCapabilities"].append({"channel": "linkedin", "formats": ["text_post"]})
+    supplied["planningSnapshot"]["channelCapabilities"].append({"channel": "linkedin", "formats": ["text_post"]})
     with pytest.raises(AgentProtocolError, match="must end at or before"):
         validate(equal_start, supplied)
 
@@ -344,13 +362,13 @@ def test_dependencies_must_finish_before_the_dependent_window_starts():
     boundary["selectedNextItemId"] = "item-2"
     boundary["items"][1]["dependencies"] = []
     boundary_input = planner_input()
-    boundary_input["cadenceConstraints"]["minimumHoursBetweenItems"] = 0
+    boundary_input["planningSnapshot"]["cadenceConstraints"]["minimumHoursBetweenItems"] = 0
     assert validate(boundary, boundary_input).items[0].dependencies == ["item-2"]
 
 
 def test_plan_rejects_capacity_and_cadence_overflow():
     invalid_input = planner_input()
-    invalid_input["productionCapacity"]["maxItems"] = 1
+    invalid_input["planningSnapshot"]["productionCapacity"]["maxItems"] = 1
     invalid = plan()
     second = deepcopy(invalid["items"][0])
     second.update(id="item-2", publicationWindowStartAt="2026-09-04T16:00:00Z", publicationWindowEndAt="2026-09-04T18:00:00Z", productionDeadlineAt="2026-09-04T12:00:00Z")
@@ -359,7 +377,7 @@ def test_plan_rejects_capacity_and_cadence_overflow():
         validate(invalid, invalid_input)
 
     cadence_input = planner_input()
-    cadence_input["productionCapacity"]["maxItemsPerWeek"] = 8
+    cadence_input["planningSnapshot"]["productionCapacity"]["maxItemsPerWeek"] = 8
     cadence_plan = plan()
     for item_id, day in (("item-2", "04"), ("item-3", "06")):
         item = deepcopy(cadence_plan["items"][0])
@@ -410,7 +428,7 @@ def test_plan_requires_exact_approved_strategy_binding(input_mutation, plan_muta
 ])
 def test_planning_horizon_duration_must_exactly_match_strategy_weeks(end):
     supplied = planner_input()
-    supplied["horizonEndAt"] = end
+    supplied["planningSnapshot"]["horizonEndAt"] = end
     candidate = plan()
     candidate["horizonEndAt"] = end
     with pytest.raises(AgentProtocolError, match="horizon duration"):

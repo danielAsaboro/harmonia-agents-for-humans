@@ -14,7 +14,7 @@ Google ADK is Harmonia's agent framework. It defines one coordinator and bounded
 - Nimi and Ryan each receive one filesystem `SkillToolset` restricted to approved method references.
 - Google Search is a separate ADK tool inside isolated request-bound search agents; it never shares a model request with Nimi's or Ryan's filesystem loaders. Nimi can separately use `VertexAiSearchTool` for a configured private index.
 - Nimi records and validates independent skill-loader and grounded-research traces. Skill content cannot become search evidence.
-- Nova receives a read-only ADK `SkillToolset`; Noni has a filesystem writing skill plus separate grounded-research tools; Dara receives only its filesystem editing-skill loaders. Other core specialists are tool-free.
+- Nova receives a read-only ADK `SkillToolset`; Noni has a filesystem writing skill plus separate grounded-research tools; Dara receives only its filesystem editing-skill loaders; Temi has one planning-method skill plus six request-bound reads over an immutable Firestore snapshot. Maya remains tool-free.
 - Callbacks attach authorized media evidence and reset, record, and validate actual skill-loader and tool traces.
 
 ADK output is never workflow truth by itself. Application validators reject incomplete schemas, invented references, authority overreach, and invalid trajectories before Firestore changes.

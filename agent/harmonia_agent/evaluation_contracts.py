@@ -160,8 +160,18 @@ def evaluate_editorial_plan(
     *,
     planner_input: EditorialPlannerInput | Mapping[str, Any],
     editorial_plan: EditorialPlan | Mapping[str, Any],
+    planning_trace: list[dict[str, Any]],
 ) -> EvaluationCaseResult:
     """Evaluate Temi's plan through its strict schema and closed-world validator."""
+    from .temi_skills import validate_temi_trace
+    raw_input = planner_input.model_dump(mode="json") if isinstance(planner_input, EditorialPlannerInput) else planner_input
+    snapshot_id = ((raw_input.get("planningSnapshot") or {}).get("snapshotId") if isinstance(raw_input, Mapping) else None)
+    try:
+        if not isinstance(snapshot_id, str):
+            raise ValueError("Temi evaluation requires an exact planning snapshot")
+        validate_temi_trace(planning_trace, snapshot_id=snapshot_id)
+    except ValueError as exc:
+        return _result([_failure("invalid_planning_trace", str(exc))])
     raw_plan = (
         editorial_plan.model_dump(mode="json")
         if isinstance(editorial_plan, EditorialPlan)

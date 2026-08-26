@@ -1,4 +1,4 @@
-import type { AnalysisResearchRequest, AnalysisSearchEvidence, EvidenceRef, Angle, ContentStrategy, DraftWorkflowResult, EditorialPlan, EffectClaimSummary, Moment, PlannedAction, PostDraft, Receipt, SourceAnalysis, Stage, StrategyApproval } from "@/lib/types";
+import type { AnalysisResearchRequest, AnalysisSearchEvidence, EvidenceRef, Angle, ContentStrategy, DraftWorkflowResult, EditorialPlan, EditorialPlanningSnapshot, EffectClaimSummary, Moment, PlannedAction, PostDraft, Receipt, SourceAnalysis, Stage, StrategyApproval } from "@/lib/types";
 
 export interface JobSummary {
   id: string;
@@ -31,6 +31,8 @@ export interface JobFull extends JobSummary {
   editorialPlanDigest?: string;
   editorialPlanRevision?: number;
   editorialPlanEvidenceLineage?: string[];
+  editorialPlanningSnapshot?: EditorialPlanningSnapshot;
+  editorialPlanningSnapshotDigest?: string;
   selectedNextItemId?: string;
   editorialItemStates?: Record<string, { status: "planned" | "selected" | "drafting" | "reviewed" | "awaiting_approval"; updatedAt: string }>;
   productionTrace?: DraftWorkflowResult;

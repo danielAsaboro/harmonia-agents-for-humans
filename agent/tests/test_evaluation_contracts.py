@@ -24,12 +24,22 @@ from tests.test_dara_contracts import passing_assessment
 from tests.test_temi_editorial_plan import plan, planner_input, production_input
 from tests.test_ryan_strategy import strategist_input, strategy
 from harmonia_agent.ryan_skills import RYAN_SKILL_NAME, RYAN_SKILL_REFERENCES
+from harmonia_agent.temi_skills import TEMI_SKILL_NAME, TEMI_SKILL_REFERENCES
 
 
 def _ryan_trace():
     return [
         {"sequence": 1, "name": "load_skill", "args": {"skill_name": RYAN_SKILL_NAME}},
         {"sequence": 2, "name": "load_skill_resource", "args": {"skill_name": RYAN_SKILL_NAME, "file_path": RYAN_SKILL_REFERENCES[0]}},
+    ]
+
+
+def _temi_trace():
+    snapshot_id = planner_input()["planningSnapshot"]["snapshotId"]
+    return [
+        {"sequence": 1, "name": "load_skill", "args": {"skill_name": TEMI_SKILL_NAME}},
+        {"sequence": 2, "name": "load_skill_resource", "args": {"skill_name": TEMI_SKILL_NAME, "file_path": TEMI_SKILL_REFERENCES[0]}},
+        {"sequence": 3, "name": "read_editorial_commitments", "args": {"snapshot_id": snapshot_id}, "response": {"snapshotId": snapshot_id, "commitments": []}},
     ]
 from tests.test_nimi_contracts import analyst_input, source_analysis
 from tests.test_a2ui_models import context_payload
@@ -207,8 +217,19 @@ def test_ryan_strategy_skill_fixture_catalog_covers_methods_and_boundaries():
 
 def test_temi_evaluation_accepts_a_coherent_grounded_plan():
     assert evaluate_editorial_plan(
-        planner_input=planner_input(), editorial_plan=plan(),
+        planner_input=planner_input(), editorial_plan=plan(), planning_trace=_temi_trace(),
     ).passed
+
+
+def test_temi_evaluation_rejects_missing_or_cross_request_tool_trace():
+    assert evaluate_editorial_plan(
+        planner_input=planner_input(), editorial_plan=plan(), planning_trace=[],
+    ).failures[0].code == "invalid_planning_trace"
+    cross = _temi_trace()
+    cross[-1]["args"]["snapshot_id"] = "planning-other-v1"
+    assert evaluate_editorial_plan(
+        planner_input=planner_input(), editorial_plan=plan(), planning_trace=cross,
+    ).failures[0].code == "invalid_planning_trace"
 
 
 @pytest.mark.parametrize(("mutation", "code"), [
@@ -227,7 +248,7 @@ def test_temi_evaluation_covers_grounding_scope_and_operational_constraints(muta
     candidate = plan()
     mutation(candidate)
     result = evaluate_editorial_plan(
-        planner_input=planner_input(), editorial_plan=candidate,
+        planner_input=planner_input(), editorial_plan=candidate, planning_trace=_temi_trace(),
     )
     assert result.passed is False
     assert result.failures[0].code == code
@@ -259,7 +280,8 @@ def test_temi_public_fixture_catalog_covers_the_required_failure_modes():
         "authority-overreach", "incomplete-item", "invalid-timing",
         "invalid-dependency", "unsupported-channel", "unsupported-format",
         "memory-as-authorization", "strategy-as-authorization",
-        "selected-item-only",
+        "selected-item-only", "missing-skill-trace", "unapproved-skill-resource",
+        "duplicate-skill-resource", "cross-request-snapshot-read",
     }
 
 

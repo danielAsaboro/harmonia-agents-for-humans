@@ -62,6 +62,14 @@ from .ryan_skills import (
     validate_ryan_skill_trace,
 )
 from .temi_prompt import TEMI_EDITORIAL_PLANNER_INSTRUCTION
+from .temi_skills import (
+    TEMI_TRACE_KEY,
+    build_temi_editorial_planning_skillset,
+    guard_temi_tool,
+    record_temi_tool,
+    reset_temi_trace,
+    validate_temi_trace,
+)
 from .noni_prompt import NONI_COPYWRITER_INSTRUCTION
 from .noni_skills import (
     NONI_SKILL_TRACE_KEY,
@@ -436,7 +444,11 @@ def build_agent_team(
         input_schema=EditorialPlannerInput,
         output_schema=EditorialPlan,
         output_key="editorial_plan",
+        tools=[build_temi_editorial_planning_skillset()],
         mode="single_turn",
+        before_agent_callback=reset_temi_trace,
+        before_tool_callback=guard_temi_tool,
+        after_tool_callback=record_temi_tool,
     )
     from .skills_runtime import build_insight_skillset
 
@@ -1639,6 +1651,13 @@ def _validate_run_output_unwrapped(
         return
     if specialist == "temi_editorial_planner":
         planner_input = EditorialPlannerInput.model_validate(payload)
+        trace = state.get(TEMI_TRACE_KEY)
+        if not isinstance(trace, list):
+            raise AgentProtocolError("Temi returned no actual planning skill/tool trace")
+        try:
+            validate_temi_trace(trace, snapshot_id=planner_input.planningSnapshot.snapshotId)
+        except ValueError as exc:
+            raise AgentProtocolError(f"invalid Temi planning skill/tool trace: {exc}") from exc
         plan = _validated_state(state, "editorial_plan", EditorialPlan)
         validate_editorial_plan(planner_input, plan)
         return
@@ -2126,6 +2145,10 @@ def validate_editorial_plan(
         raise AgentProtocolError("strategy approval digest does not match strategy digest")
     if input.strategyDigest != plan.approvedStrategyDigest:
         raise AgentProtocolError("approved strategy digest does not match plan")
+    if plan.planningSnapshotId != input.planningSnapshot.snapshotId:
+        raise AgentProtocolError("planning snapshot identity does not match plan")
+    if plan.planningSnapshotDigest != input.planningSnapshotDigest:
+        raise AgentProtocolError("planning snapshot digest does not match plan")
     if input.strategyVersion != input.strategy.version:
         raise AgentProtocolError("strategy version does not match approved strategy")
     if input.strategyApproval.revision != input.strategyVersion:

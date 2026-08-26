@@ -88,6 +88,18 @@ def get_job(job_id: str) -> dict[str, Any]:
     return res.json()["job"]
 
 
+def get_editorial_planning_snapshot(job_id: str) -> dict[str, Any]:
+    """Create or re-read the immutable Firestore planning snapshot for Temi."""
+    with _client() as c:
+        res = c.get("/api/internal/editorial-planning-snapshot", params={"jobId": job_id})
+    if res.status_code != 200:
+        raise WebApiError(
+            f"editorial planning snapshot unavailable: {res.status_code} {res.text}",
+            res.status_code,
+        )
+    return dict(res.json())
+
+
 def search_verified_publications(query: str, limit: int = 5) -> dict[str, Any]:
     with _client() as c:
         res = c.get("/api/internal/published-content", params={"q": query, "limit": limit})

@@ -588,12 +588,32 @@ class PostingWindowObservation(StrictModel):
         return _validate_utc_timestamp(value)
 
 
-class EditorialPlannerInput(StrictModel):
-    strategy: ContentStrategy
-    strategyDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    strategyVersion: int = Field(ge=1, le=2)
-    strategyApproval: StrategyApprovalRecord
-    analysis: SourceAnalysis
+class AssetReadiness(StrictModel):
+    id: str = Field(min_length=1, max_length=100)
+    briefId: str = Field(min_length=1, max_length=100)
+    assetType: str = Field(min_length=1, max_length=100)
+    status: Literal["ready", "missing", "blocked"]
+    evidenceRefs: list[Identifier] = Field(min_length=1, max_length=12)
+
+
+class BlockedDependency(StrictModel):
+    id: str = Field(min_length=1, max_length=100)
+    briefId: str = Field(min_length=1, max_length=100)
+    reason: str = Field(min_length=1, max_length=300)
+    evidenceRefs: list[Identifier] = Field(min_length=1, max_length=12)
+
+
+class CalendarProjection(StrictModel):
+    id: str = Field(min_length=1, max_length=100)
+    contentItemId: str = Field(min_length=1, max_length=100)
+    state: Literal["not_projected", "synced", "update_required", "removed", "failed"]
+    externalEventId: str | None = Field(default=None, min_length=1, max_length=300)
+    evidenceRefs: list[Identifier] = Field(min_length=1, max_length=12)
+
+
+class EditorialPlanningSnapshot(StrictModel):
+    snapshotId: str = Field(min_length=1, max_length=100)
+    asOf: datetime
     horizonStartAt: datetime
     horizonEndAt: datetime
     timezone: str = Field(min_length=1, max_length=100)
@@ -602,10 +622,12 @@ class EditorialPlannerInput(StrictModel):
     productionCapacity: ProductionCapacity
     cadenceConstraints: CadenceConstraints
     postingWindowObservations: list[PostingWindowObservation] = Field(default_factory=list, max_length=24)
-    revision: int = Field(ge=1, le=2)
-    replanningFeedback: str | None = Field(default=None, max_length=2_000)
+    assetReadiness: list[AssetReadiness] = Field(default_factory=list, max_length=48)
+    blockedDependencies: list[BlockedDependency] = Field(default_factory=list, max_length=48)
+    calendarProjection: list[CalendarProjection] = Field(default_factory=list, max_length=48)
+    provenanceIds: list[Identifier] = Field(min_length=1, max_length=100)
 
-    @field_validator("horizonStartAt", "horizonEndAt")
+    @field_validator("asOf", "horizonStartAt", "horizonEndAt")
     @classmethod
     def validate_utc_timestamp(cls, value: datetime) -> datetime:
         return _validate_utc_timestamp(value)
@@ -616,10 +638,39 @@ class EditorialPlannerInput(StrictModel):
         return _validate_iana_timezone(value)
 
     @model_validator(mode="after")
-    def validate_horizon(self) -> "EditorialPlannerInput":
+    def validate_horizon(self) -> "EditorialPlanningSnapshot":
         if self.horizonStartAt >= self.horizonEndAt:
             raise ValueError("editorial horizon must increase")
         return self
+
+
+class EditorialPlannerInput(StrictModel):
+    strategy: ContentStrategy
+    strategyDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    strategyVersion: int = Field(ge=1, le=2)
+    strategyApproval: StrategyApprovalRecord
+    analysis: SourceAnalysis
+    planningSnapshot: EditorialPlanningSnapshot
+    planningSnapshotDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    revision: int = Field(ge=1, le=2)
+    replanningFeedback: str | None = Field(default=None, max_length=2_000)
+
+    @property
+    def horizonStartAt(self) -> datetime: return self.planningSnapshot.horizonStartAt
+    @property
+    def horizonEndAt(self) -> datetime: return self.planningSnapshot.horizonEndAt
+    @property
+    def timezone(self) -> str: return self.planningSnapshot.timezone
+    @property
+    def channelCapabilities(self) -> list[ChannelCapability]: return self.planningSnapshot.channelCapabilities
+    @property
+    def existingCommitments(self) -> list[EditorialCommitment]: return self.planningSnapshot.existingCommitments
+    @property
+    def productionCapacity(self) -> ProductionCapacity: return self.planningSnapshot.productionCapacity
+    @property
+    def cadenceConstraints(self) -> CadenceConstraints: return self.planningSnapshot.cadenceConstraints
+    @property
+    def postingWindowObservations(self) -> list[PostingWindowObservation]: return self.planningSnapshot.postingWindowObservations
 
 
 class EditorialPlanItem(StrictModel):
@@ -667,6 +718,8 @@ class EditorialPlan(StrictModel):
     planId: str = Field(min_length=1, max_length=100)
     version: int = Field(ge=1, le=2)
     approvedStrategyDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    planningSnapshotId: str = Field(min_length=1, max_length=100)
+    planningSnapshotDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
     horizonStartAt: datetime
     horizonEndAt: datetime
     timezone: str = Field(min_length=1, max_length=100)

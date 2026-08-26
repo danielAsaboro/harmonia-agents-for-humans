@@ -30,12 +30,21 @@ const job: JobFull = {
   config: { platforms: ["x"] }, transcriptSegments: [], drafts: [], actions: [],
   editorialPlan: {
     planId: "plan-1", version: 1, approvedStrategyDigest: "a".repeat(64),
+    planningSnapshotId: "planning-job-1-v1", planningSnapshotDigest: "d".repeat(64),
     horizonStartAt: "2026-08-31T00:00:00Z", horizonEndAt: "2026-09-28T00:00:00Z", timezone: "Africa/Lagos",
     summary: "A four-week proof-to-education sequence.", sequencingRationale: "Proof before process.",
     cadenceRationale: "One primary item each week to fit production capacity.", assumptions: ["Founder availability remains stable."],
     confidence: "high", items: [selected, remaining], selectedNextItemId: selected.id,
   },
   editorialPlanDigest: "b".repeat(64), editorialPlanRevision: 1,
+  editorialPlanningSnapshot: {
+    snapshotId: "planning-job-1-v1", asOf: "2026-08-30T12:00:00Z",
+    horizonStartAt: "2026-08-31T00:00:00Z", horizonEndAt: "2026-09-28T00:00:00Z", timezone: "Africa/Lagos",
+    channelCapabilities: [{ channel: "x", formats: ["thread"] }], existingCommitments: [],
+    productionCapacity: { maxItems: 8, maxItemsPerWeek: 2 }, cadenceConstraints: { minimumHoursBetweenItems: 24, maxItemsPerChannelPerWeek: 2 },
+    postingWindowObservations: [], assetReadiness: [], blockedDependencies: [], calendarProjection: [],
+    provenanceIds: ["policy:editorial-planning-v1"],
+  }, editorialPlanningSnapshotDigest: "d".repeat(64),
   editorialPlanEvidenceLineage: ["angle-how", "context:campaign", "moment-proof"], selectedNextItemId: selected.id,
   editorialItemStates: {
     [selected.id]: { status: "selected", updatedAt: "2026-08-27T00:01:00Z" },
@@ -53,6 +62,7 @@ describe("Temi persisted editorial-plan UI", () => {
       "moment-proof", "angle-how", "Founder availability remains stable", "high confidence",
       "Aug 31, 2026", "Sep 1, 2026", "item-selected", "item-followup",
       "No unverified metrics", "Product capture",
+      "Planning snapshot", "policy:editorial-planning-v1",
       "Sep 1, 2026, 5:00 PM GMT+1", "Sep 1, 2026, 7:00 PM GMT+1", "Aug 31, 2026, 7:00 PM GMT+1",
       "Priority 1", "Selection score 0.93", "high item confidence", "Priority 2", "Selection score 0.72", "medium item confidence",
     ]) expect(html).toContain(value);

@@ -44,6 +44,7 @@ const item = {
 
 const plan = {
   planId: "plan-job-1-v1", version: 1, approvedStrategyDigest: "a".repeat(64),
+  planningSnapshotId: "planning-job-1-v1", planningSnapshotDigest: "d".repeat(64),
   horizonStartAt: "2026-08-31T00:00:00Z", horizonEndAt: "2026-09-28T00:00:00Z", timezone: "America/Los_Angeles",
   summary: "A four-week proof-led campaign.", sequencingRationale: "Start with the strongest source proof.",
   cadenceRationale: "One focused item begins the approved horizon.", assumptions: ["The verified audience remains available during the horizon."],
@@ -53,11 +54,15 @@ const plan = {
 const plannerInput = {
   strategy, strategyDigest: "a".repeat(64), strategyVersion: 1,
   strategyApproval: { decision: "approved", payloadDigest: "a".repeat(64), revision: 1, actorSubjectId: "operator-1", decidedAt: "2026-08-30T00:00:00Z", expiresAt: "2026-08-31T00:00:00Z" },
-  analysis, horizonStartAt: "2026-08-31T00:00:00Z", horizonEndAt: "2026-09-28T00:00:00Z", timezone: "America/Los_Angeles",
-  channelCapabilities: [{ channel: "x", formats: ["text_post"] }],
-  existingCommitments: [{ id: "commitment-1", channel: "x", publicationWindowStartAt: "2026-09-03T16:00:00Z", publicationWindowEndAt: "2026-09-03T18:00:00Z" }],
-  productionCapacity: { maxItems: 8, maxItemsPerWeek: 2 }, cadenceConstraints: { minimumHoursBetweenItems: 24, maxItemsPerChannelPerWeek: 2 },
-  postingWindowObservations: [{ id: "window-1", channel: "x", format: "text_post", observedAt: "2026-08-29T00:00:00Z", evidenceRefs: ["perf-1"] }], revision: 1,
+  analysis, planningSnapshot: {
+    snapshotId: "planning-job-1-v1", asOf: "2026-08-30T00:00:00Z",
+    horizonStartAt: "2026-08-31T00:00:00Z", horizonEndAt: "2026-09-28T00:00:00Z", timezone: "America/Los_Angeles",
+    channelCapabilities: [{ channel: "x", formats: ["text_post"] }],
+    existingCommitments: [{ id: "commitment-1", channel: "x", publicationWindowStartAt: "2026-09-03T16:00:00Z", publicationWindowEndAt: "2026-09-03T18:00:00Z" }],
+    productionCapacity: { maxItems: 8, maxItemsPerWeek: 2 }, cadenceConstraints: { minimumHoursBetweenItems: 24, maxItemsPerChannelPerWeek: 2 },
+    postingWindowObservations: [{ id: "window-1", channel: "x", format: "text_post", observedAt: "2026-08-29T00:00:00Z", evidenceRefs: ["perf-1"] }],
+    assetReadiness: [], blockedDependencies: [], calendarProjection: [], provenanceIds: ["policy:editorial-planning-v1"],
+  }, planningSnapshotDigest: "d".repeat(64), revision: 1,
 };
 
 const productionInput = {
@@ -68,7 +73,7 @@ const productionInput = {
 
 describe("Temi editorial-plan contract parity", () => {
   it("accepts the complete strict Python boundary fixture", () => {
-    expect(editorialPlannerInputSchema.parse(plannerInput).timezone).toBe("America/Los_Angeles");
+    expect(editorialPlannerInputSchema.parse(plannerInput).planningSnapshot.timezone).toBe("America/Los_Angeles");
     expect(editorialPlanSchema.parse(plan).selectedNextItemId).toBe("item-1");
     expect(copywriterInputSchema.parse(productionInput).editorialItem.id).toBe("item-1");
   });
@@ -102,7 +107,7 @@ describe("Temi editorial-plan contract parity", () => {
     expect(editorialPlanSchema.safeParse(overreach).success).toBe(false);
 
     const nonUtc = structuredClone(plannerInput);
-    nonUtc.horizonStartAt = "2026-08-31T00:00:00+01:00";
+    nonUtc.planningSnapshot.horizonStartAt = "2026-08-31T00:00:00+01:00";
     expect(editorialPlannerInputSchema.safeParse(nonUtc).success).toBe(false);
 
     const badTimezone = structuredClone(plan);
@@ -116,8 +121,8 @@ describe("Temi editorial-plan contract parity", () => {
 
   it("rejects the same empty and overlong new list entries as Python", () => {
     const invalidCases: Array<[unknown, unknown]> = [
-      [editorialPlannerInputSchema, { ...structuredClone(plannerInput), channelCapabilities: [{ channel: "x", formats: [""] }] }],
-      [editorialPlannerInputSchema, { ...structuredClone(plannerInput), postingWindowObservations: [{ ...plannerInput.postingWindowObservations[0], evidenceRefs: ["x".repeat(101)] }] }],
+      [editorialPlannerInputSchema, { ...structuredClone(plannerInput), planningSnapshot: { ...structuredClone(plannerInput.planningSnapshot), channelCapabilities: [{ channel: "x", formats: [""] }] } }],
+      [editorialPlannerInputSchema, { ...structuredClone(plannerInput), planningSnapshot: { ...structuredClone(plannerInput.planningSnapshot), postingWindowObservations: [{ ...plannerInput.planningSnapshot.postingWindowObservations[0], evidenceRefs: ["x".repeat(101)] }] } }],
       [editorialPlanSchema, { ...structuredClone(plan), items: [{ ...item, evidenceRefs: [""] }] }],
       [editorialPlanSchema, { ...structuredClone(plan), items: [{ ...item, dependencies: ["x".repeat(101)] }] }],
       [editorialPlanSchema, { ...structuredClone(plan), items: [{ ...item, constraints: ["x".repeat(301)] }] }],
@@ -132,8 +137,8 @@ describe("Temi editorial-plan contract parity", () => {
 
   it("compares UTC instants rather than their Z or +00:00 spelling", () => {
     const equalHorizon = structuredClone(plannerInput);
-    equalHorizon.horizonStartAt = "2026-08-31T00:00:00+00:00";
-    equalHorizon.horizonEndAt = "2026-08-31T00:00:00Z";
+    equalHorizon.planningSnapshot.horizonStartAt = "2026-08-31T00:00:00+00:00";
+    equalHorizon.planningSnapshot.horizonEndAt = "2026-08-31T00:00:00Z";
     expect(editorialPlannerInputSchema.safeParse(equalHorizon).success).toBe(false);
 
     const equalWindow = structuredClone(plan);

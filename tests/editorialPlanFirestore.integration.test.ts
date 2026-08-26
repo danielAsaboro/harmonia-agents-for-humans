@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 
 import { servicePrincipal } from "@/lib/authority";
-import { editorialPlanDigest } from "@/lib/editorialPlan";
+import { editorialPlanDigest, editorialPlanningSnapshotDigest } from "@/lib/editorialPlan";
 import { acceptEditorialPlan, db, getJob } from "@/lib/firestore";
 import { runWithTenant } from "@/lib/tenancy";
 import type { ContentStrategy, EditorialPlan } from "@/lib/types";
@@ -11,6 +11,15 @@ const scope = { workspaceId: "temi-plan-test", brandId: "brand-test", principal:
 const otherScope = { workspaceId: "temi-plan-other", brandId: "brand-test", principal: servicePrincipal("temi-plan-integration") };
 const jobId = `temi-plan-${Date.now()}`;
 const strategyDigest = "a".repeat(64);
+const snapshot = {
+  snapshotId: `planning-${jobId}-v1`, asOf: "2026-08-27T00:00:00Z",
+  horizonStartAt: "2026-08-31T00:00:00Z", horizonEndAt: "2026-09-28T00:00:00Z", timezone: "UTC",
+  channelCapabilities: [{ channel: "x", formats: ["thread"] }], existingCommitments: [],
+  productionCapacity: { maxItems: 8, maxItemsPerWeek: 2 }, cadenceConstraints: { minimumHoursBetweenItems: 24, maxItemsPerChannelPerWeek: 2 },
+  postingWindowObservations: [], assetReadiness: [], blockedDependencies: [], calendarProjection: [],
+  provenanceIds: ["policy:editorial-planning-v1"],
+};
+const snapshotDigest = editorialPlanningSnapshotDigest(snapshot);
 const item = {
   id: "item-1", briefId: "brief-1", campaignTheme: "Proof", contentPillar: "Outcomes", objective: "Earn consideration",
   audienceId: "founders", funnelStage: "consideration" as const, intendedConversion: "Request demo", ctaIntent: "See workflow", kpi: "Qualified demos",
@@ -21,6 +30,7 @@ const item = {
 };
 const plan: EditorialPlan = {
   planId: "plan-1", version: 1, approvedStrategyDigest: strategyDigest,
+  planningSnapshotId: snapshot.snapshotId, planningSnapshotDigest: snapshotDigest,
   horizonStartAt: "2026-08-31T00:00:00Z", horizonEndAt: "2026-09-28T00:00:00Z", timezone: "UTC",
   summary: "Proof campaign", sequencingRationale: "Proof before education", cadenceRationale: "One item per week",
   assumptions: ["Capacity remains available"], confidence: "high", items: [item], selectedNextItemId: item.id,
@@ -35,6 +45,7 @@ describe.skipIf(!emulator)("Temi editorial plan Firestore boundary", () => {
       createdAt: "2026-08-27T00:00:00Z", updatedAt: "2026-08-27T00:00:00Z", status: "running", stage: "plan",
       config: { platforms: ["x"] }, contentStrategy: strategy, strategyDigest, strategyRevision: 1,
       strategyApprovalState: "approved", strategyApproval: { decision: "approved", payloadDigest: strategyDigest, revision: 1, actorSubjectId: "operator-test", decidedAt: "2026-08-27T00:00:00Z", expiresAt: "2026-08-28T00:00:00Z" },
+      editorialPlanningSnapshot: snapshot, editorialPlanningSnapshotDigest: snapshotDigest,
     });
 
     const accepted = await runWithTenant(scope, () => acceptEditorialPlan(jobId, plan, 1));

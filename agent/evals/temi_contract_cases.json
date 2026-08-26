@@ -3,6 +3,10 @@
   "description": "Source-neutral deterministic Temi validator cases; no real customer or performance data.",
   "cases": [
     {"id": "coherent-plan", "expected": "pass", "mutation": "none"},
+    {"id": "missing-skill-trace", "expected": "invalid_planning_trace", "mutation": "omit the actual skill and tool trace"},
+    {"id": "unapproved-skill-resource", "expected": "invalid_planning_trace", "mutation": "load a planning resource outside the allow-list"},
+    {"id": "duplicate-skill-resource", "expected": "invalid_planning_trace", "mutation": "load the same planning reference twice"},
+    {"id": "cross-request-snapshot-read", "expected": "invalid_planning_trace", "mutation": "read a planning snapshot ID from another request"},
     {"id": "missing-evidence", "expected": "missing_evidence", "mutation": "clear selected item evidenceRefs"},
     {"id": "invented-reference", "expected": "invented_reference", "mutation": "replace evidenceRefs with an unknown ID"},
     {"id": "authority-overreach", "expected": "authority_overreach", "mutation": "claim approval and publication"},

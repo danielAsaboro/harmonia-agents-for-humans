@@ -24,6 +24,10 @@ export function editorialPlanDigest(plan: unknown): string {
   return createHash("sha256").update(canonicalBytes(plan), "utf8").digest("hex");
 }
 
+export function editorialPlanningSnapshotDigest(snapshot: unknown): string {
+  return createHash("sha256").update(canonicalBytes(snapshot), "utf8").digest("hex");
+}
+
 export function editorialPlanEvidenceLineage(plan: EditorialPlan): string[] {
   return [...new Set(plan.items.flatMap((item) => item.evidenceRefs))].sort();
 }
@@ -103,6 +107,8 @@ export function assertEditorialPlanSubmission(
     strategyApproval?: { decision: string; payloadDigest: string; revision: number };
     editorialPlanRevision?: number;
     editorialPlanHistory?: Record<string, unknown>;
+    editorialPlanningSnapshot?: import("./types").EditorialPlanningSnapshot;
+    editorialPlanningSnapshotDigest?: string;
   },
   plan: EditorialPlan,
   revision: number,
@@ -112,6 +118,9 @@ export function assertEditorialPlanSubmission(
   if (revision !== expectedRevision || plan.version !== revision) throw new Error("stale editorial plan revision");
   if (!job.contentStrategy?.strategyId || job.contentStrategy.version !== job.strategyRevision) throw new Error("persisted strategy identity required");
   if (!job.strategyDigest || plan.approvedStrategyDigest !== job.strategyDigest) throw new Error("editorial plan strategy digest mismatch");
+  if (!job.editorialPlanningSnapshot || !job.editorialPlanningSnapshotDigest) throw new Error("persisted editorial planning snapshot required");
+  if (plan.planningSnapshotId !== job.editorialPlanningSnapshot.snapshotId) throw new Error("editorial plan planning snapshot mismatch");
+  if (plan.planningSnapshotDigest !== job.editorialPlanningSnapshotDigest || editorialPlanningSnapshotDigest(job.editorialPlanningSnapshot) !== job.editorialPlanningSnapshotDigest) throw new Error("editorial plan planning snapshot digest mismatch");
   const approval = job.strategyApproval;
   if (job.strategyApprovalState !== "approved" || approval?.decision !== "approved") throw new Error("approved strategy required for editorial planning");
   if (approval.payloadDigest !== job.strategyDigest || approval.revision !== job.strategyRevision) throw new Error("editorial plan strategy approval binding mismatch");

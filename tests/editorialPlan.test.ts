@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialDraftCompletionPatch, editorialPlanDigest, editorialPlanEvidenceLineage, isMatchingCompletedProduction } from "@/lib/editorialPlan";
+import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialDraftCompletionPatch, editorialPlanDigest, editorialPlanEvidenceLineage, editorialPlanningSnapshotDigest, isMatchingCompletedProduction } from "@/lib/editorialPlan";
+
+const snapshot = {
+  snapshotId: "planning-job-1-v1", asOf: "2026-08-30T00:00:00Z",
+  horizonStartAt: "2026-08-31T00:00:00Z", horizonEndAt: "2026-09-28T00:00:00Z", timezone: "UTC",
+  channelCapabilities: [{ channel: "x", formats: ["text_post"] }], existingCommitments: [],
+  productionCapacity: { maxItems: 8, maxItemsPerWeek: 2 }, cadenceConstraints: { minimumHoursBetweenItems: 24, maxItemsPerChannelPerWeek: 2 },
+  postingWindowObservations: [], assetReadiness: [], blockedDependencies: [], calendarProjection: [],
+  provenanceIds: ["policy:editorial-planning-v1"],
+};
+const snapshotDigest = editorialPlanningSnapshotDigest(snapshot);
 
 const item = {
   id: "item-1", briefId: "brief-1", campaignTheme: "Proof", contentPillar: "Operations",
@@ -14,6 +24,7 @@ const item = {
 
 const plan = {
   planId: "plan-job-1-v1", version: 1, approvedStrategyDigest: "a".repeat(64),
+  planningSnapshotId: snapshot.snapshotId, planningSnapshotDigest: snapshotDigest,
   horizonStartAt: "2026-08-31T00:00:00Z", horizonEndAt: "2026-09-28T00:00:00Z", timezone: "UTC",
   summary: "Proof campaign.", sequencingRationale: "Proof first.", cadenceRationale: "One item.",
   assumptions: [], confidence: "high" as const, items: [item], selectedNextItemId: "item-1",
@@ -24,6 +35,7 @@ const job = {
   contentStrategy: { strategyId: "strategy-job-1-v1", version: 1 },
   strategyApprovalState: "approved", strategyApproval: { decision: "approved", payloadDigest: "a".repeat(64), revision: 1 },
   editorialPlanHistory: undefined,
+  editorialPlanningSnapshot: snapshot, editorialPlanningSnapshotDigest: snapshotDigest,
 };
 
 describe("editorial plan persistence boundary", () => {

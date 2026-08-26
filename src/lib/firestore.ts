@@ -28,7 +28,8 @@ import { parseBudgetConfig } from "./config";
 import { actionPayloadDigest, newId } from "./idempotency";
 import type { ApprovalActor } from "./decisions";
 import { applyStrategyDecision, assertStrategyProposalRevision, validatePersistedStrategy, validateStrategySearchGrounding, type StrategyDecisionInput } from "./strategyApproval";
-import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialDraftCompletionPatch, editorialPlanDigest, editorialPlanEvidenceLineage, isMatchingCompletedProduction } from "./editorialPlan";
+import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialDraftCompletionPatch, editorialPlanDigest, editorialPlanEvidenceLineage, editorialPlanningSnapshotDigest, isMatchingCompletedProduction } from "./editorialPlan";
+import { buildEditorialPlanningSnapshot } from "./editorialPlanning";
 import {
   assertResourceWorkspace,
   currentTenant,
@@ -316,6 +317,44 @@ export async function listContentItems(): Promise<import("./types").ContentItem[
     .limit(200)
     .get();
   return snaps.docs.map((d) => d.data() as import("./types").ContentItem);
+}
+
+export async function getOrCreateEditorialPlanningSnapshot(jobId: string) {
+  const job = await getJob(jobId);
+  const revision = job.editorialPlanRevision ?? 1;
+  const expectedId = `planning-${jobId}-v${revision}`;
+  if (job.editorialPlanningSnapshot?.snapshotId === expectedId && job.editorialPlanningSnapshotDigest) {
+    if (editorialPlanningSnapshotDigest(job.editorialPlanningSnapshot) !== job.editorialPlanningSnapshotDigest) {
+      throw new Error("persisted editorial planning snapshot digest mismatch");
+    }
+    return { snapshot: job.editorialPlanningSnapshot, digest: job.editorialPlanningSnapshotDigest };
+  }
+  const candidate = buildEditorialPlanningSnapshot(job, await listContentItems());
+  const digest = editorialPlanningSnapshotDigest(candidate);
+  return db().runTransaction(async (tx) => {
+    const ref = jobRef(jobId);
+    const snap = await tx.get(ref);
+    const current = requireJobDoc(snap);
+    if ((current.editorialPlanRevision ?? 1) !== revision || current.strategyDigest !== job.strategyDigest) {
+      throw new Error("editorial planning authority changed while snapshot was assembled");
+    }
+    if (current.editorialPlanningSnapshot?.snapshotId === expectedId && current.editorialPlanningSnapshotDigest) {
+      if (editorialPlanningSnapshotDigest(current.editorialPlanningSnapshot) !== current.editorialPlanningSnapshotDigest) {
+        throw new Error("persisted editorial planning snapshot digest mismatch");
+      }
+      return { snapshot: current.editorialPlanningSnapshot, digest: current.editorialPlanningSnapshotDigest };
+    }
+    if (current.stage !== "plan") throw new Error("job is not in editorial planning stage");
+    tx.update(ref, {
+      editorialPlanningSnapshot: candidate,
+      editorialPlanningSnapshotDigest: digest,
+      [`editorialPlanningSnapshotHistory.v${revision}`]: {
+        snapshot: candidate, digest, revision, capturedAt: candidate.asOf,
+      },
+      updatedAt: new Date().toISOString(),
+    });
+    return { snapshot: candidate, digest };
+  });
 }
 
 // ---------- notifications ----------

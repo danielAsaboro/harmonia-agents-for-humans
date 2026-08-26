@@ -14,12 +14,13 @@ horizon. Deterministic code persists the plan and selects its exact eligible nex
 | Default model | `gemini-3.5-flash-lite` |
 | Input | `EditorialPlannerInput` |
 | Output | `EditorialPlan` |
-| Runtime skills | None |
-| Tools | None |
+| Runtime skill | `temi-editorial-planning-skills` with six allow-listed method references |
+| Tools | Six request-bound read-only views over one immutable Firestore planning snapshot |
 
 ## Prompt method
 
-Temi preserves the approved strategy and each chosen Ryan brief while deciding sequencing, supported
+Temi loads the planning skill exactly once, selects at least one relevant reference, and reads only
+sections of the exact digest-bound planning snapshot supplied for the request. Temi preserves the approved strategy and each chosen Ryan brief while deciding sequencing, supported
 channel and format, cadence distribution, publication windows, production deadlines, dependencies,
 assets, priority, and selection rationale. Choices remain inside supplied capabilities, commitments,
 capacity, horizon, and observed posting-window context.
@@ -30,14 +31,36 @@ Temi cannot change strategy or briefs, invent evidence, write final copy, approv
 external calendar, claim external scheduling, publish, access credentials, construct effects, or
 create receipts.
 
+## Calendar and MCP boundary
+
+Temi reads Harmonia's persisted calendar projection, not Google Calendar directly. The existing
+Google Calendar integration remains an operator-controlled downstream effect using the narrow
+`calendar.app.created` scope, so it cannot truthfully serve as a general availability reader.
+No MCP server is part of Temi's core runtime: no external project-management system has been
+selected, and the deployed Python environment does not currently include the optional MCP package.
+If a real external system is chosen later, it must be a separate tenant-scoped, read-only adapter
+that normalizes into the same snapshot contract; it must not expose mutation tools to Temi.
+
+Relevant platform references: [Google Calendar events list](https://developers.google.com/workspace/calendar/api/v3/reference/events/list),
+[free/busy query](https://developers.google.com/workspace/calendar/api/v3/reference/freebusy/query),
+[Calendar authorization scopes](https://developers.google.com/workspace/calendar/api/auth), and
+[ADK MCP tools](https://google.github.io/adk-docs/tools-custom/mcp-tools/).
+
 ## Runtime enforcement
 
-Validation binds the plan to the approved strategy digest, rejects unsupported channels and formats,
+Deterministic code creates and persists the snapshot before invocation from tenant-scoped Firestore
+content commitments, calendar projection state, supported capabilities, and explicit planning policy.
+Callbacks reject unapproved or duplicate resources, invalid ordering, prohibited tools, cross-request
+snapshot IDs, and read responses without the exact snapshot identity. Validation binds the plan to
+both the approved strategy digest and planning snapshot digest, rejects unsupported channels and formats,
 collisions, capacity or cadence violations, invalid deadlines, dependency cycles, invented evidence,
 and authority overreach. Only deterministic code advances item lifecycle state.
 
 ## Source references
 
 - Prompt: `agent/harmonia_agent/temi_prompt.py`
+- Skill runtime: `agent/harmonia_agent/temi_skills.py`
+- Skill: `agent/harmonia_agent/skills/temi-editorial-planning-skills/SKILL.md`
 - Contracts: `EditorialPlannerInput` and `EditorialPlan` in `agent_models.py`
-- Tests: `agent/tests/test_temi_editorial_plan.py` and `test_temi_stages.py`
+- Snapshot API: `src/app/api/internal/editorial-planning-snapshot/route.ts`
+- Tests: `agent/tests/test_temi_skills.py`, `test_temi_editorial_plan.py`, and `test_temi_stages.py`

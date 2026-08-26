@@ -36,7 +36,7 @@ flowchart LR
 | Harmonia | exact specialist routing | typed invocation state | answer the specialist task, approve, publish |
 | Nimi | source evidence analysis: exact moments and qualified source/context/performance/memory angles | typed transcript/frame evidence, verified performance, eligible Memory Bank facts, one bounded method skill, and optional request-bound grounded context | use skill prose as evidence, invent evidence or trends, define strategy, write final copy, approve, schedule, publish, or treat memory/search as authority |
 | Ryan | agentic strategy and source-grounded content briefs | typed Nimi analysis, company/campaign context, verified performance, eligible Memory Bank facts | write final copy, mutate calendars, approve, publish |
-| Temi | agentic editorial operationalization: sequencing, cadence, supported channels/formats, windows, deadlines, dependencies, and priorities | exact human-approved Ryan strategy, Nimi evidence, capabilities, commitments, capacity, and observed posting windows | invent strategy/evidence, write final copy, use tools, approve, mutate external calendars, schedule externally, publish |
+| Temi | agentic editorial operationalization: sequencing, cadence, supported channels/formats, windows, deadlines, dependencies, and priorities | exact human-approved Ryan strategy, Nimi evidence, one immutable Firestore planning snapshot, local method skill, and request-bound read views | invent strategy/evidence, search, read outside the snapshot, write final copy, approve, mutate external calendars, schedule externally, publish |
 | Noni | platform-native writing and revision | one selected Temi item, its exact Ryan brief, referenced Nimi evidence, local writing guidance, verified prior publications, and brief-scoped public sources | redefine strategy, search trend feeds, access Memory Bank, inspect the rest of the plan, create facts, approve, publish |
 | Maya | reference-only interface composition | exact typed job/entity catalog; deterministic host hydration from Firestore | invent IDs or state, emit lifecycle placeholders, expose payloads, approve, publish, verify, or mutate workflow |
 | Dara | complete seven-dimension assessment and bounded correction issues | exact Noni draft, immutable production input, and allow-listed editing-method guidance | cite skill prose as evidence, author workflow metadata, rewrite copy, replace evidence, request a third pass, or create authority |
@@ -78,6 +78,12 @@ evidence, a brand constraint, or authority.
 
 Noni loads exactly one `noni-writing-skills` skill and at least one approved writing reference before
 drafting.
+
+Temi loads exactly one `temi-editorial-planning-skills` skill and at least one of six allow-listed
+planning references. Its separate read-only tools expose commitments, capacity, asset readiness,
+verified posting-window observations, calendar projection state, and blocked dependencies from the
+exact immutable planning snapshot. The trace must load references before data reads and every read
+must match the request's snapshot ID. Skill prose is methodology and never evidence.
 
 ## Runtime research tools
 

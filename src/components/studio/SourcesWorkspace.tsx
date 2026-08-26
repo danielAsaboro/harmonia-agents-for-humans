@@ -52,6 +52,11 @@ function EditorialPlanSection({ job }: { job: JobFull }) {
       </ol>
       {plan.assumptions.length ? <div className="mt-4 border-t border-black/10 pt-3"><p className="text-[9px] font-bold uppercase text-black/40">Assumptions</p><ul className="mt-1 text-[10px] text-black/60">{plan.assumptions.map((assumption) => <li key={assumption}>{assumption}</li>)}</ul></div> : null}
       {job.editorialPlanEvidenceLineage?.length ? <code className="mt-3 block text-[9px] text-black/40">Plan provenance: {job.editorialPlanEvidenceLineage.join(" · ")}</code> : null}
+      {job.editorialPlanningSnapshot ? <details className="mt-3 border-t border-black/10 pt-3 text-[10px] text-black/55">
+        <summary className="cursor-pointer font-bold uppercase">Planning snapshot · {plan.planningSnapshotId}</summary>
+        <p className="mt-2">Captured {planDateTime(job.editorialPlanningSnapshot.asOf, job.editorialPlanningSnapshot.timezone)} · {job.editorialPlanningSnapshot.existingCommitments.length} commitments · {job.editorialPlanningSnapshot.calendarProjection.length} calendar projections</p>
+        <code className="mt-1 block text-[9px]">Snapshot provenance: {job.editorialPlanningSnapshot.provenanceIds.join(" · ")}</code>
+      </details> : null}
     </section>
   );
 }

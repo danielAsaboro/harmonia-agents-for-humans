@@ -89,6 +89,7 @@ def test_editorial_plan_digest_is_canonical_and_matches_typescript():
 def test_editorial_plan_digest_matches_typescript_json_number_semantics():
     boundary = {
         "planId": "p", "version": 1, "approvedStrategyDigest": "a" * 64,
+        "planningSnapshotId": "planning-j-v1", "planningSnapshotDigest": "d" * 64,
         "horizonStartAt": "2026-08-31T00:00:00Z", "horizonEndAt": "2026-09-28T00:00:00Z", "timezone": "UTC",
         "summary": "s", "sequencingRationale": "s", "cadenceRationale": "c", "assumptions": [], "confidence": "high",
         "items": [{
@@ -115,6 +116,18 @@ def test_plan_runs_temi_and_persists_complete_plan_before_any_draft(monkeypatch)
         return EditorialPlan.model_validate(plan())
 
     monkeypatch.setattr(stages, "get_job", lambda _id: approved_job())
+    monkeypatch.setattr(stages, "get_editorial_planning_snapshot", lambda _id, **_kwargs: {
+        "snapshot": {
+            "snapshotId": "planning-job-1-v1", "asOf": "2026-08-30T00:00:00Z",
+            "horizonStartAt": "2026-08-31T00:00:00Z", "horizonEndAt": "2026-09-28T00:00:00Z",
+            "timezone": "UTC", "channelCapabilities": [{"channel": "x", "formats": ["text_post"]}],
+            "existingCommitments": [], "productionCapacity": {"maxItems": 8, "maxItemsPerWeek": 2},
+            "cadenceConstraints": {"minimumHoursBetweenItems": 24, "maxItemsPerChannelPerWeek": 2},
+            "postingWindowObservations": [], "assetReadiness": [], "blockedDependencies": [],
+            "calendarProjection": [], "provenanceIds": ["policy:editorial-planning-v1"],
+        },
+        "digest": "d" * 64,
+    })
     monkeypatch.setattr(stages, "plan_with_team", fake_plan)
     monkeypatch.setattr(stages, "draft_with_team", lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("Noni ran before plan persistence")))
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
@@ -124,6 +137,8 @@ def test_plan_runs_temi_and_persists_complete_plan_before_any_draft(monkeypatch)
     request, invocation = calls[0]
     assert request.strategyDigest == "a" * 64
     assert request.strategyApproval.payloadDigest == request.strategyDigest
+    assert request.planningSnapshot.snapshotId == "planning-job-1-v1"
+    assert request.planningSnapshotDigest == "d" * 64
     assert invocation.stage == "plan"
     assert posts == [("/api/internal/editorial-plan", {
         "jobId": "job-1", "stage": "plan", "revision": 1,
@@ -138,6 +153,17 @@ def test_planning_failure_prevents_persistence_and_draft_dispatch(monkeypatch):
         raise RuntimeError("planning failed")
 
     monkeypatch.setattr(stages, "get_job", lambda _id: approved_job())
+    monkeypatch.setattr(stages, "get_editorial_planning_snapshot", lambda _id: {
+        "snapshot": {
+            "snapshotId": "planning-job-1-v1", "asOf": "2026-08-30T00:00:00Z",
+            "horizonStartAt": "2026-08-31T00:00:00Z", "horizonEndAt": "2026-09-28T00:00:00Z",
+            "timezone": "UTC", "channelCapabilities": [{"channel": "x", "formats": ["text_post"]}],
+            "existingCommitments": [], "productionCapacity": {"maxItems": 8, "maxItemsPerWeek": 2},
+            "cadenceConstraints": {"minimumHoursBetweenItems": 24, "maxItemsPerChannelPerWeek": 2},
+            "postingWindowObservations": [], "assetReadiness": [], "blockedDependencies": [],
+            "calendarProjection": [], "provenanceIds": ["policy:editorial-planning-v1"],
+        }, "digest": "d" * 64,
+    })
     monkeypatch.setattr(stages, "plan_with_team", fail_plan)
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
 

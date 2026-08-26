@@ -81,6 +81,14 @@ from .nova_liaison import (
     validate_liaison_answer,
 )
 from .dara_prompt import DARA_EDITOR_INSTRUCTION
+from .dara_skills import (
+    DARA_SKILL_TRACE_KEY,
+    build_dara_editing_skillset,
+    guard_dara_skill_tool,
+    record_dara_skill_tool,
+    reset_dara_skill_trace,
+    validate_dara_skill_trace,
+)
 from .telemetry import current_trace_id, safe_attributes, tracer
 from .activity_models import AgentActivityRecord
 from .activity_projection import invocation_activity, tool_activity
@@ -355,8 +363,11 @@ def build_agent_team(
         input_schema=EditorialReviewInput,
         output_schema=EditorialAssessment,
         output_key="editorial_assessment",
-        tools=[],
+        tools=[build_dara_editing_skillset()],
         mode="single_turn",
+        before_agent_callback=reset_dara_skill_trace,
+        before_tool_callback=guard_dara_skill_tool,
+        after_tool_callback=record_dara_skill_tool,
     )
     planner = Agent(
         model=resolved.planner,
@@ -1205,6 +1216,10 @@ _DARA_REPLACEMENT_OR_AUTHORITY = re.compile(
     r"effect\s+payload|execute(?:d|\s+this)?)\b",
     re.IGNORECASE,
 )
+_DARA_VAGUE_INSTRUCTION = re.compile(
+    r"^(?:make it clearer|improve this|fix the issue|correct the identified defect)\.?$",
+    re.IGNORECASE,
+)
 
 
 def validate_editorial_assessment(
@@ -1259,6 +1274,16 @@ def validate_editorial_assessment(
             raise AgentProtocolError(
                 "Dara issue instruction contains replacement copy, alternatives, or authority overreach"
             )
+        if _DARA_VAGUE_INSTRUCTION.fullmatch(issue.instruction.strip()):
+            raise AgentProtocolError(
+                "Dara issue instruction requires an actionable correction outcome"
+            )
+        if issue.category == "grounding" and draft.claims and not issue.evidenceRefs:
+            raise AgentProtocolError("Dara grounding issue must cite supplied evidence")
+        if issue.category == "brand_voice" and constraints and not issue.constraintRefs:
+            raise AgentProtocolError("Dara brand voice issue must cite supplied constraints")
+        if issue.category == "safety" and constraints and not issue.constraintRefs:
+            raise AgentProtocolError("Dara safety issue must cite supplied constraints")
     if input.passType == "original" and assessment.resolvedIssueIds:
         raise AgentProtocolError("Dara original assessment cannot resolve prior issues")
     if input.passType == "revision":
@@ -1553,6 +1578,13 @@ def _validate_run_output_unwrapped(
         state["_noni_research_evidence"] = research_evidence
         return
     if specialist == "dara_editor":
+        trace = state.get(DARA_SKILL_TRACE_KEY)
+        if not isinstance(trace, list):
+            raise AgentProtocolError("Dara returned no actual editing-skill trace")
+        try:
+            validate_dara_skill_trace(trace)
+        except ValueError as exc:
+            raise AgentProtocolError(f"invalid Dara editing-skill trace: {exc}") from exc
         review_input = EditorialReviewInput.model_validate(payload)
         assessment = _validated_state(
             state, "editorial_assessment", EditorialAssessment,

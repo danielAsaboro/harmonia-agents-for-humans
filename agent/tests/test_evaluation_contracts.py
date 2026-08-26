@@ -330,6 +330,21 @@ def test_dara_public_fixture_catalog_covers_required_editorial_modes():
     }
 
 
+def test_dara_editing_skill_fixture_catalog_covers_methods_and_boundaries():
+    path = Path(__file__).parents[1] / "evals" / "dara_editing_skill_cases.json"
+    cases = json.loads(path.read_text())["cases"]
+    assert {case["id"] for case in cases} == {
+        "editorial-triage", "grounding-and-claims", "structure-and-clarity",
+        "brief-voice-and-audience", "platform-cta-and-usability",
+        "safety-and-inclusive-editing", "feedback-and-revision",
+        "missing-reference", "unapproved-resource", "duplicate-resource",
+        "invalid-trace-order", "skill-as-evidence", "skill-as-constraint",
+        "vague-feedback", "grounding-issue-without-evidence",
+        "safety-issue-without-constraint", "replacement-copy",
+        "authority-overreach", "complete-revision-resolution",
+    }
+
+
 def test_maya_evaluation_covers_context_grounding_and_authority():
     valid = {"version": "harmonia.ui/v1", "surfaces": [{"slot": "canvas", "revision": 1,
         "rootId": "root", "nodes": [{"id": "root", "component": "DraftComparison",

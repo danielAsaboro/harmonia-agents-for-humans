@@ -94,6 +94,41 @@ def test_rejects_replacement_copy_alternatives_and_authority(instruction):
         _validate(payload)
 
 
+@pytest.mark.parametrize(("category", "evidence_refs", "constraint_refs", "message"), [
+    ("grounding", [], [], "grounding issue must cite"),
+    ("brand_voice", [], [], "brand voice issue must cite"),
+    ("safety", [], [], "safety issue must cite"),
+])
+def test_issues_require_dimension_specific_provenance(category, evidence_refs, constraint_refs, message):
+    payload = passing_assessment()
+    payload["verdict"] = "revise"
+    next(item for item in payload["checks"] if item["dimension"] == category)["status"] = "fail"
+    payload["issues"] = [{
+        "id": "issue-1", "category": category, "severity": "medium",
+        "fieldPath": "claims" if category in {"grounding", "safety"} else "text",
+        "instruction": "Identify the unsupported claim and align it to the supplied source qualification.",
+        "evidenceRefs": evidence_refs, "constraintRefs": constraint_refs,
+    }]
+    with pytest.raises(AgentProtocolError, match=message):
+        _validate(payload)
+
+
+@pytest.mark.parametrize("instruction", [
+    "Make it clearer.", "Improve this.", "Fix the issue.", "Correct the identified defect.",
+])
+def test_rejects_vague_revision_instructions(instruction):
+    payload = passing_assessment()
+    payload["verdict"] = "revise"
+    payload["checks"][-1]["status"] = "fail"
+    payload["issues"] = [{
+        "id": "issue-1", "category": "clarity", "severity": "medium",
+        "fieldPath": "text", "instruction": instruction,
+        "evidenceRefs": [], "constraintRefs": [],
+    }]
+    with pytest.raises(AgentProtocolError, match="actionable correction outcome"):
+        _validate(payload)
+
+
 def test_rejects_non_ascii_assessment_before_semantic_validation():
     payload = passing_assessment()
     payload["checks"][0]["rationale"] = "通过 grounding review."

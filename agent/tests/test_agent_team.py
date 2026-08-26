@@ -219,10 +219,21 @@ class ManagedRuntime:
                 ],
             }
         if kwargs["specialist"] == "dara_editor":
-            return {"editorial_assessment": {
-                "verdict": "accepted", "checks": editorial_checks(),
-                "issues": [], "resolvedIssueIds": [],
-            }}
+            return {
+                "editorial_assessment": {
+                    "verdict": "accepted", "checks": editorial_checks(),
+                    "issues": [], "resolvedIssueIds": [],
+                },
+                "dara_editing_skill_trace": [
+                    {"sequence": 1, "name": "load_skill", "args": {
+                        "skill_name": "dara-editing-skills",
+                    }},
+                    {"sequence": 2, "name": "load_skill_resource", "args": {
+                        "skill_name": "dara-editing-skills",
+                        "file_path": "references/editorial-triage.md",
+                    }},
+                ],
+            }
         raise AssertionError(kwargs["specialist"])
 
 
@@ -310,14 +321,14 @@ def test_noni_validated_state_retains_native_grounded_research_for_revalidation(
     )
 
 
-def test_dara_is_a_focused_tool_free_review_only_specialist():
+def test_dara_is_a_focused_skill_only_review_specialist():
     root = build_agent_team()
     dara = next(agent for agent in root.sub_agents if agent.name == "dara_editor")
 
     assert dara.output_schema is EditorialAssessment
     assert dara.output_key == "editorial_assessment"
     assert dara.mode == "single_turn"
-    assert dara.tools == []
+    assert len(dara.tools) == 1
 
 
 def test_team_assigns_the_configured_model_to_each_role():

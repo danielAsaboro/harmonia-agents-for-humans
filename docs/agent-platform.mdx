@@ -39,7 +39,7 @@ flowchart LR
 | Temi | agentic editorial operationalization: sequencing, cadence, supported channels/formats, windows, deadlines, dependencies, and priorities | exact human-approved Ryan strategy, Nimi evidence, capabilities, commitments, capacity, and observed posting windows | invent strategy/evidence, write final copy, use tools, approve, mutate external calendars, schedule externally, publish |
 | Noni | platform-native writing and revision | one selected Temi item, its exact Ryan brief, referenced Nimi evidence, local writing guidance, verified prior publications, and brief-scoped public sources | redefine strategy, search trend feeds, access Memory Bank, inspect the rest of the plan, create facts, approve, publish |
 | Maya | reference-only interface composition | exact typed job/entity catalog; deterministic host hydration from Firestore | invent IDs or state, emit lifecycle placeholders, expose payloads, approve, publish, verify, or mutate workflow |
-| Dara | complete seven-dimension assessment and bounded correction issues | exact Noni draft and immutable production input | author workflow metadata, rewrite copy, replace evidence, request a third pass, or create authority |
+| Dara | complete seven-dimension assessment and bounded correction issues | exact Noni draft, immutable production input, and allow-listed editing-method guidance | cite skill prose as evidence, author workflow metadata, rewrite copy, replace evidence, request a third pass, or create authority |
 | Maya | A2UI layout selection | typed entity references and UI context | emit executable UI or mutate records |
 | Nova | read-only operational answers | allow-listed tools and skills | write Firestore, retry jobs, approve, publish |
 
@@ -64,6 +64,14 @@ Every specialist invocation emits a strict metadata-only log, trace, and metric 
 The projection powers **Monitoring → Agent activity**. Native ADK OpenTelemetry signals continue to Cloud Logging, Cloud Monitoring, and Cloud Trace; the projection is a bounded operator view, not a replacement for those backends and never an authority source.
 
 ## Versioned ADK skills
+
+Dara loads exactly one `dara-editing-skills` skill and at least one approved editing reference before
+review. The seven references route editorial triage, grounding and claims, structure and clarity,
+brief/voice/audience fit, platform/CTA usability, safety and inclusion, and bounded feedback. Dara
+has no search, Memory Bank, workflow, approval, or effect tool. Runtime callbacks record the actual
+loader sequence and deterministic validation rejects missing, duplicate, out-of-order, or
+unapproved resources. The guidance can shape editorial judgment but cannot serve as factual
+evidence, a brand constraint, or authority.
 
 Noni loads exactly one `noni-writing-skills` skill and at least one approved writing reference before
 drafting. Skill activation then exposes exactly two additional reads:

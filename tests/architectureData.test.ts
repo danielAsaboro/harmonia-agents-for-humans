@@ -16,10 +16,11 @@ describe("Harmonia architecture dataset", () => {
     expect(byId("agent-nova").model?.name).toBe("Gemini 3.5 Flash");
   });
 
-  it("contains the eleven stages, six skills, and eight read-only data tools", () => {
+  it("contains the eleven stages, seven skills, and eight read-only data tools", () => {
     for (const id of ["ingest", "transcribe", "analyze", "strategize", "strategy-approval", "plan", "draft", "await-approval", "publish-render", "verify", "learn"]) expect(byId(`stage-${id}`)).toBeTruthy();
     for (const id of ["trend-scan", "signal-watch", "engagement-insights", "job-status", "posting-schedule"]) expect(byId(`skill-${id}`)).toBeTruthy();
     expect(byId("skill-noni-writing-skills")).toBeTruthy();
+    expect(byId("skill-dara-editing-skills")).toBeTruthy();
     for (const id of ["fetch-trend-signals", "search-trend-signals", "get-engagement-insights", "get-operator-feed", "get-job-status", "suggest-posting-windows", "search-verified-publications", "google-search-grounding"]) {
       expect(byId(`tool-${id}`).authorities).toEqual(["read"]);
     }
@@ -42,7 +43,8 @@ describe("Harmonia architecture dataset", () => {
       "Creates one grounded platform-native draft and at most one issue-bound revision from the selected item, exact Ryan brief, referenced Nimi evidence, and provenance-bound research.",
     );
     expect(byId("agent-dara").summary).toMatch(/all seven editorial checks.*at most one revision.*complete issue resolution/i);
-    expect(byId("agent-dara").promptResponsibility).toMatch(/no workflow metadata.*replacement copy.*effects/i);
+    expect(byId("agent-dara").skills).toEqual(["dara-editing-skills"]);
+    expect(byId("agent-dara").promptResponsibility).toMatch(/allow-listed editing method.*no workflow metadata.*replacement copy.*effects/i);
     expect(byId("firestore").summary).toMatch(/editorial plan.*item lifecycle/i);
     expect(architectureDefinition.edges).toContainEqual(expect.objectContaining({
       source: "stage-plan", target: "agent-temi", kind: "delegation",

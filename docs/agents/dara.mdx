@@ -14,12 +14,15 @@ candidate or returns bounded correction issues; Dara does not rewrite it.
 | Default model | `gemini-3.5-flash` |
 | Input | `EditorialReviewInput` |
 | Output | `EditorialAssessment` |
-| Runtime skills | None |
-| Tools | None |
+| Runtime skill | `dara-editing-skills` |
+| Tools | ADK filesystem skill and resource loaders only |
 
 ## Prompt method
 
-Dara returns exactly seven checks: grounding, brief alignment, brand voice, CTA, platform
+Dara loads `dara-editing-skills` exactly once and at least one relevant allow-listed editing
+reference before reviewing. Its seven focused references cover triage, grounding and claims,
+structure and clarity, brief/voice/audience fit, platform/CTA usability, safety and inclusion, and
+feedback/revision. Dara then returns exactly seven checks: grounding, brief alignment, brand voice, CTA, platform
 constraints, safety, and clarity. Each check has a pass/fail result, rationale, and only valid
 evidence or constraint references. Revision issues identify a permitted draft field and precise
 correction instruction without supplying replacement wording.
@@ -33,10 +36,15 @@ mutate workflow state.
 ## Runtime enforcement
 
 Deterministic code validates the assessment, assigns review identity, lineage and timestamp, and
-allows at most one Noni revision. A second revise outcome stops for operator attention.
+allows at most one Noni revision. It also validates the actual skill/resource trace, rejecting a
+missing, duplicate, out-of-order, or unapproved resource load. Skill guidance is method only: it
+cannot satisfy an evidence or constraint reference. A second revise outcome stops for operator
+attention.
 
 ## Source references
 
 - Prompt: `agent/harmonia_agent/dara_prompt.py`
+- Skill runtime: `agent/harmonia_agent/dara_skills.py`
+- Skill: `agent/harmonia_agent/skills/dara-editing-skills/SKILL.md`
 - Contracts: `EditorialReviewInput` and `EditorialAssessment` in `agent_models.py`
-- Tests: `agent/tests/test_dara_contracts.py`, `test_dara_validation.py`, and `test_noni_dara_loop.py`
+- Tests: `agent/tests/test_dara_skills.py`, `test_dara_contracts.py`, `test_dara_validation.py`, and `test_noni_dara_loop.py`

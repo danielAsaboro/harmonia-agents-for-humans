@@ -30,6 +30,17 @@ _PRIVATE_MARKERS = (
 _CREDENTIAL_MARKERS = (
     "gemini_api_key", "google_api_key", "authorization: bearer", "aiza",
 )
+_PUBLIC_PRODUCTION_CONTRACT_STRINGS = frozenset({
+    "plan-public-v1", "brief-1", "item-1", "m1", "x", "text_post",
+    "Public proof", "Source proof", "Explain the supplied synthetic proof",
+    "public-operators", "consideration", "request more information",
+    "invite a follow-up", "qualified replies", "planned", "high", "proof",
+    "bounded proof", "Use only supplied synthetic evidence",
+    "Lead with the only supplied proof.", "This is the only eligible item.",
+    "The supplied source contains bounded proof.", "Direct and evidence-led.",
+    "2026-09-01T12:00:00Z", "2026-09-01T16:00:00Z",
+    "2026-09-01T18:00:00Z", "a" * 64,
+})
 
 _PUBLIC_FIXTURES: dict[str, tuple[str, frozenset[str]]] = {
     "route-analyst": (
@@ -55,7 +66,7 @@ _PUBLIC_FIXTURES: dict[str, tuple[str, frozenset[str]]] = {
             "harmonia", "public-eval-user", "public-planner", "synthetic demo",
             "flo_content_engine", "harmonia_coordinator", "model", "user",
             "Reviewed synthetic draft", "d1", "x", "publish_x_post",
-            "analysis", "summary", "moments", "angles", "brand_context",
+            "summary", "moments", "angles",
             '{"actions":[{"type":"publish_x_post","text":"Reviewed synthetic draft"}]}',
             "harmonia_contract",
             '{"kind":"action_plan","reviewed":[{"id":"d1","platform":"x","text":"Reviewed synthetic draft"}]}',
@@ -147,14 +158,23 @@ def validate_eval_set_privacy(value: EvalSet | dict[str, Any]) -> None:
             "appName", "app_name", "userId", "user_id", "sessionId", "session_id",
             "state", "requested_specialist", "title", "channel", "transcript",
             "reviewed_drafts", "drafts", "id", "platform", "type", "actions",
-            "question", "brand_context", "analysis", "summary", "moments", "angles",
+            "question", "analysis", "summary", "moments", "angles",
             "agent_name",
             "rubrics", "rubricId", "rubricContent", "textProperty",
             "intermediateResponses", "intermediate_responses",
             "kind", "durationSec", "reviewed", "originals", "momentId",
             "startSec", "endSec", "hook", "quote",
+            "production_input", "planId", "strategyDigest", "editorialItem",
+            "brief", "briefId", "campaignTheme", "contentPillar", "objective",
+            "audienceId", "funnelStage", "intendedConversion", "ctaIntent",
+            "kpi", "format", "evidenceRefs", "publicationWindowStartAt",
+            "publicationWindowEndAt", "productionDeadlineAt", "priority",
+            "selectionScore", "dependencies", "productionStatus", "constraints",
+            "requiredAssets", "planningRationale", "selectionRationale",
+            "confidence", "keyMessage", "channelCandidates", "formatCandidates",
+            "referencedMoments", "referencedAngles", "brandContext",
         }
-        allowed = configured[1] | structural_keys
+        allowed = configured[1] | structural_keys | _PUBLIC_PRODUCTION_CONTRACT_STRINGS
         unexpected = sorted({item for item in _strings(case) if item not in allowed})
         if unexpected:
             raise EvaluationPrivacyError(

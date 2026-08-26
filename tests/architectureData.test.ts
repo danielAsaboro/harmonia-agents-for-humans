@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { architectureDefinition } from "../src/lib/architecture/data";
+import { buildArchitectureDetail } from "../src/components/architecture/detailModel";
 
 const byId = (id: string) => architectureDefinition.nodes.find((node) => node.id === id)!;
 
@@ -33,6 +34,7 @@ describe("Harmonia architecture dataset", () => {
     expect(byId("stage-plan").summary).toMatch(/persist.*select/i);
     expect(byId("agent-temi").summary).toMatch(/approved Ryan strategy/i);
     expect(byId("agent-temi").promptResponsibility).toMatch(/no tools.*final copy.*external scheduling.*effects/i);
+    expect(buildArchitectureDetail(byId("agent-temi")).authorityNote).toMatch(/editorial-plan proposal.*no external calendar authority/i);
     expect(byId("agent-noni").summary).toBe(
       "Creates and revises typed platform-native drafts from the selected item, exact Ryan brief, and referenced Nimi evidence.",
     );

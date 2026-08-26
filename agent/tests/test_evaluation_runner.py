@@ -17,6 +17,7 @@ from harmonia_agent.evaluation_runner import (
     validate_eval_set_privacy,
 )
 from harmonia_agent.evaluation_contracts import adk_contract_metric
+from harmonia_agent.agent_models import ProductionDraftInput
 
 
 def test_public_evalset_is_adk_pydantic_valid():
@@ -27,6 +28,20 @@ def test_public_evalset_is_adk_pydantic_valid():
         "route-analyst", "planner-no-authority", "liaison-read-only",
     }
     validate_eval_set_privacy(eval_set)
+
+
+def test_flo_public_cases_use_the_exact_selected_production_contract():
+    eval_set = load_eval_set(Path("evals/contracts.evalset.json"))
+    flo_cases = [
+        case for case in eval_set.eval_cases
+        if case.eval_id in {"planner-no-authority", "copywriter-references", "editor-preservation"}
+    ]
+    for case in flo_cases:
+        state = case.session_input.state
+        ProductionDraftInput.model_validate(state["production_input"])
+        assert not {"title", "analysis", "brand_context"}.intersection(state)
+        tool_args = case.conversation[0].intermediate_data.tool_uses[0].args
+        assert tool_args == state["production_input"]
 
 
 def test_adk_custom_metric_executes_grounding_contract():

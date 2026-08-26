@@ -12,7 +12,7 @@ from harmonia_agent.agents import (
     validate_editorial_assessment,
 )
 from tests.test_dara_contracts import passing_assessment
-from tests.test_noni_contracts import grounded_draft, original_input
+from tests.test_noni_contracts import grounded_draft, grounded_revision_draft, original_input, revision_input
 
 
 def _validate(payload: dict | None = None):
@@ -106,3 +106,29 @@ def test_original_assessment_cannot_claim_resolved_issues():
     payload["resolvedIssueIds"] = ["issue-1"]
     with pytest.raises(AgentProtocolError, match="original.*resolve"):
         _validate(payload)
+
+
+def test_accepted_revision_must_resolve_exactly_every_prior_issue():
+    payload = passing_assessment()
+    payload["resolvedIssueIds"] = ["issue-1"]
+    assert validate_editorial_assessment(
+        revision_input(), grounded_revision_draft(),
+        EditorialAssessment.model_validate(payload),
+    ).resolvedIssueIds == ["issue-1"]
+
+    payload["resolvedIssueIds"] = []
+    with pytest.raises(AgentProtocolError, match="accepted revision.*every prior issue"):
+        validate_editorial_assessment(
+            revision_input(), grounded_revision_draft(),
+            EditorialAssessment.model_validate(payload),
+        )
+
+
+def test_revision_assessment_cannot_invent_resolved_issue_ids():
+    payload = passing_assessment()
+    payload["resolvedIssueIds"] = ["invented"]
+    with pytest.raises(AgentProtocolError, match="unknown resolved issue"):
+        validate_editorial_assessment(
+            revision_input(), grounded_revision_draft(),
+            EditorialAssessment.model_validate(payload),
+        )

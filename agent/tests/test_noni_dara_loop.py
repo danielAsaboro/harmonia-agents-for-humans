@@ -17,20 +17,17 @@ from tests.test_noni_contracts import (
 )
 
 
-def accepted_review(draft: dict, *, review_id: str = "review-accepted") -> dict:
+def accepted_assessment(*, resolved: list[str] | None = None) -> dict:
     return {
-        "id": review_id,
-        "planId": draft["planId"],
-        "planDigest": draft["planDigest"],
-        "strategyDigest": draft["strategyDigest"],
-        "editorialItemId": draft["editorialItemId"],
-        "briefId": draft["briefId"],
-        "draftId": draft["id"],
-        "revision": draft["revision"],
         "verdict": "accepted",
-        "reviewedAt": "2026-08-27T10:05:00Z",
-        "checks": editorial_checks(), "issues": [], "resolvedIssueIds": [],
+        "checks": editorial_checks(), "issues": [],
+        "resolvedIssueIds": resolved or [],
     }
+
+
+def revise_assessment(review: dict | None = None) -> dict:
+    value = deepcopy(review or revise_review())
+    return {key: value[key] for key in ("verdict", "checks", "issues", "resolvedIssueIds")}
 
 
 def _accept_original():
@@ -44,7 +41,7 @@ def _accept_original():
     def invoke_dara(supplied, reviewed_draft):
         assert supplied.passType == "original"
         calls.append(("dara", reviewed_draft.revision))
-        return accepted_review(draft)
+        return accepted_assessment()
 
     return run_noni_dara_loop(original_input(), invoke_noni, invoke_dara), calls
 
@@ -65,26 +62,26 @@ def test_runs_one_requested_revision_then_accepts_the_exact_revision():
     original = grounded_draft()
     revision = grounded_revision_draft()
     first_review = revise_review()
+    first_assessment = revise_assessment(first_review)
 
     def invoke_noni(supplied):
         calls.append(("noni", supplied.passType))
         if supplied.passType == "original":
             return original
         assert supplied.priorDraft.model_dump(mode="json") == original
-        assert supplied.priorReview.model_dump(mode="json", exclude_none=True) == first_review
+        assert supplied.priorReview.issues[0].id == "issue-1"
         return revision
 
     def invoke_dara(_supplied, draft):
         calls.append(("dara", draft.revision))
-        return first_review if draft.revision == 1 else accepted_review(
-            revision, review_id="review-2",
-        )
+        return first_assessment if draft.revision == 1 else accepted_assessment(resolved=["issue-1"])
 
     result = run_noni_dara_loop(original_input(), invoke_noni, invoke_dara)
 
     assert result.originalDraft.id == "draft-1"
     assert result.revisionDraft is not None and result.revisionDraft.id == "draft-2"
-    assert [review.id for review in result.reviews] == ["review-1", "review-2"]
+    assert len({review.id for review in result.reviews}) == 2
+    assert result.reviews[1].resolvedIssueIds == ["issue-1"]
     assert result.acceptedDraft == result.revisionDraft
     assert calls == [
         ("noni", "original"), ("dara", 1),
@@ -97,9 +94,9 @@ def test_runs_one_requested_revision_then_accepts_the_exact_revision():
     ("draftId", "draft-invented"),
     ("revision", 2),
 ])
-def test_rejects_invalid_review_lineage_before_any_revision(field, value):
-    review = revise_review()
-    review[field] = value
+def test_rejects_model_authored_review_metadata_before_any_revision(field, value):
+    assessment = revise_assessment()
+    assessment[field] = value
     noni_calls = 0
 
     def invoke_noni(_supplied):
@@ -107,15 +104,15 @@ def test_rejects_invalid_review_lineage_before_any_revision(field, value):
         noni_calls += 1
         return grounded_draft()
 
-    with pytest.raises(AgentProtocolError, match="review.*lineage|exact draft"):
-        run_noni_dara_loop(original_input(), invoke_noni, lambda *_: review)
+    with pytest.raises(AgentProtocolError, match="invalid Dara review"):
+        run_noni_dara_loop(original_input(), invoke_noni, lambda *_: assessment)
 
     assert noni_calls == 1
 
 
 def test_rejects_invented_review_evidence_before_revision():
-    review = revise_review()
-    review["issues"][0]["evidenceRefs"] = ["evidence-invented"]
+    assessment = revise_assessment()
+    assessment["issues"][0]["evidenceRefs"] = ["evidence-invented"]
     noni_calls = 0
 
     def invoke_noni(_supplied):
@@ -124,18 +121,18 @@ def test_rejects_invented_review_evidence_before_revision():
         return grounded_draft()
 
     with pytest.raises(AgentProtocolError, match="unknown evidence"):
-        run_noni_dara_loop(original_input(), invoke_noni, lambda *_: review)
+        run_noni_dara_loop(original_input(), invoke_noni, lambda *_: assessment)
 
     assert noni_calls == 1
 
 
 def test_rejects_a_dara_replacement_copy_field():
-    review = accepted_review(grounded_draft())
-    review["replacementCopy"] = "Use this replacement instead."
+    assessment = accepted_assessment()
+    assessment["replacementCopy"] = "Use this replacement instead."
 
     with pytest.raises(AgentProtocolError, match="invalid Dara review"):
         run_noni_dara_loop(
-            original_input(), lambda _: grounded_draft(), lambda *_: review,
+            original_input(), lambda _: grounded_draft(), lambda *_: assessment,
         )
 
 
@@ -147,7 +144,7 @@ def test_rejects_a_revision_missing_issue_ids():
         run_noni_dara_loop(
             original_input(),
             lambda supplied: grounded_draft() if supplied.passType == "original" else revision,
-            lambda _supplied, draft: revise_review() if draft.revision == 1 else accepted_review(revision),
+            lambda _supplied, draft: revise_assessment() if draft.revision == 1 else accepted_assessment(resolved=["issue-1"]),
         )
 
 
@@ -165,7 +162,7 @@ def test_rejects_a_revision_that_ignores_one_required_issue():
                 if supplied.passType == "original"
                 else grounded_revision_draft()
             ),
-            lambda _supplied, draft: review if draft.revision == 1 else accepted_review(grounded_revision_draft()),
+            lambda _supplied, draft: revise_assessment(review) if draft.revision == 1 else accepted_assessment(resolved=["issue-1", "issue-2"]),
         )
 
 
@@ -181,10 +178,7 @@ def test_second_revise_fails_closed_without_a_third_noni_invocation():
     def invoke_dara(_supplied, draft):
         nonlocal dara_calls
         dara_calls += 1
-        review = revise_review()
-        if draft.revision == 2:
-            review.update(id="review-2", draftId="draft-2", revision=2)
-        return review
+        return revise_assessment()
 
     with pytest.raises(AgentProtocolError, match="second Dara revise verdict"):
         run_noni_dara_loop(original_input(), invoke_noni, invoke_dara)
@@ -195,7 +189,7 @@ def test_second_revise_fails_closed_without_a_third_noni_invocation():
 
 @pytest.mark.parametrize("issue_id", ["", "issue-1"])
 def test_rejects_empty_or_duplicate_review_issue_ids(issue_id):
-    review = revise_review()
+    review = revise_assessment()
     if issue_id:
         review["issues"].append(deepcopy(review["issues"][0]))
     else:
@@ -218,6 +212,6 @@ def test_rejects_non_ascii_input_before_the_first_noni_invocation():
         return grounded_draft()
 
     with pytest.raises(AgentProtocolError, match="ASCII-only"):
-        run_noni_dara_loop(supplied, invoke_noni, lambda *_: accepted_review(grounded_draft()))
+        run_noni_dara_loop(supplied, invoke_noni, lambda *_: accepted_assessment())
 
     assert calls == 0

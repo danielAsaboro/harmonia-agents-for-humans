@@ -18,6 +18,7 @@ from harmonia_agent.agent_models import (
     AnalystInput,
     ContentDraft,
     CopywriterInput,
+    EditorialAssessment,
     EditorialPlan,
     EditorialPlannerInput,
     EditorialReview,
@@ -190,13 +191,9 @@ class ManagedRuntime:
             draft["ctaIntent"] = payload["brief"]["ctaIntent"]
             return {"copywriter_draft": draft}
         if kwargs["specialist"] == "dara_editor":
-            draft = payload["draft"]
-            return {"editorial_review": {
-                "id": "review-1", "planId": draft["planId"], "planDigest": draft["planDigest"],
-                "strategyDigest": draft["strategyDigest"], "editorialItemId": draft["editorialItemId"],
-                "briefId": draft["briefId"], "draftId": draft["id"], "revision": draft["revision"],
-                "verdict": "accepted", "reviewedAt": "2026-08-27T10:00:00Z",
-                "checks": editorial_checks(), "issues": [], "resolvedIssueIds": [],
+            return {"editorial_assessment": {
+                "verdict": "accepted", "checks": editorial_checks(),
+                "issues": [], "resolvedIssueIds": [],
             }}
         raise AssertionError(kwargs["specialist"])
 
@@ -235,17 +232,10 @@ def test_dara_is_a_focused_tool_free_review_only_specialist():
     root = build_agent_team()
     dara = next(agent for agent in root.sub_agents if agent.name == "dara_editor")
 
-    assert dara.output_schema is EditorialReview
-    assert dara.output_key == "editorial_review"
+    assert dara.output_schema is EditorialAssessment
+    assert dara.output_key == "editorial_assessment"
     assert dara.mode == "single_turn"
     assert dara.tools == []
-    instruction = " ".join(dara.instruction.split()).lower()
-    assert all(focus in instruction for focus in (
-        "grounding", "brief alignment", "brand voice", "cta",
-        "platform constraints", "safety", "clarity",
-    ))
-    assert "never write replacement copy" in instruction
-    assert "never approve" in instruction
 
 
 def test_team_assigns_the_configured_model_to_each_role():

@@ -320,8 +320,8 @@ def build_agent_team(
         description="Returns a structured review of one exact Noni draft without rewriting it.",
         instruction=DARA_EDITOR_INSTRUCTION,
         input_schema=EditorialReviewInput,
-        output_schema=EditorialReview,
-        output_key="editorial_review",
+        output_schema=EditorialAssessment,
+        output_key="editorial_assessment",
         tools=[],
         mode="single_turn",
     )
@@ -1268,6 +1268,20 @@ def validate_editorial_assessment(
             )
     if input.passType == "original" and assessment.resolvedIssueIds:
         raise AgentProtocolError("Dara original assessment cannot resolve prior issues")
+    if input.passType == "revision":
+        if input.priorReview is None:
+            raise AgentProtocolError("Dara revision assessment requires the prior review")
+        prior_issue_ids = {issue.id for issue in input.priorReview.issues}
+        resolved = set(assessment.resolvedIssueIds)
+        unknown = resolved - prior_issue_ids
+        if unknown:
+            raise AgentProtocolError(
+                f"Dara revision assessment contains unknown resolved issue ids: {sorted(unknown)}"
+            )
+        if assessment.verdict == "accepted" and resolved != prior_issue_ids:
+            raise AgentProtocolError(
+                "Dara accepted revision must resolve exactly every prior issue"
+            )
     return assessment
 
 
@@ -1305,8 +1319,10 @@ def run_noni_dara_loop(
     input: CopywriterInput,
     invoke_noni: Callable[[CopywriterInput], ContentDraft | dict[str, object]],
     invoke_dara: Callable[
-        [CopywriterInput, ContentDraft], EditorialReview | dict[str, object]
+        [CopywriterInput, ContentDraft], EditorialAssessment | dict[str, object]
     ],
+    *,
+    reviewed_at: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> DraftWorkflowResult:
     """Run exactly one Noni draft and at most one Dara-requested revision."""
     try:
@@ -1323,12 +1339,17 @@ def run_noni_dara_loop(
         raise AgentProtocolError(f"invalid Noni draft: {exc}") from exc
     validate_content_draft(original_input, original)
     try:
-        first_review = EditorialReview.model_validate(
+        first_assessment = EditorialAssessment.model_validate(
             invoke_dara(original_input, original)
         )
     except ValidationError as exc:
         raise AgentProtocolError(f"invalid Dara review: {exc}") from exc
-    validate_editorial_review(original_input, original, first_review)
+    first_assessment = validate_editorial_assessment(
+        original_input, original, first_assessment,
+    )
+    first_review = materialize_editorial_review(
+        original_input, original, first_assessment, reviewed_at=reviewed_at(),
+    )
     if first_review.verdict == "accepted":
         return DraftWorkflowResult(
             originalDraft=original,
@@ -1354,12 +1375,17 @@ def run_noni_dara_loop(
         raise AgentProtocolError(f"invalid Noni draft: {exc}") from exc
     validate_content_draft(revision_input, revision)
     try:
-        final_review = EditorialReview.model_validate(
+        final_assessment = EditorialAssessment.model_validate(
             invoke_dara(revision_input, revision)
         )
     except ValidationError as exc:
         raise AgentProtocolError(f"invalid Dara review: {exc}") from exc
-    validate_editorial_review(revision_input, revision, final_review)
+    final_assessment = validate_editorial_assessment(
+        revision_input, revision, final_assessment,
+    )
+    final_review = materialize_editorial_review(
+        revision_input, revision, final_assessment, reviewed_at=reviewed_at(),
+    )
     if final_review.verdict != "accepted":
         raise AgentProtocolError(
             "second Dara revise verdict requires operator attention; no third Noni invocation"
@@ -1421,9 +1447,11 @@ def _validate_run_output(
         return
     if specialist == "dara_editor":
         review_input = EditorialReviewInput.model_validate(payload)
-        review = _validated_state(state, "editorial_review", EditorialReview)
-        validate_editorial_review(
-            review_input.copywriterInput, review_input.draft, review,
+        assessment = _validated_state(
+            state, "editorial_assessment", EditorialAssessment,
+        )
+        validate_editorial_assessment(
+            review_input.copywriterInput, review_input.draft, assessment,
         )
         return
     raise AgentProtocolError(f"unsupported specialist output: {specialist}")
@@ -1953,8 +1981,13 @@ async def draft_with_team(
             "operation_id": f"{invocation.operation_id}:dara:{pass_number}",
         }) if invocation else None
         state = await _run_coordinator("dara_editor", review_input, invocation=pass_invocation)
-        review = _validated_state(state, "editorial_review", EditorialReview)
-        return validate_editorial_review(writer_input, draft, review)
+        assessment = _validated_state(
+            state, "editorial_assessment", EditorialAssessment,
+        )
+        assessment = validate_editorial_assessment(writer_input, draft, assessment)
+        return materialize_editorial_review(
+            writer_input, draft, assessment, reviewed_at=datetime.now(timezone.utc),
+        )
 
     original = await noni(input, 1)
     first_review = await dara(input, original, 1)

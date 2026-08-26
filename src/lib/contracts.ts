@@ -230,7 +230,7 @@ const strictMomentSchema = z.object({
   id: z.string().min(1).max(100), title: z.string().min(1), startSec: z.number().nonnegative(), endSec: z.number().nonnegative(),
   hook: z.string().min(1), quote: z.string().min(1), visualHook: z.string().max(500).optional(),
   cropSuitability: z.enum(["poor", "fair", "good", "excellent"]).optional(), captionSafeRegion: z.string().max(200).optional(),
-  visualEvidenceIds: z.array(z.string().min(1)).max(12).default([]),
+  visualEvidenceIds: z.array(z.string().min(1).max(100)).max(12).default([]),
 }).strict();
 
 const strictAngleSchema = z.object({

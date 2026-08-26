@@ -333,8 +333,8 @@ class ContentBrief(StrictModel):
     intendedConversion: str = Field(min_length=1, max_length=300)
     kpi: str = Field(min_length=1, max_length=200)
     priority: int = Field(ge=1, le=5)
-    dependencies: list[str] = Field(default_factory=list, max_length=8)
-    constraints: list[str] = Field(default_factory=list, max_length=12)
+    dependencies: list[ConstraintText] = Field(default_factory=list, max_length=8)
+    constraints: list[ConstraintText] = Field(default_factory=list, max_length=12)
     evidenceRefs: list[str] = Field(min_length=1, max_length=12)
 
 

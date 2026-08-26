@@ -332,3 +332,27 @@ def test_nested_evidence_ids_are_bounded_to_100_characters(collection, index):
         rejected["brief"]["evidenceRefs"] = ["moment-1", "x" * 101]
     with pytest.raises(ValidationError):
         CopywriterInput.model_validate(rejected)
+
+
+def test_nested_moment_visual_evidence_ids_are_bounded_to_100_characters():
+    accepted = original_input()
+    accepted["referencedMoments"][0]["visualEvidenceIds"] = ["x" * 100]
+    assert CopywriterInput.model_validate(accepted)
+
+    rejected = deepcopy(accepted)
+    rejected["referencedMoments"][0]["visualEvidenceIds"] = ["x" * 101]
+    with pytest.raises(ValidationError):
+        CopywriterInput.model_validate(rejected)
+
+
+@pytest.mark.parametrize("field", ["dependencies", "constraints"])
+def test_nested_brief_text_items_are_nonblank_and_bounded_to_300_characters(field):
+    accepted = original_input()
+    accepted["brief"][field] = ["x" * 300]
+    assert CopywriterInput.model_validate(accepted)
+
+    for invalid in ("", "x" * 301):
+        rejected = original_input()
+        rejected["brief"][field] = [invalid]
+        with pytest.raises(ValidationError):
+            CopywriterInput.model_validate(rejected)

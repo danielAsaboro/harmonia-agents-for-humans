@@ -190,4 +190,29 @@ describe("Noni and Dara contracts", () => {
     }
     expect(copywriterInputSchema.safeParse(accepted).success).toBe(false);
   });
+
+  it("bounds nested moment visual evidence ids at 100 characters", () => {
+    const accepted = structuredClone(originalInput) as unknown as Record<string, unknown>;
+    (accepted.referencedMoments as Array<Record<string, unknown>>)[0].visualEvidenceIds = ["x".repeat(100)];
+    expect(copywriterInputSchema.safeParse(accepted).success).toBe(true);
+
+    const rejected = structuredClone(accepted) as Record<string, unknown>;
+    (rejected.referencedMoments as Array<Record<string, unknown>>)[0].visualEvidenceIds = ["x".repeat(101)];
+    expect(copywriterInputSchema.safeParse(rejected).success).toBe(false);
+  });
+
+  it.each(["dependencies", "constraints"])(
+    "requires nested brief %s items to be nonblank and at most 300 characters",
+    (field) => {
+      const accepted = structuredClone(originalInput) as unknown as Record<string, unknown>;
+      (accepted.brief as Record<string, unknown>)[field] = ["x".repeat(300)];
+      expect(copywriterInputSchema.safeParse(accepted).success).toBe(true);
+
+      for (const invalid of ["", "x".repeat(301)]) {
+        const rejected = structuredClone(originalInput) as unknown as Record<string, unknown>;
+        (rejected.brief as Record<string, unknown>)[field] = [invalid];
+        expect(copywriterInputSchema.safeParse(rejected).success).toBe(false);
+      }
+    },
+  );
 });

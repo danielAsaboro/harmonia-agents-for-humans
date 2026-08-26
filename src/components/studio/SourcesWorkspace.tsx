@@ -77,7 +77,12 @@ function ProductionTraceSection({ job }: { job: JobFull }) {
         <ol className="mt-2 space-y-2">{accepted.claims.map((claim) => <li key={`${claim.text}:${claim.evidenceRefs.join(":")}`} className="border-t border-black/10 pt-2 text-xs"><span>{claim.text}</span><code className="mt-1 block text-[9px] text-black/40">Evidence: {claim.evidenceRefs.join(" · ")}</code></li>)}</ol>
         <p className="mt-3 text-[10px] text-black/55">Applied constraints: {accepted.appliedConstraints.join(" · ")}</p>
         {accepted.assumptions.length ? <p className="mt-1 text-[10px] text-black/55">Assumptions: {accepted.assumptions.join(" · ")}</p> : null}
-        <ol className="mt-3 space-y-2">{trace.reviews.map((review) => <li key={review.id} className="border-t border-black/10 pt-2 text-[10px]"><b>Dara revision {review.revision}: {review.verdict}</b>{review.issues.map((issue) => <p key={issue.id} className="mt-1">{issue.category} · {issue.severity}: {issue.instruction} <code>{issue.evidenceRefs.join(" · ")}</code></p>)}</li>)}</ol>
+        <ol className="mt-3 space-y-3">{trace.reviews.map((review) => <li key={review.id} className="border-t border-black/10 pt-2 text-[10px]">
+          <div className="flex justify-between gap-2"><b>Dara revision {review.revision}: {review.verdict}</b><time dateTime={review.reviewedAt}>{new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(new Date(review.reviewedAt))} UTC</time></div>
+          <dl className="mt-2 grid gap-1">{review.checks.map((check) => <div key={check.dimension} className="grid grid-cols-[8rem_3rem_1fr] gap-2"><dt>{check.dimension}</dt><dd className={check.status === "pass" ? "text-emerald-700" : "text-red-700"}>{check.status}</dd><dd>{check.rationale}{check.evidenceRefs.length ? <code className="ml-1">Evidence: {check.evidenceRefs.join(" · ")}</code> : null}{check.constraintRefs.length ? <code className="ml-1">Constraints: {check.constraintRefs.join(" · ")}</code> : null}</dd></div>)}</dl>
+          {review.issues.map((issue) => <p key={issue.id} className="mt-1">{issue.category} · {issue.severity}: {issue.instruction} <code>{issue.evidenceRefs.join(" · ")}</code></p>)}
+          {review.resolvedIssueIds.length ? <p className="mt-1 text-emerald-700">Resolved: {review.resolvedIssueIds.join(" · ")}</p> : null}
+        </li>)}</ol>
         {job.productionTraceDigest ? <code className="mt-3 block text-[9px] text-black/40">Trace digest: {job.productionTraceDigest}</code> : null}
       </details>
     </section>

@@ -1,11 +1,11 @@
 import { draftsSubmissionSchema } from "@/lib/contracts";
 import {
   appendEvent,
+  claimSelectedEditorialItem,
   createContentItem,
   createNotification,
   getJob,
-  saveActions,
-  saveDrafts,
+  finalizeEditorialItemDraft,
   setStage,
   transitionStageWithOutbox,
 } from "@/lib/firestore";
@@ -18,6 +18,13 @@ import { materializeExecutableJobCommands } from "@/lib/jobEffectCommands";
 export async function POST(req: Request) {
   if (!isInternalAuthorized(req)) return unauthorized();
   return internalRoute(req, draftsSubmissionSchema, async (body) => {
+    if (body.operation === "claim") {
+      const claimed = await claimSelectedEditorialItem(body.jobId, {
+        editorialPlanId: body.editorialPlanId, editorialPlanDigest: body.editorialPlanDigest,
+        editorialItemId: body.editorialItemId, briefId: body.briefId,
+      });
+      return Response.json(claimed);
+    }
     const job = await getJob(body.jobId);
     if (job.stage !== "draft") {
       return Response.json({ error: `job stage is '${job.stage}'` }, { status: 409 });
@@ -27,8 +34,6 @@ export async function POST(req: Request) {
       ...d,
       ...validateDraftText(d.platform, d.text),
     }));
-    await saveDrafts(body.jobId, drafts);
-
     const withPolicy = applyPolicy(
       body.proposedActions.map((a) => ({ ...a, jobId: body.jobId })),
     );
@@ -37,7 +42,13 @@ export async function POST(req: Request) {
       const text = String((a.payload as { text?: unknown }).text ?? "");
       return validateDraftText("x", text).valid;
     });
-    await saveActions(body.jobId, actionable);
+    const lineage = {
+      editorialPlanId: body.editorialPlanId,
+      editorialPlanDigest: body.editorialPlanDigest,
+      editorialItemId: body.editorialItemId,
+      briefId: body.briefId,
+    };
+    await finalizeEditorialItemDraft(body.jobId, lineage, drafts, actionable);
 
     const needsApproval = actionable.filter((a) => a.requiresApproval);
     const autoRun = actionable.filter((a) => !a.requiresApproval);
@@ -52,6 +63,7 @@ export async function POST(req: Request) {
         id: `item-${a.id}`,
         jobId: body.jobId,
         draftId: drafts.find((d) => d.text === text)?.id,
+        ...lineage,
         text,
         platforms: ["x"],
         status: "draft",

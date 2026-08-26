@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertEditorialPlanSubmission, editorialPlanDigest, editorialPlanEvidenceLineage } from "@/lib/editorialPlan";
+import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialPlanDigest, editorialPlanEvidenceLineage } from "@/lib/editorialPlan";
 
 const item = {
   id: "item-1", briefId: "brief-1", campaignTheme: "Proof", contentPillar: "Operations",
@@ -70,5 +70,17 @@ describe("editorial plan persistence boundary", () => {
 
   it("records sorted unique evidence lineage", () => {
     expect(editorialPlanEvidenceLineage(plan)).toEqual(["context:campaign", "m1"]);
+  });
+});
+
+describe("selected production authority", () => {
+  it("requires the exact persisted plan, digest, item, brief, and lifecycle state", () => {
+    const authority = { editorialPlanId: plan.planId, editorialPlanDigest: editorialPlanDigest(plan), editorialItemId: item.id, briefId: item.briefId };
+    const productionJob = { stage: "draft", editorialPlan: plan, editorialPlanDigest: authority.editorialPlanDigest, selectedNextItemId: item.id,
+      editorialItemStates: { [item.id]: { status: "selected", updatedAt: "2026-08-30T00:00:00Z" } } };
+    expect(assertSelectedProductionAuthority(productionJob, authority, "selected").id).toBe(item.id);
+    expect(() => assertSelectedProductionAuthority({ ...productionJob, editorialPlanDigest: "b".repeat(64) }, authority, "selected")).toThrow("digest");
+    expect(() => assertSelectedProductionAuthority(productionJob, { ...authority, briefId: "other" }, "selected")).toThrow("brief");
+    expect(() => assertSelectedProductionAuthority({ ...productionJob, editorialItemStates: { [item.id]: { status: "planned", updatedAt: "x" } } }, authority, "selected")).toThrow("lifecycle");
   });
 });

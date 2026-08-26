@@ -28,7 +28,7 @@ import { parseBudgetConfig } from "./config";
 import { actionPayloadDigest, newId } from "./idempotency";
 import type { ApprovalActor } from "./decisions";
 import { applyStrategyDecision, assertStrategyProposalRevision, validatePersistedStrategy, type StrategyDecisionInput } from "./strategyApproval";
-import { assertEditorialPlanSubmission, editorialPlanDigest, editorialPlanEvidenceLineage } from "./editorialPlan";
+import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialPlanDigest, editorialPlanEvidenceLineage } from "./editorialPlan";
 import {
   assertResourceWorkspace,
   currentTenant,
@@ -987,6 +987,7 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
     editorialPlanEvidenceLineage: data.editorialPlanEvidenceLineage,
     selectedNextItemId: data.selectedNextItemId,
     editorialItemStates: data.editorialItemStates,
+    activeProductionLineage: data.activeProductionLineage,
     editorialPlanHistory: data.editorialPlanHistory,
     videoId: data.videoId,
     transcriptSegments: data.transcriptSegments ?? [],
@@ -1586,6 +1587,50 @@ export async function acceptEditorialPlan(
       state: "pending", createdAt: acceptedAt,
     } satisfies StageOutboxRecord);
     return { digest, evidenceLineage, selectedNextItemId: plan.selectedNextItemId, outboxId };
+  });
+}
+
+export async function claimSelectedEditorialItem(
+  jobId: string,
+  authority: { editorialPlanId: string; editorialPlanDigest: string; editorialItemId: string; briefId: string },
+) {
+  return db().runTransaction(async (tx) => {
+    const ref = jobRef(jobId);
+    const snap = await tx.get(ref);
+    const job = requireJobDoc(snap);
+    assertSelectedProductionAuthority(job, authority, "selected");
+    const updatedAt = new Date().toISOString();
+    tx.update(ref, {
+      [`editorialItemStates.${authority.editorialItemId}`]: { status: "drafting", updatedAt },
+      activeProductionLineage: authority,
+      updatedAt,
+    });
+    return { outcome: "execute" as const, ...authority };
+  });
+}
+
+export async function finalizeEditorialItemDraft(
+  jobId: string,
+  lineage: { editorialPlanId: string; editorialPlanDigest: string; editorialItemId: string; briefId: string },
+  drafts: PostDraft[],
+  actions: PlannedAction[],
+) {
+  return db().runTransaction(async (tx) => {
+    const ref = jobRef(jobId);
+    const snap = await tx.get(ref);
+    const job = requireJobDoc(snap);
+    const active = job.activeProductionLineage;
+    assertSelectedProductionAuthority(job, lineage, "drafting");
+    if (!active || active.editorialPlanId !== lineage.editorialPlanId || active.editorialPlanDigest !== lineage.editorialPlanDigest || active.editorialItemId !== lineage.editorialItemId || active.briefId !== lineage.briefId) throw new Error("production lineage mismatch");
+    const linkedDrafts = drafts.map((draft) => ({ ...draft, ...lineage }));
+    const linkedActions = actions.map((action) => ({ ...action, ...lineage }));
+    const updatedAt = new Date().toISOString();
+    tx.update(ref, {
+      drafts: linkedDrafts, actions: linkedActions,
+      [`editorialItemStates.${lineage.editorialItemId}`]: { status: "reviewed", updatedAt },
+      updatedAt,
+    });
+    return { drafts: linkedDrafts, actions: linkedActions };
   });
 }
 

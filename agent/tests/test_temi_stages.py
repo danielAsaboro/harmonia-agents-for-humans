@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 
 import pytest
 
 from harmonia_agent import stages
-from harmonia_agent.agent_models import EditorialPlan
+from harmonia_agent.agents import AgentProtocolError
+from harmonia_agent.agent_models import ActionPlan, Draft, DraftSet, DraftWorkflowResult, EditorialPlan
 from tests.test_ryan_stages import job as ryan_job
 from tests.test_ryan_strategy import strategy
 from tests.test_temi_editorial_plan import plan
@@ -22,6 +24,30 @@ def approved_job() -> dict:
         "strategyApproval": {"decision": "approved", "payloadDigest": "a" * 64, "revision": 1,
                              "actorSubjectId": "operator-1", "decidedAt": "2026-08-30T00:00:00Z",
                              "expiresAt": "2026-08-31T00:00:00Z"},
+    })
+    return source
+
+
+def drafting_job() -> dict:
+    source = approved_job()
+    persisted_plan = plan()
+    later = deepcopy(persisted_plan["items"][0])
+    later.update({
+        "id": "item-2", "publicationWindowStartAt": "2026-09-04T16:00:00Z",
+        "publicationWindowEndAt": "2026-09-04T18:00:00Z",
+        "productionDeadlineAt": "2026-09-04T12:00:00Z", "selectionScore": 0.5,
+    })
+    persisted_plan["items"].append(later)
+    source.update({
+        "stage": "draft",
+        "editorialPlan": persisted_plan,
+        "editorialPlanDigest": stages.editorial_plan_digest(persisted_plan),
+        "selectedNextItemId": persisted_plan["selectedNextItemId"],
+        "editorialItemStates": {
+            item["id"]: {"status": "selected" if item["id"] == persisted_plan["selectedNextItemId"] else "planned",
+                         "updatedAt": "2026-08-30T00:00:00Z"}
+            for item in persisted_plan["items"]
+        },
     })
     return source
 
@@ -89,3 +115,68 @@ def test_planning_failure_prevents_persistence_and_draft_dispatch(monkeypatch):
     with pytest.raises(RuntimeError, match="planning failed"):
         asyncio.run(stages.run_plan("job-1"))
     assert posts == []
+
+
+def test_draft_claims_and_hands_only_selected_item_with_exact_brief_and_evidence(monkeypatch):
+    source = drafting_job()
+    selected = next(item for item in source["editorialPlan"]["items"] if item["id"] == source["selectedNextItemId"])
+    exact_brief = next(item for item in source["contentStrategy"]["briefs"] if item["id"] == selected["briefId"])
+    calls, posts = [], []
+
+    async def fake_draft(request, *, invocation):
+        calls.append(request)
+        return DraftWorkflowResult(
+            copywriter_drafts=DraftSet(drafts=[Draft(id="draft-1", platform="x", momentId="m1", text="Original")]),
+            reviewed_drafts=DraftSet(drafts=[Draft(id="draft-1", platform="x", momentId="m1", text="Reviewed")]),
+            action_plan=ActionPlan(actions=[]),
+        )
+
+    def fake_post(path, payload):
+        posts.append((path, payload))
+        if payload.get("operation") == "claim":
+            source["editorialItemStates"][payload["editorialItemId"]]["status"] = "drafting"
+            return {"outcome": "execute"}
+        return {"ok": True}
+
+    monkeypatch.setattr(stages, "get_job", lambda _id: source)
+    monkeypatch.setattr(stages, "draft_with_team", fake_draft)
+    monkeypatch.setattr(stages, "web_post", fake_post)
+    monkeypatch.setattr(stages, "get_insights", lambda: {})
+
+    asyncio.run(stages.run_draft("job-1"))
+
+    request = calls[0]
+    assert request.editorialItem.model_dump(mode="json") == selected
+    assert request.brief.model_dump(mode="json") == exact_brief
+    assert [item.id for item in request.referencedMoments] == ["m1"]
+    assert request.referencedAngles == []
+    assert source["editorialItemStates"]["item-1"]["status"] == "drafting"
+    assert source["editorialItemStates"]["item-2"]["status"] == "planned"
+    assert posts[0][1] == {
+        "jobId": "job-1", "stage": "draft", "operation": "claim",
+        "editorialPlanId": source["editorialPlan"]["planId"],
+        "editorialPlanDigest": source["editorialPlanDigest"],
+        "editorialItemId": selected["id"], "briefId": selected["briefId"],
+    }
+    assert posts[-1][1]["editorialPlanId"] == source["editorialPlan"]["planId"]
+    assert posts[-1][1]["editorialItemId"] == selected["id"]
+    assert posts[-1][1]["briefId"] == selected["briefId"]
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda job: job.update(selectedNextItemId="missing"),
+    lambda job: job.update(editorialPlanDigest="b" * 64),
+    lambda job: job["editorialItemStates"][job["selectedNextItemId"]].update(status="planned"),
+    lambda job: job["editorialPlan"]["items"][0].update(briefId="missing"),
+])
+def test_invalid_persisted_production_authority_never_invokes_noni(monkeypatch, mutation):
+    source = drafting_job()
+    mutation(source)
+    invoked = []
+    monkeypatch.setattr(stages, "get_job", lambda _id: source)
+    monkeypatch.setattr(stages, "draft_with_team", lambda *_a, **_k: invoked.append(True))
+    monkeypatch.setattr(stages, "web_post", lambda *_a, **_k: {"outcome": "execute"})
+
+    with pytest.raises(AgentProtocolError):
+        asyncio.run(stages.run_draft("job-1"))
+    assert invoked == []

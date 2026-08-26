@@ -28,6 +28,33 @@ export function editorialPlanEvidenceLineage(plan: EditorialPlan): string[] {
   return [...new Set(plan.items.flatMap((item) => item.evidenceRefs))].sort();
 }
 
+export type ProductionAuthority = {
+  editorialPlanId: string;
+  editorialPlanDigest: string;
+  editorialItemId: string;
+  briefId: string;
+};
+
+export function assertSelectedProductionAuthority(
+  job: {
+    stage: string; editorialPlan?: EditorialPlan; editorialPlanDigest?: string;
+    selectedNextItemId?: string;
+    editorialItemStates?: Record<string, { status: string; updatedAt: string }>;
+  },
+  authority: ProductionAuthority,
+  expectedStatus: "selected" | "drafting",
+) {
+  if (job.stage !== "draft") throw new Error("job is not in draft stage");
+  const plan = job.editorialPlan;
+  if (!plan || plan.planId !== authority.editorialPlanId) throw new Error("editorial plan mismatch");
+  if (job.editorialPlanDigest !== authority.editorialPlanDigest || editorialPlanDigest(plan) !== authority.editorialPlanDigest) throw new Error("editorial plan digest mismatch");
+  if (job.selectedNextItemId !== authority.editorialItemId || plan.selectedNextItemId !== authority.editorialItemId) throw new Error("selected editorial item mismatch");
+  const item = plan.items.find((candidate) => candidate.id === authority.editorialItemId);
+  if (!item || item.briefId !== authority.briefId) throw new Error("selected editorial brief mismatch");
+  if (job.editorialItemStates?.[authority.editorialItemId]?.status !== expectedStatus) throw new Error(`editorial item lifecycle is not ${expectedStatus}`);
+  return item;
+}
+
 export function assertEditorialPlanSubmission(
   job: {
     stage: string;

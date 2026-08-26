@@ -265,13 +265,6 @@ class DraftSet(StrictModel):
     drafts: list[Draft] = Field(default_factory=list, max_length=10)
 
 
-class DraftWorkflowInput(StrictModel):
-    title: str = Field(min_length=1)
-    analysis: AnalysisResult
-    brand_context: str = Field(default="", max_length=4_000)
-    strategy: ContentStrategy
-
-
 def _validate_utc_timestamp(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() != timezone.utc.utcoffset(value):
         raise ValueError("timestamp must be UTC")
@@ -467,6 +460,23 @@ class ProductionDraftInput(StrictModel):
     brandContext: str = Field(min_length=1, max_length=4_000)
     constraints: list[ConstraintText] = Field(default_factory=list, max_length=24)
 
+    @model_validator(mode="after")
+    def validate_selected_authority(self) -> "ProductionDraftInput":
+        if self.brief.id != self.editorialItem.briefId:
+            raise ValueError("production input must contain the exact selected brief")
+        exact_fields = (
+            "objective", "audienceId", "funnelStage", "intendedConversion",
+            "ctaIntent", "kpi",
+        )
+        if any(getattr(self.brief, field) != getattr(self.editorialItem, field) for field in exact_fields):
+            raise ValueError("production input brief does not match the selected editorial item")
+        if set(self.brief.evidenceRefs) != set(self.editorialItem.evidenceRefs):
+            raise ValueError("production input brief evidence does not match the selected editorial item")
+        supplied_ids = {item.id for item in [*self.referencedMoments, *self.referencedAngles]}
+        if not supplied_ids or not supplied_ids.issubset(set(self.editorialItem.evidenceRefs)):
+            raise ValueError("production input contains unreferenced evidence")
+        return self
+
 
 class PublishAction(StrictModel):
     type: Literal["publish_x_post"] = "publish_x_post"
@@ -478,7 +488,6 @@ class ActionPlan(StrictModel):
 
 
 class DraftWorkflowResult(StrictModel):
-    editorial_plan: EditorialPlan
     copywriter_drafts: DraftSet
     reviewed_drafts: DraftSet
     action_plan: ActionPlan

@@ -22,10 +22,10 @@ from .agent_models import (
     AnalystInput,
     ContentStrategy,
     DraftSet,
-    DraftWorkflowInput,
     DraftWorkflowResult,
     EditorialPlan,
     EditorialPlannerInput,
+    ProductionDraftInput,
     LiaisonInput,
     StrategistInput,
     StrategistResult,
@@ -304,13 +304,14 @@ def build_agent_team(
         name="noni_copywriter",
         description="Writes platform-native X drafts grounded in supplied moments and angles.",
         instruction=(
-            "Use {editorial_plan} to write up to 10 punchy X posts for a startup audience. "
+            "Write only the selected {editorialItem} using its exact {brief}, referenced evidence, "
+            "brand context, and constraints. Produce one platform-native X draft. "
             "Previously reviewed drafts, when this is a later loop pass, are {reviewed_drafts?}. "
             "Revise only what needs improvement. Every draft must be at most 280 "
             "characters and may reference only a supplied momentId or angleId. Preserve useful "
             "brand context. Return only the DraftSet JSON contract."
         ),
-        input_schema=DraftWorkflowInput,
+        input_schema=ProductionDraftInput,
         output_schema=DraftSet,
         output_key="copywriter_drafts",
     )
@@ -320,7 +321,8 @@ def build_agent_team(
         name="dara_editor",
         description="Reviews each Noni draft against brand voice, strategy, and source grounding.",
         instruction=(
-            "Review and edit {copywriter_drafts} against {editorial_plan}, the analysis, and brand context in session "
+            "Review and edit {copywriter_drafts} against the selected editorial item, exact brief, "
+            "referenced evidence, and brand context in session "
             "state. Return the reviewed DraftSet. You may revise or omit drafts, "
             "but must preserve each retained draft id, platform, momentId, and angleId. Never add a "
             "new draft. Keep every text at most 280 characters."
@@ -458,9 +460,13 @@ def _validate_run_output(
     try:
         copywriter = _validated_state(state, "copywriter_drafts", DraftSet)
         reviewed = _validated_state(state, "reviewed_drafts", DraftSet)
-        draft_input = DraftWorkflowInput.model_validate(payload)
-        validate_draft_references(copywriter, draft_input.analysis)
-        validate_draft_references(reviewed, draft_input.analysis)
+        draft_input = ProductionDraftInput.model_validate(payload)
+        supplied = AnalysisResult(
+            summary="Selected-item evidence", moments=draft_input.referencedMoments,
+            angles=draft_input.referencedAngles,
+        )
+        validate_draft_references(copywriter, supplied)
+        validate_draft_references(reviewed, supplied)
     except AgentProtocolError:
         raise
     except (ValidationError, ValueError, TypeError) as exc:
@@ -970,47 +976,26 @@ async def plan_with_team(
 
 
 async def draft_with_team(
-    input: DraftWorkflowInput, *, invocation: InvocationContext | None = None,
-    memory: tuple[MemoryBank, MemoryScope] | None = None,
+    input: ProductionDraftInput, *, invocation: InvocationContext | None = None,
 ) -> DraftWorkflowResult:
-    input = DraftWorkflowInput.model_validate(input)
-    resolved_memory = configured_memory(invocation) if memory is None else memory
-    facts = await _retrieve_memory(query=input.title, memory=resolved_memory)
-    if facts:
-        input = input.model_copy(update={
-            "brand_context": _merge_memory(input.brand_context, facts),
-        })
+    input = ProductionDraftInput.model_validate(input)
+    analysis = AnalysisResult(
+        summary="Evidence referenced by the selected approved brief.",
+        moments=input.referencedMoments,
+        angles=input.referencedAngles,
+    )
     if mock_ai_enabled():
-        source = input.analysis.moments[0].id if input.analysis.moments else input.analysis.angles[0].id
-        editorial_plan = EditorialPlan.model_validate({
-            "strategySummary": input.analysis.summary,
-            "items": [{"id": "calendar-1", "briefId": input.strategy.briefs[0].id, "platform": "x", "objective": "Share one grounded startup insight", "sourceRef": source, "format": "text_post", "priority": 1}],
-        })
-        print("[MOCK-AI] coordinator -> temi_editorial_planner", flush=True)
-        print("[MOCK-AI] coordinator -> noni_copywriter", flush=True)
-        copywriter = DraftSet.model_validate({"drafts": mock_drafts(
-            input.title, input.analysis.model_dump(mode="json"),
-        )})
-        validate_draft_references(copywriter, input.analysis)
-        print("[MOCK-AI] coordinator -> dara_editor", flush=True)
-        reviewed = DraftSet.model_validate(copywriter.model_dump(mode="json"))
-        plan = _deterministic_action_plan(reviewed)
-        return DraftWorkflowResult(
-            editorial_plan=editorial_plan, copywriter_drafts=copywriter,
-            reviewed_drafts=reviewed, action_plan=plan,
-        )
+        raise RuntimeError("Noni has no mock production path; inject a TeamRuntime in tests")
 
     state = await _run_coordinator("flo_content_engine", input, invocation=invocation)
-    editorial_plan = _validated_state(state, "editorial_plan", EditorialPlan)
     copywriter = _validated_state(state, "copywriter_drafts", DraftSet)
     reviewed = _validated_state(state, "reviewed_drafts", DraftSet)
     plan = _deterministic_action_plan(reviewed)
     try:
-        validate_draft_references(copywriter, input.analysis)
-        validate_draft_references(reviewed, input.analysis)
+        validate_draft_references(copywriter, analysis)
+        validate_draft_references(reviewed, analysis)
         return DraftWorkflowResult(
-            editorial_plan=editorial_plan, copywriter_drafts=copywriter,
-            reviewed_drafts=reviewed, action_plan=plan,
+            copywriter_drafts=copywriter, reviewed_drafts=reviewed, action_plan=plan,
         )
     except (ValidationError, ValueError) as exc:
         raise AgentProtocolError(f"invalid draft workflow result: {exc}") from exc

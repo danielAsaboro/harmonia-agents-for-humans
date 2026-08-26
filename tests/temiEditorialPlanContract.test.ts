@@ -83,6 +83,14 @@ describe("Temi editorial-plan contract parity", () => {
     const selected = structuredClone(plan);
     selected.items[0].productionStatus = "selected";
     expect(editorialPlanSchema.safeParse(selected).success).toBe(false);
+
+    const wrongBrief = structuredClone(productionInput);
+    wrongBrief.brief.id = "brief-other";
+    expect(productionDraftInputSchema.safeParse(wrongBrief).success).toBe(false);
+
+    const extraEvidence = structuredClone(productionInput);
+    extraEvidence.referencedMoments.push({ id: "m-extra", title: "Invented", startSec: 0, endSec: 1, hook: "h", quote: "q" });
+    expect(productionDraftInputSchema.safeParse(extraEvidence).success).toBe(false);
   });
 
   it("rejects authority overreach and invalid horizon or timezone parity boundaries", () => {

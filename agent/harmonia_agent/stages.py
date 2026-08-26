@@ -25,10 +25,11 @@ from .agent_models import (
     AnalystInput,
     CampaignContext,
     CompanyContext,
-    DraftWorkflowInput,
+    EditorialPlan,
     EditorialPlannerInput,
     MediaEvidence,
     PerformanceObservation,
+    ProductionDraftInput,
     StrategistInput,
 )
 from .agents import (
@@ -466,11 +467,44 @@ async def run_draft(job_id: str) -> None:
     decided_at = approval.get("decidedAt")
     if not expires_at or not decided_at or datetime.fromisoformat(decided_at.replace("Z", "+00:00")) > datetime.fromisoformat(expires_at.replace("Z", "+00:00")):
         raise AgentProtocolError("strategy approval was decided after expiry")
-    analysis = AnalysisResult.model_validate({
-        "summary": job.get("summary") or "Content analysis completed.",
-        "moments": job["moments"],
-        "angles": job["angles"],
+    raw_plan = job.get("editorialPlan")
+    stored_digest = job.get("editorialPlanDigest")
+    selected_id = job.get("selectedNextItemId")
+    if not isinstance(raw_plan, dict) or not stored_digest or not selected_id:
+        raise AgentProtocolError("persisted editorial plan authority required before Noni")
+    if editorial_plan_digest(raw_plan) != stored_digest:
+        raise AgentProtocolError("persisted editorial plan digest mismatch")
+    try:
+        editorial_plan = EditorialPlan.model_validate(raw_plan)
+    except ValidationError as exc:
+        raise AgentProtocolError(f"invalid persisted editorial plan: {exc}") from exc
+    if editorial_plan.selectedNextItemId != selected_id:
+        raise AgentProtocolError("persisted selected editorial item mismatch")
+    item_state = (job.get("editorialItemStates") or {}).get(selected_id) or {}
+    if item_state.get("status") != "selected":
+        raise AgentProtocolError("selected editorial item is not eligible for drafting")
+    selected = next((item for item in editorial_plan.items if item.id == selected_id), None)
+    strategy = job.get("contentStrategy") or {}
+    brief = next((item for item in strategy.get("briefs", []) if item.get("id") == selected.briefId), None) if selected else None
+    if selected is None or brief is None:
+        raise AgentProtocolError("selected editorial item has no exact approved brief")
+    evidence_ids = set(selected.evidenceRefs)
+    moments = [item for item in (job.get("moments") or []) if item.get("id") in evidence_ids]
+    angles = [item for item in (job.get("angles") or []) if item.get("id") in evidence_ids]
+    source_ids = {item["id"] for item in [*moments, *angles]}
+    expected_source_ids = evidence_ids & {
+        *(item.get("id") for item in (job.get("moments") or [])),
+        *(item.get("id") for item in (job.get("angles") or [])),
+    }
+    if source_ids != expected_source_ids or not source_ids:
+        raise AgentProtocolError("selected brief source evidence is missing")
+    claim = web_post("/api/internal/drafts", {
+        "jobId": job_id, "stage": "draft", "operation": "claim",
+        "editorialPlanId": editorial_plan.planId, "editorialPlanDigest": stored_digest,
+        "editorialItemId": selected.id, "briefId": selected.briefId,
     })
+    if claim.get("outcome") != "execute":
+        raise AgentProtocolError("selected editorial item drafting claim was not granted")
     brand_context = ""
     try:
         insights = get_insights()
@@ -480,9 +514,12 @@ async def run_draft(job_id: str) -> None:
         })[:4000]
     except WebApiError:
         logger.info("draft workflow has no brand goals or engagement context yet")
-    package = await draft_with_team(DraftWorkflowInput(
-        title=job["ingestedTitle"], analysis=analysis, brand_context=brand_context,
-        strategy=job.get("contentStrategy"),
+    package = await draft_with_team(ProductionDraftInput(
+        planId=editorial_plan.planId, strategyDigest=job["strategyDigest"],
+        editorialItem=selected, brief=brief,
+        referencedMoments=moments, referencedAngles=angles,
+        brandContext=brand_context or "No additional verified brand performance context supplied.",
+        constraints=[*selected.constraints, *strategy.get("brandSafety", [])],
     ), invocation=InvocationContext(
         job_id=job_id,
         workspace_id=job["workspaceId"],
@@ -559,6 +596,9 @@ async def run_draft(job_id: str) -> None:
 
     web_post("/api/internal/drafts", {
         "jobId": job_id, "stage": "draft", "drafts": drafts,
+        "operation": "complete", "editorialPlanId": editorial_plan.planId,
+        "editorialPlanDigest": stored_digest,
+        "editorialItemId": selected.id, "briefId": selected.briefId,
         "proposedActions": actions,
     })
 

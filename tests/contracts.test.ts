@@ -25,6 +25,9 @@ describe("internal contracts", () => {
   it("validates drafts with proposed publish actions", () => {
     const parsed = draftsSubmissionSchema.safeParse({
       jobId: "j1", stage: "draft",
+      operation: "complete",
+      editorialPlanId: "plan-1", editorialItemId: "item-1", briefId: "brief-1",
+      editorialPlanDigest: "a".repeat(64),
       drafts: [{ id: "d1", platform: "x", text: "hello world" }],
       proposedActions: [
         { id: "a1", type: "publish_x_post", title: "post", description: "d",
@@ -34,6 +37,14 @@ describe("internal contracts", () => {
       ],
     });
     expect(parsed.success).toBe(true);
+    expect(draftsSubmissionSchema.safeParse({
+      jobId: "j1", stage: "draft", operation: "claim",
+      editorialPlanId: "plan-1", editorialPlanDigest: "a".repeat(64),
+      editorialItemId: "item-1", briefId: "brief-1",
+    }).success).toBe(true);
+    expect(draftsSubmissionSchema.safeParse({
+      jobId: "j1", stage: "draft", operation: "complete", drafts: [], proposedActions: [],
+    }).success).toBe(false);
   });
 
   it("preserves additive visual grounding on analyzed moments", () => {
@@ -61,6 +72,9 @@ describe("internal contracts", () => {
   it("accepts bounded Veo and Lyria action contracts", () => {
     const parsed = draftsSubmissionSchema.safeParse({
       jobId: "j1", stage: "draft", drafts: [],
+      operation: "complete",
+      editorialPlanId: "plan-1", editorialItemId: "item-1", briefId: "brief-1",
+      editorialPlanDigest: "a".repeat(64),
       proposedActions: [
         { id: "veo1", type: "generate_veo_broll", title: "b-roll", description: "d",
           momentId: "m1", payload: { type: "generate_veo_broll", prompt: "abstract launch",

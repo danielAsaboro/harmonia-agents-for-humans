@@ -298,7 +298,23 @@ export const productionDraftInputSchema = z.object({
   brief: contentStrategySchema.shape.briefs.element,
   referencedMoments: z.array(strictMomentSchema).max(12).default([]), referencedAngles: z.array(strictAngleSchema).max(12).default([]),
   brandContext: z.string().min(1).max(4000), constraints: z.array(z.string().min(1).max(300)).max(24).default([]),
-}).strict();
+}).strict().superRefine((input, context) => {
+  if (input.brief.id !== input.editorialItem.briefId) {
+    context.addIssue({ code: "custom", message: "production input must contain the exact selected brief" });
+  }
+  const exactFields = ["objective", "audienceId", "funnelStage", "intendedConversion", "ctaIntent", "kpi"] as const;
+  if (exactFields.some((field) => input.brief[field] !== input.editorialItem[field])) {
+    context.addIssue({ code: "custom", message: "production input brief does not match the selected editorial item" });
+  }
+  if ([...input.brief.evidenceRefs].sort().join("\0") !== [...input.editorialItem.evidenceRefs].sort().join("\0")) {
+    context.addIssue({ code: "custom", message: "production input brief evidence does not match the selected editorial item" });
+  }
+  const itemEvidence = new Set(input.editorialItem.evidenceRefs);
+  const supplied = [...input.referencedMoments, ...input.referencedAngles].map((item) => item.id);
+  if (supplied.length === 0 || supplied.some((id) => !itemEvidence.has(id))) {
+    context.addIssue({ code: "custom", message: "production input contains unreferenced evidence" });
+  }
+});
 
 export const strategySubmissionSchema = z.object({
   jobId: z.string().min(1), stage: z.literal("strategize"), revision: z.number().int().min(1).max(2),
@@ -330,9 +346,20 @@ export const draftSchema = z.object({
   text: z.string().min(1),
 });
 
-export const draftsSubmissionSchema = z.object({
+export const draftClaimSubmissionSchema = z.object({
+  jobId: z.string().min(1), stage: z.literal("draft"), operation: z.literal("claim"),
+  editorialPlanId: z.string().min(1).max(100), editorialPlanDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  editorialItemId: z.string().min(1).max(100), briefId: z.string().min(1).max(100),
+}).strict();
+
+export const draftCompletionSubmissionSchema = z.object({
   jobId: z.string().min(1),
   stage: z.literal("draft"),
+  operation: z.literal("complete"),
+  editorialPlanId: z.string().min(1).max(100),
+  editorialPlanDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  editorialItemId: z.string().min(1).max(100),
+  briefId: z.string().min(1).max(100),
   drafts: z.array(draftSchema).max(10).default([]),
   proposedActions: z
     .array(
@@ -514,5 +541,9 @@ export const failureSubmissionSchema = z.object({
     }
   }),
 }).strict();
+
+export const draftsSubmissionSchema = z.discriminatedUnion("operation", [
+  draftClaimSubmissionSchema, draftCompletionSubmissionSchema,
+]);
 
 export type FailureSubmission = z.infer<typeof failureSubmissionSchema>;

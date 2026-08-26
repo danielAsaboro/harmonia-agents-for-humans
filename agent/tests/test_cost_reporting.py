@@ -8,14 +8,14 @@ import pytest
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from harmonia_agent import content
-from harmonia_agent.agent_models import AnalystInput, DraftWorkflowInput, MediaEvidence
+from harmonia_agent.agent_models import AnalystInput, MediaEvidence
 from harmonia_agent.agents import _run_coordinator
 from harmonia_agent.agents import RoleModelInstances
 from harmonia_agent.gemma_model import VertexGemmaModel
 from harmonia_agent.role_models import RoleModelConfig
 from harmonia_agent.usage import InvocationContext, run_metered
 from harmonia_agent.telemetry import configure_telemetry
-from test_agent_team import ManagedRuntime, ScriptedDraftModel, _analysis
+from test_agent_team import ManagedRuntime, ScriptedDraftModel, _analysis, _production_input
 from harmonia_agent.tenant_context import tenant_scope
 from tests.test_ryan_strategy import strategy as _content_strategy
 
@@ -50,7 +50,7 @@ def test_draft_run_reserves_and_reports_each_participating_role():
     reservations: list[dict] = []
     reports: list[dict] = []
     model = ScriptedDraftModel(model="gemini-3.5-flash")
-    payload = DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="voice: direct", strategy=_content_strategy())
+    payload = _production_input()
 
     asyncio.run(_run_coordinator(
         "flo_content_engine",
@@ -66,10 +66,10 @@ def test_draft_run_reserves_and_reports_each_participating_role():
     ))
 
     assert [item["role"] for item in reservations] == [
-        "harmonia_coordinator", "temi_editorial_planner", "noni_copywriter", "dara_editor",
+        "harmonia_coordinator", "noni_copywriter", "dara_editor",
     ]
     assert [item["role"] for item in reports] == [
-        "harmonia_coordinator", "temi_editorial_planner", "noni_copywriter", "dara_editor",
+        "harmonia_coordinator", "noni_copywriter", "dara_editor",
     ]
     trace_ids = {item["traceId"] for item in reports}
     assert len(trace_ids) == 1
@@ -89,7 +89,7 @@ def test_team_releases_prior_reservations_when_reservation_fails_before_dispatch
     with pytest.raises(RuntimeError, match="budget service unavailable"):
         asyncio.run(_run_coordinator(
             "flo_content_engine",
-            DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="direct", strategy=_content_strategy()),
+            _production_input(),
             model=ScriptedDraftModel(model="gemini-3.5-flash"),
             team_runtime=ManagedRuntime(),
             invocation=InvocationContext(
@@ -297,9 +297,7 @@ def test_image_generation_marks_empty_provider_response_uncertain(monkeypatch):
 def test_agent_trace_has_safe_delegation_model_and_validation_spans():
     exporter = InMemorySpanExporter()
     configure_telemetry(exporter=exporter, force=True)
-    payload = DraftWorkflowInput(
-        title="Demo", analysis=_analysis(), brand_context="private voice instructions", strategy=_content_strategy(),
-    )
+    payload = _production_input().model_copy(update={"brandContext": "private voice instructions"})
 
     asyncio.run(_run_coordinator(
         "flo_content_engine",
@@ -366,7 +364,7 @@ def test_heterogeneous_draft_usage_keeps_each_actual_role_model():
 
     asyncio.run(_run_coordinator(
         "flo_content_engine",
-        DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="voice: direct", strategy=_content_strategy()),
+        _production_input(),
         models=models,
         team_runtime=ManagedRuntime(),
         invocation=InvocationContext(
@@ -381,7 +379,6 @@ def test_heterogeneous_draft_usage_keeps_each_actual_role_model():
         "harmonia_coordinator": "gemini-3.5-flash-lite",
         "noni_copywriter": "gemma-3-12b-it",
         "dara_editor": "gemini-3.5-flash",
-        "temi_editorial_planner": "gemini-3.5-flash-lite",
     }
     assert {item["role"]: item["model"] for item in reservations} == expected
     assert {item["role"]: item["model"] for item in reports} == expected

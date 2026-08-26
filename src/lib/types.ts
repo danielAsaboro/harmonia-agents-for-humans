@@ -182,7 +182,8 @@ export interface Job {
   editorialPlanRevision?: number;
   editorialPlanEvidenceLineage?: string[];
   selectedNextItemId?: string;
-  editorialItemStates?: Record<string, { status: "planned" | "selected"; updatedAt: string }>;
+  editorialItemStates?: Record<string, { status: "planned" | "selected" | "drafting" | "reviewed"; updatedAt: string }>;
+  activeProductionLineage?: { editorialPlanId: string; editorialPlanDigest: string; editorialItemId: string; briefId: string };
   editorialPlanHistory?: Record<string, { plan: EditorialPlan; digest: string; revision: number; strategyId: string; strategyDigest: string; evidenceLineage: string[]; selectedNextItemId: string; acceptedAt: string }>;
   videoId?: string;
   budget?: JobBudget;
@@ -277,6 +278,9 @@ export interface PlannedAction {
   description: string;
   momentId?: string;
   angleId?: string;
+  editorialPlanId?: string;
+  editorialItemId?: string;
+  briefId?: string;
   risk: RiskLevel;
   requiresApproval: boolean;
   approvalState: "not_required" | "pending" | "approved" | "rejected";
@@ -418,6 +422,9 @@ export interface PostDraft {
   platform: string;
   momentId?: string;
   angleId?: string;
+  editorialPlanId?: string;
+  editorialItemId?: string;
+  briefId?: string;
   text: string;
   valid: boolean;
   validationNote?: string;
@@ -484,6 +491,9 @@ export interface ContentItem {
   id: string;
   jobId: string;
   draftId?: string;
+  editorialPlanId?: string;
+  editorialItemId?: string;
+  briefId?: string;
   text: string;
   platforms: string[];
   status: ContentItemStatus;

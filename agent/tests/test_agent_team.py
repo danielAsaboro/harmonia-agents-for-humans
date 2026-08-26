@@ -20,12 +20,12 @@ from harmonia_agent.agent_models import (
     AnalystInput,
     Draft,
     DraftSet,
-    DraftWorkflowInput,
     DraftWorkflowResult,
     EditorialPlan,
     EditorialPlannerInput,
     LiaisonInput,
     MediaEvidence,
+    ProductionDraftInput,
     PublishAction,
     StrategistInput,
     StrategistResult,
@@ -158,6 +158,17 @@ def _analysis() -> AnalysisResult:
 
 def _editorial_plan() -> EditorialPlan:
     return EditorialPlan.model_validate(_temi_plan())
+
+
+def _production_input() -> ProductionDraftInput:
+    strategy = _content_strategy()
+    item = _editorial_plan().items[0]
+    return ProductionDraftInput(
+        planId="plan-job-1-v1", strategyDigest="a" * 64, editorialItem=item,
+        brief=strategy.briefs[0], referencedMoments=_analysis().moments,
+        referencedAngles=[], brandContext="voice: direct",
+        constraints=item.constraints,
+    )
 
 
 class ManagedRuntime:
@@ -338,7 +349,7 @@ def test_analyst_receives_source_video_as_a_real_multimodal_part():
 
 def test_draft_agent_tool_forwards_all_sequential_state_to_coordinator():
     runtime = ManagedRuntime()
-    input = DraftWorkflowInput(title="Demo", analysis=_analysis(), brand_context="voice: direct", strategy=_content_strategy())
+    input = _production_input()
     with tenant_scope("workspace-test", "brand-test"):
         state = asyncio.run(_run_coordinator(
             "flo_content_engine", input, model="gemini-test", team_runtime=runtime,
@@ -398,7 +409,6 @@ def test_draft_workflow_result_requires_editor_to_preserve_identity_and_referenc
 
     with pytest.raises(ValidationError, match="preserve draft id"):
         DraftWorkflowResult(
-            editorial_plan=_editorial_plan(),
             copywriter_drafts=original,
             reviewed_drafts=DraftSet(drafts=[Draft(
                 id="changed", platform="x", momentId="m1", text="Revised draft",
@@ -408,7 +418,6 @@ def test_draft_workflow_result_requires_editor_to_preserve_identity_and_referenc
 
     with pytest.raises(ValidationError, match="preserve source references"):
         DraftWorkflowResult(
-            editorial_plan=_editorial_plan(),
             copywriter_drafts=original,
             reviewed_drafts=DraftSet(drafts=[Draft(
                 id="d1", platform="x", angleId="a1", text="Revised draft",
@@ -423,7 +432,6 @@ def test_draft_workflow_result_limits_actions_to_reviewed_drafts():
 
     with pytest.raises(ValidationError, match="reviewed draft text"):
         DraftWorkflowResult(
-            editorial_plan=_editorial_plan(),
             copywriter_drafts=original,
             reviewed_drafts=reviewed,
             action_plan=ActionPlan(actions=[PublishAction(text="Original")]),

@@ -106,6 +106,21 @@ def test_complete_strict_temi_contracts_are_accepted():
     assert ProductionDraftInput.model_validate(production_input()).editorialItem.id == "item-1"
 
 
+def test_production_input_rejects_mismatched_brief_and_unreferenced_evidence():
+    invalid = production_input()
+    invalid["brief"]["id"] = "brief-other"
+    with pytest.raises(ValidationError, match="exact selected brief"):
+        ProductionDraftInput.model_validate(invalid)
+
+    invalid = production_input()
+    invalid["referencedMoments"].append({
+        "id": "m-extra", "title": "Invented", "startSec": 0, "endSec": 1,
+        "hook": "h", "quote": "q",
+    })
+    with pytest.raises(ValidationError, match="referenced evidence"):
+        ProductionDraftInput.model_validate(invalid)
+
+
 @pytest.mark.parametrize(("model", "payload", "field"), [
     (EditorialPlannerInput, planner_input, "strategyApproval"),
     (EditorialPlan, plan, "sequencingRationale"),

@@ -7,9 +7,10 @@ from pathlib import Path
 import pytest
 
 from harmonia_agent import stages
-from harmonia_agent.agent_models import AnalysisResult
+from harmonia_agent.agent_models import ActionPlan, AnalysisResult, Draft, DraftSet, DraftWorkflowResult
 from harmonia_agent.web_client import EffectClaimInProgress, EffectClaimUncertain
 from tests.test_ryan_strategy import strategy as _content_strategy
+from tests.test_temi_editorial_plan import plan as _editorial_plan
 
 
 def _analysis() -> dict:
@@ -69,6 +70,7 @@ def test_understand_brief_routes_through_nimi_without_strategy(monkeypatch):
 
 def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypatch):
     posts = []
+    persisted_plan = _editorial_plan()
     job = {
         "workspaceId": "workspace-test", "brandId": "brand-test", "createdByUserId": "user-test",
         "config": {"brief": "Activation launch"},
@@ -79,17 +81,28 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
         "strategyDigest": "a" * 64,
         "strategyApproval": {"decision": "approved", "payloadDigest": "a" * 64, "decidedAt": "2026-08-27T00:00:00Z", "expiresAt": "2099-01-01T00:00:00Z"},
         "contentStrategy": _content_strategy().model_dump(mode="json"),
+        "stage": "draft", "editorialPlan": persisted_plan,
+        "editorialPlanDigest": stages.editorial_plan_digest(persisted_plan),
+        "selectedNextItemId": persisted_plan["selectedNextItemId"],
+        "editorialItemStates": {persisted_plan["selectedNextItemId"]: {"status": "selected"}},
     }
-    monkeypatch.setenv("HARMONIA_MOCK_AI", "1")
+    async def fake_draft(*_args, **_kwargs):
+        reviewed = DraftSet(drafts=[Draft(id="d1", platform="x", momentId="m1", text="Reviewed")])
+        return DraftWorkflowResult(copywriter_drafts=reviewed, reviewed_drafts=reviewed, action_plan=ActionPlan(actions=[]))
+
     monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
     monkeypatch.setattr(stages, "get_insights", lambda: {"goals": {"voice": "direct"}})
-    monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
+    monkeypatch.setattr(stages, "draft_with_team", fake_draft)
+    def fake_post(path, payload):
+        posts.append((path, payload))
+        return {"outcome": "execute"} if payload.get("operation") == "claim" else {"ok": True}
+    monkeypatch.setattr(stages, "web_post", fake_post)
 
     asyncio.run(stages.run_draft("job-1"))
 
-    path, payload = posts[0]
+    path, payload = posts[-1]
     assert path == "/api/internal/drafts"
-    assert set(payload) == {"jobId", "stage", "drafts", "proposedActions"}
+    assert set(payload) == {"jobId", "stage", "operation", "editorialPlanId", "editorialPlanDigest", "editorialItemId", "briefId", "drafts", "proposedActions"}
     draft_text = {draft["text"] for draft in payload["drafts"]}
     publish_text = {
         action["payload"]["text"]

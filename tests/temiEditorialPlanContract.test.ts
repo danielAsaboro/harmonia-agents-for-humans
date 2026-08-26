@@ -24,9 +24,11 @@ const strategy = {
 };
 
 const analysis = {
+  sourceDigest: "c".repeat(64),
   summary: "Activation time fell from nine days to forty hours.",
-  moments: [{ id: "m1", title: "Activation", startSec: 2, endSec: 8, hook: "Nine days to forty hours", quote: "we cut nine days to forty hours" }],
-  angles: [{ id: "a1", kind: "trend", title: "Operational speed", rationale: "The source demonstrates measurable improvement." }],
+  moments: [{ id: "m1", title: "Activation", startSec: 2, endSec: 8, hook: "Nine days to forty hours", quote: "we cut nine days to forty hours", transcriptSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }],
+  angles: [{ id: "a1", kind: "source", title: "Operational speed", rationale: "The source demonstrates measurable improvement.", evidenceRefs: ["m1"], assumptions: [], confidence: "high" }],
+  assumptions: [], confidence: "high",
 };
 
 const item = {
@@ -89,7 +91,7 @@ describe("Temi editorial-plan contract parity", () => {
     expect(copywriterInputSchema.safeParse(wrongBrief).success).toBe(false);
 
     const extraEvidence = structuredClone(productionInput);
-    extraEvidence.referencedMoments.push({ id: "m-extra", title: "Invented", startSec: 0, endSec: 1, hook: "h", quote: "q" });
+    extraEvidence.referencedMoments.push({ id: "m-extra", title: "Invented", startSec: 0, endSec: 1, hook: "h", quote: "q", transcriptSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" });
     expect(copywriterInputSchema.safeParse(extraEvidence).success).toBe(false);
   });
 

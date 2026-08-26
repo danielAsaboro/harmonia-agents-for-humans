@@ -16,6 +16,7 @@ from harmonia_agent.memory_bank import (
 from harmonia_agent.agent_models import AnalystInput
 from harmonia_agent.agents import analyze_with_team
 import asyncio
+from tests.test_nimi_contracts import analyst_input
 
 
 class _MemoryApi:
@@ -147,9 +148,9 @@ def test_agent_entrypoint_retrieves_scoped_memory_before_mock_normalization(monk
     scope = MemoryScope(workspace_id="workspace-1", brand_id="brand-a")
 
     result = asyncio.run(analyze_with_team(
-        AnalystInput(title="Demo", transcript="[0s] proof"),
+        AnalystInput.model_validate(analyst_input()),
         memory=(bank, scope),
     ))
 
     assert result.summary
-    assert bank.calls == [{"scope": scope, "query": "Demo", "top_k": 3}]
+    assert bank.calls == [{"scope": scope, "query": "Activation interview", "top_k": 3}]

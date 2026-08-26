@@ -11,8 +11,7 @@ const job: JobFull = {
   updatedAt: "2026-08-23T00:01:00.000Z",
   config: { brief: "Lead with measurable outcomes", platforms: ["x"] },
   transcriptSegments: [{ id: "segment-1", startSec: 4, endSec: 12, text: "We cut setup time by half." }],
-  moments: [{ id: "moment-1", title: "Setup time proof", startSec: 4, endSec: 12, hook: "Half the setup time", quote: "We cut setup time by half." }],
-  angles: [],
+  sourceAnalysis: { sourceDigest: "a".repeat(64), summary: "Setup time proof.", moments: [{ id: "moment-1", title: "Setup time proof", startSec: 4, endSec: 12, hook: "Half the setup time", quote: "We cut setup time by half.", transcriptSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }], angles: [], assumptions: [], confidence: "high" },
   drafts: [{ id: "draft-1", platform: "x", text: "Half the setup. More time shipping.", valid: true, momentId: "moment-1" }],
   actions: [{
     id: "publish-1",

@@ -3,7 +3,7 @@ import type { JobFull } from "@/components/jobTypes";
 import type { StudioWorkspaceModel } from "@/lib/studio/workspaceModel";
 
 function directionFor(job: JobFull): string {
-  return job.angles[0]?.title || job.moments[0]?.hook || job.drafts[0]?.text.split(/[.!?]/)[0] || job.config.brief || job.ingestedTitle || "Content direction in progress";
+  return job.sourceAnalysis?.angles[0]?.title || job.sourceAnalysis?.moments[0]?.hook || job.drafts[0]?.text.split(/[.!?]/)[0] || job.config.brief || job.ingestedTitle || "Content direction in progress";
 }
 
 export function ArtifactBoard({ job, model, onSelect }: { job: JobFull; model: StudioWorkspaceModel; onSelect: (artifactId: string, view?: string) => void }) {
@@ -12,8 +12,8 @@ export function ArtifactBoard({ job, model, onSelect }: { job: JobFull; model: S
   const visual = model.visual[0];
   const audio = model.audio[0];
   const decisions = [
-    ...job.angles.slice(0, 2).map((angle) => ({ label: angle.title, source: angle.kind })),
-    ...job.moments.slice(0, 3).map((moment) => ({ label: moment.hook || moment.title, source: `${moment.startSec}s` })),
+    ...(job.sourceAnalysis?.angles ?? []).slice(0, 2).map((angle) => ({ label: angle.title, source: angle.kind })),
+    ...(job.sourceAnalysis?.moments ?? []).slice(0, 3).map((moment) => ({ label: moment.hook || moment.title, source: `${moment.startSec}s` })),
   ].slice(0, 3);
 
   if (invalidTraces.length) return <section role="alert" className="rounded-[18px] border-2 border-red-600 bg-red-50 p-4"><strong className="text-sm text-red-800">Source trace protocol error</strong><ul className="mt-2 list-disc pl-5 text-xs text-red-700">{invalidTraces.map((trace, index) => <li key={`${trace.draftId ?? trace.actionId}-${index}`}>{trace.error}</li>)}</ul></section>;

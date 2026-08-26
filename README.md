@@ -22,7 +22,7 @@ ingest → transcribe → understand → strategize → awaiting_strategy_approv
 
 - **Ingest**: YouTube metadata via oEmbed / YouTube Data API; audio pulled with yt-dlp.
 - **Transcribe**: Gemini 3.5 Flash transcribes the audio into timed segments.
-- **Understand**: Nimi uses Gemini multimodal video plus the transcript to identify grounded spoken and visual moments and bounded angles.
+- **Understand**: Nimi receives one typed source package and returns strict source analysis with exact transcript/frame references, evidence-kind provenance, assumptions, and confidence. Deterministic code validates quotes, time bounds, references, and authority; then persists the complete analysis and canonical digest.
 - **Strategize**: Ryan uses typed company, campaign, audience, performance, and eligible Memory Bank context to propose a provenance-linked four-week strategy and complete content briefs. A human must approve the exact strategy digest before Temi runs.
 - **Plan**: Temi agentically operationalizes the approved Ryan strategy into a complete four-week editorial plan. Deterministic code validates, digests, persists, and selects exactly one supported, eligible item; Temi has no tools and cannot write final copy or authorize external scheduling or effects.
 - **Draft**: Noni receives only the selected item, its exact Ryan brief, and referenced Nimi evidence. Dara returns seven grounded editorial checks plus a bounded accept/revise assessment; deterministic code assigns review metadata, permits at most one issue-bound revision, persists the full trace, and derives effect proposals only from the exact accepted text.

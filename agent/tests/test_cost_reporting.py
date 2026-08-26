@@ -20,6 +20,19 @@ from harmonia_agent.tenant_context import tenant_scope
 from tests.test_ryan_strategy import strategy as _content_strategy
 
 
+def _analyst_input(*, media: bool = False) -> AnalystInput:
+    digest = "a" * 64
+    return AnalystInput.model_validate({
+        "sourceId": "source-1", "sourceKind": "media" if media else "brief",
+        "sourceDigest": digest, "title": "Demo", "channel": "test",
+        "transcriptSegments": [{"id": "segment-1", "startSec": 0, "endSec": 30,
+                                "text": "proof We cut nine days to forty hours."}],
+        "mediaEvidence": ({"video_uri": "https://www.youtube.com/watch?v=abc12345678", "duration_sec": 60,
+                           "source_digest": digest, "frames": []} if media else None),
+        "performanceObservations": [], "memoryFacts": [],
+    })
+
+
 def test_model_call_reserves_budget_before_provider():
     order: list[str] = []
 
@@ -121,7 +134,7 @@ def test_team_quarantines_all_reservations_when_runtime_fails_after_dispatch():
     with pytest.raises(TimeoutError, match="managed runtime timeout"):
         asyncio.run(_run_coordinator(
             "nimi_analyst",
-            AnalystInput(title="Demo", transcript="[0s] proof"),
+            _analyst_input(),
             model="gemini-3.5-flash",
             team_runtime=FailingRuntime(),
             invocation=InvocationContext(
@@ -405,15 +418,7 @@ def test_multimodal_source_uri_is_not_exported_in_trace_content():
     with tenant_scope("workspace-test", "brand-test"):
         asyncio.run(_run_coordinator(
             "nimi_analyst",
-            AnalystInput(
-                title="Demo",
-                transcript="[0s] hello",
-                media_evidence=MediaEvidence(
-                    video_uri=source,
-                    duration_sec=60,
-                    source_digest="a" * 64,
-                ),
-            ),
+            _analyst_input(media=True),
             model="gemini-test",
             team_runtime=ManagedRuntime(),
         ))
@@ -433,8 +438,12 @@ def test_managed_runtime_finalizes_explicit_estimated_usage_for_every_reserved_r
     class ManagedRuntime:
         async def invoke(self, **_kwargs):
             return {
-                "analysis_result": {
-                    "summary": "managed", "moments": [], "angles": [],
+                "source_analysis": {
+                    "sourceDigest": "a" * 64, "summary": "managed",
+                    "moments": [{"id": "m1", "title": "proof", "startSec": 0, "endSec": 1,
+                                 "hook": "proof", "quote": "proof", "transcriptSegmentRefs": ["segment-1"],
+                                 "visualEvidenceIds": [], "assumptions": [], "confidence": "high"}],
+                    "angles": [], "assumptions": [], "confidence": "high",
                 },
             }
 
@@ -442,7 +451,7 @@ def test_managed_runtime_finalizes_explicit_estimated_usage_for_every_reserved_r
     reports: list[dict] = []
     asyncio.run(_run_coordinator(
         "nimi_analyst",
-        AnalystInput(title="Demo", transcript="[0s] proof"),
+        _analyst_input(),
         model="gemini-3.5-flash",
         invocation=InvocationContext(
             workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",

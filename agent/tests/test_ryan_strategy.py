@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from harmonia_agent.agent_models import (
-    AnalysisResult,
+    SourceAnalysis,
     AudienceSegment,
     CampaignContext,
     CompanyContext,
@@ -42,10 +42,12 @@ def strategist_input() -> StrategistInput:
             requestedChannels=["x", "linkedin"],
             supportedChannels=["x"],
         ),
-        analysis=AnalysisResult.model_validate({
+        analysis=SourceAnalysis.model_validate({
+            "sourceDigest": "a" * 64,
             "summary": "Activation time fell.",
-            "moments": [{"id": "m1", "title": "Activation", "startSec": 2, "endSec": 8, "hook": "Nine days to forty hours", "quote": "we cut nine days to forty hours"}],
-            "angles": [{"id": "a1", "kind": "trend", "title": "Operational speed", "rationale": "The source demonstrates a measurable operational improvement."}],
+            "moments": [{"id": "m1", "title": "Activation", "startSec": 2, "endSec": 8, "hook": "Nine days to forty hours", "quote": "we cut nine days to forty hours", "transcriptSegmentRefs": ["segment-1"], "visualEvidenceIds": [], "assumptions": [], "confidence": "high"}],
+            "angles": [{"id": "a1", "kind": "source", "title": "Operational speed", "rationale": "The source demonstrates a measurable operational improvement.", "evidenceRefs": ["m1"], "assumptions": [], "confidence": "high"}],
+            "assumptions": [], "confidence": "high",
         }),
         performance=[PerformanceObservation(id="perf-1", summary="Proof-led posts earned more qualified replies", firestoreEvidenceRef="jobs/job-0/verifiedMetrics/perf-1")],
         memoryFacts=[MemoryFact(id="mem-1", content="Operators prefer quantified proof", firestoreEvidenceRef="jobs/job-0/learnings/mem-1")],

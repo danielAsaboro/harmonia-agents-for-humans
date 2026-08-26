@@ -47,7 +47,9 @@ describe("Ryan strategy wire contract", () => {
       audiences: [{ id: "aud-founders", name: "Founders", pains: ["bottlenecks"] }],
       funnelStage: "consideration" as const, intendedConversion: "request demo",
       requestedChannels: ["x"], supportedChannels: ["x"], horizonWeeks: 4,
-    } }, moments: [{ id: "m1" }], angles: [], strategyInvocationContext: {
+    } }, sourceAnalysis: { sourceDigest: "a".repeat(64), summary: "Grounded proof", assumptions: [], confidence: "high",
+      moments: [{ id: "m1", title: "Proof", startSec: 0, endSec: 1, hook: "Proof", quote: "Proof",
+        transcriptSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }], angles: [] }, strategyInvocationContext: {
       revision: 1, sourceIds: ["m1"], operatorContextIds: ["context:company", "context:campaign"],
       performance: [], memoryFacts: [], audienceIds: ["aud-founders"],
       requestedChannels: ["x"], supportedChannels: ["x"], horizonWeeks: 4,

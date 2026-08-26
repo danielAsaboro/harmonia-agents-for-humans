@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from harmonia_agent import stages
-from harmonia_agent.agent_models import AnalysisResult, StrategistResult
+from harmonia_agent.agent_models import SourceAnalysis, StrategistResult
 from tests.test_ryan_strategy import strategy
 
 
@@ -17,9 +17,13 @@ def job() -> dict:
         "id": "job-1", "workspaceId": "workspace-test", "brandId": "brand-test",
         "createdByUserId": "user-test", "ingestedTitle": "Activation interview",
         "ingestedChannel": "Harmonia", "transcriptSegments": [],
-        "summary": "Activation time fell.",
-        "moments": [{"id": "m1", "title": "Activation", "startSec": 2, "endSec": 8, "hook": "Nine days to forty hours", "quote": "we cut nine days to forty hours"}],
-        "angles": [{"id": "a1", "kind": "trend", "title": "Operational speed", "rationale": "The source demonstrates a measurable operational improvement."}],
+        "sourceAnalysis": {
+            "sourceDigest": "a" * 64, "summary": "Activation time fell.",
+            "moments": [{"id": "m1", "title": "Activation", "startSec": 2, "endSec": 8, "hook": "Nine days to forty hours", "quote": "we cut nine days to forty hours", "transcriptSegmentRefs": ["segment-1"], "visualEvidenceIds": [], "assumptions": [], "confidence": "high"}],
+            "angles": [{"id": "a1", "kind": "source", "title": "Operational speed", "rationale": "The source demonstrates a measurable operational improvement.", "evidenceRefs": ["m1"], "assumptions": [], "confidence": "high"}],
+            "assumptions": [], "confidence": "high",
+        },
+        "analysisDigest": "b" * 64,
         "config": {"brief": "Explain the activation result", "strategyContext": {
             "company": "Harmonia", "product": "A governed content engine",
             "positioning": "Evidence-grounded content operations", "differentiators": ["approval-bound effects"],
@@ -34,10 +38,15 @@ def job() -> dict:
 
 
 def test_understand_persists_nimi_analysis_without_running_ryan(monkeypatch):
-    calls, posts = [], []
+    calls, posts, returned = [], [], []
     async def fake_analyze(request, *, invocation):
         calls.append(request)
-        return AnalysisResult.model_validate({"summary": job()["summary"], "moments": job()["moments"], "angles": job()["angles"]})
+        value = job()["sourceAnalysis"]
+        value["sourceDigest"] = request.sourceDigest
+        value["moments"][0].update(startSec=0, endSec=5, quote="hello", transcriptSegmentRefs=["s1"])
+        result = SourceAnalysis.model_validate(value)
+        returned.append(result.model_dump(mode="json"))
+        return result
     source = job()
     source["transcriptSegments"] = [{"id": "s1", "startSec": 0, "endSec": 5, "text": "hello"}]
     monkeypatch.setattr(stages, "get_job", lambda _id: source)
@@ -48,9 +57,10 @@ def test_understand_persists_nimi_analysis_without_running_ryan(monkeypatch):
 
     asyncio.run(stages.run_understand("job-1"))
 
-    assert calls[0].transcript == "[0s] hello"
+    assert calls[0].transcriptSegments[0].text == "hello"
     assert posts[0][0] == "/api/internal/analysis"
     assert "strategy" not in posts[0][1]
+    assert posts[0][1]["analysis"] == returned[0]
 
 
 def test_strategize_receives_typed_analysis_context_and_performance(monkeypatch):

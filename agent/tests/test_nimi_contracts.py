@@ -1,0 +1,117 @@
+"""Strict contracts for Nimi's source-analysis boundary."""
+
+import pytest
+from pydantic import ValidationError
+
+from harmonia_agent.agent_models import AnalystInput, SourceAnalysis
+
+
+def analyst_input() -> dict:
+    return {
+        "sourceId": "source-1",
+        "sourceKind": "media",
+        "sourceDigest": "a" * 64,
+        "title": "Activation interview",
+        "channel": "Founder interview",
+        "transcriptSegments": [
+            {"id": "segment-1", "startSec": 2, "endSec": 8, "text": "We cut activation from nine days to forty hours."},
+        ],
+        "mediaEvidence": {
+            "video_uri": "https://example.com/source.mp4",
+            "duration_sec": 60,
+            "source_digest": "a" * 64,
+            "frames": [{"id": "frame-1", "uri": "gs://bucket/frame.jpg", "timestamp_sec": 4, "digest": "b" * 64}],
+        },
+        "performanceObservations": [{
+            "id": "performance-1", "summary": "Verified proof posts earned qualified replies.",
+            "firestoreEvidenceRef": "engagement/post-1",
+        }],
+        "memoryFacts": [{
+            "id": "memory-1", "kind": "preference", "content": "Operators prefer concise proof.",
+            "firestoreEvidenceRef": "jobs/job-0/learnings/memory-1",
+        }],
+    }
+
+
+def source_analysis() -> dict:
+    return {
+        "sourceDigest": "a" * 64,
+        "summary": "The source provides a quantified activation result.",
+        "moments": [{
+            "id": "moment-1", "title": "Activation compression", "startSec": 2,
+            "endSec": 8, "hook": "Nine days became forty hours",
+            "quote": "We cut activation from nine days to forty hours.",
+            "transcriptSegmentRefs": ["segment-1"],
+            "visualHook": "Founder points to the activation chart.",
+            "cropSuitability": "good", "captionSafeRegion": "lower third",
+            "visualEvidenceIds": ["frame-1"], "assumptions": [], "confidence": "high",
+        }],
+        "angles": [{
+            "id": "angle-1", "kind": "source", "title": "Compress time to value",
+            "rationale": "Use the source's measured before-and-after result.",
+            "evidenceRefs": ["moment-1", "segment-1"], "assumptions": [], "confidence": "high",
+        }],
+        "assumptions": [], "confidence": "high",
+    }
+
+
+def test_accepts_complete_typed_input_and_analysis():
+    assert AnalystInput.model_validate(analyst_input()).sourceId == "source-1"
+    assert SourceAnalysis.model_validate(source_analysis()).angles[0].evidenceRefs == ["moment-1", "segment-1"]
+
+
+@pytest.mark.parametrize("field", ["sourceId", "sourceKind", "sourceDigest", "title", "channel", "transcriptSegments", "performanceObservations", "memoryFacts"])
+def test_input_requires_every_typed_field(field):
+    value = analyst_input()
+    del value[field]
+    with pytest.raises(ValidationError):
+        AnalystInput.model_validate(value)
+
+
+@pytest.mark.parametrize("field", ["sourceDigest", "summary", "moments", "angles", "assumptions", "confidence"])
+def test_analysis_requires_every_output_field(field):
+    value = source_analysis()
+    del value[field]
+    with pytest.raises(ValidationError):
+        SourceAnalysis.model_validate(value)
+
+
+def test_rejects_duplicate_segment_moment_and_angle_ids():
+    value = analyst_input()
+    value["transcriptSegments"].append(dict(value["transcriptSegments"][0]))
+    with pytest.raises(ValidationError, match="segment ids must be unique"):
+        AnalystInput.model_validate(value)
+    output = source_analysis()
+    output["moments"].append(dict(output["moments"][0]))
+    with pytest.raises(ValidationError, match="moment ids must be unique"):
+        SourceAnalysis.model_validate(output)
+    output = source_analysis()
+    output["angles"].append(dict(output["angles"][0]))
+    with pytest.raises(ValidationError, match="angle ids must be unique"):
+        SourceAnalysis.model_validate(output)
+
+
+def test_rejects_invalid_ranges_digest_mismatch_and_visual_shape():
+    value = analyst_input()
+    value["transcriptSegments"][0]["endSec"] = 1
+    with pytest.raises(ValidationError, match="segment end"):
+        AnalystInput.model_validate(value)
+    value = analyst_input()
+    value["mediaEvidence"]["source_digest"] = "c" * 64
+    with pytest.raises(ValidationError, match="source digest"):
+        AnalystInput.model_validate(value)
+    output = source_analysis()
+    output["moments"][0]["visualHook"] = None
+    with pytest.raises(ValidationError):
+        SourceAnalysis.model_validate(output)
+
+
+def test_rejects_coercion_and_extra_fields():
+    value = source_analysis()
+    value["confidence"] = 1
+    with pytest.raises(ValidationError):
+        SourceAnalysis.model_validate(value)
+    value = analyst_input()
+    value["prior_learnings"] = "legacy prose"
+    with pytest.raises(ValidationError):
+        AnalystInput.model_validate(value)

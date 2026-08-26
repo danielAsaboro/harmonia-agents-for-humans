@@ -109,35 +109,64 @@ export const transcriptSubmissionSchema = z.object({
 });
 
 export const momentSchema = z.object({
-  id: z.string().min(1),
-  title: z.string().min(1),
-  // Concept/brief jobs carry key points with zero timestamps (no media
-  // timeline), so 0 is a valid boundary here.
+  id: z.string().min(1).max(100),
+  title: z.string().min(1).max(300),
   startSec: z.number().nonnegative(),
   endSec: z.number().nonnegative(),
-  hook: z.string().min(1),
-  quote: z.string().min(1),
-  visualHook: z.string().max(500).optional(),
+  hook: z.string().min(1).max(500),
+  quote: z.string().min(1).max(2000),
+  transcriptSegmentRefs: z.array(z.string().min(1).max(100)).min(1).max(12),
+  visualHook: z.string().min(1).max(500).optional(),
   cropSuitability: z.enum(["poor", "fair", "good", "excellent"]).optional(),
-  captionSafeRegion: z.string().max(200).optional(),
-  visualEvidenceIds: z.array(z.string().min(1)).max(12).default([]),
+  captionSafeRegion: z.string().min(1).max(200).optional(),
+  visualEvidenceIds: z.array(z.string().min(1).max(100)).max(12),
+  assumptions: z.array(z.string().min(1).max(500)).max(8),
+  confidence: z.enum(["low", "medium", "high"]),
+}).strict().superRefine((moment, context) => {
+  if (moment.endSec < moment.startSec) context.addIssue({ code: "custom", message: "moment end must not precede start" });
+  if (new Set(moment.transcriptSegmentRefs).size !== moment.transcriptSegmentRefs.length) context.addIssue({ code: "custom", message: "moment transcript references must be unique" });
+  if (new Set(moment.visualEvidenceIds).size !== moment.visualEvidenceIds.length) context.addIssue({ code: "custom", message: "moment visual references must be unique" });
+  if (Boolean(moment.visualHook) !== Boolean(moment.visualEvidenceIds.length)) context.addIssue({ code: "custom", message: "visual hook and evidence must appear together" });
+  if (moment.confidence === "high" && moment.assumptions.length) context.addIssue({ code: "custom", message: "high-confidence moment cannot contain assumptions" });
 });
 
 export const angleSchema = z.object({
-  id: z.string().min(1),
-  kind: z.enum(["trend", "meme"]),
-  title: z.string().min(1),
-  rationale: z.string().min(1),
+  id: z.string().min(1).max(100),
+  kind: z.enum(["source", "trend", "meme", "performance", "memory"]),
+  title: z.string().min(1).max(300),
+  rationale: z.string().min(1).max(1000),
+  evidenceRefs: z.array(z.string().min(1).max(100)).min(1).max(12),
+  assumptions: z.array(z.string().min(1).max(500)).max(8),
+  confidence: z.enum(["low", "medium", "high"]),
+}).strict().superRefine((angle, context) => {
+  if (new Set(angle.evidenceRefs).size !== angle.evidenceRefs.length) context.addIssue({ code: "custom", message: "angle evidence references must be unique" });
+  if (angle.confidence === "high" && angle.assumptions.length) context.addIssue({ code: "custom", message: "high-confidence angle cannot contain assumptions" });
+});
+
+export const sourceAnalysisSchema = z.object({
+  sourceDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  summary: z.string().min(1).max(2000),
+  moments: z.array(momentSchema).max(12),
+  angles: z.array(angleSchema).max(12),
+  assumptions: z.array(z.string().min(1).max(500)).max(12),
+  confidence: z.enum(["low", "medium", "high"]),
+}).strict().superRefine((analysis, context) => {
+  const momentIds = analysis.moments.map((item) => item.id);
+  const angleIds = analysis.angles.map((item) => item.id);
+  if (new Set(momentIds).size !== momentIds.length) context.addIssue({ code: "custom", message: "moment ids must be unique" });
+  if (new Set(angleIds).size !== angleIds.length) context.addIssue({ code: "custom", message: "angle ids must be unique" });
+  if (momentIds.some((id) => angleIds.includes(id))) context.addIssue({ code: "custom", message: "analysis ids must be globally unique" });
+  if (!momentIds.length && !angleIds.length) context.addIssue({ code: "custom", message: "analysis requires evidence" });
+  if (analysis.confidence === "high" && analysis.assumptions.length) context.addIssue({ code: "custom", message: "high-confidence analysis cannot contain assumptions" });
 });
 
 export const analysisSubmissionSchema = z.object({
   jobId: z.string().min(1),
   stage: z.literal("understand"),
-  moments: z.array(momentSchema).max(12).default([]),
-  angles: z.array(angleSchema).max(12).default([]),
-  summary: z.string().min(1),
+  analysis: sourceAnalysisSchema,
+  analysisDigest: z.string().regex(/^[0-9a-f]{64}$/),
   modelUsed: z.string().min(1),
-});
+}).strict();
 
 const evidenceRefs = z.array(z.string().min(1).max(100)).min(1).max(12);
 const funnelStage = z.enum(["awareness", "consideration", "conversion", "retention", "advocacy"]);
@@ -226,27 +255,12 @@ const postingWindowObservationSchema = z.object({
   evidenceRefs,
 }).strict();
 
-const strictMomentSchema = z.object({
-  id: z.string().min(1).max(100), title: z.string().min(1), startSec: z.number().nonnegative(), endSec: z.number().nonnegative(),
-  hook: z.string().min(1), quote: z.string().min(1), visualHook: z.string().max(500).optional(),
-  cropSuitability: z.enum(["poor", "fair", "good", "excellent"]).optional(), captionSafeRegion: z.string().max(200).optional(),
-  visualEvidenceIds: z.array(z.string().min(1).max(100)).max(12).default([]),
-}).strict();
-
-const strictAngleSchema = z.object({
-  id: z.string().min(1).max(100), kind: z.enum(["trend", "meme"]), title: z.string().min(1), rationale: z.string().min(1),
-}).strict();
-
-const analysisResultSchema = z.object({
-  summary: z.string().min(1), moments: z.array(strictMomentSchema).max(12).default([]), angles: z.array(strictAngleSchema).max(12).default([]),
-}).strict();
-
 export const editorialPlannerInputSchema = z.object({
   strategy: contentStrategySchema,
   strategyDigest: z.string().regex(/^[0-9a-f]{64}$/),
   strategyVersion: z.number().int().min(1).max(2),
   strategyApproval: strategyApprovalRecordSchema,
-  analysis: analysisResultSchema,
+  analysis: sourceAnalysisSchema,
   horizonStartAt: utcTimestampSchema,
   horizonEndAt: utcTimestampSchema,
   timezone: ianaTimezoneSchema,
@@ -458,8 +472,8 @@ export const copywriterInputSchema = z.object({
   briefId: strictIdentifierSchema,
   editorialItem: editorialPlanItemSchema,
   brief: contentStrategySchema.shape.briefs.element,
-  referencedMoments: z.array(strictMomentSchema).max(12),
-  referencedAngles: z.array(strictAngleSchema).max(12),
+  referencedMoments: z.array(momentSchema).max(12),
+  referencedAngles: z.array(angleSchema).max(12),
   brandContext: z.string().min(1).max(4000),
   constraints: z.array(constraintTextSchema).max(24),
   platform: z.literal("x"),

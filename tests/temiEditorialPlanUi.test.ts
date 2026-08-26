@@ -27,7 +27,7 @@ const remaining = {
 
 const job: JobFull = {
   id: "job-1", status: "running", stage: "plan", createdAt: "2026-08-27T00:00:00Z", updatedAt: "2026-08-27T00:01:00Z",
-  config: { platforms: ["x"] }, transcriptSegments: [], moments: [], angles: [], drafts: [], actions: [],
+  config: { platforms: ["x"] }, transcriptSegments: [], drafts: [], actions: [],
   editorialPlan: {
     planId: "plan-1", version: 1, approvedStrategyDigest: "a".repeat(64),
     horizonStartAt: "2026-08-31T00:00:00Z", horizonEndAt: "2026-09-28T00:00:00Z", timezone: "Africa/Lagos",

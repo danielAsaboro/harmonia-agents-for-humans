@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from harmonia_agent import stages
-from harmonia_agent.agent_models import AnalysisResult
+from harmonia_agent.agent_models import SourceAnalysis
 from harmonia_agent.web_client import EffectClaimInProgress, EffectClaimUncertain
 from tests.test_ryan_strategy import strategy as _content_strategy
 from tests.test_temi_editorial_plan import plan as _editorial_plan
@@ -16,15 +16,20 @@ from tests.test_temi_stages import accepted_package
 
 def _analysis() -> dict:
     return {
+        "sourceDigest": "a" * 64,
         "summary": "Useful lesson",
         "moments": [{
             "id": "m1", "title": "Activation", "startSec": 0, "endSec": 0,
             "hook": "Cut the delay", "quote": "Nine days became forty hours.",
+            "transcriptSegmentRefs": ["brief-1"], "visualEvidenceIds": [],
+            "assumptions": [], "confidence": "high",
         }],
         "angles": [{
-            "id": "a1", "kind": "trend", "title": "Speed wins",
-            "rationale": "Founders care about activation.",
+            "id": "a1", "kind": "source", "title": "Speed wins",
+            "rationale": "The source describes activation speed.",
+            "evidenceRefs": ["m1"], "assumptions": [], "confidence": "high",
         }],
+        "assumptions": [], "confidence": "high",
     }
 
 
@@ -46,7 +51,13 @@ def test_understand_brief_routes_through_nimi_without_strategy(monkeypatch):
 
     async def fake_analyze(request, *, invocation):
         requests.append((request, invocation))
-        return AnalysisResult.model_validate(_analysis())
+        result = _analysis()
+        result["sourceDigest"] = request.sourceDigest
+        result["moments"][0].update(
+            quote=request.transcriptSegments[0].text,
+            transcriptSegmentRefs=[request.transcriptSegments[0].id],
+        )
+        return SourceAnalysis.model_validate(result)
 
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
         "config": {"brief": "Explain our activation win"},
@@ -60,13 +71,15 @@ def test_understand_brief_routes_through_nimi_without_strategy(monkeypatch):
     asyncio.run(stages.run_understand("job-1"))
 
     request, invocation = requests[0]
-    assert request.transcript == "Explain our activation win"
+    assert request.sourceKind == "brief"
+    assert request.transcriptSegments[0].text == "Explain our activation win"
+    assert request.memoryFacts == []
     assert invocation.job_id == "job-1"
     assert invocation.stage == "understand"
     assert invocation.operation_id == "job-1:understand:0"
     path, payload = posts[0]
     assert path == "/api/internal/analysis"
-    assert set(payload) == {"jobId", "stage", "moments", "angles", "summary", "modelUsed"}
+    assert set(payload) == {"jobId", "stage", "analysis", "analysisDigest", "modelUsed"}
 
 
 def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypatch):
@@ -76,9 +89,7 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
         "workspaceId": "workspace-test", "brandId": "brand-test", "createdByUserId": "user-test",
         "config": {"brief": "Activation launch"},
         "ingestedTitle": "Activation launch",
-        "summary": _analysis()["summary"],
-        "moments": _analysis()["moments"],
-        "angles": _analysis()["angles"],
+        "sourceAnalysis": _analysis(),
         "strategyDigest": "a" * 64,
         "strategyApproval": {"decision": "approved", "payloadDigest": "a" * 64, "revision": 1, "decidedAt": "2026-08-27T00:00:00Z", "expiresAt": "2099-01-01T00:00:00Z"},
         "contentStrategy": _content_strategy().model_dump(mode="json"),
@@ -120,7 +131,13 @@ def test_understand_video_passes_direct_source_media_evidence(monkeypatch):
 
     async def fake_analyze(request, *, invocation):
         requests.append((request, invocation))
-        return AnalysisResult.model_validate(_analysis())
+        result = _analysis()
+        result["sourceDigest"] = request.sourceDigest
+        result["moments"][0].update(
+            startSec=0, endSec=5, quote="hello",
+            transcriptSegmentRefs=["s1"],
+        )
+        return SourceAnalysis.model_validate(result)
 
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
         "config": {"youtubeUrl": "https://www.youtube.com/watch?v=abc12345678"},
@@ -139,10 +156,10 @@ def test_understand_video_passes_direct_source_media_evidence(monkeypatch):
 
     request, invocation = requests[0]
     assert invocation.stage == "understand"
-    assert request.media_evidence.video_uri.endswith("abc12345678")
-    assert request.media_evidence.duration_sec == 60
-    assert request.media_evidence.source_digest == "a" * 64
-    assert "hello" in request.transcript
+    assert request.mediaEvidence.video_uri.endswith("abc12345678")
+    assert request.mediaEvidence.duration_sec == 60
+    assert request.mediaEvidence.source_digest == "a" * 64
+    assert request.transcriptSegments[0].text == "hello"
 
 
 def test_ingest_uploaded_media_uses_tenant_scoped_attachment(monkeypatch):

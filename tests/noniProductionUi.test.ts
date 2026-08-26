@@ -21,7 +21,7 @@ describe("Noni and Dara persisted production trace", () => {
   it("renders accepted copy, grounding, constraints, confidence, review, and digest", () => {
     const job = {
       id: "job-1", status: "running", stage: "draft", createdAt: "2026-08-27T00:00:00Z", updatedAt: "2026-08-27T00:01:00Z",
-      config: { platforms: ["x"] }, transcriptSegments: [], moments: [], angles: [], drafts: [], actions: [],
+      config: { platforms: ["x"] }, transcriptSegments: [], drafts: [], actions: [],
       productionTraceDigest: "c".repeat(64),
       productionTrace: {
         originalDraft: draft, revisionDraft: null, acceptedDraft: draft,
@@ -38,7 +38,7 @@ describe("Noni and Dara persisted production trace", () => {
     const revised = { ...draft, id: "draft-2", revision: 2 as const, priorDraftId: "draft-1", addressedIssueIds: ["issue-1"] };
     const job = {
       id: "job-2", status: "running", stage: "draft", createdAt: "2026-08-27T00:00:00Z", updatedAt: "2026-08-27T00:02:00Z",
-      config: { platforms: ["x"] }, transcriptSegments: [], moments: [], angles: [], drafts: [], actions: [],
+      config: { platforms: ["x"] }, transcriptSegments: [], drafts: [], actions: [],
       productionTrace: {
         originalDraft: draft, revisionDraft: revised, acceptedDraft: revised,
         reviews: [

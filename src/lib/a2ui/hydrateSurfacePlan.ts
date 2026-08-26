@@ -37,11 +37,9 @@ function selected<T extends { id: string }>(values: T[], ids: string[], limit: n
 }
 
 function sourceCount(job: JobFull, momentId?: string, angleId?: string): number {
-  const moment = momentId ? job.moments.find((candidate) => candidate.id === momentId) : undefined;
-  const segmentCount = moment
-    ? job.transcriptSegments.filter((segment) => segment.startSec < moment.endSec && segment.endSec > moment.startSec).length
-    : 0;
-  return segmentCount + (angleId && job.angles.some((angle) => angle.id === angleId) ? 1 : 0);
+  const moment = momentId ? job.sourceAnalysis?.moments.find((candidate) => candidate.id === momentId) : undefined;
+  return (moment?.transcriptSegmentRefs.length ?? 0)
+    + (angleId && job.sourceAnalysis?.angles.some((angle) => angle.id === angleId) ? 1 : 0);
 }
 
 function hydratedDraft(job: JobFull, draft: JobFull["drafts"][number], selectedDraft: boolean) {
@@ -96,7 +94,7 @@ function missingReferences(node: PlannedNode, job: JobFull | null | undefined, r
   if (node.refs.jobId && node.refs.jobId !== job.id) missing.push(node.refs.jobId);
   const maps = {
     draftIds: new Set(job.drafts.map((value) => value.id)),
-    momentIds: new Set(job.moments.map((value) => value.id)),
+    momentIds: new Set((job.sourceAnalysis?.moments ?? []).map((value) => value.id)),
     sourceIds: new Set([
       ...(job.config.youtubeUrl ? ["source-video"] : []),
       ...(job.config.mediaAttachmentId ? ["source-upload"] : []),
@@ -145,7 +143,7 @@ function hydrateNode(node: PlannedNode, job: JobFull | null | undefined, receipt
             ? (job.config.brief ? "mixed" : "audio")
             : "written",
         platforms: job.config.platforms.slice(0, 10),
-        angles: job.angles.slice(0, 20),
+        angles: (job.sourceAnalysis?.angles ?? []).slice(0, 20),
       }) as CatalogRecord;
     case "JobProgress": {
       const current = Math.max(0, STAGES.indexOf(job.stage));
@@ -169,10 +167,11 @@ function hydrateNode(node: PlannedNode, job: JobFull | null | undefined, receipt
       }) as CatalogRecord;
     }
     case "MomentExplorer": {
-      const moments = selected(job.moments, node.refs.momentIds, 20);
+      const moments = selected(job.sourceAnalysis?.moments ?? [], node.refs.momentIds, 20);
       const selectedIds = new Set(moments.map((moment) => moment.id));
+      const segmentIds = new Set(moments.flatMap((moment) => moment.transcriptSegmentRefs));
       const transcript = job.transcriptSegments.filter((segment) => (
-        moments.length === 0 || moments.some((moment) => segment.startSec < moment.endSec && segment.endSec > moment.startSec)
+        moments.length === 0 || segmentIds.has(segment.id)
       )).slice(0, 200);
       const source = job.config.youtubeUrl ? {
         id: "source-video",

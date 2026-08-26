@@ -5,6 +5,8 @@ paths produce, so downstream pipeline code cannot tell them apart.
 """
 
 import pytest
+from harmonia_agent.agent_models import AnalystInput
+from tests.test_nimi_contracts import analyst_input
 
 from harmonia_agent import content, x_client
 from harmonia_agent.mock_ai import (
@@ -51,22 +53,23 @@ def test_content_transcribe_routes_to_mock():
 
 
 def test_analyze_shape_and_timestamp_bounds():
-    transcript = "\n".join(f"[{t}s] line {t}" for t in range(0, 60, 6))
-    result = mock_analyze("Some talk", "Chan", transcript)
-    assert set(result) >= {"summary", "moments", "angles"}
-    assert 3 <= len(result["moments"]) <= 6
-    bound = 54.0
+    value = analyst_input()
+    value["transcriptSegments"] = [{"id": f"s{i}", "startSec": i, "endSec": i + 1, "text": f"line {i}"} for i in range(4)]
+    result = mock_analyze(AnalystInput.model_validate(value))
+    assert set(result) >= {"sourceDigest", "summary", "moments", "angles", "assumptions", "confidence"}
+    assert len(result["moments"]) == 4
+    bound = 4.0
     for m in result["moments"]:
-        assert set(m) == {"id", "title", "startSec", "endSec", "hook", "quote"}
+        assert set(m) == {"id", "title", "startSec", "endSec", "hook", "quote", "transcriptSegmentRefs", "visualEvidenceIds", "assumptions", "confidence"}
         assert 0 <= m["startSec"] < m["endSec"] <= bound
     kinds = [a["kind"] for a in result["angles"]]
-    assert kinds.count("trend") >= 3 and kinds.count("meme") >= 2
+    assert kinds == ["source"]
     for a in result["angles"]:
-        assert set(a) == {"id", "kind", "title", "rationale"}
+        assert set(a) == {"id", "kind", "title", "rationale", "evidenceRefs", "assumptions", "confidence"}
 
 
 def test_drafts_reference_ids_and_fit_limit():
-    analysis = mock_analyze("T", "C", "[0s] hello [30s] world [54s] end")
+    analysis = mock_analyze(AnalystInput.model_validate(analyst_input()))
     drafts = mock_drafts("T", analysis)
     assert len(drafts) == 3
     valid_refs = {m["id"] for m in analysis["moments"]} | {a["id"] for a in analysis["angles"]}

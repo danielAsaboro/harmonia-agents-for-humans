@@ -101,7 +101,7 @@ export function buildUiContext(input: BuildUiContextInput): UiContext {
       ...(draft.momentId ? { momentId: draft.momentId } : {}),
       ...(draft.angleId ? { angleId: draft.angleId } : {}),
     })),
-    moments: (job?.moments ?? []).slice(0, 20).map((moment) => ({
+    moments: (job?.sourceAnalysis?.moments ?? []).slice(0, 20).map((moment) => ({
       id: moment.id,
       title: moment.title.slice(0, 300),
       startSec: moment.startSec,

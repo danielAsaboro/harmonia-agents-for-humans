@@ -44,7 +44,7 @@ def test_callback_attaches_real_video_part_without_persisting_bytes():
         contents=[types.Content(role="user", parts=[types.Part(text="analyze")])],
     )
     state = {
-        "media_evidence": {
+        "mediaEvidence": {
             "video_uri": "https://www.youtube.com/watch?v=abc12345678",
             "duration_sec": 60,
             "source_digest": "a" * 64,

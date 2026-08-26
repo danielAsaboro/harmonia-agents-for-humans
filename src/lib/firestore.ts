@@ -11,8 +11,6 @@ import type {
   PlannedAction,
   Receipt,
   PostDraft,
-  Moment,
-  Angle,
   Stage,
   StageEvent,
   VerificationResult,
@@ -82,9 +80,6 @@ export async function listWorkspaceScopes(): Promise<WorkspaceScopeDoc[]> {
 interface JobDoc extends Omit<Job, "id"> {
   transcriptSegments?: Array<{ id: string; startSec: number; endSec: number; text: string }>;
   transcriptLanguage?: string;
-  moments?: Moment[];
-  angles?: Angle[];
-  summary?: string;
   drafts?: PostDraft[];
   productionTrace?: DraftWorkflowResult;
   productionTraceDigest?: string;
@@ -945,9 +940,6 @@ function jobRef(jobId: string) {
 function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
   transcriptSegments: Array<{ id: string; startSec: number; endSec: number; text: string }>;
   transcriptLanguage?: string;
-  moments: Moment[];
-  angles: Angle[];
-  summary?: string;
   drafts: PostDraft[];
   contentPack?: { markdown: string; digest: string; generatedAt: string };
   actions: PlannedAction[];
@@ -996,9 +988,8 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
     videoId: data.videoId,
     transcriptSegments: data.transcriptSegments ?? [],
     transcriptLanguage: data.transcriptLanguage,
-    moments: data.moments ?? [],
-    angles: data.angles ?? [],
-    summary: data.summary,
+    sourceAnalysis: data.sourceAnalysis,
+    analysisDigest: data.analysisDigest,
     drafts: data.drafts ?? [],
     contentPack: data.contentPack,
     actions: data.actions ?? [],
@@ -1490,14 +1481,12 @@ export async function saveTranscript(
 
 export async function saveAnalysis(
   jobId: string,
-  moments: Moment[],
-  angles: Angle[],
-  summary: string,
+  sourceAnalysis: import("./types").SourceAnalysis,
+  analysisDigest: string,
 ) {
   await jobRef(jobId).update({
-    moments,
-    angles,
-    summary,
+    sourceAnalysis,
+    analysisDigest,
     updatedAt: new Date().toISOString(),
   });
 }
@@ -1543,7 +1532,8 @@ export async function saveStrategyInvocationContext(jobId: string, context: impo
     const configured = job.config.strategyContext;
     if (!configured) throw new Error("typed strategy context required");
     if (JSON.stringify([...context.operatorContextIds].sort()) !== JSON.stringify(["context:campaign", "context:company"])) throw new Error("strategy operator context IDs mismatch");
-    const sourceIds = [...new Set([...(job.moments ?? []), ...(job.angles ?? [])].map((item) => item.id))].sort();
+    if (!job.sourceAnalysis || !job.analysisDigest) throw new Error("persisted source analysis required");
+    const sourceIds = [...new Set([...job.sourceAnalysis.moments, ...job.sourceAnalysis.angles].map((item) => item.id))].sort();
     if (JSON.stringify([...context.sourceIds].sort()) !== JSON.stringify(sourceIds)) throw new Error("strategy source context mismatch");
     if (JSON.stringify([...context.audienceIds].sort()) !== JSON.stringify(configured.audiences.map((item) => item.id).sort())) throw new Error("strategy audience context mismatch");
     if (JSON.stringify([...context.requestedChannels].sort()) !== JSON.stringify([...configured.requestedChannels].sort())) throw new Error("strategy requested channels mismatch");

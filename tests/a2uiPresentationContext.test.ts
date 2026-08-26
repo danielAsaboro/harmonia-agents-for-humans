@@ -11,8 +11,7 @@ const job: JobFull = {
   config: { youtubeUrl: "https://www.youtube.com/watch?v=abcdefghijk", brief: "Launch from outcomes", platforms: ["x"] },
   ingestedTitle: "Founder launch interview",
   transcriptSegments: [{ id: "segment-1", startSec: 10, endSec: 20, text: "private transcript text" }],
-  moments: [{ id: "moment-1", title: "Outcome proof", startSec: 10, endSec: 20, hook: "Proof", quote: "We cut setup time." }],
-  angles: [{ id: "angle-1", kind: "trend", title: "Outcome-led launch", rationale: "Lead with proof." }],
+  sourceAnalysis: { sourceDigest: "a".repeat(64), summary: "Outcome proof.", moments: [{ id: "moment-1", title: "Outcome proof", startSec: 10, endSec: 20, hook: "Proof", quote: "We cut setup time.", transcriptSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }], angles: [{ id: "angle-1", kind: "source", title: "Outcome-led launch", rationale: "Lead with proof.", evidenceRefs: ["moment-1"], assumptions: [], confidence: "high" }], assumptions: [], confidence: "high" },
   drafts: [{ id: "draft-1", platform: "x", text: "full draft text must stay server-side", valid: true, momentId: "moment-1" }],
   actions: [{
     id: "publish-1",

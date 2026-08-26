@@ -21,8 +21,9 @@ from pydantic import ValidationError
 
 from . import clipper, content, x_client, youtube
 from .agent_models import (
-    AnalysisResult,
+    SourceAnalysis,
     AnalystInput,
+    AnalystPerformanceObservation,
     CampaignContext,
     CompanyContext,
     CopywriterInput,
@@ -41,6 +42,7 @@ from .agents import (
     plan_with_team,
     prepare_strategist_input,
     strategize_with_team,
+    validate_source_analysis,
 )
 from .config import settings
 from .gemma_model import GemmaProtocolError
@@ -92,7 +94,7 @@ class ClipRenderError(RuntimeError):
     pass
 
 
-def _canonical_plan_bytes(value: Any) -> str:
+def _canonical_typed_bytes(value: Any) -> str:
     """Typed canonical encoding with IEEE-754 numbers shared with TypeScript."""
     if value is None:
         return "n;"
@@ -101,26 +103,26 @@ def _canonical_plan_bytes(value: Any) -> str:
     if isinstance(value, (int, float)):
         numeric = float(value)
         if not math.isfinite(numeric):
-            raise ValueError("editorial plan digest requires finite numbers")
+            raise ValueError("typed digest requires finite numbers")
         if numeric == 0:
             numeric = 0.0
         return f"d{struct.pack('>d', numeric).hex()};"
     if isinstance(value, str):
         return f"s{len(value.encode('utf-8'))}:{value}"
     if isinstance(value, list):
-        return f"a{len(value)}[{''.join(_canonical_plan_bytes(item) for item in value)}]"
+        return f"a{len(value)}[{''.join(_canonical_typed_bytes(item) for item in value)}]"
     if isinstance(value, dict):
         entries = "".join(
-            _canonical_plan_bytes(key) + _canonical_plan_bytes(value[key])
+            _canonical_typed_bytes(key) + _canonical_typed_bytes(value[key])
             for key in sorted(value)
         )
         return f"o{len(value)}{{{entries}}}"
-    raise ValueError("editorial plan digest contains an unsupported value")
+    raise ValueError("typed digest contains an unsupported value")
 
 
 def editorial_plan_digest(plan: dict[str, Any]) -> str:
     """Canonical SHA-256 over typed values and IEEE-754 numeric bits."""
-    encoded = _canonical_plan_bytes(plan)
+    encoded = _canonical_typed_bytes(plan)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
@@ -285,34 +287,32 @@ async def run_understand(job_id: str) -> None:
         user_id=job["createdByUserId"],
         stage="understand", operation_id=f"{job_id}:understand:0",
     )
-    prior = ""
+    performance: list[AnalystPerformanceObservation] = []
     try:
         insights = get_insights()
-        if insights.get("totals", {}).get("posts"):
-            top = insights["topPosts"][:3]
-            lines = [f"- {p['likes']} likes, {p['reposts']} reposts: \"{p['text'][:120]}\"" for p in top]
-            prior = "\n".join(lines)
-        goals = insights.get("goals") or {}
-        goal_bits: list[str] = []
-        if goals.get("weeklyPostTarget"):
-            goal_bits.append(f"posting target: {goals['weeklyPostTarget']} posts/week")
-        if goals.get("audience"):
-            goal_bits.append(f"audience: {goals['audience']}")
-        if goals.get("voice"):
-            goal_bits.append(f"brand voice: {goals['voice']}")
-        for t in (goals.get("topics") or [])[:5]:
-            goal_bits.append(f"priority topic: {t}")
-        if goal_bits:
-            prior = ("Operator goals: " + "; ".join(goal_bits) + "\n" + prior).strip()
+        for item in (insights.get("topPosts") or [])[:5]:
+            post_id = str(item.get("postId") or "").strip()
+            if not post_id:
+                continue
+            performance.append(AnalystPerformanceObservation(
+                id=f"performance:{post_id}",
+                summary=(
+                    f"Verified post {post_id}: {int(item.get('likes') or 0)} likes and "
+                    f"{int(item.get('reposts') or 0)} reposts."
+                ),
+                firestoreEvidenceRef=f"engagement/{post_id}",
+            ))
     except WebApiError:
         logger.info("no prior engagement insights yet")
     brief = str((job.get("config") or {}).get("brief") or "").strip()
-    transcript = "\n".join(
-        f"[{int(s['startSec'])}s] {s['text']}" for s in job["transcriptSegments"]
-    ) or brief
-    if not transcript:
+    transcript_segments = job.get("transcriptSegments") or []
+    if not transcript_segments and brief:
+        transcript_segments = [{
+            "id": "brief-1", "startSec": 0, "endSec": 0, "text": brief,
+        }]
+    if not transcript_segments:
         raise RuntimeError("job has neither transcript nor operator brief")
-    media_evidence = None
+    media_evidence: MediaEvidence | None = None
     source_url = (job.get("config") or {}).get("youtubeUrl") or (job.get("config") or {}).get("mediaStorageUri")
     source_digest = job.get("mediaDigest")
     duration = job.get("ingestedDurationSec")
@@ -320,16 +320,30 @@ async def run_understand(job_id: str) -> None:
         media_evidence = MediaEvidence(
             video_uri=source_url, duration_sec=duration, source_digest=source_digest, frames=[],
         )
-    result = (await analyze_with_team(AnalystInput(
+    source_kind = "media" if media_evidence else "brief"
+    if not source_digest:
+        source_digest = hashlib.sha256(brief.encode("utf-8")).hexdigest()
+    analyst_input = AnalystInput(
+        sourceId=str(job.get("videoId") or f"brief:{job_id}"),
+        sourceKind=source_kind,
+        sourceDigest=source_digest,
         title=job.get("ingestedTitle") or brief[:200],
         channel=job.get("ingestedChannel") or "operator brief",
-        transcript=transcript, prior_learnings=prior, media_evidence=media_evidence,
-    ), invocation=invocation)).model_dump(mode="json")
+        transcriptSegments=transcript_segments,
+        mediaEvidence=media_evidence,
+        performanceObservations=performance,
+        memoryFacts=[],
+    )
+    result = validate_source_analysis(
+        analyst_input, await analyze_with_team(analyst_input, invocation=invocation),
+    ).model_dump(mode="json")
+    digest = hashlib.sha256(
+        _canonical_typed_bytes(result).encode("utf-8")
+    ).hexdigest()
     web_post("/api/internal/analysis", {
         "jobId": job_id, "stage": "understand",
-        "moments": result.get("moments", [])[:12],
-        "angles": result.get("angles", [])[:12],
-        "summary": result.get("summary", ""),
+        "analysis": result,
+        "analysisDigest": digest,
         "modelUsed": content.model_used(),
     })
 
@@ -338,10 +352,7 @@ def _strategy_input(job: dict[str, Any], insights: dict[str, Any]) -> Strategist
     context = (job.get("config") or {}).get("strategyContext")
     if not isinstance(context, dict):
         raise AgentProtocolError("job requires typed strategyContext")
-    analysis = AnalysisResult.model_validate({
-        "summary": job.get("summary"), "moments": job.get("moments") or [],
-        "angles": job.get("angles") or [],
-    })
+    analysis = SourceAnalysis.model_validate(job.get("sourceAnalysis"))
     performance = []
     for item in (insights.get("topPosts") or [])[:5]:
         post_id = str(item.get("postId") or "").strip()
@@ -424,11 +435,7 @@ async def run_plan(job_id: str) -> None:
         "strategyDigest": digest,
         "strategyVersion": strategy["version"],
         "strategyApproval": approval,
-        "analysis": {
-            "summary": job.get("summary") or "Content analysis completed.",
-            "moments": job.get("moments") or [],
-            "angles": job.get("angles") or [],
-        },
+        "analysis": job.get("sourceAnalysis"),
         "horizonStartAt": horizon_start,
         "horizonEndAt": horizon_end,
         "timezone": "UTC",
@@ -500,12 +507,14 @@ async def run_draft(job_id: str) -> None:
     if selected is None or brief is None:
         raise AgentProtocolError("selected editorial item has no exact approved brief")
     evidence_ids = set(selected.evidenceRefs)
-    moments = [item for item in (job.get("moments") or []) if item.get("id") in evidence_ids]
-    angles = [item for item in (job.get("angles") or []) if item.get("id") in evidence_ids]
+    source_analysis = SourceAnalysis.model_validate(job.get("sourceAnalysis"))
+    analysis_json = source_analysis.model_dump(mode="json", exclude_none=True)
+    moments = [item for item in analysis_json["moments"] if item["id"] in evidence_ids]
+    angles = [item for item in analysis_json["angles"] if item["id"] in evidence_ids]
     source_ids = {item["id"] for item in [*moments, *angles]}
     expected_source_ids = evidence_ids & {
-        *(item.get("id") for item in (job.get("moments") or [])),
-        *(item.get("id") for item in (job.get("angles") or [])),
+        *(item["id"] for item in analysis_json["moments"]),
+        *(item["id"] for item in analysis_json["angles"]),
     }
     if source_ids != expected_source_ids or not source_ids:
         raise AgentProtocolError("selected brief source evidence is missing")

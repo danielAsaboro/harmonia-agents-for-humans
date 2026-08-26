@@ -9,7 +9,6 @@ HARMONIA_MOCK_AI=1; with the flag unset all real model paths run unchanged.
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 import tempfile
 
@@ -57,49 +56,26 @@ def mock_transcribe(audio_len: int) -> dict:
     return {"language": "en", "segments": segments, "mock": True}
 
 
-def _transcript_bound(transcript: str) -> float:
-    """Last [Ns] timestamp in a formatted transcript; 0 when absent."""
-    marks = [float(m) for m in re.findall(r"\[(\d+(?:\.\d+)?)s\]", transcript)]
-    return max(marks) if marks else 0.0
-
-
-def mock_analyze(title: str, channel: str, transcript: str, prior_learnings: str | None = None) -> dict:
-    """Summary + 4 moments bounded by transcript length + 3 trend/2 meme angles."""
-    bound = _transcript_bound(transcript)
-    span = bound / 5 if bound > 0 else 0.0
-    moments = []
-    if bound > 0:
-        for i in range(4):
-            start = round(i * span + span * 0.2, 1)
-            end = round(min((i + 1) * span - span * 0.1, bound), 1)
-            moments.append({
-                "id": f"mock-m{i + 1}",
-                "title": _MOMENT_TITLES[i % len(_MOMENT_TITLES)],
-                "startSec": min(start, bound),
-                "endSec": max(end, min(start + 4.0, bound)),
-                "hook": _SEG_LINES[(i + 1) % len(_SEG_LINES)],
-                "quote": _SEG_LINES[i % len(_SEG_LINES)],
-            })
-    else:
-        # Brief-style analysis carries key points with zero timestamps.
-        for i in range(4):
-            moments.append({
-                "id": f"mock-m{i + 1}", "title": _SEG_LINES[i % len(_SEG_LINES)],
-                "startSec": 0, "endSec": 0,
-                "hook": _SEG_LINES[i % len(_SEG_LINES)], "quote": _SEG_LINES[i % len(_SEG_LINES)],
-            })
-    angles = [
-        {"id": "mock-a1", "kind": "trend", "title": "Time-to-value over feature count", "rationale": f"Contrarian take on '{title}' that resonates with startup operators."},
-        {"id": "mock-a2", "kind": "trend", "title": "Deletion as product strategy", "rationale": "Founders engage with 'what we removed' stories more than launch lists."},
-        {"id": "mock-a3", "kind": "trend", "title": "Activation metrics teardown", "rationale": "Concrete before/after numbers invite quote-posts and replies."},
-        {"id": "mock-a4", "kind": "meme", "title": "Onboarding obstacle course meme", "rationale": "Relatable joke format about multi-step signups ending in confetti."},
-        {"id": "mock-a5", "kind": "meme", "title": "'It depends' founder meme", "rationale": f"Playful format pairing a shrug with the hardest lesson from {channel or 'the episode'}."},
-    ]
+def mock_analyze(input) -> dict:
+    """Development-only analysis derived solely from the typed source package."""
+    segments = input.transcriptSegments[:4]
+    moments = [{
+        "id": f"mock-m{i + 1}", "title": _MOMENT_TITLES[i % len(_MOMENT_TITLES)],
+        "startSec": segment.startSec, "endSec": segment.endSec,
+        "hook": segment.text, "quote": segment.text,
+        "transcriptSegmentRefs": [segment.id], "visualEvidenceIds": [],
+        "assumptions": [], "confidence": "high",
+    } for i, segment in enumerate(segments)]
+    angles = [{
+        "id": "mock-a1", "kind": "source", "title": "Source-backed lesson",
+        "rationale": f"Develop the explicit lesson in {input.title} without adding outside facts.",
+        "evidenceRefs": [moments[0]["id"]], "assumptions": [], "confidence": "high",
+    }]
     return {
-        "summary": f"(mock) Analysis of '{title}': punchy startup lessons on activation speed and subtraction-led product strategy.",
-        "moments": moments,
-        "angles": angles,
-        "mock": True,
+        "sourceDigest": input.sourceDigest,
+        "summary": f"(mock) Bounded analysis of {input.title}.",
+        "moments": moments, "angles": angles, "assumptions": [],
+        "confidence": "high", "mock": True,
     }
 
 

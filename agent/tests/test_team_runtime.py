@@ -35,7 +35,7 @@ class _RemoteAgent:
         yield {
             "author": "nimi_analyst",
             "actions": {"state_delta": {
-                "analysis_result": {
+                "source_analysis": {
                     "summary": "Managed analysis",
                     "moments": [],
                     "angles": [],
@@ -83,7 +83,7 @@ def test_agent_engine_runtime_seeds_a_deterministic_persistent_session_and_colle
         session_key="job-123:understand:0:nimi_analyst",
     ))
 
-    assert state["analysis_result"]["summary"] == "Managed analysis"
+    assert state["source_analysis"]["summary"] == "Managed analysis"
     assert remote.created == [{
         "user_id": "job-123",
         "session_id": remote.created[0]["session_id"],

@@ -14,7 +14,7 @@ from google.adk.tools.agent_tool import AgentTool
 from google.genai import types
 
 from harmonia_agent.agent_models import (
-    AnalysisResult,
+    SourceAnalysis,
     AnalystInput,
     ContentDraft,
     CopywriterInput,
@@ -59,6 +59,17 @@ def _planner_input():
     return planner_input()
 
 
+def _analyst_input(**updates) -> AnalystInput:
+    value = {
+        "sourceId": "source-1", "sourceKind": "brief", "sourceDigest": "a" * 64,
+        "title": "Demo", "channel": "Harmonia",
+        "transcriptSegments": [{"id": "segment-1", "startSec": 0, "endSec": 30, "text": "hello proof We cut nine days to forty hours."}],
+        "performanceObservations": [], "memoryFacts": [],
+    }
+    value.update(updates)
+    return AnalystInput.model_validate(value)
+
+
 class ScriptedDelegationModel(BaseLlm):
     calls: list[str] = []
     media_uris: list[str] = []
@@ -83,7 +94,7 @@ class ScriptedDelegationModel(BaseLlm):
                 if part.file_data is not None
             )
             yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text=(
-                '{"summary":"Delegated analysis","moments":[],"angles":[]}'
+                '{"sourceDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","summary":"Delegated analysis","moments":[{"id":"m1","title":"Proof","startSec":0,"endSec":30,"hook":"hello","quote":"hello","transcriptSegmentRefs":["segment-1"],"visualEvidenceIds":[],"assumptions":[],"confidence":"high"}],"angles":[{"id":"a1","kind":"source","title":"Source proof","rationale":"The source contains proof.","evidenceRefs":["m1"],"assumptions":[],"confidence":"high"}],"assumptions":[],"confidence":"high"}'
             ))]))
             return
         if llm_request.tools_dict and not function_responses:
@@ -92,8 +103,10 @@ class ScriptedDelegationModel(BaseLlm):
                 function_call=types.FunctionCall(
                     name="nimi_analyst",
                     args={
-                        "title": "Demo", "channel": "Harmonia",
-                        "transcript": "[0s] hello [30s] proof", "prior_learnings": "",
+                        "sourceId": "source-1", "sourceKind": "brief",
+                        "sourceDigest": "a" * 64, "title": "Demo", "channel": "Harmonia",
+                        "transcriptSegments": [{"id": "segment-1", "startSec": 0, "endSec": 30, "text": "hello proof We cut nine days to forty hours."}],
+                        "performanceObservations": [], "memoryFacts": [],
                     },
                 ),
             )]))
@@ -147,17 +160,22 @@ class ScriptedDraftModel(BaseLlm):
         yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text="done")]))
 
 
-def _analysis() -> AnalysisResult:
-    return AnalysisResult.model_validate({
+def _analysis() -> SourceAnalysis:
+    return SourceAnalysis.model_validate({
+        "sourceDigest": "a" * 64,
         "summary": "A useful startup lesson.",
         "moments": [{
             "id": "m1", "title": "Activation", "startSec": 1,
             "endSec": 8, "hook": "Cut the delay", "quote": "We cut nine days to forty hours.",
+            "transcriptSegmentRefs": ["segment-1"], "visualEvidenceIds": [],
+            "assumptions": [], "confidence": "high",
         }],
         "angles": [{
-            "id": "a1", "kind": "trend", "title": "Speed wins",
-            "rationale": "Founders care about activation.",
+            "id": "a1", "kind": "source", "title": "Speed wins",
+            "rationale": "The source describes activation speed.",
+            "evidenceRefs": ["m1"], "assumptions": [], "confidence": "high",
         }],
+        "assumptions": [], "confidence": "high",
     })
 
 
@@ -173,7 +191,7 @@ class ManagedRuntime:
     async def invoke(self, **kwargs):
         self.calls.append(kwargs)
         if kwargs["specialist"] == "nimi_analyst":
-            return {"analysis_result": {
+            return {"source_analysis": {
                 **_analysis().model_dump(mode="json"),
                 "summary": "Delegated analysis",
             }}
@@ -300,7 +318,7 @@ def test_agent_reservations_record_exact_model_policy(monkeypatch):
 
     reservations = _reservation_payloads(
         "nimi_analyst",
-        AnalystInput(title="Synthetic", transcript="[0s] public evidence"),
+        _analyst_input(title="Synthetic"),
         invocation,
         _resolve_role_models(),
     )
@@ -325,12 +343,12 @@ def test_coordinator_really_delegates_and_forwards_specialist_state():
     with tenant_scope("workspace-test", "brand-test"):
         state = asyncio.run(_run_coordinator(
             "nimi_analyst",
-            AnalystInput(title="Demo", channel="Harmonia", transcript="[0s] hello [30s] proof"),
+            _analyst_input(),
             model="gemini-test",
             team_runtime=runtime,
         ))
 
-    result = _validated_state(state, "analysis_result", AnalysisResult)
+    result = _validated_state(state, "source_analysis", SourceAnalysis)
     assert result.summary == "Delegated analysis"
     assert runtime.calls[0]["specialist"] == "nimi_analyst"
     assert runtime.calls[0]["user_id"] == "workspace-test:system:proactive"
@@ -343,11 +361,9 @@ def test_analyst_receives_source_video_as_a_real_multimodal_part():
     with tenant_scope("workspace-test", "brand-test"):
         asyncio.run(_run_coordinator(
             "nimi_analyst",
-            AnalystInput(
-                title="Demo",
-                channel="Harmonia",
-                transcript="[0s] hello [30s] proof",
-                media_evidence=MediaEvidence(
+            _analyst_input(
+                sourceKind="media",
+                mediaEvidence=MediaEvidence(
                     video_uri=source,
                     duration_sec=60,
                     source_digest="a" * 64,
@@ -357,7 +373,7 @@ def test_analyst_receives_source_video_as_a_real_multimodal_part():
             team_runtime=runtime,
         ))
 
-    assert runtime.calls[0]["payload"]["media_evidence"]["video_uri"] == source
+    assert runtime.calls[0]["payload"]["mediaEvidence"]["video_uri"] == source
 
 
 def test_temi_runs_as_a_distinct_tool_free_typed_specialist():
@@ -384,7 +400,7 @@ def test_temi_delegation_validates_the_returned_plan():
 
 def test_missing_agent_state_is_a_permanent_protocol_failure():
     with pytest.raises(AgentProtocolError, match="required state key"):
-        _validated_state({}, "analysis_result", AnalysisResult)
+        _validated_state({}, "source_analysis", SourceAnalysis)
     assert classify_failure(AgentProtocolError("bad structured output")) is True
     from tests.test_noni_contracts import grounded_draft
     invalid_payload = grounded_draft()
@@ -418,9 +434,7 @@ def test_temi_run_output_rejects_an_unknown_brief():
 
 def test_mock_team_routes_all_roles_and_returns_validated_shapes(monkeypatch, capsys):
     monkeypatch.setenv("HARMONIA_MOCK_AI", "1")
-    analysis = asyncio.run(analyze_with_team(AnalystInput(
-        title="Demo", channel="Harmonia", transcript="[0s] hello [30s] proof",
-    )))
+    analysis = asyncio.run(analyze_with_team(_analyst_input()))
     assert analysis.summary
     with pytest.raises(RuntimeError, match="no mock editorial-plan path"):
         asyncio.run(plan_with_team(EditorialPlannerInput.model_validate(_planner_input())))

@@ -9,8 +9,8 @@ export function WrittenWorkspace({ job, traceLinks, selectedArtifactId, onSelect
       {job.drafts.map((draft, index) => {
         const artifactId = `draft:${draft.id}`;
         const trace = traceLinks.find((candidate) => candidate.draftId === draft.id);
-        const moment = job.moments.find((candidate) => candidate.id === draft.momentId);
-        const angle = job.angles.find((candidate) => candidate.id === draft.angleId);
+        const moment = job.sourceAnalysis?.moments.find((candidate) => candidate.id === draft.momentId);
+        const angle = job.sourceAnalysis?.angles.find((candidate) => candidate.id === draft.angleId);
         return (
           <article key={draft.id} tabIndex={-1} data-canvas-artifact={artifactId} onClick={() => onSelect(artifactId)} className={`group relative min-h-72 cursor-pointer border-2 bg-[#fffdf7] p-5 transition ${selectedArtifactId === artifactId ? "border-[#ff5c35] shadow-[8px_8px_0_#ff5c35]" : "border-black/15 hover:-translate-y-1 hover:border-black/50"}`}>
             <div className="flex items-start justify-between gap-3"><div><span className="font-mono text-xs text-[#ff5c35]">0{index + 1}</span><h3 className="mt-2 font-serif text-2xl">{draft.platform.toUpperCase()} post</h3></div><span className={`px-2 py-1 text-[9px] font-black uppercase tracking-[0.15em] ${draft.valid ? "bg-[#d9ff43] text-[#283600]" : "bg-[#ff5c35]/15 text-[#9f2c11]"}`}>{draft.valid ? "Reviewed" : "Invalid"}</span></div>

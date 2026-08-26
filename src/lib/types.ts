@@ -75,7 +75,7 @@ export interface EditorialPlannerInput {
   strategyDigest: string;
   strategyVersion: number;
   strategyApproval: StrategyApproval & { decision: "approved" };
-  analysis: { summary: string; moments: Moment[]; angles: Angle[] };
+  analysis: SourceAnalysis;
   horizonStartAt: string;
   horizonEndAt: string;
   timezone: string;
@@ -256,6 +256,8 @@ export interface Job {
   ingestedChannel?: string;
   ingestedDurationSec?: number;
   mediaDigest?: string;
+  sourceAnalysis?: SourceAnalysis;
+  analysisDigest?: string;
   contentStrategy?: ContentStrategy;
   strategyDigest?: string;
   strategyRevision?: number;
@@ -495,17 +497,32 @@ export interface Moment {
   endSec: number;
   hook: string;
   quote: string;
+  transcriptSegmentRefs: string[];
   visualHook?: string;
   cropSuitability?: "poor" | "fair" | "good" | "excellent";
   captionSafeRegion?: string;
-  visualEvidenceIds?: string[];
+  visualEvidenceIds: string[];
+  assumptions: string[];
+  confidence: "low" | "medium" | "high";
 }
 
 export interface Angle {
   id: string;
-  kind: "trend" | "meme";
+  kind: "source" | "trend" | "meme" | "performance" | "memory";
   title: string;
   rationale: string;
+  evidenceRefs: string[];
+  assumptions: string[];
+  confidence: "low" | "medium" | "high";
+}
+
+export interface SourceAnalysis {
+  sourceDigest: string;
+  summary: string;
+  moments: Moment[];
+  angles: Angle[];
+  assumptions: string[];
+  confidence: "low" | "medium" | "high";
 }
 
 export interface PostDraft {

@@ -48,9 +48,11 @@ def strategy() -> dict:
 
 def analysis() -> dict:
     return {
+        "sourceDigest": "c" * 64,
         "summary": "Activation time fell from nine days to forty hours.",
-        "moments": [{"id": "m1", "title": "Activation", "startSec": 2, "endSec": 8, "hook": "Nine days to forty hours", "quote": "we cut nine days to forty hours"}],
-        "angles": [{"id": "a1", "kind": "trend", "title": "Operational speed", "rationale": "The source demonstrates measurable improvement."}],
+        "moments": [{"id": "m1", "title": "Activation", "startSec": 2, "endSec": 8, "hook": "Nine days to forty hours", "quote": "we cut nine days to forty hours", "transcriptSegmentRefs": ["segment-1"], "visualEvidenceIds": [], "assumptions": [], "confidence": "high"}],
+        "angles": [{"id": "a1", "kind": "source", "title": "Operational speed", "rationale": "The source demonstrates measurable improvement.", "evidenceRefs": ["m1"], "assumptions": [], "confidence": "high"}],
+        "assumptions": [], "confidence": "high",
     }
 
 
@@ -119,7 +121,8 @@ def test_production_input_rejects_mismatched_brief_and_unreferenced_evidence():
     invalid = production_input()
     invalid["referencedMoments"].append({
         "id": "m-extra", "title": "Invented", "startSec": 0, "endSec": 1,
-        "hook": "h", "quote": "q",
+        "hook": "h", "quote": "q", "transcriptSegmentRefs": ["segment-1"],
+        "visualEvidenceIds": [], "assumptions": [], "confidence": "high",
     })
     with pytest.raises(ValidationError, match="referenced Nimi evidence"):
         CopywriterInput.model_validate(invalid)

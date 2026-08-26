@@ -52,7 +52,7 @@ _PUBLIC_FIXTURES: dict[str, tuple[str, frozenset[str]]] = {
             "harmonia", "public-eval-user", "public-route-analyst", "synthetic demo",
             "public channel", "[0s] public synthetic source [2s] bounded proof",
             "nimi_analyst", "harmonia_coordinator", "model", "user",
-            "transfer_to_agent", "agent_name", "analysis_result",
+            "transfer_to_agent", "agent_name", "source_analysis",
             '{"summary":"Public synthetic source.","moments":[],"angles":[]}',
             "harmonia_contract",
             '{"kind":"analysis","transcript":"[0s] public synthetic source [2s] bounded proof","durationSec":2}',

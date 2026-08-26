@@ -273,11 +273,11 @@ export default function JobDetail({
                   </ol>
                 </details>
               )}
-              {job.moments.length > 0 && (
+              {(job.sourceAnalysis?.moments.length ?? 0) > 0 && (
                 <div className="mt-4">
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Clip moments</h3>
                   <ul className="mt-2 space-y-2">
-                    {job.moments.map((m) => (
+                    {job.sourceAnalysis!.moments.map((m) => (
                       <li key={m.id} className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-sm font-medium">{m.title}</span>
@@ -290,11 +290,11 @@ export default function JobDetail({
                   </ul>
                 </div>
               )}
-              {job.angles.length > 0 && (
+              {(job.sourceAnalysis?.angles.length ?? 0) > 0 && (
                 <div className="mt-4">
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Trend & meme angles</h3>
                   <ul className="mt-2 space-y-1.5">
-                    {job.angles.map((a) => (
+                    {job.sourceAnalysis!.angles.map((a) => (
                       <li key={a.id} className="text-xs leading-5">
                         <span className={`mr-2 rounded px-1.5 py-px text-[10px] font-semibold uppercase ${a.kind === "trend" ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" : "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900 dark:text-fuchsia-200"}`}>{a.kind}</span>
                         <span className="font-medium">{a.title}</span> — <span className="text-zinc-600 dark:text-zinc-400">{a.rationale}</span>
@@ -303,7 +303,7 @@ export default function JobDetail({
                   </ul>
                 </div>
               )}
-              {job.moments.length === 0 && job.angles.length === 0 && job.transcriptSegments.length === 0 && (
+              {!job.sourceAnalysis && job.transcriptSegments.length === 0 && (
                 <Empty text="Transcript and analysis appear after the transcribe and understand stages." />
               )}
             </>
@@ -324,7 +324,7 @@ export default function JobDetail({
                       <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{d.text}</p>
                       {d.momentId && (
                         <p className="mt-1 font-mono text-[10px] text-zinc-400">
-                          from moment: {job.moments.find((m) => m.id === d.momentId)?.title ?? d.momentId}
+                          from moment: {job.sourceAnalysis?.moments.find((m) => m.id === d.momentId)?.title ?? d.momentId}
                         </p>
                       )}
                     </li>
@@ -433,7 +433,7 @@ export default function JobDetail({
               ) : (
                 <div className="flex flex-col gap-4">
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <Stat label="clip moments" value={String(job.moments.length)} />
+                    <Stat label="clip moments" value={String(job.sourceAnalysis?.moments.length ?? 0)} />
                     <Stat label="verifications passed" value={`${verifiedCount}/${(job.verifications ?? []).length}`} tone="green" />
                     <Stat label="audit receipts" value={String(receipts.length)} tone="blue" />
                     <Stat

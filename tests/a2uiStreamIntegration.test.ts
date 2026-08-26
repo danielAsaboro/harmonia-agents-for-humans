@@ -5,7 +5,7 @@ import { loadGeneratedPresentation } from "../src/lib/a2ui/generatedPresentation
 
 const job: JobFull = {
   id: "job-1", status: "running", stage: "draft", createdAt: "2026-08-23T00:00:00.000Z", updatedAt: "2026-08-23T00:01:00.000Z",
-  config: { brief: "Launch", platforms: ["x"] }, transcriptSegments: [], moments: [], angles: [], drafts: [], actions: [],
+  config: { brief: "Launch", platforms: ["x"] }, transcriptSegments: [], drafts: [], actions: [],
 };
 
 describe("streamed A2UI presentation integration", () => {

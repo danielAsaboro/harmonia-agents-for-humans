@@ -15,6 +15,10 @@ overreach, incomplete items, invalid timing/dependencies, unsupported capabiliti
 context misused as authorization, and the selected-item-only Noni handoff. These assertions target
 schema and validator behavior, not prompt wording.
 
+`nimi_contract_cases.json` catalogs grounded analysis, missing and invented evidence, authority
+overreach, incomplete output, provenance-bound Memory Bank use, memory-as-authorization, and
+explicit uncertainty. The evaluator calls the same strict runtime validator used before persistence.
+
 Live evaluation refuses to run when `HARMONIA_MOCK_AI=1`, unless `HARMONIA_REAL_EVAL=1` is set, or
 without an absolute `HARMONIA_EVAL_EVIDENCE_ROOT`. The output resolves inside that private root and
 outside the public repository, including through symlinks and `..` segments. A public fixture

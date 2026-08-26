@@ -9,7 +9,7 @@ from .agent_models import MediaEvidence
 
 
 def attach_media_evidence(callback_context, llm_request: LlmRequest):
-    raw = callback_context.state.get("media_evidence")
+    raw = callback_context.state.get("mediaEvidence")
     if not raw:
         return None
     evidence = MediaEvidence.model_validate(raw)

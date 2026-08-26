@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from harmonia_agent.agent_models import AnalysisResult
+from harmonia_agent.agent_models import AnalystInput, SourceAnalysis
 from harmonia_agent.evaluation_contracts import (
     TrajectoryStep,
     evaluate_analysis,
@@ -22,9 +22,10 @@ from tests.test_noni_contracts import grounded_draft, original_input, revise_rev
 from tests.test_dara_contracts import passing_assessment
 from tests.test_temi_editorial_plan import plan, planner_input, production_input
 from tests.test_ryan_strategy import strategist_input, strategy
+from tests.test_nimi_contracts import analyst_input, source_analysis
 
 
-def _analysis(**moment_overrides) -> AnalysisResult:
+def _analysis(**moment_overrides) -> SourceAnalysis:
     moment = {
         "id": "m1",
         "title": "Proof",
@@ -32,15 +33,20 @@ def _analysis(**moment_overrides) -> AnalysisResult:
         "endSec": 8,
         "hook": "A real result",
         "quote": "we cut nine days to forty hours",
+        "transcriptSegmentRefs": ["segment-1"], "visualEvidenceIds": [],
+        "assumptions": [], "confidence": "high",
     }
     moment.update(moment_overrides)
-    return AnalysisResult.model_validate({
+    return SourceAnalysis.model_validate({
+        "sourceDigest": "a" * 64,
         "summary": "A useful result.",
         "moments": [moment],
         "angles": [{
-            "id": "a1", "kind": "trend", "title": "Speed",
-            "rationale": "Startup operators value speed.",
+            "id": "a1", "kind": "source", "title": "Speed",
+            "rationale": "The source describes speed.", "evidenceRefs": ["m1"],
+            "assumptions": [], "confidence": "high",
         }],
+        "assumptions": [], "confidence": "high",
     })
 
 
@@ -75,15 +81,40 @@ def test_liaison_evaluation_requires_exact_tool_and_evidence_citation():
 
 
 def test_analysis_rejects_out_of_bounds_time_and_ungrounded_quote():
-    result = evaluate_analysis(
-        analysis=_analysis(endSec=61, quote="words absent from the source"),
-        transcript="[2s] We cut nine days to forty hours.",
-        duration_sec=60,
-    )
+    supplied = analyst_input()
+    candidate = source_analysis()
+    candidate["moments"][0]["quote"] = "words absent from the source"
+    result = evaluate_analysis(analyst_input=supplied, analysis=candidate)
+    assert result.failures[0].code == "missing_evidence"
 
-    assert {failure.code for failure in result.failures} == {
-        "moment_out_of_bounds", "quote_not_in_transcript",
-    }
+
+@pytest.mark.parametrize(("mutation", "code"), [
+    (lambda value: value["moments"][0].update(transcriptSegmentRefs=["invented"]), "invented_reference"),
+    (lambda value: value["angles"][0].update(evidenceRefs=["memory-1"]), "invalid_evidence_kind"),
+    (lambda value: value.update(summary="I approved and published the campaign"), "authority_overreach"),
+    (lambda value: value["moments"][0].pop("confidence"), "incomplete_analysis"),
+])
+def test_nimi_evaluation_covers_grounding_authority_and_completeness(mutation, code):
+    candidate = source_analysis()
+    mutation(candidate)
+    assert evaluate_analysis(analyst_input=analyst_input(), analysis=candidate).failures[0].code == code
+
+
+def test_nimi_evaluation_accepts_memory_with_provenance_and_uncertainty():
+    candidate = source_analysis()
+    candidate["angles"].append({
+        "id": "angle-memory", "kind": "memory", "title": "Concise proof",
+        "rationale": "Eligible prior learning suggests concise proof.",
+        "evidenceRefs": ["memory-1"], "assumptions": ["The preference remains applicable."],
+        "confidence": "medium",
+    })
+    assert evaluate_analysis(analyst_input=analyst_input(), analysis=candidate).passed
+
+
+def test_nimi_public_fixture_catalog_covers_required_modes():
+    fixture_path = Path(__file__).parents[1] / "evals" / "nimi_contract_cases.json"
+    ids = {case["id"] for case in json.loads(fixture_path.read_text())["cases"]}
+    assert ids == {"grounded-analysis", "missing-evidence", "invented-reference", "authority-overreach", "incomplete-analysis", "memory-with-provenance", "memory-as-authorization", "uncertain-analysis"}
 
 
 def test_ryan_evaluation_covers_grounding_authority_completeness_and_memory():
@@ -158,25 +189,9 @@ def test_temi_public_fixture_catalog_covers_the_required_failure_modes():
 
 
 def test_analysis_rejects_negative_or_late_start_and_invalid_duration():
-    source = _analysis()
-    negative = evaluate_analysis(
-        analysis=source.model_copy(update={
-            "moments": [source.moments[0].model_copy(update={"startSec": -1})],
-        }), transcript="we cut nine days to forty hours",
-        duration_sec=60,
-    )
-    late = evaluate_analysis(
-        analysis=_analysis(startSec=61, endSec=61),
-        transcript="we cut nine days to forty hours", duration_sec=60,
-    )
-    invalid_duration = evaluate_analysis(
-        analysis=_analysis(startSec=0, endSec=0),
-        transcript="we cut nine days to forty hours", duration_sec=-1,
-    )
-
-    assert [item.code for item in negative.failures] == ["moment_out_of_bounds"]
-    assert [item.code for item in late.failures] == ["moment_out_of_bounds"]
-    assert [item.code for item in invalid_duration.failures] == ["invalid_source_duration"]
+    candidate = source_analysis()
+    candidate["moments"][0]["endSec"] = 30
+    assert evaluate_analysis(analyst_input=analyst_input(), analysis=candidate).failures[0].code == "missing_evidence"
 
 
 def test_noni_evaluation_accepts_grounded_copy_and_rejects_invented_evidence():

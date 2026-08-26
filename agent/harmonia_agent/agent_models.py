@@ -178,37 +178,150 @@ class MediaEvidence(StrictModel):
 
 
 class Moment(StrictModel):
-    id: str = Field(min_length=1)
-    title: str = Field(min_length=1)
+    id: StrictIdentifier
+    title: StrictStr = Field(min_length=1, max_length=300)
     startSec: float = Field(ge=0)
     endSec: float = Field(ge=0)
-    hook: str = Field(min_length=1)
-    quote: str = Field(min_length=1)
-    visualHook: str | None = Field(default=None, max_length=500)
+    hook: StrictStr = Field(min_length=1, max_length=500)
+    quote: StrictStr = Field(min_length=1, max_length=2_000)
+    transcriptSegmentRefs: list[StrictIdentifier] = Field(min_length=1, max_length=12)
+    visualHook: StrictStr | None = Field(default=None, min_length=1, max_length=500)
     cropSuitability: Literal["poor", "fair", "good", "excellent"] | None = None
-    captionSafeRegion: str | None = Field(default=None, max_length=200)
-    visualEvidenceIds: list[str] = Field(default_factory=list, max_length=12)
+    captionSafeRegion: StrictStr | None = Field(default=None, min_length=1, max_length=200)
+    visualEvidenceIds: list[StrictIdentifier] = Field(max_length=12)
+    assumptions: list[StrictAssumptionText] = Field(max_length=8)
+    confidence: Literal["low", "medium", "high"]
+
+    _require_lists = field_validator(
+        "transcriptSegmentRefs", "visualEvidenceIds", "assumptions", mode="before",
+    )(_require_json_list)
+
+    @model_validator(mode="after")
+    def validate_moment_shape(self) -> "Moment":
+        if self.endSec < self.startSec:
+            raise ValueError("moment end must not precede start")
+        if len(self.transcriptSegmentRefs) != len(set(self.transcriptSegmentRefs)):
+            raise ValueError("moment transcript references must be unique")
+        if len(self.visualEvidenceIds) != len(set(self.visualEvidenceIds)):
+            raise ValueError("moment visual references must be unique")
+        if bool(self.visualHook) != bool(self.visualEvidenceIds):
+            raise ValueError("visual hook and visual evidence ids must appear together")
+        if self.confidence == "high" and self.assumptions:
+            raise ValueError("high-confidence moment cannot contain assumptions")
+        return self
 
 
 class Angle(StrictModel):
-    id: str = Field(min_length=1)
-    kind: Literal["trend", "meme"]
-    title: str = Field(min_length=1)
-    rationale: str = Field(min_length=1)
+    id: StrictIdentifier
+    kind: Literal["source", "trend", "meme", "performance", "memory"]
+    title: StrictStr = Field(min_length=1, max_length=300)
+    rationale: StrictStr = Field(min_length=1, max_length=1_000)
+    evidenceRefs: list[StrictIdentifier] = Field(min_length=1, max_length=12)
+    assumptions: list[StrictAssumptionText] = Field(max_length=8)
+    confidence: Literal["low", "medium", "high"]
+
+    _require_lists = field_validator(
+        "evidenceRefs", "assumptions", mode="before",
+    )(_require_json_list)
+
+    @model_validator(mode="after")
+    def validate_angle_shape(self) -> "Angle":
+        if len(self.evidenceRefs) != len(set(self.evidenceRefs)):
+            raise ValueError("angle evidence references must be unique")
+        if self.confidence == "high" and self.assumptions:
+            raise ValueError("high-confidence angle cannot contain assumptions")
+        return self
 
 
-class AnalysisResult(StrictModel):
-    summary: str = Field(min_length=1)
-    moments: list[Moment] = Field(default_factory=list, max_length=12)
-    angles: list[Angle] = Field(default_factory=list, max_length=12)
+class SourceAnalysis(StrictModel):
+    sourceDigest: StrictDigest
+    summary: StrictStr = Field(min_length=1, max_length=2_000)
+    moments: list[Moment] = Field(max_length=12)
+    angles: list[Angle] = Field(max_length=12)
+    assumptions: list[StrictAssumptionText] = Field(max_length=12)
+    confidence: Literal["low", "medium", "high"]
+
+    _require_lists = field_validator(
+        "moments", "angles", "assumptions", mode="before",
+    )(_require_json_list)
+
+    @model_validator(mode="after")
+    def validate_analysis_shape(self) -> "SourceAnalysis":
+        moment_ids = [moment.id for moment in self.moments]
+        angle_ids = [angle.id for angle in self.angles]
+        if len(moment_ids) != len(set(moment_ids)):
+            raise ValueError("moment ids must be unique")
+        if len(angle_ids) != len(set(angle_ids)):
+            raise ValueError("angle ids must be unique")
+        if set(moment_ids).intersection(angle_ids):
+            raise ValueError("moment and angle ids must be globally unique")
+        if not self.moments and not self.angles:
+            raise ValueError("analysis requires at least one grounded moment or angle")
+        if self.confidence == "high" and self.assumptions:
+            raise ValueError("high-confidence analysis cannot contain assumptions")
+        return self
+
+
+class TranscriptEvidenceSegment(StrictModel):
+    id: StrictIdentifier
+    startSec: float = Field(ge=0)
+    endSec: float = Field(ge=0)
+    text: StrictStr = Field(min_length=1, max_length=10_000)
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "TranscriptEvidenceSegment":
+        if self.endSec < self.startSec:
+            raise ValueError("segment end must not precede start")
+        return self
+
+
+class AnalystPerformanceObservation(StrictModel):
+    id: StrictIdentifier
+    summary: StrictStr = Field(min_length=1, max_length=1_000)
+    firestoreEvidenceRef: StrictStr = Field(min_length=1, max_length=500)
+
+
+class AnalystMemoryFact(StrictModel):
+    id: StrictIdentifier
+    kind: Literal["operator_decision", "verified_outcome", "learning", "preference"]
+    content: StrictStr = Field(min_length=1, max_length=1_000)
+    firestoreEvidenceRef: StrictStr = Field(min_length=1, max_length=500)
 
 
 class AnalystInput(StrictModel):
-    title: str = Field(min_length=1)
-    channel: str = ""
-    transcript: str = Field(min_length=1, max_length=60_000)
-    prior_learnings: str = Field(default="", max_length=4_000)
-    media_evidence: MediaEvidence | None = None
+    sourceId: StrictIdentifier
+    sourceKind: Literal["brief", "media"]
+    sourceDigest: StrictDigest
+    title: StrictStr = Field(min_length=1, max_length=300)
+    channel: StrictStr = Field(min_length=1, max_length=300)
+    transcriptSegments: list[TranscriptEvidenceSegment] = Field(min_length=1, max_length=500)
+    mediaEvidence: MediaEvidence | None = None
+    performanceObservations: list[AnalystPerformanceObservation] = Field(max_length=5)
+    memoryFacts: list[AnalystMemoryFact] = Field(max_length=5)
+
+    _require_lists = field_validator(
+        "transcriptSegments", "performanceObservations", "memoryFacts", mode="before",
+    )(_require_json_list)
+
+    @model_validator(mode="after")
+    def validate_source_package(self) -> "AnalystInput":
+        segment_ids = [segment.id for segment in self.transcriptSegments]
+        if len(segment_ids) != len(set(segment_ids)):
+            raise ValueError("segment ids must be unique")
+        if self.mediaEvidence is not None and self.mediaEvidence.source_digest != self.sourceDigest:
+            raise ValueError("media evidence source digest must match source digest")
+        if self.sourceKind == "media" and self.mediaEvidence is None:
+            raise ValueError("media source requires media evidence")
+        if self.sourceKind == "brief" and self.mediaEvidence is not None:
+            raise ValueError("brief source cannot contain media evidence")
+        for items, label in (
+            (self.performanceObservations, "performance observation"),
+            (self.memoryFacts, "memory fact"),
+        ):
+            ids = [item.id for item in items]
+            if len(ids) != len(set(ids)):
+                raise ValueError(f"{label} ids must be unique")
+        return self
 
 
 class AudienceSegment(StrictModel):
@@ -256,7 +369,7 @@ class StrategistInput(StrictModel):
     source_title: str = Field(min_length=1, max_length=300)
     company: CompanyContext
     campaign: CampaignContext
-    analysis: AnalysisResult
+    analysis: SourceAnalysis
     performance: list[PerformanceObservation] = Field(default_factory=list, max_length=12)
     memoryFacts: list[MemoryFact] = Field(default_factory=list, max_length=5)
     revision: int = Field(default=1, ge=1, le=2)
@@ -455,7 +568,7 @@ class EditorialPlannerInput(StrictModel):
     strategyDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
     strategyVersion: int = Field(ge=1, le=2)
     strategyApproval: StrategyApprovalRecord
-    analysis: AnalysisResult
+    analysis: SourceAnalysis
     horizonStartAt: datetime
     horizonEndAt: datetime
     timezone: str = Field(min_length=1, max_length=100)

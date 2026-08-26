@@ -1,4 +1,5 @@
 import type { JobFull, PlannedAction, PostDraft, Receipt } from "@/components/jobTypes";
+import type { Angle, Moment } from "@/lib/types";
 
 export type StudioMediaKind = "visual" | "motion" | "audio";
 
@@ -30,8 +31,8 @@ export interface TraceLink {
 
 export interface StudioWorkspaceSources {
   transcriptSegments: JobFull["transcriptSegments"];
-  moments: JobFull["moments"];
-  angles: JobFull["angles"];
+  moments: Moment[];
+  angles: Angle[];
   receipts: Receipt[];
   unsupportedAssets: Array<NonNullable<JobFull["assets"]>[number]>;
 }
@@ -62,21 +63,19 @@ function kindForMime(mime: string): StudioMediaKind | null {
 }
 
 function sourceSegmentsForMoment(job: JobFull, momentId: string): string[] {
-  const moment = job.moments.find((candidate) => candidate.id === momentId);
-  if (!moment) return [];
-  return job.transcriptSegments
-    .filter((segment) => segment.startSec < moment.endSec && segment.endSec > moment.startSec)
-    .map((segment) => segment.id);
+  return job.sourceAnalysis?.moments.find((candidate) => candidate.id === momentId)?.transcriptSegmentRefs ?? [];
 }
 
 function traceForReference(
   job: JobFull,
   reference: { draftId?: string; actionId?: string; momentId?: string; angleId?: string },
 ): TraceLink {
-  if (reference.momentId && !job.moments.some((moment) => moment.id === reference.momentId)) {
+  const moments = job.sourceAnalysis?.moments ?? [];
+  const angles = job.sourceAnalysis?.angles ?? [];
+  if (reference.momentId && !moments.some((moment) => moment.id === reference.momentId)) {
     return { ...reference, sourceSegmentIds: [], valid: false, error: `moment ${reference.momentId} not found` };
   }
-  if (reference.angleId && !job.angles.some((angle) => angle.id === reference.angleId)) {
+  if (reference.angleId && !angles.some((angle) => angle.id === reference.angleId)) {
     return { ...reference, sourceSegmentIds: [], valid: false, error: `angle ${reference.angleId} not found` };
   }
   return {
@@ -87,6 +86,8 @@ function traceForReference(
 }
 
 export function buildStudioWorkspace(job: JobFull, receipts: Receipt[]): StudioWorkspaceModel {
+  const moments = job.sourceAnalysis?.moments ?? [];
+  const angles = job.sourceAnalysis?.angles ?? [];
   const actions = new Map(job.actions.map((action) => [action.id, action]));
   const visual: StudioAsset[] = [];
   const motion: StudioAsset[] = [];
@@ -109,7 +110,7 @@ export function buildStudioWorkspace(job: JobFull, receipts: Receipt[]): StudioW
       digest: asset.digest,
       ...(action ? { provider: providerFor(action.type) } : {}),
       ...(action?.momentId ? (() => {
-        const moment = job.moments.find((candidate) => candidate.id === action.momentId);
+        const moment = moments.find((candidate) => candidate.id === action.momentId);
         return moment ? {
           momentId: moment.id,
           momentTitle: moment.title,
@@ -145,7 +146,7 @@ export function buildStudioWorkspace(job: JobFull, receipts: Receipt[]): StudioW
     visual,
     motion,
     audio,
-    sources: { transcriptSegments: job.transcriptSegments, moments: job.moments, angles: job.angles, receipts, unsupportedAssets },
+    sources: { transcriptSegments: job.transcriptSegments, moments, angles, receipts, unsupportedAssets },
     pendingActions: job.actions.filter((action) => action.state === "planned" && action.approvalState === "pending"),
     failedActions: job.actions.filter((action) => action.state === "failed"),
     verifiedCount: (job.verifications ?? []).filter((verification) => verification.verified).length,

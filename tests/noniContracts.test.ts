@@ -42,8 +42,8 @@ const reviseReview: EditorialReview = {
 
 const originalInput: CopywriterInput = {
   planId: "plan-1", planDigest: "a".repeat(64), strategyDigest: "b".repeat(64), editorialItemId: "item-1", briefId: "brief-1",
-  editorialItem, brief, referencedMoments: [{ id: "moment-1", title: "Activation lesson", startSec: 1, endSec: 8, hook: "Cut the delay", quote: "We cut nine days to forty hours." }],
-  referencedAngles: [{ id: "angle-1", kind: "trend", title: "Evidence-led execution", rationale: "Founders need verifiable operating proof." }],
+  editorialItem, brief, referencedMoments: [{ id: "moment-1", title: "Activation lesson", startSec: 1, endSec: 8, hook: "Cut the delay", quote: "We cut nine days to forty hours.", transcriptSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }],
+  referencedAngles: [{ id: "angle-1", kind: "source", title: "Evidence-led execution", rationale: "Founders need verifiable operating proof.", evidenceRefs: ["moment-1"], assumptions: [], confidence: "high" }],
   brandContext: "Direct, evidence-led, and concise.", constraints: ["Use an evidence-led voice"], platform: "x", format: "text_post", passType: "original",
   priorDraft: null, priorReview: null,
 };
@@ -213,6 +213,7 @@ describe("Noni and Dara contracts", () => {
   it("bounds nested moment visual evidence ids at 100 characters", () => {
     const accepted = structuredClone(originalInput) as unknown as Record<string, unknown>;
     (accepted.referencedMoments as Array<Record<string, unknown>>)[0].visualEvidenceIds = ["x".repeat(100)];
+    (accepted.referencedMoments as Array<Record<string, unknown>>)[0].visualHook = "A grounded visual hook";
     expect(copywriterInputSchema.safeParse(accepted).success).toBe(true);
 
     const rejected = structuredClone(accepted) as Record<string, unknown>;

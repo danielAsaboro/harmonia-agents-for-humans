@@ -46,9 +46,12 @@ def _evidence() -> tuple[list[dict], list[dict]]:
     return ([{
         "id": "moment-1", "title": "Activation lesson", "startSec": 1, "endSec": 8,
         "hook": "Cut the delay", "quote": "We cut nine days to forty hours.",
+        "transcriptSegmentRefs": ["segment-1"], "visualEvidenceIds": [],
+        "assumptions": [], "confidence": "high",
     }], [{
-        "id": "angle-1", "kind": "trend", "title": "Evidence-led execution",
+        "id": "angle-1", "kind": "source", "title": "Evidence-led execution",
         "rationale": "Founders need verifiable operating proof.",
+        "evidenceRefs": ["moment-1"], "assumptions": [], "confidence": "high",
     }])
 
 
@@ -1304,6 +1307,7 @@ def test_nested_evidence_ids_are_bounded_to_100_characters(collection, index):
 def test_nested_moment_visual_evidence_ids_are_bounded_to_100_characters():
     accepted = original_input()
     accepted["referencedMoments"][0]["visualEvidenceIds"] = ["x" * 100]
+    accepted["referencedMoments"][0]["visualHook"] = "A grounded visual hook"
     assert CopywriterInput.model_validate(accepted)
 
     rejected = deepcopy(accepted)

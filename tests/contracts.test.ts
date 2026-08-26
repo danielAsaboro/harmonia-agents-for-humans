@@ -87,22 +87,24 @@ describe("internal contracts", () => {
     const parsed = analysisSubmissionSchema.parse({
       jobId: "j1",
       stage: "understand",
-      summary: "Visible product demo",
-      moments: [{
-        id: "m1", title: "Dashboard reveal", startSec: 2, endSec: 9,
-        hook: "Watch the state change", quote: "The workflow is now live",
-        visualHook: "Dashboard counter changes from zero to one",
-        cropSuitability: "excellent",
-        captionSafeRegion: "lower third",
-        visualEvidenceIds: ["f1"],
-      }],
-      angles: [],
-      strategy: { objective: "Teach the launch lesson", audience: "startup operators", pillars: ["product proof"], cadence: "one approved post", kpis: ["verified engagement"], briefs: [{ title: "Dashboard reveal", objective: "Show the state change", sourceRefs: ["m1"] }] },
+      analysis: {
+        sourceDigest: "a".repeat(64), summary: "Visible product demo",
+        moments: [{
+          id: "m1", title: "Dashboard reveal", startSec: 2, endSec: 9,
+          hook: "Watch the state change", quote: "The workflow is now live",
+          transcriptSegmentRefs: ["segment-1"],
+          visualHook: "Dashboard counter changes from zero to one",
+          cropSuitability: "excellent", captionSafeRegion: "lower third",
+          visualEvidenceIds: ["f1"], assumptions: [], confidence: "high",
+        }],
+        angles: [], assumptions: [], confidence: "high",
+      },
+      analysisDigest: "b".repeat(64),
       modelUsed: "gemini-3.5-flash",
     });
 
-    expect(parsed.moments[0].visualEvidenceIds).toEqual(["f1"]);
-    expect(parsed.moments[0].cropSuitability).toBe("excellent");
+    expect(parsed.analysis.moments[0].visualEvidenceIds).toEqual(["f1"]);
+    expect(parsed.analysis.moments[0].cropSuitability).toBe("excellent");
   });
 
   it("accepts bounded Veo and Lyria action contracts", () => {

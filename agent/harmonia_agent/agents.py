@@ -17,8 +17,9 @@ from google.adk.models.base_llm import BaseLlm
 from pydantic import BaseModel, ValidationError
 
 from .agent_models import (
-    AnalysisResult,
+    SourceAnalysis,
     AnalystInput,
+    AnalystMemoryFact,
     ContentDraft,
     ContentStrategy,
     CopywriterInput,
@@ -43,12 +44,13 @@ from .mock_ai import (
     mock_ask,
 )
 from .multimodal import attach_media_evidence
-from .memory_bank import MemoryBank, MemoryScope, VertexMemoryBank, format_memory_context
+from .memory_bank import MemoryBank, MemoryScope, VertexMemoryBank
 from .memory_bank import MemoryFact as RetrievedMemoryFact
 from .agent_models import MemoryFact as StrategyMemoryFact
 from .ryan_prompt import RYAN_STRATEGIST_INSTRUCTION
 from .temi_prompt import TEMI_EDITORIAL_PLANNER_INSTRUCTION
 from .noni_prompt import NONI_COPYWRITER_INSTRUCTION
+from .nimi_prompt import NIMI_ANALYST_INSTRUCTION
 from .dara_prompt import DARA_EDITOR_INSTRUCTION
 from .telemetry import current_trace_id, safe_attributes, tracer
 from .team_runtime import AgentEngineTeamRuntime, TeamRuntime
@@ -221,7 +223,7 @@ def _role_task(role: str, specialist: str, payload: BaseModel) -> str:
     if role == "ryan_strategist":
         return "strategize"
     if role == "nimi_analyst":
-        return "analyze_media" if getattr(payload, "media_evidence", None) else "analyze_transcript"
+        return "analyze_media" if getattr(payload, "mediaEvidence", None) else "analyze_transcript"
     return {
         "noni_copywriter": "draft_or_revise_x",
         "dara_editor": "review_drafts",
@@ -269,16 +271,10 @@ def build_agent_team(
         generate_content_config=generation_config(resolved.config_for("nimi_analyst")),
         name="nimi_analyst",
         description="Finds clip-worthy moments and defensible trend or meme angles in a transcript.",
-        instruction=(
-            "Analyze only the supplied video/audio parts, metadata, transcript, and learnings. "
-            "Use both visible and spoken evidence when media is attached. Return a concise "
-            "summary, 3-6 timestamp-bounded moments with exact quotes, and useful trend/meme "
-            "angles. Populate visual production fields only from visible evidence and cite only "
-            "supplied frame IDs. Return only the AnalysisResult JSON contract."
-        ),
+        instruction=NIMI_ANALYST_INSTRUCTION,
         input_schema=AnalystInput,
-        output_schema=AnalysisResult,
-        output_key="analysis_result",
+        output_schema=SourceAnalysis,
+        output_key="source_analysis",
         mode="single_turn",
         before_model_callback=attach_media_evidence,
     )
@@ -1356,6 +1352,94 @@ def run_noni_dara_loop(
     )
 
 
+_NIMI_AUTHORITY_OVERREACH = re.compile(
+    r"\b(?:approv(?:e|ed|al)|reject(?:ed|ion)?|authori[sz](?:e[sd]?|ation)|"
+    r"publish(?:ed|ing)?|schedul(?:e|ed|ing)|execut(?:e|ed|ing)|receipt|verified\s+live|"
+    r"final\s+(?:post|copy)|use\s+this\s+(?:post|copy)|call\s+to\s+action|cta|"
+    r"content\s+pillar|campaign\s+objective|kpi)\b",
+    re.IGNORECASE,
+)
+
+
+def validate_source_analysis(
+    input: AnalystInput,
+    analysis: SourceAnalysis,
+) -> SourceAnalysis:
+    """Fail closed when Nimi exceeds the supplied source and advisory evidence."""
+    input = AnalystInput.model_validate(input)
+    analysis = SourceAnalysis.model_validate(analysis)
+    _validate_ascii_only_boundary(input, "Nimi input")
+    _validate_ascii_only_boundary(analysis, "Nimi analysis")
+    if analysis.sourceDigest != input.sourceDigest:
+        raise AgentProtocolError("Nimi analysis source digest does not match the input")
+
+    segments = {segment.id: segment for segment in input.transcriptSegments}
+    frames = {
+        frame.id: frame
+        for frame in (input.mediaEvidence.frames if input.mediaEvidence else [])
+    }
+    performance_ids = {item.id for item in input.performanceObservations}
+    memory_ids = {item.id for item in input.memoryFacts}
+    moment_ids = {moment.id for moment in analysis.moments}
+    source_ids = set(segments) | set(frames) | moment_ids
+    all_ids = source_ids | performance_ids | memory_ids
+
+    for moment in analysis.moments:
+        unknown_segments = set(moment.transcriptSegmentRefs) - set(segments)
+        if unknown_segments:
+            raise AgentProtocolError(
+                f"Nimi moment contains unknown transcript segment ids: {sorted(unknown_segments)}"
+            )
+        cited = [segments[ref] for ref in moment.transcriptSegmentRefs]
+        cited_text = " ".join(segment.text for segment in cited)
+        if moment.quote not in cited_text:
+            raise AgentProtocolError("Nimi moment exact quote is absent from cited transcript segments")
+        if moment.startSec < min(segment.startSec for segment in cited) or moment.endSec > max(segment.endSec for segment in cited):
+            raise AgentProtocolError("Nimi moment time bounds exceed cited transcript segments")
+        if input.mediaEvidence and moment.endSec > input.mediaEvidence.duration_sec:
+            raise AgentProtocolError("Nimi moment time bounds exceed media duration")
+        unknown_visual = set(moment.visualEvidenceIds) - set(frames)
+        if unknown_visual:
+            raise AgentProtocolError(
+                f"Nimi moment contains unknown visual evidence ids: {sorted(unknown_visual)}"
+            )
+        if (moment.cropSuitability or moment.captionSafeRegion) and not moment.visualEvidenceIds:
+            raise AgentProtocolError("Nimi visual production claims require supplied visual evidence")
+
+    allowed_by_kind = {
+        "source": source_ids,
+        "trend": source_ids,
+        "meme": source_ids,
+        "performance": performance_ids,
+        "memory": memory_ids,
+    }
+    for angle in analysis.angles:
+        unknown = set(angle.evidenceRefs) - all_ids
+        if unknown:
+            raise AgentProtocolError(
+                f"Nimi angle contains unknown evidence ids: {sorted(unknown)}"
+            )
+        if not set(angle.evidenceRefs).issubset(allowed_by_kind[angle.kind]):
+            raise AgentProtocolError(
+                f"Nimi {angle.kind} angle uses the wrong evidence kind"
+            )
+
+    semantic_text = " ".join([
+        analysis.summary, *analysis.assumptions,
+        *(value for moment in analysis.moments for value in (
+            moment.title, moment.hook, *moment.assumptions,
+        )),
+        *(value for angle in analysis.angles for value in (
+            angle.title, angle.rationale, *angle.assumptions,
+        )),
+    ])
+    if _NIMI_AUTHORITY_OVERREACH.search(semantic_text):
+        raise AgentProtocolError(
+            "Nimi analysis contains strategy, final copy, or effect authority overreach"
+        )
+    return analysis
+
+
 def _validate_run_output(
     specialist: str, payload: BaseModel, state: dict[str, Any],
 ) -> None:
@@ -1368,26 +1452,8 @@ def _validate_run_output(
             raise AgentProtocolError("liaison returned no answer text")
         return
     if specialist == "nimi_analyst":
-        result = _validated_state(state, "analysis_result", AnalysisResult)
-        analyst_input = AnalystInput.model_validate(payload)
-        valid_visual_ids = {
-            frame.id
-            for frame in (
-                analyst_input.media_evidence.frames
-                if analyst_input.media_evidence is not None
-                else []
-            )
-        }
-        referenced = {
-            visual_id
-            for moment in result.moments
-            for visual_id in moment.visualEvidenceIds
-        }
-        invalid = referenced - valid_visual_ids
-        if invalid:
-            raise AgentProtocolError(
-                f"analyst returned unknown visual evidence ids: {sorted(invalid)}"
-            )
+        result = _validated_state(state, "source_analysis", SourceAnalysis)
+        validate_source_analysis(AnalystInput.model_validate(payload), result)
         return
     if specialist == "ryan_strategist":
         result = _validated_state(state, "strategist_result", StrategistResult)
@@ -1530,20 +1596,35 @@ async def _run_coordinator(
 async def analyze_with_team(
     input: AnalystInput, *, invocation: InvocationContext | None = None,
     memory: tuple[MemoryBank, MemoryScope] | None = None,
-) -> AnalysisResult:
+) -> SourceAnalysis:
     input = AnalystInput.model_validate(input)
     resolved_memory = configured_memory(invocation) if memory is None else memory
     facts = await _retrieve_memory(query=input.title, memory=resolved_memory)
     if facts:
         input = input.model_copy(update={
-            "prior_learnings": _merge_memory(input.prior_learnings, facts),
+            "memoryFacts": [
+                *input.memoryFacts,
+                *(AnalystMemoryFact(
+                    id=f"memory:{fact.evidence_ref.kind}:{fact.evidence_ref.record_id}",
+                    kind=fact.kind,
+                    content=fact.fact,
+                    firestoreEvidenceRef=(
+                        f"jobs/{fact.evidence_ref.job_id}/{fact.evidence_ref.kind}/"
+                        f"{fact.evidence_ref.record_id}"
+                    ),
+                ) for fact in facts),
+            ][:5],
         })
     if mock_ai_enabled():
         print("[MOCK-AI] coordinator -> nimi_analyst", flush=True)
-        raw = mock_analyze(input.title, input.channel, input.transcript, input.prior_learnings)
-        return AnalysisResult.model_validate({k: v for k, v in raw.items() if k != "mock"})
+        raw = mock_analyze(input)
+        return validate_source_analysis(
+            input, SourceAnalysis.model_validate({k: v for k, v in raw.items() if k != "mock"}),
+        )
     state = await _run_coordinator("nimi_analyst", input, invocation=invocation)
-    return _validated_state(state, "analysis_result", AnalysisResult)
+    return validate_source_analysis(
+        input, _validated_state(state, "source_analysis", SourceAnalysis),
+    )
 
 
 def validate_strategy_grounding(
@@ -1845,14 +1926,6 @@ def configured_memory(
             brand_id=invocation.brand_id if invocation else tenant.brand_id,
         ),
     )
-
-
-def _merge_memory(existing: str, facts: list[str]) -> str:
-    memory = format_memory_context(facts)
-    if not memory:
-        return existing
-    suffix = f"\nPersisted brand memory:\n{memory}"
-    return f"{existing[:max(0, 4000 - len(suffix))]}{suffix}".strip()
 
 
 async def _retrieve_memory(

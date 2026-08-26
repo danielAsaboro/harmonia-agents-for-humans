@@ -10,7 +10,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict
 
 from .agent_models import (
-    AnalysisResult,
+    AnalystInput,
+    SourceAnalysis,
     ContentDraft,
     ContentStrategy,
     CopywriterInput,
@@ -116,25 +117,28 @@ def _normalize_source(text: str) -> str:
 
 
 def evaluate_analysis(
-    *, analysis: AnalysisResult, transcript: str, duration_sec: float,
+    *, analyst_input: AnalystInput | Mapping[str, Any],
+    analysis: SourceAnalysis | Mapping[str, Any],
 ) -> EvaluationCaseResult:
-    failures: list[EvaluationFailure] = []
-    if duration_sec < 0:
-        return _result([_failure(
-            "invalid_source_duration", "source duration cannot be negative", "duration_sec",
-        )])
-    normalized_transcript = _normalize_source(transcript)
-    for index, moment in enumerate(analysis.moments):
-        path = f"moments.{index}"
-        if not 0 <= moment.startSec <= moment.endSec <= duration_sec:
-            failures.append(_failure(
-                "moment_out_of_bounds", "moment is outside source duration", path,
-            ))
-        if _normalize_source(moment.quote) not in normalized_transcript:
-            failures.append(_failure(
-                "quote_not_in_transcript", "moment quote is absent from transcript", path,
-            ))
-    return _result(failures)
+    """Evaluate Nimi through the same strict, closed-world runtime boundary."""
+    try:
+        supplied = analyst_input if isinstance(analyst_input, AnalystInput) else AnalystInput.model_validate(analyst_input)
+        parsed = analysis if isinstance(analysis, SourceAnalysis) else SourceAnalysis.model_validate(analysis)
+    except Exception:
+        return _result([_failure("incomplete_analysis", "analysis does not satisfy the strict contract")])
+    from .agents import AgentProtocolError, validate_source_analysis
+    try:
+        validate_source_analysis(supplied, parsed)
+    except AgentProtocolError as exc:
+        message = str(exc)
+        code = (
+            "authority_overreach" if "authority overreach" in message else
+            "invented_reference" if "unknown" in message else
+            "invalid_evidence_kind" if "may reference only" in message or "must reference" in message or "wrong evidence kind" in message else
+            "missing_evidence"
+        )
+        return _result([_failure(code, message)])
+    return _result([])
 
 
 def evaluate_strategy(
@@ -441,7 +445,7 @@ def adk_contract_metric(
             payload = json.loads(response_text)
             if kind == "analysis":
                 result = evaluate_analysis(
-                    analysis=AnalysisResult.model_validate(payload),
+                    analysis=SourceAnalysis.model_validate(payload),
                     transcript=spec["transcript"],
                     duration_sec=float(spec["durationSec"]),
                 )

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Angle, ContentStrategy, JobConfig, Moment, StrategyInvocationContext } from "./types";
+import type { ContentStrategy, JobConfig, SourceAnalysis, StrategyInvocationContext } from "./types";
 
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
@@ -15,13 +15,14 @@ export function strategyDigest(strategy: unknown): string {
   return createHash("sha256").update(JSON.stringify(canonical(strategy)), "utf8").digest("hex");
 }
 
-export function validatePersistedStrategy(job: { config: JobConfig; moments: Moment[]; angles: Angle[]; strategyInvocationContext?: StrategyInvocationContext }, strategy: ContentStrategy): void {
+export function validatePersistedStrategy(job: { config: JobConfig; sourceAnalysis?: SourceAnalysis; strategyInvocationContext?: StrategyInvocationContext }, strategy: ContentStrategy): void {
   const context = job.config.strategyContext;
   if (!context) throw new Error("typed strategy context required");
   const invocation = job.strategyInvocationContext;
   if (!invocation || invocation.revision !== strategy.version) throw new Error("persisted strategy invocation context required");
   if (strategy.horizonWeeks !== (context.horizonWeeks ?? 4)) throw new Error("strategy horizon mismatch");
-  const sourceIds = new Set([...job.moments, ...job.angles].map((item) => item.id));
+  if (!job.sourceAnalysis) throw new Error("persisted source analysis required");
+  const sourceIds = new Set([...job.sourceAnalysis.moments, ...job.sourceAnalysis.angles].map((item) => item.id));
   const audienceIds = new Set(context.audiences.map((item) => item.id));
   const requested = new Set(context.requestedChannels);
   const supported = new Set(context.supportedChannels);

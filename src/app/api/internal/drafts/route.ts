@@ -2,11 +2,9 @@ import { draftsSubmissionSchema } from "@/lib/contracts";
 import {
   appendEvent,
   claimSelectedEditorialItem,
-  createContentItem,
   createNotification,
   getJob,
   finalizeEditorialItemDraft,
-  setStage,
   transitionStageWithOutbox,
 } from "@/lib/firestore";
 import { internalRoute } from "@/lib/internalHandler";
@@ -26,7 +24,7 @@ export async function POST(req: Request) {
       return Response.json(claimed);
     }
     const job = await getJob(body.jobId);
-    if (job.stage !== "draft") {
+    if (job.stage !== "draft" && job.stage !== "awaiting_approval") {
       return Response.json({ error: `job stage is '${job.stage}'` }, { status: 409 });
     }
 
@@ -48,33 +46,17 @@ export async function POST(req: Request) {
       editorialItemId: body.editorialItemId,
       briefId: body.briefId,
     };
-    await finalizeEditorialItemDraft(body.jobId, lineage, drafts, actionable);
-
     const needsApproval = actionable.filter((a) => a.requiresApproval);
     const autoRun = actionable.filter((a) => !a.requiresApproval);
     const invalid = drafts.filter((d) => !d.valid);
-
-    // Every X-post action becomes a calendar content item (idempotent by id).
-    for (const a of actionable) {
-      if (a.type !== "publish_x_post") continue;
-      const text = String((a.payload as { text?: unknown }).text ?? "");
-      if (!text) continue;
-      await createContentItem({
-        id: `item-${a.id}`,
-        jobId: body.jobId,
-        draftId: drafts.find((d) => d.text === text)?.id,
-        ...lineage,
-        text,
-        platforms: ["x"],
-        status: "draft",
-        publishMode: "approval",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
+    const completion = await finalizeEditorialItemDraft(
+      body.jobId, lineage, drafts, actionable, needsApproval.length > 0,
+    );
+    if (completion.outcome === "already_applied") {
+      return Response.json({ ok: true, awaitingApproval: true, alreadyApplied: true });
     }
 
     if (needsApproval.length > 0) {
-      await setStage(body.jobId, "awaiting_approval", "waiting_for_approval");
       await appendEvent(body.jobId, "draft", `${drafts.length} draft(s); ${autoRun.length} auto action(s), ${needsApproval.length} awaiting approval${invalid.length ? `, ${invalid.length} rejected by limits` : ""}`, "agent");
       await createNotification({
         kind: "approval_needed",

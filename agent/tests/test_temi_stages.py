@@ -48,6 +48,10 @@ def drafting_job() -> dict:
                          "updatedAt": "2026-08-30T00:00:00Z"}
             for item in persisted_plan["items"]
         },
+        "strategyHistory": {"v1": {
+            "strategy": deepcopy(source["contentStrategy"]), "digest": source["strategyDigest"],
+            "revision": 1,
+        }},
     })
     return source
 
@@ -180,3 +184,55 @@ def test_invalid_persisted_production_authority_never_invokes_noni(monkeypatch, 
     with pytest.raises(AgentProtocolError):
         asyncio.run(stages.run_draft("job-1"))
     assert invoked == []
+
+
+def test_draft_uses_immutable_approved_strategy_history_not_mutable_current_strategy(monkeypatch):
+    source = drafting_job()
+    source["contentStrategy"]["briefs"][0]["keyMessage"] = "mutated current strategy"
+    captured = []
+    async def fake_draft(request, *, invocation):
+        captured.append(request)
+        empty = DraftSet(drafts=[])
+        return DraftWorkflowResult(copywriter_drafts=empty, reviewed_drafts=empty, action_plan=ActionPlan(actions=[]))
+    monkeypatch.setattr(stages, "get_job", lambda _id: source)
+    monkeypatch.setattr(stages, "draft_with_team", fake_draft)
+    monkeypatch.setattr(stages, "get_insights", lambda: {})
+    monkeypatch.setattr(stages, "web_post", lambda _path, payload: {"outcome": "execute"} if payload.get("operation") == "claim" else {"ok": True})
+
+    asyncio.run(stages.run_draft("job-1"))
+    assert captured[0].brief.keyMessage == "Governed workflows reduce activation delay"
+
+
+def test_draft_rejects_plan_not_bound_to_job_strategy_digest(monkeypatch):
+    source = drafting_job()
+    source["editorialPlan"]["approvedStrategyDigest"] = "b" * 64
+    source["editorialPlanDigest"] = stages.editorial_plan_digest(source["editorialPlan"])
+    invoked = []
+    monkeypatch.setattr(stages, "get_job", lambda _id: source)
+    monkeypatch.setattr(stages, "draft_with_team", lambda *_a, **_k: invoked.append(True))
+    with pytest.raises(AgentProtocolError, match="approved strategy digest"):
+        asyncio.run(stages.run_draft("job-1"))
+    assert invoked == []
+
+
+def test_derived_media_actions_use_only_selected_item_evidence(monkeypatch):
+    source = drafting_job()
+    source["config"]["youtubeUrl"] = "https://www.youtube.com/watch?v=abc12345678"
+    source["moments"].append({"id": "m-extra", "title": "Unselected", "startSec": 10, "endSec": 20, "hook": "h", "quote": "q"})
+    source["angles"].append({"id": "a-extra", "kind": "meme", "title": "Unselected meme", "rationale": "not selected"})
+    posts = []
+    async def fake_draft(*_args, **_kwargs):
+        empty = DraftSet(drafts=[])
+        return DraftWorkflowResult(copywriter_drafts=empty, reviewed_drafts=empty, action_plan=ActionPlan(actions=[]))
+    monkeypatch.setattr(stages, "get_job", lambda _id: source)
+    monkeypatch.setattr(stages, "draft_with_team", fake_draft)
+    monkeypatch.setattr(stages, "get_insights", lambda: {})
+    def fake_post(path, payload):
+        posts.append((path, payload))
+        return {"outcome": "execute"} if payload.get("operation") == "claim" else {"ok": True}
+    monkeypatch.setattr(stages, "web_post", fake_post)
+
+    asyncio.run(stages.run_draft("job-1"))
+    actions = posts[-1][1]["proposedActions"]
+    assert all(action.get("momentId") != "m-extra" and action.get("angleId") != "a-extra" for action in actions)
+    assert not any(action["type"] == "generate_image" for action in actions)

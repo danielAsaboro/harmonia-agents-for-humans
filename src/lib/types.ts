@@ -182,7 +182,7 @@ export interface Job {
   editorialPlanRevision?: number;
   editorialPlanEvidenceLineage?: string[];
   selectedNextItemId?: string;
-  editorialItemStates?: Record<string, { status: "planned" | "selected" | "drafting" | "reviewed"; updatedAt: string }>;
+  editorialItemStates?: Record<string, { status: "planned" | "selected" | "drafting" | "reviewed" | "awaiting_approval"; updatedAt: string }>;
   activeProductionLineage?: { editorialPlanId: string; editorialPlanDigest: string; editorialItemId: string; briefId: string };
   editorialPlanHistory?: Record<string, { plan: EditorialPlan; digest: string; revision: number; strategyId: string; strategyDigest: string; evidenceLineage: string[]; selectedNextItemId: string; acceptedAt: string }>;
   videoId?: string;

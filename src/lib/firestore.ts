@@ -28,7 +28,7 @@ import { parseBudgetConfig } from "./config";
 import { actionPayloadDigest, newId } from "./idempotency";
 import type { ApprovalActor } from "./decisions";
 import { applyStrategyDecision, assertStrategyProposalRevision, validatePersistedStrategy, type StrategyDecisionInput } from "./strategyApproval";
-import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialPlanDigest, editorialPlanEvidenceLineage } from "./editorialPlan";
+import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialDraftCompletionPatch, editorialPlanDigest, editorialPlanEvidenceLineage, isMatchingCompletedProduction } from "./editorialPlan";
 import {
   assertResourceWorkspace,
   currentTenant,
@@ -1614,12 +1614,16 @@ export async function finalizeEditorialItemDraft(
   lineage: { editorialPlanId: string; editorialPlanDigest: string; editorialItemId: string; briefId: string },
   drafts: PostDraft[],
   actions: PlannedAction[],
+  needsApproval: boolean,
 ) {
   return db().runTransaction(async (tx) => {
     const ref = jobRef(jobId);
     const snap = await tx.get(ref);
     const job = requireJobDoc(snap);
     const active = job.activeProductionLineage;
+    if (isMatchingCompletedProduction(job, lineage, needsApproval)) {
+      return { outcome: "already_applied" as const, drafts: job.drafts, actions: job.actions };
+    }
     assertSelectedProductionAuthority(job, lineage, "drafting");
     if (!active || active.editorialPlanId !== lineage.editorialPlanId || active.editorialPlanDigest !== lineage.editorialPlanDigest || active.editorialItemId !== lineage.editorialItemId || active.briefId !== lineage.briefId) throw new Error("production lineage mismatch");
     const linkedDrafts = drafts.map((draft) => ({ ...draft, ...lineage }));
@@ -1627,10 +1631,18 @@ export async function finalizeEditorialItemDraft(
     const updatedAt = new Date().toISOString();
     tx.update(ref, {
       drafts: linkedDrafts, actions: linkedActions,
-      [`editorialItemStates.${lineage.editorialItemId}`]: { status: "reviewed", updatedAt },
-      updatedAt,
+      ...editorialDraftCompletionPatch(lineage.editorialItemId, updatedAt, needsApproval),
     });
-    return { drafts: linkedDrafts, actions: linkedActions };
+    for (const action of linkedActions) {
+      if (action.type !== "publish_x_post") continue;
+      const text = String((action.payload as { text?: unknown }).text ?? "");
+      if (!text) continue;
+      tx.set(contentItemRef(`item-${action.id}`), {
+        id: `item-${action.id}`, jobId, ...lineage, text, platforms: ["x"],
+        status: "draft", publishMode: "approval", createdAt: updatedAt, updatedAt,
+      } satisfies import("./types").ContentItem);
+    }
+    return { outcome: "execute" as const, drafts: linkedDrafts, actions: linkedActions };
   });
 }
 

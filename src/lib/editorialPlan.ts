@@ -35,10 +35,43 @@ export type ProductionAuthority = {
   briefId: string;
 };
 
+export function editorialDraftCompletionPatch(
+  editorialItemId: string,
+  updatedAt: string,
+  needsApproval: boolean,
+) {
+  const itemStatus = needsApproval ? "awaiting_approval" : "reviewed";
+  return {
+    [`editorialItemStates.${editorialItemId}`]: { status: itemStatus, updatedAt },
+    ...(needsApproval ? { stage: "awaiting_approval", status: "waiting_for_approval" } : {}),
+    updatedAt,
+  };
+}
+
+export function isMatchingCompletedProduction(
+  job: {
+    stage: string; activeProductionLineage?: ProductionAuthority;
+    editorialItemStates?: Record<string, { status: string; updatedAt: string }>;
+  },
+  authority: ProductionAuthority,
+  needsApproval: boolean,
+): boolean {
+  if (!needsApproval || job.stage !== "awaiting_approval") return false;
+  if (job.editorialItemStates?.[authority.editorialItemId]?.status !== "awaiting_approval") return false;
+  const active = job.activeProductionLineage;
+  return Boolean(active
+    && active.editorialPlanId === authority.editorialPlanId
+    && active.editorialPlanDigest === authority.editorialPlanDigest
+    && active.editorialItemId === authority.editorialItemId
+    && active.briefId === authority.briefId);
+}
+
 export function assertSelectedProductionAuthority(
   job: {
     stage: string; editorialPlan?: EditorialPlan; editorialPlanDigest?: string;
     selectedNextItemId?: string;
+    strategyDigest?: string; strategyApproval?: { revision: number };
+    strategyHistory?: Record<string, { digest: string; revision: number; strategy: { version: number; briefs: Array<{ id: string }> } }>;
     editorialItemStates?: Record<string, { status: string; updatedAt: string }>;
   },
   authority: ProductionAuthority,
@@ -48,9 +81,14 @@ export function assertSelectedProductionAuthority(
   const plan = job.editorialPlan;
   if (!plan || plan.planId !== authority.editorialPlanId) throw new Error("editorial plan mismatch");
   if (job.editorialPlanDigest !== authority.editorialPlanDigest || editorialPlanDigest(plan) !== authority.editorialPlanDigest) throw new Error("editorial plan digest mismatch");
+  if (!job.strategyDigest || plan.approvedStrategyDigest !== job.strategyDigest) throw new Error("editorial plan approved strategy digest mismatch");
+  const revision = job.strategyApproval?.revision;
+  const strategyRecord = revision ? job.strategyHistory?.[`v${revision}`] : undefined;
+  if (!strategyRecord || strategyRecord.digest !== job.strategyDigest || strategyRecord.revision !== revision || strategyRecord.strategy.version !== revision) throw new Error("immutable approved strategy history mismatch");
   if (job.selectedNextItemId !== authority.editorialItemId || plan.selectedNextItemId !== authority.editorialItemId) throw new Error("selected editorial item mismatch");
   const item = plan.items.find((candidate) => candidate.id === authority.editorialItemId);
   if (!item || item.briefId !== authority.briefId) throw new Error("selected editorial brief mismatch");
+  if (!strategyRecord.strategy.briefs.some((brief) => brief.id === item.briefId)) throw new Error("selected editorial brief missing from immutable strategy history");
   if (job.editorialItemStates?.[authority.editorialItemId]?.status !== expectedStatus) throw new Error(`editorial item lifecycle is not ${expectedStatus}`);
   return item;
 }

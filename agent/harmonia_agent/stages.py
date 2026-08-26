@@ -480,11 +480,21 @@ async def run_draft(job_id: str) -> None:
         raise AgentProtocolError(f"invalid persisted editorial plan: {exc}") from exc
     if editorial_plan.selectedNextItemId != selected_id:
         raise AgentProtocolError("persisted selected editorial item mismatch")
+    if editorial_plan.approvedStrategyDigest != job.get("strategyDigest"):
+        raise AgentProtocolError("editorial plan approved strategy digest mismatch")
     item_state = (job.get("editorialItemStates") or {}).get(selected_id) or {}
     if item_state.get("status") != "selected":
         raise AgentProtocolError("selected editorial item is not eligible for drafting")
     selected = next((item for item in editorial_plan.items if item.id == selected_id), None)
-    strategy = job.get("contentStrategy") or {}
+    approval_revision = approval.get("revision")
+    strategy_record = (job.get("strategyHistory") or {}).get(f"v{approval_revision}") or {}
+    strategy = strategy_record.get("strategy") or {}
+    if (
+        strategy_record.get("digest") != job.get("strategyDigest")
+        or strategy_record.get("revision") != approval_revision
+        or strategy.get("version") != approval_revision
+    ):
+        raise AgentProtocolError("immutable approved strategy history required before Noni")
     brief = next((item for item in strategy.get("briefs", []) if item.get("id") == selected.briefId), None) if selected else None
     if selected is None or brief is None:
         raise AgentProtocolError("selected editorial item has no exact approved brief")
@@ -549,7 +559,7 @@ async def run_draft(job_id: str) -> None:
     })
 
     # Propose image assets for the top meme angles (capped to bound cost).
-    meme_angles = [a for a in (job.get("angles") or []) if a.get("kind") == "meme"]
+    meme_angles = [a for a in angles if a.get("kind") == "meme"]
     for angle in meme_angles[:2]:
         prompt_text = (
             f"Social media meme image for a startup. Concept: {angle['title']}. "
@@ -566,7 +576,7 @@ async def run_draft(job_id: str) -> None:
         })
 
     # Propose captioned vertical clips from the strongest moments (video jobs only).
-    moments = [m for m in (job.get("moments") or []) if m.get("endSec", 0) > m.get("startSec", 0)]
+    moments = [m for m in moments if m.get("endSec", 0) > m.get("startSec", 0)]
     if job["config"].get("youtubeUrl"):
         for moment in moments[:2]:
             cid = f"act-clip-{hashlib.sha256(moment['id'].encode()).hexdigest()[:12]}"
@@ -592,7 +602,7 @@ async def run_draft(job_id: str) -> None:
             })
 
     if settings().generative_media_enabled:
-        actions.extend(deterministic_generative_media_actions(job))
+        actions.extend(deterministic_generative_media_actions({**job, "moments": moments, "angles": angles}))
 
     web_post("/api/internal/drafts", {
         "jobId": job_id, "stage": "draft", "drafts": drafts,

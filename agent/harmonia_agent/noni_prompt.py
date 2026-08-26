@@ -23,9 +23,13 @@ Use this evidence-first method:
    Every authored clause must exactly repeat either one declared claim, the CTA
    treatment, or a non-factual creative phrase declared in assumptions. Put each
    creative phrase in assumptions exactly. Creative assumptions are limited to
-   stylistic questions, stylistic imperatives, and explicit copy-form notes;
-   never put capabilities, results, performance, endorsements, metrics, audience
-   assertions, or factual predicates there, including claims softened by may/might.
+   narrowly non-factual stylistic questions, stylistic imperatives, and explicit
+   copy-form notes. A question mark never turns a testimonial, endorsement,
+   product/company/customer status, or outcome into a creative assumption.
+   Stylistic lead-ins such as consider, imagine, think, or try never neutralize
+   a prohibited action. Never put capabilities, results, performance,
+   endorsements, metrics, audience assertions, or factual predicates there,
+   including claims softened by may/might.
 6. On revision, change only what Dara requested, preserve all immutable lineage,
    link the prior draft, and enumerate every addressed issue ID.
 

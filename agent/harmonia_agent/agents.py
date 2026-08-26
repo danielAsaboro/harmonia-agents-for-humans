@@ -425,6 +425,14 @@ _NONI_METRIC_UNITS = {
     "percent", "percentage", "hours", "hour", "days", "day", "weeks", "week",
     "months", "month", "years", "year", "minutes", "minute", "seconds", "second",
 }
+_NONI_STYLISTIC_LEADIN_PATTERN = re.compile(
+    r"^(?:please(?:\s+|\s*[,;:\u2013\u2014-]\s*))?(?:"
+    r"ask(?:ing)?(?:\s+yourself)?(?:\s+to)?|consider(?:ing)?|imagin(?:e|ing)|"
+    r"notic(?:e|ing)|pictur(?:e|ing)|stop(?:ping)?|think(?:ing)?(?:\s+about)?|"
+    r"turn(?:ing)?|try(?:ing)?(?:\s+to)?"
+    r")(?:\s+|\s*[,;:\u2013\u2014-]\s*)",
+    re.IGNORECASE,
+)
 _NONI_AUTHORITY_PATTERNS = tuple(re.compile(pattern, re.IGNORECASE) for pattern in (
     r"\b(?:draft|post|content|campaign|copy)\s+(?:is\s+|was\s+|has been\s+)?approved\b",
     r"\bpublication\s+(?:is\s+|was\s+|has been\s+)?approved\b",
@@ -449,6 +457,88 @@ _NONI_AUTHORITY_PATTERNS = tuple(re.compile(pattern, re.IGNORECASE) for pattern 
     r"(?:^|\n)\s*launch\b.{0,30}\bnow\b",
     r"\bverification\b.{0,20}\b(?:complete|passed|recorded|verified)\b",
 ))
+_NONI_STYLISTIC_AUTHORITY_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE) for pattern in (
+        r"^(?:approve|approving)\b",
+        r"^(?:launch|launching)\b",
+        r"^(?:post|posting|publish|publishing|release|releasing)\b",
+        r"^(?:go|going)\s+live\b",
+        r"^(?:verify|verifying)\b",
+        r"^(?:change|changing|mutate|mutating|set|setting)\b.{0,30}"
+        r"\b(?:workflow|workflow state)\b",
+        r"^(?:schedule|scheduling)\b.{0,30}\b(?:campaign|content|copy|it|post|publication|this)\b",
+        r"^(?:queue|queueing)\b.{0,30}\b(?:campaign|content|copy|it|post|publication|this)\b",
+        r"^(?:send|sending)\b.{0,30}\blive\b",
+        r"^(?:construct|constructing|execute|executing|queue|queueing|return|returning)\b"
+        r".{0,30}\beffect(?:\s+payload)?\b",
+        r"^(?:create|creating|issue|issuing|record|recording|save|saving)\b"
+        r".{0,30}\breceipt\b",
+        r"^(?:access|accessing|include|including|request|requesting|retrieve|retrieving|"
+        r"use|using)\b.{0,30}\b(?:api\s+)?(?:credentials?|key|secret|token)\b",
+    )
+)
+_NONI_WRAPPED_AUTHORITY_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE) for pattern in (
+        r"\b(?:approving|launching|posting|publishing|releasing|verifying)\b",
+        r"\b(?:approve|launch|post|publish|release|verify)\b.{0,30}"
+        r"\b(?:campaign|content|copy|it|now|post|publication|this)\b",
+        r"\b(?:go|going|send|sending)\s+live\b",
+        r"\b(?:queue|queueing|schedule|scheduling)\b.{0,30}"
+        r"\b(?:campaign|content|copy|it|post|publication|this)\b",
+        r"\b(?:construct|constructing|execute|executing|queue|queueing|return|returning)"
+        r"\b.{0,30}\beffect(?:\s+payload)?\b",
+        r"\b(?:create|creating|issue|issuing|record|recording|save|saving)\b"
+        r".{0,30}\breceipt\b",
+        r"\b(?:access|accessing|include|including|request|requesting|retrieve|retrieving|"
+        r"use|using)\b.{0,30}\b(?:api\s+)?(?:credentials?|key|secret|token)\b",
+        r"\b(?:change|changing|mutate|mutating|set|setting)\b.{0,30}\bworkflow\b",
+    )
+)
+_NONI_FACTUAL_STATUS_PATTERN = re.compile(
+    r"\b(?:chosen|endorsed|loved|preferred|recommended|trusted|used)\s+by\b|"
+    r"\b(?:category|industry|market|sector)\s+(?:favorite|leader|leading|winner)\b|"
+    r"\b(?:favorite|leader|leading|winner)\s+(?:in|of)\s+(?:the\s+)?"
+    r"(?:category|industry|market|sector)\b",
+    re.IGNORECASE,
+)
+_NONI_QUESTION_BLOCKED_TERMS = {
+    "agent", "agents", "approval", "approve", "approved", "automate", "automates",
+    "best", "better", "book", "booking", "buy", "campaign", "campaigns",
+    "category", "chosen", "companies", "company", "content", "customer", "customers",
+    "effect", "effects", "endorse", "endorsed", "faster", "founder", "founders",
+    "growth", "harmonia", "improve", "improved", "industry", "launch", "launching",
+    "leader", "leading", "loved", "market", "outcome", "outcomes", "performance",
+    "platform", "product", "products", "publish", "publishing", "receipt", "receipts",
+    "recommended", "result", "results", "revenue", "sales", "schedule", "scheduling",
+    "subscribe", "system", "systems", "team", "teams", "tool", "tools", "trusted",
+    "user", "users", "verification", "verified", "win", "winner", "wins", "workflow",
+    "workflows",
+}
+_NONI_AUDIENCE_HEAD_TERMS = {
+    "builder", "builders", "customer", "customers", "creator", "creators",
+    "developer", "developers", "executive", "executives", "founder", "founders",
+    "leader", "leaders", "marketer", "marketers", "operator", "operators",
+    "owner", "owners", "professional", "professionals", "startups", "team", "teams",
+    "user", "users",
+}
+_NONI_ATTENTION_VOCATIVE_PATTERN = re.compile(
+    r"^(?:hey|hello|hi)(?:\s*[,;:])?\s+"
+    r"(?P<audience>[A-Za-z0-9][A-Za-z0-9'&-]*"
+    r"(?:\s+[A-Za-z0-9][A-Za-z0-9'&-]*){0,5})"
+    r"\s*[:,]\s+(?P<body>.+)$",
+    re.IGNORECASE,
+)
+_NONI_AUDIENCE_HEAD_VOCATIVE_PATTERN = re.compile(
+    r"^(?P<audience>(?:[A-Za-z][A-Za-z'-]*\s+){0,3}"
+    r"(?:builders?|customers?|creators?|developers?|executives?|founders?|"
+    r"leaders?|marketers?|operators?|owners?|professionals?|startups?|teams?|users?))"
+    r"\s*[:,]\s+(?P<body>.+)$",
+    re.IGNORECASE,
+)
+_NONI_LEGACY_VOCATIVE_PATTERN = re.compile(
+    r"^(?P<audience>[A-Za-z-]+|[A-Z][A-Za-z-]+\s+[A-Z][A-Za-z-]+)"
+    r"\s*[:,]\s+(?P<body>.+)$",
+)
 
 
 def _noni_urls(text: str) -> set[str]:
@@ -485,6 +575,51 @@ def _noni_contiguous_phrase(needle: list[str], haystack: list[str]) -> bool:
         haystack[index:index + width] == needle
         for index in range(len(haystack) - width + 1)
     )
+
+
+def _noni_split_audience_address(text: str) -> tuple[str, str] | None:
+    for pattern in (
+        _NONI_ATTENTION_VOCATIVE_PATTERN,
+        _NONI_AUDIENCE_HEAD_VOCATIVE_PATTERN,
+        _NONI_LEGACY_VOCATIVE_PATTERN,
+    ):
+        if match := pattern.match(text.strip()):
+            return match.group("audience"), match.group("body").strip()
+    return None
+
+
+def _noni_semantic_variants(text: str) -> list[str]:
+    """Return authored clauses plus their cores after safe stylistic lead-ins."""
+    variants: list[str] = []
+    for clause, _terminal in _noni_clauses(text):
+        core = clause.strip()
+        variants.append(core)
+        if address := _noni_split_audience_address(core):
+            _audience, core = address
+            variants.append(core)
+        while match := _NONI_STYLISTIC_LEADIN_PATTERN.match(core):
+            core = core[match.end():].strip(" ,:;-.")
+            if not core:
+                break
+            variants.append(core)
+    return variants
+
+
+def _noni_stylistic_cores(text: str) -> list[str]:
+    cores: list[str] = []
+    for clause, _terminal in _noni_clauses(text):
+        core = clause.strip()
+        if address := _noni_split_audience_address(core):
+            _audience, core = address
+        stripped_leadin = False
+        while match := _NONI_STYLISTIC_LEADIN_PATTERN.match(core):
+            core = core[match.end():].strip(" ,:;-.\u2013\u2014")
+            stripped_leadin = True
+            if not core:
+                break
+        if stripped_leadin and core:
+            cores.append(core)
+    return cores
 
 
 def _noni_metric_relations(tokens: list[str]) -> list[tuple[str, str]]:
@@ -699,6 +834,30 @@ def _noni_validate_urls_alternatives_and_authority(
             "Noni draft contains approval, scheduling, publishing, effect, receipt, "
             "or credential authority overreach"
         )
+    authored_fields = (
+        draft.text, draft.ctaTreatment, *draft.assumptions,
+        *(claim.text for claim in draft.claims),
+    )
+    if any(
+        pattern.search(variant)
+        for field in authored_fields
+        for variant in _noni_semantic_variants(field)
+        for pattern in _NONI_STYLISTIC_AUTHORITY_PATTERNS
+    ):
+        raise AgentProtocolError(
+            "Noni draft contains approval, scheduling, publishing, effect, receipt, "
+            "or credential authority overreach"
+        )
+    if any(
+        pattern.search(core)
+        for field in authored_fields
+        for core in _noni_stylistic_cores(field)
+        for pattern in _NONI_WRAPPED_AUTHORITY_PATTERNS
+    ):
+        raise AgentProtocolError(
+            "Noni draft contains approval, scheduling, publishing, effect, receipt, "
+            "or credential authority overreach"
+        )
 
 
 def _noni_validate_claim_support(
@@ -758,22 +917,33 @@ def _noni_audience_terms(audience_id: str) -> set[str]:
     return bounded or terms
 
 
+def _noni_audience_address_matches(expected: set[str], candidate: str) -> bool:
+    candidate_words = _NONI_WORD_PATTERN.findall(candidate.lower().replace("-", " "))
+    candidate_terms = _noni_terms(candidate)
+    if (
+        not candidate_words
+        or candidate_words[-1] not in expected
+        or set(candidate_words) & {"and", "or"}
+    ):
+        return False
+    expected_heads = expected & _NONI_AUDIENCE_HEAD_TERMS
+    candidate_heads = candidate_terms & _NONI_AUDIENCE_HEAD_TERMS
+    return not expected_heads or not (candidate_heads - expected_heads)
+
+
 def _noni_validate_explicit_audience_addresses(
     input: CopywriterInput, draft: ContentDraft,
 ) -> None:
     expected = _noni_audience_terms(input.brief.audienceId)
     for clause, _terminal in _noni_clauses(draft.text):
-        address = re.match(
-            r"^([A-Za-z-]+|[A-Z][A-Za-z-]+\s+[A-Z][A-Za-z-]+)\s*[:,]\s+",
-            clause,
-        )
+        address = _noni_split_audience_address(clause)
         plural_subject = re.match(
             r"^([A-Z][A-Za-z-]+s)\s+(?:can|deserve|must|need|should|want)\b",
             clause,
             re.IGNORECASE,
         )
-        candidate = address or plural_subject
-        if candidate and not (_noni_terms(candidate.group(1)) & expected):
+        candidate = address[0] if address else (plural_subject.group(1) if plural_subject else None)
+        if candidate and not _noni_audience_address_matches(expected, candidate):
             raise AgentProtocolError(
                 f"Noni draft audience diverges from {input.brief.audienceId}"
             )
@@ -785,24 +955,45 @@ _NONI_CONFLICTING_CTA_PATTERNS = tuple(re.compile(pattern, re.IGNORECASE) for pa
     r"\b(?:join|subscribe)\b",
     r"\bdownload\b",
     r"\b(?:start|begin)\s+(?:a\s+)?(?:trial|subscription)\b",
+    r"\b(?:book|booking|schedule|scheduling)\s+(?:a\s+|the\s+)?"
+    r"(?:call|consultation|meeting)\b",
+    r"\b(?:call|contact|contacting)\s+(?:our\s+)?(?:sales|team|us)\b",
+    r"\b(?:speak|speaking|talk|talking)\s+(?:to\s+|with\s+)?"
+    r"(?:our\s+)?(?:sales|team|us)\b",
 ))
 
 
 def _noni_validate_cta_clauses(input: CopywriterInput, draft: ContentDraft) -> None:
     expected_tokens = _noni_token_sequence(input.brief.ctaIntent)
-    for clause, _terminal in _noni_clauses(draft.text):
-        clause_tokens = _noni_token_sequence(clause)
-        if clause_tokens == expected_tokens:
-            continue
-        normalized = " ".join(_NONI_WORD_PATTERN.findall(clause.lower().replace("-", " ")))
-        if (
-            _noni_contiguous_phrase(expected_tokens, clause_tokens)
-            and set(normalized.split()) & {"avoid", "don't", "never", "no", "not"}
-        ) or any(pattern.search(normalized) for pattern in _NONI_CONFLICTING_CTA_PATTERNS):
-            raise AgentProtocolError("Noni draft contains a conflicting CTA or funnel action")
+    expected_normalized = " ".join(
+        _NONI_WORD_PATTERN.findall(input.brief.ctaIntent.lower().replace("-", " "))
+    )
+    authored_fields = (draft.text, draft.ctaTreatment, *draft.assumptions)
+    for field in authored_fields:
+        for clause in _noni_semantic_variants(field):
+            clause_tokens = _noni_token_sequence(clause)
+            if clause_tokens == expected_tokens:
+                continue
+            normalized = " ".join(
+                _NONI_WORD_PATTERN.findall(clause.lower().replace("-", " "))
+            )
+            negates_expected = (
+                _noni_contiguous_phrase(expected_tokens, clause_tokens)
+                and set(normalized.split())
+                & {"avoid", "don't", "never", "no", "not", "without"}
+            )
+            conflicts = any(
+                pattern.search(normalized) and not pattern.search(expected_normalized)
+                for pattern in _NONI_CONFLICTING_CTA_PATTERNS
+            )
+            if negates_expected or conflicts:
+                raise AgentProtocolError(
+                    "Noni draft contains a conflicting CTA or funnel action"
+                )
 
 
 def _noni_validate_brief_alignment(input: CopywriterInput, draft: ContentDraft) -> None:
+    _noni_validate_cta_clauses(input, draft)
     _noni_validate_explicit_audience_addresses(input, draft)
 
     cta_tokens = _noni_token_sequence(input.brief.ctaIntent)
@@ -819,7 +1010,6 @@ def _noni_validate_brief_alignment(input: CopywriterInput, draft: ContentDraft) 
     body_clauses = [_noni_token_sequence(clause) for clause, _terminal in _noni_clauses(draft.text)]
     if treatment_tokens not in body_clauses:
         raise AgentProtocolError("Noni draft text must contain the exact CTA treatment")
-    _noni_validate_cta_clauses(input, draft)
 
     objective_terms = _noni_terms(input.brief.objective)
     if len(_noni_terms(draft.text) & objective_terms) < min(2, len(objective_terms)):
@@ -849,6 +1039,8 @@ def _noni_contains_factual_assertion(input: CopywriterInput, text: str) -> bool:
         return True
     if _noni_unsupported_category(text) is not None:
         return True
+    if _NONI_FACTUAL_STATUS_PATTERN.search(text):
+        return True
     if set(tokens) & {
         "accelerates", "automates", "best", "better", "delivers", "doubled",
         "doubles", "enables", "faster", "improved", "improves", "increased",
@@ -869,12 +1061,43 @@ def _noni_contains_factual_assertion(input: CopywriterInput, text: str) -> bool:
     ))
 
 
+def _noni_question_is_safe(input: CopywriterInput, assumption: str) -> bool:
+    if not assumption.rstrip().endswith("?"):
+        return False
+    body = assumption.rstrip().removesuffix("?").strip()
+    if address := _noni_split_audience_address(body):
+        audience, body = address
+        if not _noni_audience_address_matches(
+            _noni_audience_terms(input.brief.audienceId), audience,
+        ):
+            return False
+    normalized = " ".join(_NONI_WORD_PATTERN.findall(body.lower().replace("-", " ")))
+    if set(normalized.split()) & _NONI_QUESTION_BLOCKED_TERMS:
+        return False
+    return bool(
+        re.fullmatch(
+            r"(?:are you )?ready to (?:ask|explore|imagine|notice|picture|rethink|stop|"
+            r"think|try)\b(?: [a-z0-9']+){0,5}",
+            normalized,
+        )
+        or re.fullmatch(
+            r"(?:are you )?still (?:asking|exploring|guessing|thinking|wondering)",
+            normalized,
+        )
+        or re.fullmatch(
+            r"why (?:continue|keep) (?:asking|exploring|guessing|thinking|wondering)"
+            r"(?: [a-z0-9']+){0,3}",
+            normalized,
+        )
+    )
+
+
 def _noni_assumption_is_factual(input: CopywriterInput, assumption: str) -> bool:
     if _noni_contains_factual_assertion(input, assumption):
         return True
     tokens = _noni_token_sequence(assumption)
     if assumption.rstrip().endswith("?"):
-        return False
+        return not _noni_question_is_safe(input, assumption)
     if tokens and tokens[0] in {
         "ask", "consider", "imagine", "notice", "picture", "stop", "think", "turn",
     }:

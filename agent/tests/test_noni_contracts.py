@@ -497,12 +497,91 @@ def test_grounding_validator_rejects_factual_fragments_declared_as_creative(
         _validate(draft)
 
 
-def test_grounding_validator_accepts_declared_stylistic_question():
+@pytest.mark.parametrize("question", [
+    "Ready to stop guessing?",
+    "Are you ready to stop guessing?",
+    "Still guessing?",
+    "Why keep guessing?",
+])
+def test_grounding_validator_accepts_narrow_nonfactual_questions(question):
     draft = grounded_draft()
-    draft["text"] = f'Ready to stop guessing? {draft["text"]}'
-    draft["assumptions"].append("Ready to stop guessing?")
+    draft["text"] = f'{question} {draft["text"]}'
+    draft["assumptions"].append(question)
 
     assert _validate(draft).id == "draft-1"
+
+
+@pytest.mark.parametrize("factual_question", [
+    "Loved by founders?",
+    "Recommended by customers?",
+    "Category leader?",
+    "Market leader?",
+    "Ready to become category leader?",
+])
+def test_grounding_validator_rejects_endorsement_and_status_questions(
+    factual_question,
+):
+    draft = grounded_draft()
+    draft["text"] = f'{factual_question} {draft["text"]}'
+    draft["assumptions"].append(factual_question)
+
+    with pytest.raises(AgentProtocolError, match="non-factual"):
+        _validate(draft)
+
+
+@pytest.mark.parametrize(("field", "overreach"), [
+    ("text", "Consider launch now."),
+    ("text", "Imagine posting this now."),
+    ("text", "Consider—launch now."),
+    ("text", "Consider imagining launch now."),
+    ("text", "Consider perhaps launching this now."),
+    ("text", "Picture going live now."),
+    ("text", "Think about queueing this post."),
+    ("text", "Consider verifying this."),
+    ("text", "Imagine changing workflow state."),
+    ("ctaTreatment", "Imagine launching this now."),
+    ("assumptions", "Think about scheduling the post."),
+])
+def test_grounding_validator_rechecks_authority_after_stylistic_leadins(
+    field,
+    overreach,
+):
+    draft = grounded_draft()
+    if field == "text":
+        draft["text"] = f'{overreach} {draft["text"]}'
+        draft["assumptions"].append(overreach)
+    elif field == "assumptions":
+        draft["assumptions"].append(overreach)
+    else:
+        draft[field] = overreach
+
+    with pytest.raises(AgentProtocolError, match="authority overreach"):
+        _validate(draft)
+
+
+@pytest.mark.parametrize(("field", "conflicting_action"), [
+    ("text", "Consider booking a call."),
+    ("text", "Please, consider booking a call."),
+    ("text", "Consider contacting sales."),
+    ("text", "Think about talking to sales."),
+    ("ctaTreatment", "Imagine booking a consultation."),
+    ("assumptions", "Try to book a call."),
+])
+def test_grounding_validator_rechecks_cta_actions_after_stylistic_leadins(
+    field,
+    conflicting_action,
+):
+    draft = grounded_draft()
+    if field == "text":
+        draft["text"] = f'{conflicting_action} {draft["text"]}'
+        draft["assumptions"].append(conflicting_action)
+    elif field == "assumptions":
+        draft["assumptions"].append(conflicting_action)
+    else:
+        draft[field] = conflicting_action
+
+    with pytest.raises(AgentProtocolError, match="conflicting CTA"):
+        _validate(draft)
 
 
 def test_grounding_validator_rejects_authority_imperative_in_assumptions():
@@ -671,6 +750,34 @@ def test_grounding_validator_rejects_conflicting_comma_vocative():
 
     with pytest.raises(AgentProtocolError, match="audience"):
         _validate(draft)
+
+
+@pytest.mark.parametrize("vocative", [
+    "Hey developers, ready to stop guessing?",
+    "Hello mobile developers, ready to stop guessing?",
+    "Hey founders and developers, ready to stop guessing?",
+    "Hey founders and astronauts, ready to stop guessing?",
+])
+def test_grounding_validator_rejects_conflicting_attention_vocatives(vocative):
+    draft = grounded_draft()
+    draft["text"] = f'{vocative} {draft["text"]}'
+    draft["assumptions"].append(vocative)
+
+    with pytest.raises(AgentProtocolError, match="audience"):
+        _validate(draft)
+
+
+@pytest.mark.parametrize("question", [
+    "Hey startup founders, ready to stop guessing?",
+    "Hey, startup founders, ready to stop guessing?",
+    "Startup founders, ready to stop guessing?",
+])
+def test_grounding_validator_accepts_matching_multiword_attention_vocative(question):
+    draft = grounded_draft()
+    draft["text"] = f'{question} {draft["text"]}'
+    draft["assumptions"].append(question)
+
+    assert _validate(draft).id == "draft-1"
 
 
 @pytest.mark.parametrize("overreach", [

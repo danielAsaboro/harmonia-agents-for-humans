@@ -95,6 +95,7 @@ def grounded_draft() -> dict:
             "We cut nine days to forty hours. Founders need verifiable operating proof. "
             "Request a demo."
         ),
+        "ctaTreatment": "Request a demo.",
         "claims": [
             {"text": "We cut nine days to forty hours.", "evidenceRefs": ["moment-1"]},
             {
@@ -182,12 +183,12 @@ def test_grounding_validator_rejects_invented_factual_categories(claim, message)
 
 
 @pytest.mark.parametrize(("mutation", "message"), [
-    (lambda draft: draft.update(text="Founders, enjoy a funny office meme. Request a demo."), "objective"),
+    (lambda draft: draft.update(text="Founders, enjoy a funny office meme. Request a demo."), "objective|substantive"),
     (lambda draft: draft.update(text="Developers need verifiable operating proof. Request a demo."), "audience"),
-    (lambda draft: draft.update(text="Founders, buy Harmonia now for verifiable operating proof."), "funnel"),
+    (lambda draft: draft.update(text="Founders, buy Harmonia now for verifiable operating proof."), "CTA"),
     (lambda draft: draft.update(
         text=draft["text"].replace("Request a demo.", "Read the blog."),
-        ctaTreatment="Invite founders to read a blog.",
+        ctaTreatment="Read the blog.",
     ), "CTA"),
 ])
 def test_grounding_validator_rejects_objective_audience_funnel_and_cta_drift(mutation, message):
@@ -264,11 +265,12 @@ def test_grounding_validator_rejects_approval_schedule_publish_effect_receipt_an
 
 
 @pytest.mark.parametrize("mutation", [
-    lambda supplied, draft: draft.update(
-        text=f'Turn operating proof into momentum. {draft["text"]}',
+    lambda supplied, draft: (
+        draft.update(text=f'Turn operating proof into momentum. {draft["text"]}'),
+        draft["assumptions"].append("Turn operating proof into momentum."),
     ),
     lambda supplied, draft: draft.update(
-        assumptions=["A concise founder-focused hook may suit this X post."],
+        assumptions=["A concise founder-focused hook suits this X post."],
     ),
     lambda supplied, draft: (
         draft["claims"][0].update(text="The source says we cut nine days to forty hours."),
@@ -282,7 +284,7 @@ def test_grounding_validator_rejects_approval_schedule_publish_effect_receipt_an
         draft.update(text=f'{draft["text"]} https://harmonia.example/demo'),
     ),
     lambda supplied, draft: draft.update(
-        assumptions=["Evidence is limited; this cautious hook may resonate with founders."],
+        assumptions=["A cautious hook is a creative choice for limited evidence."],
         confidence="low",
     ),
 ])
@@ -373,9 +375,6 @@ def test_grounding_validator_rejects_phantom_claim_not_expressed_in_text_or_cta(
 
 def test_grounding_validator_rejects_evidence_consumed_only_by_a_phantom_claim():
     draft = grounded_draft()
-    draft["text"] = (
-        "We cut nine days to forty hours. Request a demo for operating proof, founders."
-    )
     draft["claims"] = [
         draft["claims"][0],
         {"text": "Evidence-led execution.", "evidenceRefs": ["angle-1"]},
@@ -385,17 +384,90 @@ def test_grounding_validator_rejects_evidence_consumed_only_by_a_phantom_claim()
         _validate(draft)
 
 
-def test_grounding_validator_accepts_epistemic_nonfactual_assumption():
+def test_grounding_validator_rejects_epistemic_factual_assumption():
     draft = grounded_draft()
     draft["assumptions"] = ["This may resonate with founders."]
 
-    assert _validate(draft).confidence == "high"
+    with pytest.raises(AgentProtocolError, match="non-factual"):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_claim_support_manufactured_across_evidence_fields():
+    supplied = original_input()
+    supplied["referencedMoments"][0].update(title="Alpha", hook="Beta")
+    draft = grounded_draft()
+    draft["claims"][0] = {"text": "Alpha Beta.", "evidenceRefs": ["moment-1"]}
+    draft["text"] = draft["text"].replace(
+        "We cut nine days to forty hours.",
+        "Alpha Beta.",
+    )
+
+    with pytest.raises(AgentProtocolError, match="one evidence field"):
+        _validate(draft, supplied)
+
+
+def test_grounding_validator_rejects_noncontiguous_nonmetric_claim_support():
+    draft = grounded_draft()
+    draft["claims"][1]["text"] = "Founders need proof."
+    draft["text"] = draft["text"].replace(
+        "Founders need verifiable operating proof.",
+        "Founders need proof.",
+    )
+
+    with pytest.raises(AgentProtocolError, match="contiguous"):
+        _validate(draft)
+
+
+def test_grounding_validator_accepts_explicit_ordered_metric_relation():
+    supplied = original_input()
+    supplied["referencedMoments"][0]["quote"] = (
+        "We cut the delay from nine days down to forty hours."
+    )
+
+    assert _validate(input_payload=supplied).id == "draft-1"
+
+
+def test_grounding_validator_rejects_undeclared_creative_clause():
+    draft = grounded_draft()
+    draft["text"] = f'Stop guessing. {draft["text"]}'
+
+    with pytest.raises(AgentProtocolError, match="substantive clause"):
+        _validate(draft)
+
+
+def test_grounding_validator_accepts_explicit_safe_creative_phrase():
+    draft = grounded_draft()
+    draft["text"] = f'Stop guessing. {draft["text"]}'
+    draft["assumptions"].append("Stop guessing.")
+
+    assert _validate(draft).id == "draft-1"
+
+
+@pytest.mark.parametrize("factual_assumption", [
+    "Customers might love this.",
+    "Teams may move faster.",
+])
+def test_grounding_validator_rejects_modal_factual_assumptions(factual_assumption):
+    draft = grounded_draft()
+    draft["assumptions"] = [factual_assumption]
+
+    with pytest.raises(AgentProtocolError, match="non-factual"):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_spelled_metric_creative_assumption():
+    draft = grounded_draft()
+    draft["text"] = f'Nine days sounds fast. {draft["text"]}'
+    draft["assumptions"].append("Nine days sounds fast.")
+
+    with pytest.raises(AgentProtocolError, match="non-factual"):
+        _validate(draft)
 
 
 @pytest.mark.parametrize(("text", "message"), [
     (
         "Founders: request a demo for beach vacations and operating proof.",
-        "objective",
+        "CTA|objective|substantive",
     ),
     (
         "Astronauts: request a demo for verifiable operating proof.",
@@ -418,7 +490,7 @@ def test_grounding_validator_rejects_even_one_unbound_topic_term():
     draft = grounded_draft()
     draft["text"] = "Founders: request a demo for operating proof and vacations."
 
-    with pytest.raises(AgentProtocolError, match="objective"):
+    with pytest.raises(AgentProtocolError, match="CTA|objective|substantive"):
         _validate(draft)
 
 
@@ -439,6 +511,38 @@ def test_grounding_validator_fails_closed_for_non_substantive_cta_intent():
         _validate(input_payload=supplied)
 
 
+def test_grounding_validator_requires_exact_cta_treatment_in_actual_text():
+    supplied = original_input()
+    supplied["brandContext"] += " Use today only when it is supplied."
+    draft = grounded_draft()
+    draft["ctaTreatment"] = "Request a demo."
+    draft["text"] = draft["text"].replace("Request a demo.", "Request a demo today.")
+
+    with pytest.raises(AgentProtocolError, match="exact CTA treatment"):
+        _validate(draft, supplied)
+
+
+def test_grounding_validator_binds_cta_intent_to_intended_conversion():
+    supplied = original_input()
+    supplied["brief"]["intendedConversion"] = "newsletter signup"
+    supplied["editorialItem"]["intendedConversion"] = "newsletter signup"
+    draft = grounded_draft()
+    draft["intendedConversion"] = "newsletter signup"
+
+    with pytest.raises(AgentProtocolError, match="intended conversion"):
+        _validate(draft, supplied)
+
+
+def test_grounding_validator_rejects_conflicting_direct_audience_even_if_supplied_as_context():
+    supplied = original_input()
+    supplied["brandContext"] += " Astronauts are a supplied context term."
+    draft = grounded_draft()
+    draft["text"] = f'{draft["text"]} Astronauts: Request a demo.'
+
+    with pytest.raises(AgentProtocolError, match="audience"):
+        _validate(draft, supplied)
+
+
 @pytest.mark.parametrize("overreach", [
     "Publication approved.",
     "Send this live now.",
@@ -455,9 +559,30 @@ def test_grounding_validator_rejects_additional_authority_variants(overreach):
         _validate(draft)
 
 
+def test_grounding_validator_rejects_authority_even_when_phrase_is_supplied():
+    supplied = original_input()
+    supplied["brandContext"] += " Approval granted."
+    draft = grounded_draft()
+    draft["text"] = f'{draft["text"]} Approval granted.'
+
+    with pytest.raises(AgentProtocolError, match="authority overreach"):
+        _validate(draft, supplied)
+
+
 def test_grounding_validator_rejects_lettered_final_alternatives():
     draft = grounded_draft()
     draft["text"] = "A) Request a demo. B) Join the waitlist."
+
+    with pytest.raises(AgentProtocolError, match="multiple final alternatives"):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_slash_separated_alternatives():
+    draft = grounded_draft()
+    draft["text"] = draft["text"].replace(
+        "Request a demo.",
+        "Request a demo / request a demo.",
+    )
 
     with pytest.raises(AgentProtocolError, match="multiple final alternatives"):
         _validate(draft)
@@ -475,6 +600,19 @@ def test_grounding_validator_splits_disjunctive_exclusions(prohibited_copy):
     draft = grounded_draft()
     draft["appliedConstraints"].append(exclusion)
     draft["text"] = f'{draft["text"]} {prohibited_copy}'
+
+    with pytest.raises(AgentProtocolError, match="prohibited constraint language"):
+        _validate(draft, supplied)
+
+
+def test_grounding_validator_splits_nor_exclusions():
+    supplied = original_input()
+    exclusion = "Never mention competitors nor guaranteed outcomes"
+    for owner in (supplied, supplied["brief"], supplied["editorialItem"]):
+        owner["constraints"].append(exclusion)
+    draft = grounded_draft()
+    draft["appliedConstraints"].append(exclusion)
+    draft["text"] = f'{draft["text"]} Competitors.'
 
     with pytest.raises(AgentProtocolError, match="prohibited constraint language"):
         _validate(draft, supplied)

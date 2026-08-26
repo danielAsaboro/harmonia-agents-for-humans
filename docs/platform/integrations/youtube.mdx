@@ -1,0 +1,32 @@
+---
+title: "YouTube source ingestion"
+description: "How Harmonia resolves authorized YouTube videos for transcription and evidence-grounded analysis."
+---
+
+YouTube URLs are one supported source-ingestion path. Harmonia resolves source metadata and media only after the operator attests that the material is authorized for processing.
+
+## How Harmonia uses it
+
+The ingest stage validates the URL, records source rights, resolves public metadata through YouTube/oEmbed, and obtains media for the worker's transcription and analysis pipeline. Timed transcript segments and authorized video evidence become the closed-world source package supplied to Nimi.
+
+Google OAuth configuration is available where an authorized source requires it. Public URLs do not grant reuse rights by themselves; the job retains the operator's rights declaration and source provenance.
+
+## Security and authority
+
+Source ingestion cannot authorize publication. Models receive only the bounded source package and may not claim facts outside its transcript/frame evidence. Credentials and download details remain server-side.
+
+## Failure behavior
+
+Invalid URLs, unavailable or private media, unsupported formats, rights failures, metadata mismatch, and download/transcription errors remain visible. Harmonia does not substitute fake transcripts.
+
+## Evidence status
+
+URL validation, rights records, local fixtures, and stage contracts have automated coverage. A real end-to-end source claim requires the captured authorized URL, resolved metadata, transcript, and source digest.
+
+## Relevant files
+
+- `agent/harmonia_agent/youtube.py`
+- `agent/harmonia_agent/content.py`
+- `agent/harmonia_agent/stages.py`
+- `src/lib/sourceRights.ts`
+- `docs/evidence-runbook.mdx`

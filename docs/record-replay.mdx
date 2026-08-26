@@ -1,4 +1,7 @@
-# Authenticated record/replay
+---
+title: "Authenticated record and replay"
+description: "Capture, sanitize, review, and replay authenticated runs without fabricating evidence or mutating durable state."
+---
 
 Harmonia separates three unmistakable modes: `fixture` for deterministic tests, `recorded_replay` for local development from a prior sanitized authenticated run, and `live` for real authenticated execution. Firestore remains authoritative in `live`; replay is an inert, process-local historical projection.
 

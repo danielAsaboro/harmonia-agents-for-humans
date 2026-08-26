@@ -1,0 +1,18 @@
+---
+title: "API routes reference"
+description: "The public operator, integration, and internal worker route families exposed by Harmonia."
+---
+
+Route handlers live under `src/app/api/`. Exact request schemas are enforced in each `route.ts`; this page groups the surface by trust boundary.
+
+| Family | Examples | Caller |
+|---|---|---|
+| Jobs | `/api/jobs`, `/api/jobs/{id}`, strategy and action decisions, retry | Authenticated operator UI |
+| Chat | `/api/chat`, history, streams, runs, attachments, operation decisions | Authenticated operator chat |
+| Content and calendar | `/api/content-items`, approvals, `/api/calendar`, `/api/calendar/google` | Authenticated operator UI |
+| Settings and OAuth | `/api/settings/*`, `/api/oauth/{platform}/*` | Authenticated workspace admin |
+| Evidence and operations | `/api/receipts`, `/api/events`, `/api/metrics`, `/api/observability` | Authenticated operator UI |
+| Telegram | `/api/telegram/webhook/{routeToken}` | Official Telegram webhook |
+| Internal worker | `/api/internal/*` | Authenticated worker or scheduler identity |
+
+Internal routes cover stage claims and finalization, outbox delivery, job context, analysis, strategy, editorial plans, actions, receipts, verification, usage, budgets, assets, notifications, retention, and proactive cycles. An `internal` URL is not a security boundary by itself; deployment identity and server-side authentication are required.

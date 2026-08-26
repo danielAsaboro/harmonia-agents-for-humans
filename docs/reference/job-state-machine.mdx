@@ -1,0 +1,21 @@
+---
+title: "Job state machine reference"
+description: "Canonical Harmonia stages, gates, terminal states, and transition ownership."
+---
+
+The canonical stage vocabulary is declared by `STAGES` in `src/lib/types.ts`.
+
+```text
+queued → ingest → transcribe → understand → strategize
+→ awaiting_strategy_approval → plan → draft → awaiting_approval
+→ publish → verify → learn → packet → complete
+```
+
+`failed` is terminal until an eligible deterministic retry creates the next authorized transition. Brief-only jobs may enter later work without media ingestion, but persisted state still identifies the actual stage.
+
+| Gate | Required record | On rejection |
+|---|---|---|
+| `awaiting_strategy_approval` | Strategy decision bound to current digest and revision | One feedback-bound Ryan revision; second rejection ends the job |
+| `awaiting_approval` | Per-action decision bound to exact payload digest | Action is skipped or job completes according to deterministic policy |
+
+Only application transactions advance the stage. Agents, Pub/Sub messages, logs, and external providers cannot do so directly. See [Production flow](/diagrams/production-flow) and [State ownership](/state-ownership).

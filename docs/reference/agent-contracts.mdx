@@ -1,0 +1,18 @@
+---
+title: "Agent contracts reference"
+description: "Strict inputs, outputs, evidence requirements, and authority limits for every Harmonia specialist."
+---
+
+Python contracts live in `agent/harmonia_agent/agent_models.py`; shared application representations live in `src/lib/types.ts`. Pydantic models forbid unknown fields and deterministic validators reject ungrounded or authority-expanding output.
+
+| Agent | Input | Output | Boundary |
+|---|---|---|---|
+| Nimi | `AnalystInput` | `SourceAnalysis` | Evidence analysis only |
+| Ryan | `StrategistInput` | `StrategistResult` containing `ContentStrategy` | Strategy and source-grounded briefs only |
+| Temi | `EditorialPlannerInput` | `EditorialPlan` | Operational editorial plan; supported channels only |
+| Noni | `CopywriterInput` | `ContentDraft` | Final-copy drafting, not approval or publishing |
+| Dara | `EditorialReviewInput` | `EditorialAssessment` | Bounded acceptance or revision issues |
+| Maya | Typed surface context | `SurfacePlan` | Presentation plan, no durable mutation |
+| Nova | `LiaisonInput` plus read tools | `LiaisonAnswer` | Read-only explanation and navigation |
+
+Evidence identifiers form a closed world per invocation: references not supplied in the input are invalid. Memory facts retain Firestore provenance and remain advisory. See the [agent team](/agents/overview) for role-by-role detail.

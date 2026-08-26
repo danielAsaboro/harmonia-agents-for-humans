@@ -11,51 +11,210 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "Documentation",
-        "icon": "book-open",
+        "tab": "Product",
+        "icon": "sparkles",
         "groups": [
           {
             "group": "Overview",
-            "pages": ["index", "architecture", "architecture-explorer"]
+            "root": "product/overview", "directory": "card",
+            "pages": ["index", "architecture", "architecture-explorer", "evaluation"]
           },
           {
-            "group": "Getting Started",
+            "group": "Workflow",
+            "pages": ["pipeline"]
+          },
+          {
+            "group": "Operator surfaces",
+            "pages": ["a2ui-console", "interfaces"]
+          },
+          {
+            "group": "Autonomy",
+            "pages": ["proactive-agent"]
+          },
+          {
+            "group": "Visual maps",
+            "pages": [
+              "diagrams/production-flow",
+              "diagrams/authority-boundaries",
+              "diagrams/state-ownership",
+              "diagrams/effect-lifecycle",
+              "diagrams/agent-handoffs",
+              "diagrams/deployment-topology"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Guides",
+        "icon": "compass",
+        "groups": [
+          {
+            "group": "Getting started",
+            "root": "guides/overview", "directory": "card",
             "pages": ["quickstart", "development"]
           },
           {
-            "group": "Product",
-            "pages": ["pipeline", "proactive-agent", "a2ui-console", "approval-and-audit", "interfaces"]
-          },
-          {
-            "group": "Agent Platform",
-            "pages": ["agent-platform", "session-memory", "models-cost-evaluation", "tool-contracts"]
-          },
-          {
-            "group": "Reliability",
-            "pages": ["operational-model", "failure-recovery", "state-ownership", "observability"]
-          },
-          {
             "group": "Integrations",
-            "pages": ["google-calendar", "google-calendar-reference"]
-          },
-          {
-            "group": "Operations",
-            "pages": ["configuration", "deployment", "cloud-proof", "evidence-runbook"]
+            "pages": ["google-calendar"]
           }
         ]
       },
       {
         "tab": "Agents",
         "icon": "people-group",
-        "pages": [
-          "agents/overview",
-          "agents/nimi",
-          "agents/ryan",
-          "agents/temi",
-          "agents/noni",
-          "agents/dara",
-          "agents/maya",
-          "agents/nova"
+        "groups": [
+          {
+            "group": "Team",
+            "root": "agents/overview", "directory": "card",
+            "pages": ["agent-platform"]
+          },
+          {
+            "group": "Research and strategy",
+            "pages": ["agents/nimi", "agents/ryan"]
+          },
+          {
+            "group": "Planning and production",
+            "pages": ["agents/temi", "agents/noni", "agents/dara"]
+          },
+          {
+            "group": "Experience and liaison",
+            "pages": ["agents/maya", "agents/nova"]
+          },
+          {
+            "group": "Agent runtime",
+            "pages": ["session-memory", "models-cost-evaluation", "tool-contracts"]
+          }
+        ]
+      },
+      {
+        "tab": "Platform",
+        "icon": "layer-group",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": ["platform/overview"]
+          },
+          {
+            "group": "UI",
+            "root": "platform/ui/overview", "directory": "card",
+            "pages": ["platform/ui/nextjs", "platform/ui/a2ui"]
+          },
+          {
+            "group": "Agents and AI",
+            "root": "platform/agents/overview", "directory": "card",
+            "pages": [
+              "platform/agents/google-adk",
+              "platform/agents/gemini",
+              "platform/agents/noni-runtime",
+              "platform/agents/agent-engine",
+              "platform/agents/memory-bank"
+            ]
+          },
+          {
+            "group": "Security and identity",
+            "root": "platform/security/overview", "directory": "card",
+            "pages": [
+              "platform/security/firebase-auth",
+              "platform/security/iam-service-accounts",
+              "platform/security/secret-manager"
+            ]
+          },
+          {
+            "group": "Storage and messaging",
+            "root": "platform/data/overview", "directory": "card",
+            "pages": [
+              "platform/data/firestore",
+              "platform/data/pubsub",
+              "platform/data/cloud-storage"
+            ]
+          },
+          {
+            "group": "Runtime and automation",
+            "root": "platform/runtime/overview", "directory": "card",
+            "pages": ["platform/runtime/cloud-run", "platform/runtime/cloud-scheduler"]
+          },
+          {
+            "group": "Media",
+            "root": "platform/media/overview", "directory": "card",
+            "pages": ["platform/media/ffmpeg", "platform/media/vertex-generative-media"]
+          },
+          {
+            "group": "Integrations",
+            "root": "platform/integrations/overview", "directory": "card",
+            "pages": [
+              "platform/integrations/x-api",
+              "platform/integrations/telegram",
+              "platform/integrations/google-calendar-api",
+              "platform/integrations/hacker-news-algolia",
+              "platform/integrations/youtube"
+            ]
+          },
+          {
+            "group": "Logging and monitoring",
+            "root": "platform/observability/overview", "directory": "card",
+            "pages": [
+              "platform/observability/opentelemetry",
+              "platform/observability/cloud-trace",
+              "platform/observability/structured-logging",
+              "platform/observability/monitoring-metrics",
+              "platform/observability/usage-budget"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Operations",
+        "icon": "shield-check",
+        "groups": [
+          {
+            "group": "Workflow reliability",
+            "root": "operations/overview", "directory": "card",
+            "pages": ["operational-model", "failure-recovery", "state-ownership", "record-replay"]
+          },
+          {
+            "group": "Authority and safety",
+            "pages": ["approval-and-audit", "resident-autonomy"]
+          },
+          {
+            "group": "Observability",
+            "pages": ["observability"]
+          },
+          {
+            "group": "Deployment",
+            "pages": ["deployment"]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "icon": "book",
+        "groups": [
+          {
+            "group": "Configuration",
+            "root": "reference/overview", "directory": "card",
+            "pages": ["configuration", "reference/environment"]
+          },
+          {
+            "group": "Integration reference",
+            "pages": ["google-calendar-reference", "reference/api-routes", "reference/upload-media"]
+          },
+          {
+            "group": "Workflow contracts",
+            "pages": [
+              "reference/job-state-machine",
+              "reference/agent-contracts",
+              "reference/effect-contracts",
+              "reference/error-taxonomy",
+              "reference/firestore-data",
+              "reference/authority-matrix",
+              "reference/pricing-budget",
+              "reference/receipts-verification"
+            ]
+          },
+          {
+            "group": "Evidence",
+            "pages": ["cloud-proof", "evidence-runbook", "glossary"]
+          }
         ]
       }
     ]

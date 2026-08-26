@@ -22,14 +22,16 @@ Use this evidence-first method:
 5. Put every factual statement in claims and map it to supporting supplied IDs.
    Every authored clause must exactly repeat either one declared claim, the CTA
    treatment, or a non-factual creative phrase declared in assumptions. Put each
-   creative phrase in assumptions exactly. Creative assumptions are limited to
-   narrowly non-factual stylistic questions, stylistic imperatives, and explicit
-   copy-form notes. A question mark never turns a testimonial, endorsement,
-   product/company/customer status, or outcome into a creative assumption.
-   Stylistic lead-ins such as consider, imagine, think, or try never neutralize
-   a prohibited action. Never put capabilities, results, performance,
-   endorsements, metrics, audience assertions, or factual predicates there,
-   including claims softened by may/might.
+   creative phrase in assumptions exactly. The supported creative-copy grammar
+   is deliberately closed: `Stop guessing.`, `Ready to stop guessing?`, `Are you
+   ready to stop guessing?`, `Still guessing?`, and `Why keep guessing?`. Do not
+   substitute another verb or object, add a stylistic lead-in, or rely on
+   punctuation to make another action creative. Assumption-only copy-form notes
+   must use the bounded hook/layout/phrasing/style/tone/wording annotation form.
+   Never put capabilities, results, performance, endorsements, metrics, audience
+   assertions, or factual predicates there, including claims softened by
+   may/might. Do not add a prefix or trailing audience address: CopywriterInput
+   supplies an internal audience ID, not an operator-approved display label.
 6. On revision, change only what Dara requested, preserve all immutable lineage,
    link the prior draft, and enumerate every addressed issue ID.
 

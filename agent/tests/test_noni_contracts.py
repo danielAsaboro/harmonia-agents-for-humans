@@ -185,9 +185,9 @@ def test_grounding_validator_rejects_invented_factual_categories(claim, message)
 
 
 @pytest.mark.parametrize(("mutation", "message"), [
-    (lambda draft: draft.update(text="Founders, enjoy a funny office meme. Request a demo."), "objective|substantive"),
-    (lambda draft: draft.update(text="Developers need verifiable operating proof. Request a demo."), "audience"),
-    (lambda draft: draft.update(text="Founders, buy Harmonia now for verifiable operating proof."), "CTA"),
+    (lambda draft: draft.update(text="Founders, enjoy a funny office meme. Request a demo."), "audience"),
+    (lambda draft: draft.update(text="Developers need verifiable operating proof. Request a demo."), "phantom|factual"),
+    (lambda draft: draft.update(text="Founders, buy Harmonia now for verifiable operating proof."), "audience|CTA"),
     (lambda draft: draft.update(
         text=draft["text"].replace("Request a demo.", "Read the blog."),
         ctaTreatment="Read the blog.",
@@ -268,8 +268,8 @@ def test_grounding_validator_rejects_approval_schedule_publish_effect_receipt_an
 
 @pytest.mark.parametrize("mutation", [
     lambda supplied, draft: (
-        draft.update(text=f'Turn operating proof into momentum. {draft["text"]}'),
-        draft["assumptions"].append("Turn operating proof into momentum."),
+        draft.update(text=f'Stop guessing. {draft["text"]}'),
+        draft["assumptions"].append("Stop guessing."),
     ),
     lambda supplied, draft: draft.update(
         assumptions=["A concise founder-focused hook suits this X post."],
@@ -360,7 +360,7 @@ def test_grounding_validator_rejects_context_word_fact_after_audience_colon():
         f'{draft["text"]} Founders: content execution governed.'
     )
 
-    with pytest.raises(AgentProtocolError, match="uncited factual statement"):
+    with pytest.raises(AgentProtocolError, match="audience"):
         _validate(draft)
 
 
@@ -458,6 +458,89 @@ def test_grounding_validator_accepts_explicit_safe_creative_phrase():
     draft["assumptions"].append("Stop guessing.")
 
     assert _validate(draft).id == "draft-1"
+
+
+@pytest.mark.parametrize("unsafe_action", [
+    "Stop deploying.",
+    "Ready to stop deploying?",
+    "Ready to stop submitting?",
+    "Are you ready to stop shipping?",
+    "Ready to stop registering?",
+    "Ready to stop reserving?",
+])
+def test_grounding_validator_rejects_unknown_creative_action_syntax(
+    unsafe_action,
+):
+    draft = grounded_draft()
+    draft["text"] = f'{unsafe_action} {draft["text"]}'
+    draft["assumptions"].append(unsafe_action)
+
+    with pytest.raises(AgentProtocolError, match="creative grammar|non-factual"):
+        _validate(draft)
+
+
+@pytest.mark.parametrize("unsafe_action", [
+    "Consider submitting this.",
+    "Imagine shipping this.",
+    "Stop—deploying this.",
+    "Consider deployment.",
+    "Are you ready to stop registrations?",
+])
+def test_grounding_validator_rejects_action_punctuation_and_inflection_bypasses(
+    unsafe_action,
+):
+    draft = grounded_draft()
+    draft["text"] = f'{unsafe_action} {draft["text"]}'
+    draft["assumptions"].append(unsafe_action)
+
+    with pytest.raises(AgentProtocolError, match="creative grammar|non-factual"):
+        _validate(draft)
+
+
+def test_grounding_validator_keeps_evidence_backed_action_copy_open():
+    supplied = original_input()
+    supplied["referencedMoments"][0]["hook"] = "Teams deploy content safely."
+    draft = grounded_draft()
+    draft["text"] = f'Teams deploy content safely. {draft["text"]}'
+    draft["claims"].append({
+        "text": "Teams deploy content safely.",
+        "evidenceRefs": ["moment-1"],
+    })
+
+    assert _validate(draft, supplied).id == "draft-1"
+
+
+def test_grounding_validator_keeps_exact_operator_supplied_cta_open():
+    supplied = original_input()
+    supplied["brief"].update(
+        ctaIntent="reserve a demo",
+        intendedConversion="qualified reserve a demo request",
+    )
+    supplied["editorialItem"].update(
+        ctaIntent="reserve a demo",
+        intendedConversion="qualified reserve a demo request",
+    )
+    draft = grounded_draft()
+    draft.update(
+        ctaIntent="reserve a demo",
+        ctaTreatment="Reserve a demo.",
+        intendedConversion="qualified reserve a demo request",
+    )
+    draft["text"] = draft["text"].replace("Request a demo.", "Reserve a demo.")
+
+    assert _validate(draft, supplied).id == "draft-1"
+
+
+def test_grounding_validator_rejects_qualifier_added_to_exact_cta_clause():
+    draft = grounded_draft()
+    draft["ctaTreatment"] = "According to evidence, request a demo."
+    draft["text"] = draft["text"].replace(
+        "Request a demo.",
+        "According to evidence, request a demo.",
+    )
+
+    with pytest.raises(AgentProtocolError, match="exact brief intent"):
+        _validate(draft)
 
 
 @pytest.mark.parametrize("factual_assumption", [
@@ -614,7 +697,7 @@ def test_grounding_validator_rejects_conflicting_cta_even_if_declared_creative(
 @pytest.mark.parametrize(("text", "message"), [
     (
         "Founders: request a demo for beach vacations and operating proof.",
-        "CTA|objective|substantive",
+        "audience",
     ),
     (
         "Astronauts: request a demo for verifiable operating proof.",
@@ -622,7 +705,7 @@ def test_grounding_validator_rejects_conflicting_cta_even_if_declared_creative(
     ),
     (
         "Founders: join the waitlist for verifiable operating proof.",
-        "CTA|funnel",
+        "audience|CTA|funnel",
     ),
 ])
 def test_grounding_validator_rejects_clear_brief_semantic_divergence(text, message):
@@ -637,7 +720,7 @@ def test_grounding_validator_rejects_even_one_unbound_topic_term():
     draft = grounded_draft()
     draft["text"] = "Founders: request a demo for operating proof and vacations."
 
-    with pytest.raises(AgentProtocolError, match="CTA|objective|substantive"):
+    with pytest.raises(AgentProtocolError, match="audience"):
         _validate(draft)
 
 
@@ -753,6 +836,20 @@ def test_grounding_validator_rejects_conflicting_comma_vocative():
 
 
 @pytest.mark.parametrize("vocative", [
+    "Stop guessing, developers.",
+    "Ready to stop guessing, astronauts?",
+    "Why keep guessing: developers?",
+])
+def test_grounding_validator_rejects_trailing_unbound_vocatives(vocative):
+    draft = grounded_draft()
+    draft["text"] = f'{vocative} {draft["text"]}'
+    draft["assumptions"].append(vocative)
+
+    with pytest.raises(AgentProtocolError, match="audience|creative grammar|non-factual"):
+        _validate(draft)
+
+
+@pytest.mark.parametrize("vocative", [
     "Hey developers, ready to stop guessing?",
     "Hello mobile developers, ready to stop guessing?",
     "Hey founders and developers, ready to stop guessing?",
@@ -772,12 +869,13 @@ def test_grounding_validator_rejects_conflicting_attention_vocatives(vocative):
     "Hey, startup founders, ready to stop guessing?",
     "Startup founders, ready to stop guessing?",
 ])
-def test_grounding_validator_accepts_matching_multiword_attention_vocative(question):
+def test_grounding_validator_rejects_audience_id_inferred_as_display_vocative(question):
     draft = grounded_draft()
     draft["text"] = f'{question} {draft["text"]}'
     draft["assumptions"].append(question)
 
-    assert _validate(draft).id == "draft-1"
+    with pytest.raises(AgentProtocolError, match="audience"):
+        _validate(draft)
 
 
 @pytest.mark.parametrize("overreach", [

@@ -433,6 +433,9 @@ _NONI_STYLISTIC_LEADIN_PATTERN = re.compile(
     r")(?:\s+|\s*[,;:\u2013\u2014-]\s*)",
     re.IGNORECASE,
 )
+# These policy recognizers preserve specific authority/CTA diagnostics. They do
+# not decide which creative clauses are accepted; the closed positive grammar
+# below is the acceptance boundary for every non-factual creative clause.
 _NONI_AUTHORITY_PATTERNS = tuple(re.compile(pattern, re.IGNORECASE) for pattern in (
     r"\b(?:draft|post|content|campaign|copy)\s+(?:is\s+|was\s+|has been\s+)?approved\b",
     r"\bpublication\s+(?:is\s+|was\s+|has been\s+)?approved\b",
@@ -501,26 +504,23 @@ _NONI_FACTUAL_STATUS_PATTERN = re.compile(
     r"(?:category|industry|market|sector)\b",
     re.IGNORECASE,
 )
-_NONI_QUESTION_BLOCKED_TERMS = {
-    "agent", "agents", "approval", "approve", "approved", "automate", "automates",
-    "best", "better", "book", "booking", "buy", "campaign", "campaigns",
-    "category", "chosen", "companies", "company", "content", "customer", "customers",
-    "effect", "effects", "endorse", "endorsed", "faster", "founder", "founders",
-    "growth", "harmonia", "improve", "improved", "industry", "launch", "launching",
-    "leader", "leading", "loved", "market", "outcome", "outcomes", "performance",
-    "platform", "product", "products", "publish", "publishing", "receipt", "receipts",
-    "recommended", "result", "results", "revenue", "sales", "schedule", "scheduling",
-    "subscribe", "system", "systems", "team", "teams", "tool", "tools", "trusted",
-    "user", "users", "verification", "verified", "win", "winner", "wins", "workflow",
-    "workflows",
-}
-_NONI_AUDIENCE_HEAD_TERMS = {
-    "builder", "builders", "customer", "customers", "creator", "creators",
-    "developer", "developers", "executive", "executives", "founder", "founders",
-    "leader", "leaders", "marketer", "marketers", "operator", "operators",
-    "owner", "owners", "professional", "professionals", "startups", "team", "teams",
-    "user", "users",
-}
+_NONI_SAFE_CREATIVE_COPY_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE) for pattern in (
+        r"^stop\s+guessing[.!]?$",
+        r"^(?:are\s+you\s+)?ready\s+to\s+stop\s+guessing\?$",
+        r"^still\s+guessing\?$",
+        r"^why\s+(?:continue|keep)\s+guessing\?$",
+    )
+)
+_NONI_SAFE_META_CREATIVE_PATTERN = re.compile(
+    r"^(?:a|an)\s+"
+    r"(?:(?:cautious|concise|creative|direct|evidence-led|founder-focused|"
+    r"platform-native|single)\s+){1,4}"
+    r"(?:hook|layout|phrasing|style|tone|wording)\s+"
+    r"(?:suits\s+(?:the\s+selected|this)\s+(?:x\s+)?(?:item|post)|"
+    r"is\s+(?:a\s+)?creative\s+choice\s+for\s+limited\s+evidence)[.]?$",
+    re.IGNORECASE,
+)
 _NONI_ATTENTION_VOCATIVE_PATTERN = re.compile(
     r"^(?:hey|hello|hi)(?:\s*[,;:])?\s+"
     r"(?P<audience>[A-Za-z0-9][A-Za-z0-9'&-]*"
@@ -539,6 +539,11 @@ _NONI_LEGACY_VOCATIVE_PATTERN = re.compile(
     r"^(?P<audience>[A-Za-z-]+|[A-Z][A-Za-z-]+\s+[A-Z][A-Za-z-]+)"
     r"\s*[:,]\s+(?P<body>.+)$",
 )
+_NONI_TRAILING_VOCATIVE_PATTERN = re.compile(
+    r"[,;:]\s*(?P<audience>[A-Za-z][A-Za-z0-9'&-]*"
+    r"(?:\s+[A-Za-z][A-Za-z0-9'&-]*){0,3})$",
+    re.IGNORECASE,
+)
 
 
 def _noni_urls(text: str) -> set[str]:
@@ -552,6 +557,10 @@ def _noni_token_sequence(text: str) -> list[str]:
         for term in _NONI_WORD_PATTERN.findall(without_urls)
         if term not in _NONI_CLAIM_QUALIFIERS
     ]
+
+
+def _noni_literal_sequence(text: str) -> list[str]:
+    return _NONI_WORD_PATTERN.findall(text.lower().replace("-", " "))
 
 
 def _noni_support_sequence(text: str) -> list[str]:
@@ -911,42 +920,24 @@ def _noni_validate_claim_support(
         )
 
 
-def _noni_audience_terms(audience_id: str) -> set[str]:
-    terms = set(_NONI_WORD_PATTERN.findall(audience_id.lower().replace("-", " ")))
-    bounded = terms - {"aud", "audience", "id"}
-    return bounded or terms
-
-
-def _noni_audience_address_matches(expected: set[str], candidate: str) -> bool:
-    candidate_words = _NONI_WORD_PATTERN.findall(candidate.lower().replace("-", " "))
-    candidate_terms = _noni_terms(candidate)
-    if (
-        not candidate_words
-        or candidate_words[-1] not in expected
-        or set(candidate_words) & {"and", "or"}
-    ):
-        return False
-    expected_heads = expected & _NONI_AUDIENCE_HEAD_TERMS
-    candidate_heads = candidate_terms & _NONI_AUDIENCE_HEAD_TERMS
-    return not expected_heads or not (candidate_heads - expected_heads)
-
-
-def _noni_validate_explicit_audience_addresses(
-    input: CopywriterInput, draft: ContentDraft,
-) -> None:
-    expected = _noni_audience_terms(input.brief.audienceId)
-    for clause, _terminal in _noni_clauses(draft.text):
-        address = _noni_split_audience_address(clause)
-        plural_subject = re.match(
-            r"^([A-Z][A-Za-z-]+s)\s+(?:can|deserve|must|need|should|want)\b",
-            clause,
-            re.IGNORECASE,
-        )
-        candidate = address[0] if address else (plural_subject.group(1) if plural_subject else None)
-        if candidate and not _noni_audience_address_matches(expected, candidate):
-            raise AgentProtocolError(
-                f"Noni draft audience diverges from {input.brief.audienceId}"
-            )
+def _noni_validate_unbound_audience_addresses(draft: ContentDraft) -> None:
+    authored_fields = (draft.text, draft.ctaTreatment, *draft.assumptions)
+    for field in authored_fields:
+        for clause, _terminal in _noni_clauses(field):
+            prefix_address = _noni_split_audience_address(clause)
+            trailing_match = _NONI_TRAILING_VOCATIVE_PATTERN.search(clause.strip())
+            trailing_address = False
+            if trailing_match:
+                creative_core = clause[:trailing_match.start()].strip()
+                trailing_address = any(
+                    _noni_is_supported_creative_copy(f"{creative_core}{terminal}")
+                    for terminal in (".", "?")
+                )
+            if prefix_address or trailing_address:
+                raise AgentProtocolError(
+                    "Noni draft contains an audience address without an "
+                    "operator-supplied display label"
+                )
 
 
 _NONI_CONFLICTING_CTA_PATTERNS = tuple(re.compile(pattern, re.IGNORECASE) for pattern in (
@@ -994,21 +985,27 @@ def _noni_validate_cta_clauses(input: CopywriterInput, draft: ContentDraft) -> N
 
 def _noni_validate_brief_alignment(input: CopywriterInput, draft: ContentDraft) -> None:
     _noni_validate_cta_clauses(input, draft)
-    _noni_validate_explicit_audience_addresses(input, draft)
+    _noni_validate_unbound_audience_addresses(draft)
 
     cta_tokens = _noni_token_sequence(input.brief.ctaIntent)
     if not cta_tokens:
         raise AgentProtocolError("Noni draft CTA intent has no substantive terms")
-    treatment_tokens = _noni_token_sequence(draft.ctaTreatment)
-    if _noni_contains_factual_assertion(input, draft.ctaTreatment):
+    exact_cta = _noni_literal_sequence(input.brief.ctaIntent)
+    exact_treatment = _noni_literal_sequence(draft.ctaTreatment)
+    if _noni_contains_factual_assertion(draft.ctaTreatment):
         raise AgentProtocolError("Noni draft CTA treatment contains an undeclared factual assertion")
-    if treatment_tokens != cta_tokens:
-        raise AgentProtocolError("Noni draft CTA treatment diverges from the exact brief intent")
+    if exact_treatment != exact_cta:
+        raise AgentProtocolError(
+            "Noni draft CTA treatment diverges from the exact brief intent"
+        )
     conversion_terms = _noni_terms(input.brief.intendedConversion)
     if not set(cta_tokens) <= conversion_terms:
         raise AgentProtocolError("Noni draft CTA intent diverges from the intended conversion")
-    body_clauses = [_noni_token_sequence(clause) for clause, _terminal in _noni_clauses(draft.text)]
-    if treatment_tokens not in body_clauses:
+    body_clauses = [
+        _noni_literal_sequence(clause)
+        for clause, _terminal in _noni_clauses(draft.text)
+    ]
+    if exact_treatment not in body_clauses:
         raise AgentProtocolError("Noni draft text must contain the exact CTA treatment")
 
     objective_terms = _noni_terms(input.brief.objective)
@@ -1025,7 +1022,7 @@ def _noni_clauses(text: str) -> list[tuple[str, str]]:
     ]
 
 
-def _noni_contains_factual_assertion(input: CopywriterInput, text: str) -> bool:
+def _noni_contains_factual_assertion(text: str) -> bool:
     tokens = _noni_token_sequence(text)
     if _noni_metric_relations(tokens):
         return True
@@ -1050,8 +1047,6 @@ def _noni_contains_factual_assertion(input: CopywriterInput, text: str) -> bool:
         "trusted", "worldwide",
     }:
         return True
-    if tokens and tokens[0] in _noni_audience_terms(input.brief.audienceId):
-        return True
     return bool(re.search(
         r"\b(?:harmonia|company|companies|product|customers?|users?|teams?|platform|tool|"
         r"workflow|agent|system)\b\s+(?:can\s+|could\s+|does\s+|do\s+|will\s+|has\s+|"
@@ -1061,74 +1056,55 @@ def _noni_contains_factual_assertion(input: CopywriterInput, text: str) -> bool:
     ))
 
 
-def _noni_question_is_safe(input: CopywriterInput, assumption: str) -> bool:
-    if not assumption.rstrip().endswith("?"):
-        return False
-    body = assumption.rstrip().removesuffix("?").strip()
-    if address := _noni_split_audience_address(body):
-        audience, body = address
-        if not _noni_audience_address_matches(
-            _noni_audience_terms(input.brief.audienceId), audience,
-        ):
-            return False
-    normalized = " ".join(_NONI_WORD_PATTERN.findall(body.lower().replace("-", " ")))
-    if set(normalized.split()) & _NONI_QUESTION_BLOCKED_TERMS:
-        return False
-    return bool(
-        re.fullmatch(
-            r"(?:are you )?ready to (?:ask|explore|imagine|notice|picture|rethink|stop|"
-            r"think|try)\b(?: [a-z0-9']+){0,5}",
-            normalized,
-        )
-        or re.fullmatch(
-            r"(?:are you )?still (?:asking|exploring|guessing|thinking|wondering)",
-            normalized,
-        )
-        or re.fullmatch(
-            r"why (?:continue|keep) (?:asking|exploring|guessing|thinking|wondering)"
-            r"(?: [a-z0-9']+){0,3}",
-            normalized,
-        )
-    )
+def _noni_is_supported_creative_copy(text: str) -> bool:
+    stripped = text.strip()
+    return any(pattern.fullmatch(stripped) for pattern in _NONI_SAFE_CREATIVE_COPY_PATTERNS)
 
 
-def _noni_assumption_is_factual(input: CopywriterInput, assumption: str) -> bool:
-    if _noni_contains_factual_assertion(input, assumption):
-        return True
-    tokens = _noni_token_sequence(assumption)
-    if assumption.rstrip().endswith("?"):
-        return not _noni_question_is_safe(input, assumption)
-    if tokens and tokens[0] in {
-        "ask", "consider", "imagine", "notice", "picture", "stop", "think", "turn",
-    }:
-        return False
-    return not bool(set(tokens) & {
-        "creative", "hook", "layout", "phrasing", "style", "tone", "wording",
-    })
+def _noni_is_supported_meta_creative_assumption(text: str) -> bool:
+    return _NONI_SAFE_META_CREATIVE_PATTERN.fullmatch(text.strip()) is not None
 
 
-def _noni_validate_factual_ledger(input: CopywriterInput, draft: ContentDraft) -> None:
-    claim_tokens = [_noni_token_sequence(claim.text) for claim in draft.claims]
-    cta_tokens = _noni_token_sequence(draft.ctaTreatment)
-    assumption_tokens = [_noni_token_sequence(assumption) for assumption in draft.assumptions]
+def _noni_validate_authored_grammar_and_factual_ledger(
+    draft: ContentDraft,
+) -> None:
+    claim_clauses = [
+        _noni_literal_sequence(claim.text)
+        for claim in draft.claims
+    ]
+    cta_clause = _noni_literal_sequence(draft.ctaTreatment)
+    assumption_clauses = [
+        _noni_literal_sequence(assumption)
+        for assumption in draft.assumptions
+    ]
 
     authored_assumptions = {
-        tuple(_noni_token_sequence(clause))
+        tuple(_noni_literal_sequence(clause))
         for clause, _terminal in _noni_clauses(draft.text)
     }
-    for assumption, tokens in zip(draft.assumptions, assumption_tokens, strict=True):
-        authored = tuple(tokens) in authored_assumptions
-        meta_creative = bool(set(tokens) & {
-            "creative", "hook", "layout", "phrasing", "style", "tone", "wording",
-        })
-        if _noni_assumption_is_factual(input, assumption) or (not authored and not meta_creative):
+    for assumption, literal in zip(
+        draft.assumptions, assumption_clauses, strict=True,
+    ):
+        authored = tuple(literal) in authored_assumptions
+        supported = (
+            _noni_is_supported_creative_copy(assumption)
+            if authored
+            else _noni_is_supported_meta_creative_assumption(assumption)
+        )
+        if _noni_contains_factual_assertion(assumption) or not supported:
             raise AgentProtocolError(
-                f"Noni draft assumption must remain non-factual: {assumption}"
+                "Noni draft assumption must follow the supported non-factual "
+                "creative grammar; unsupported action or authority overreach: "
+                f"{assumption}"
             )
 
-    for clause, _terminal in _noni_clauses(draft.text):
-        tokens = _noni_token_sequence(clause)
-        if tokens in claim_tokens or tokens == cta_tokens or tokens in assumption_tokens:
+    for clause, terminal in _noni_clauses(draft.text):
+        literal = _noni_literal_sequence(clause)
+        if literal in claim_clauses or literal == cta_clause:
+            continue
+        if literal in assumption_clauses and _noni_is_supported_creative_copy(
+            f"{clause}{terminal}",
+        ):
             continue
         raise AgentProtocolError(
             "Noni draft contains uncited factual statement or undeclared substantive clause: "
@@ -1142,9 +1118,9 @@ def _noni_validate_claim_expression(draft: ContentDraft) -> None:
         *_noni_clauses(draft.ctaTreatment),
     ]
     for claim in draft.claims:
-        tokens = _noni_token_sequence(claim.text)
+        literal = _noni_literal_sequence(claim.text)
         if not any(
-            tokens == _noni_token_sequence(clause)
+            literal == _noni_literal_sequence(clause)
             for clause, _terminal in authored_clauses
         ):
             raise AgentProtocolError(
@@ -1166,7 +1142,7 @@ def validate_content_draft(
     _noni_validate_claim_support(evidence, draft)
     _noni_validate_brief_alignment(input, draft)
     _noni_validate_claim_expression(draft)
-    _noni_validate_factual_ledger(input, draft)
+    _noni_validate_authored_grammar_and_factual_ledger(draft)
     return draft
 
 

@@ -9,7 +9,7 @@ Harmonia uses Google ADK for bounded judgment inside a deterministic asynchronou
   <Card title="Harmonia" icon="route">Routes one bounded task to the appropriate specialist.</Card>
   <Card title="Nimi & Ryan" icon="magnifying-glass-chart">Produce grounded analysis, strategy, and content plans.</Card>
   <Card title="Temi" icon="calendar-days">Agentically operationalizes an approved Ryan strategy; deterministic code persists the plan and selects one item.</Card>
-  <Card title="Flo" icon="people-arrows">Runs the bounded Noni ↔ Dara production loop for that selected item.</Card>
+  <Card title="Writing & review" icon="people-arrows">Deterministic code runs separate typed Noni and Dara calls for the selected item.</Card>
 </CardGroup>
 
 ## Team topology
@@ -21,7 +21,7 @@ flowchart LR
   H --> S[Nimi analyst]
   H --> T[Temi editorial planner]
   T --> FS[Firestore plan + selected item]
-  FS --> F[Flo production loop]
+  FS --> F[Deterministic writing/review loop]
   F --> N[Noni copywriter]
   N --> D[Dara editor]
   D --> N
@@ -38,7 +38,7 @@ flowchart LR
 | Ryan | agentic strategy and source-grounded content briefs | typed Nimi analysis, company/campaign context, verified performance, eligible Memory Bank facts | write final copy, mutate calendars, approve, publish |
 | Temi | agentic editorial operationalization: sequencing, cadence, supported channels/formats, windows, deadlines, dependencies, and priorities | exact human-approved Ryan strategy, Nimi evidence, capabilities, commitments, capacity, and observed posting windows | invent strategy/evidence, write final copy, use tools, approve, mutate external calendars, schedule externally, publish |
 | Noni | platform-native writing and revision | one deterministically selected Temi item, its exact Ryan brief, and referenced Nimi evidence | inspect the rest of the plan, create facts, approve, publish |
-| Dara | structured accept/revise review in a deterministic two-pass maximum | exact Noni draft and immutable production input | rewrite copy, replace evidence, request a third pass, or create authority |
+| Dara | complete seven-dimension assessment and bounded correction issues | exact Noni draft and immutable production input | author workflow metadata, rewrite copy, replace evidence, request a third pass, or create authority |
 | Maya | A2UI layout selection | typed entity references and UI context | emit executable UI or mutate records |
 | Nova | read-only operational answers | allow-listed tools and skills | write Firestore, retry jobs, approve, publish |
 

@@ -11,7 +11,7 @@ from harmonia_agent.evaluation_contracts import (
     evaluate_analysis,
     evaluate_content_draft,
     evaluate_draft_workflow,
-    evaluate_editorial_review,
+    evaluate_editorial_assessment,
     evaluate_liaison_tool_use,
     evaluate_strategy,
     evaluate_editorial_plan,
@@ -19,6 +19,7 @@ from harmonia_agent.evaluation_contracts import (
     validate_specialist_trajectory,
 )
 from tests.test_noni_contracts import grounded_draft, original_input, revise_review
+from tests.test_dara_contracts import passing_assessment
 from tests.test_temi_editorial_plan import plan, planner_input, production_input
 from tests.test_ryan_strategy import strategist_input, strategy
 
@@ -190,17 +191,37 @@ def test_noni_evaluation_accepts_grounded_copy_and_rejects_invented_evidence():
     ).failures[0].code == "invented_reference"
 
 
-def test_dara_evaluation_binds_review_to_the_exact_draft():
-    accepted = revise_review()
-    from tests.test_noni_contracts import editorial_checks
-    accepted.update(verdict="accepted", checks=editorial_checks(), issues=[])
-    assert evaluate_editorial_review(
-        copywriter_input=original_input(), draft=grounded_draft(), review=accepted,
+def test_dara_evaluation_accepts_a_complete_grounded_assessment():
+    assert evaluate_editorial_assessment(
+        copywriter_input=original_input(), draft=grounded_draft(), assessment=passing_assessment(),
     ).passed
-    accepted["draftId"] = "invented"
-    assert not evaluate_editorial_review(
-        copywriter_input=original_input(), draft=grounded_draft(), review=accepted,
-    ).passed
+
+
+def test_dara_evaluation_rejects_missing_rubric_and_invented_references():
+    incomplete = passing_assessment()
+    incomplete["checks"].pop()
+    assert evaluate_editorial_assessment(
+        copywriter_input=original_input(), draft=grounded_draft(), assessment=incomplete,
+    ).failures[0].code == "missing_rubric"
+    invented = passing_assessment()
+    invented["checks"][0]["evidenceRefs"] = ["invented"]
+    assert evaluate_editorial_assessment(
+        copywriter_input=original_input(), draft=grounded_draft(), assessment=invented,
+    ).failures[0].code == "invented_reference"
+
+
+def test_dara_evaluation_rejects_authority_overreach():
+    overreach = passing_assessment()
+    overreach["verdict"] = "revise"
+    overreach["checks"][-1]["status"] = "fail"
+    overreach["issues"] = [{
+        "id": "issue-1", "category": "clarity", "severity": "medium",
+        "fieldPath": "text", "instruction": "Approved for publishing; receipt ID will be created.",
+        "evidenceRefs": [], "constraintRefs": [],
+    }]
+    assert evaluate_editorial_assessment(
+        copywriter_input=original_input(), draft=grounded_draft(), assessment=overreach,
+    ).failures[0].code == "authority_overreach"
 
 
 def test_noni_dara_workflow_rejects_a_second_revision_request():
@@ -227,4 +248,17 @@ def test_noni_public_fixture_catalog_covers_required_failure_modes():
         "cta-failure", "safety-exclusion", "platform-limit", "authority-overreach",
         "incomplete-claims", "memory-as-fact", "accepted-original", "successful-revision",
         "invalid-revision-lineage", "ignored-review-issues", "attempted-third-pass",
+    }
+
+
+def test_dara_public_fixture_catalog_covers_required_editorial_modes():
+    fixture_path = Path(__file__).parents[1] / "evals" / "dara_contract_cases.json"
+    ids = {case["id"] for case in json.loads(fixture_path.read_text())["cases"]}
+    assert ids == {
+        "complete-acceptance", "grounding-defect", "brief-alignment-defect",
+        "brand-voice-defect", "platform-defect", "cta-defect", "safety-defect",
+        "clarity-defect", "false-acceptance", "missing-rubric", "invented-reference",
+        "invalid-field-path", "replacement-copy", "authority-overreach",
+        "complete-revision-resolution", "ignored-prior-issue",
+        "invented-resolved-issue", "attempted-third-pass",
     }

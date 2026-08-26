@@ -1154,48 +1154,6 @@ def _validate_ascii_only_boundary(value: BaseModel, label: str) -> None:
             pending.extend(item)
 
 
-def validate_editorial_review(
-    input: CopywriterInput,
-    draft: ContentDraft,
-    review: EditorialReview,
-) -> EditorialReview:
-    """Bind one Dara review to the exact supplied authority and Noni draft."""
-    input = CopywriterInput.model_validate(input)
-    draft = ContentDraft.model_validate(draft)
-    review = EditorialReview.model_validate(review)
-    _validate_ascii_only_boundary(review, "Dara review")
-    lineage = (
-        input.planId, input.planDigest, input.strategyDigest,
-        input.editorialItemId, input.briefId,
-    )
-    if (
-        review.planId, review.planDigest, review.strategyDigest,
-        review.editorialItemId, review.briefId,
-    ) != lineage:
-        raise AgentProtocolError("Dara review lineage does not match the exact input")
-    if review.draftId != draft.id or review.revision != draft.revision:
-        raise AgentProtocolError("Dara review must bind the exact draft and revision")
-    supplied_evidence = {
-        evidence.id for evidence in [*input.referencedMoments, *input.referencedAngles]
-    }
-    supplied_constraints = {
-        *input.constraints, *input.brief.constraints, *input.editorialItem.constraints,
-    }
-    for issue in review.issues:
-        unknown_evidence = set(issue.evidenceRefs) - supplied_evidence
-        if unknown_evidence:
-            raise AgentProtocolError(
-                f"Dara review contains unknown evidence ids: {sorted(unknown_evidence)}"
-            )
-        unknown_constraints = set(issue.constraintRefs) - supplied_constraints
-        if unknown_constraints:
-            raise AgentProtocolError(
-                "Dara review contains unknown constraint references: "
-                f"{sorted(unknown_constraints)}"
-            )
-    return review
-
-
 _DARA_ISSUE_PATHS = {
     "grounding": {"text", "claims", "evidenceRefs"},
     "brief_alignment": {"text", "audienceId", "objective", "funnelStage", "intendedConversion"},

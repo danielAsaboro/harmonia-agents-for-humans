@@ -406,6 +406,24 @@ export const editorialReviewSchema = z.object({
   validateAssessmentShape(review, context);
 });
 
+function structurallyEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (typeof left !== typeof right || left === null || right === null) return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right)
+      && left.length === right.length
+      && left.every((value, index) => structurallyEqual(value, right[index]));
+  }
+  if (typeof left !== "object") return false;
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord).sort();
+  const rightKeys = Object.keys(rightRecord).sort();
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key, index) => key === rightKeys[index]
+      && structurallyEqual(leftRecord[key], rightRecord[key]));
+}
+
 export const draftWorkflowResultSchema = z.object({
   originalDraft: contentDraftSchema,
   reviews: z.array(editorialReviewSchema).min(1).max(2),
@@ -419,12 +437,15 @@ export const draftWorkflowResultSchema = z.object({
   if (original.revision !== 1 || first?.draftId !== original.id || first?.revision !== 1) context.addIssue({ code: "custom", message: "first review must bind the revision-1 original" });
   if (trace.reviews.some((review) => reviewLineage(review) !== lineage)) context.addIssue({ code: "custom", message: "reviews must preserve production lineage" });
   if (first?.verdict === "accepted") {
-    if (trace.reviews.length !== 1 || trace.revisionDraft !== null || trace.acceptedDraft.id !== original.id) context.addIssue({ code: "custom", message: "accepted original cannot contain a revision trace" });
+    if (trace.reviews.length !== 1 || trace.revisionDraft !== null || !structurallyEqual(trace.acceptedDraft, original)) context.addIssue({ code: "custom", message: "accepted original cannot contain a revision trace or differ from the reviewed draft" });
     return;
   }
   const revision = trace.revisionDraft;
   const final = trace.reviews[1];
-  if (!revision || trace.reviews.length !== 2 || revision.revision !== 2 || revision.priorDraftId !== original.id || final?.draftId !== revision?.id || final?.verdict !== "accepted" || trace.acceptedDraft.id !== revision?.id) {
+  const revisionLineage = revision
+    ? [revision.planId, revision.planDigest, revision.strategyDigest, revision.editorialItemId, revision.briefId].join("\0")
+    : null;
+  if (!revision || trace.reviews.length !== 2 || revisionLineage !== lineage || revision.revision !== 2 || revision.priorDraftId !== original.id || final?.draftId !== revision?.id || final?.verdict !== "accepted" || !structurallyEqual(trace.acceptedDraft, revision)) {
     context.addIssue({ code: "custom", message: "revision trace must contain exactly one accepted revision" });
   }
 });

@@ -73,6 +73,14 @@ describe("internal contracts", () => {
     };
     expect(draftsSubmissionSchema.safeParse(mismatched).success).toBe(false);
     expect(draftsSubmissionSchema.safeParse({ ...mismatched, proposedActions: [{ ...mismatched.proposedActions[0], payload: { type: "export_content_pack" } }] }).success).toBe(false);
+    const changedAccepted = {
+      ...productionTrace,
+      acceptedDraft: { ...productionTrace.acceptedDraft, text: "mutated after review" },
+    };
+    expect(draftsSubmissionSchema.safeParse({
+      ...mismatched, productionTrace: changedAccepted,
+      proposedActions: [{ ...mismatched.proposedActions[0], payload: { type: "publish_x_post", text: "mutated after review" } }],
+    }).success).toBe(false);
   });
 
   it("preserves additive visual grounding on analyzed moments", () => {

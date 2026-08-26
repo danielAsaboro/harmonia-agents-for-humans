@@ -94,7 +94,7 @@ _PUBLIC_FIXTURES: dict[str, tuple[str, frozenset[str]]] = {
             "Delegate the typed public fixture to dara_editor exactly once.",
             "harmonia_contract", "dara_editor", "transfer_to_agent",
             '{"kind":"review"}',
-            '{"id":"review-1","planId":"plan-1","planDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","strategyDigest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","editorialItemId":"item-1","briefId":"brief-1","draftId":"draft-1","revision":1,"verdict":"accepted","reviewedAt":"2026-08-27T10:00:00Z","issues":[]}',
+            '{"verdict":"accepted","checks":[{"dimension":"grounding","status":"pass","rationale":"Grounded in supplied proof.","evidenceRefs":["moment-1"],"constraintRefs":[]},{"dimension":"brief_alignment","status":"pass","rationale":"Aligned to the brief.","evidenceRefs":["moment-1"],"constraintRefs":[]},{"dimension":"brand_voice","status":"pass","rationale":"Matches the supplied voice.","evidenceRefs":[],"constraintRefs":["Use an evidence-led voice"]},{"dimension":"platform_constraints","status":"pass","rationale":"Fits the selected format.","evidenceRefs":[],"constraintRefs":[]},{"dimension":"cta","status":"pass","rationale":"Uses the exact CTA intent.","evidenceRefs":[],"constraintRefs":[]},{"dimension":"safety","status":"pass","rationale":"Observes supplied constraints.","evidenceRefs":[],"constraintRefs":["Use an evidence-led voice"]},{"dimension":"clarity","status":"pass","rationale":"One clear candidate.","evidenceRefs":[],"constraintRefs":[]}],"issues":[],"resolvedIssueIds":[]}',
         }),
     ),
 }

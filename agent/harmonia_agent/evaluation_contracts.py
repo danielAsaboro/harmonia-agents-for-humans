@@ -15,9 +15,9 @@ from .agent_models import (
     ContentStrategy,
     CopywriterInput,
     DraftWorkflowResult,
+    EditorialAssessment,
     EditorialPlan,
     EditorialPlannerInput,
-    EditorialReview,
     StrategistInput,
 )
 
@@ -264,19 +264,26 @@ def evaluate_content_draft(
     return _result([])
 
 
-def evaluate_editorial_review(
+def evaluate_editorial_assessment(
     *, copywriter_input: CopywriterInput | Mapping[str, Any],
     draft: ContentDraft | Mapping[str, Any],
-    review: EditorialReview | Mapping[str, Any],
+    assessment: EditorialAssessment | Mapping[str, Any],
 ) -> EvaluationCaseResult:
     try:
         supplied = copywriter_input if isinstance(copywriter_input, CopywriterInput) else CopywriterInput.model_validate(copywriter_input)
         parsed_draft = draft if isinstance(draft, ContentDraft) else ContentDraft.model_validate(draft)
-        parsed_review = review if isinstance(review, EditorialReview) else EditorialReview.model_validate(review)
-        from .agents import validate_editorial_review
-        validate_editorial_review(supplied, parsed_draft, parsed_review)
+        parsed = assessment if isinstance(assessment, EditorialAssessment) else EditorialAssessment.model_validate(assessment)
+        from .agents import validate_editorial_assessment
+        validate_editorial_assessment(supplied, parsed_draft, parsed)
     except Exception as exc:
-        return _result([_failure("invalid_editorial_review", str(exc))])
+        message = str(exc)
+        code = (
+            "missing_rubric" if "checks" in message or "dimension" in message else
+            "invented_reference" if "unknown evidence" in message or "unknown constraint" in message else
+            "authority_overreach" if "authority" in message or "replacement" in message else
+            "invalid_editorial_assessment"
+        )
+        return _result([_failure(code, message)])
     return _result([])
 
 
@@ -388,6 +395,23 @@ def _public_content_draft() -> ContentDraft:
     })
 
 
+def _public_editorial_assessment() -> EditorialAssessment:
+    dimensions = (
+        "grounding", "brief_alignment", "brand_voice", "platform_constraints",
+        "cta", "safety", "clarity",
+    )
+    return EditorialAssessment.model_validate({
+        "verdict": "accepted",
+        "checks": [{
+            "dimension": dimension, "status": "pass",
+            "rationale": f"The draft passes {dimension} review.",
+            "evidenceRefs": ["moment-1"] if dimension in {"grounding", "brief_alignment"} else [],
+            "constraintRefs": ["Use an evidence-led voice"] if dimension in {"brand_voice", "safety"} else [],
+        } for dimension in dimensions],
+        "issues": [], "resolvedIssueIds": [],
+    })
+
+
 def adk_contract_metric(
     eval_metric: Any,
     actual_invocations: list[Any],
@@ -424,8 +448,8 @@ def adk_contract_metric(
             elif kind == "draft":
                 result = evaluate_content_draft(copywriter_input=_public_copywriter_input(), draft=payload)
             elif kind == "review":
-                result = evaluate_editorial_review(
-                    copywriter_input=_public_copywriter_input(), draft=_public_content_draft(), review=payload,
+                result = evaluate_editorial_assessment(
+                    copywriter_input=_public_copywriter_input(), draft=_public_content_draft(), assessment=payload,
                 )
             elif kind == "read_only":
                 forbidden = re.search(

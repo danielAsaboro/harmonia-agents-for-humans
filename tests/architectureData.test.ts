@@ -41,6 +41,10 @@ describe("Harmonia architecture dataset", () => {
       source: "agent-temi", target: "firestore", kind: "workflow",
     }));
     expect(architectureDefinition.edges).toContainEqual(expect.objectContaining({
+      source: "firestore", target: "agent-noni",
+      label: "Selected item + exact Ryan brief + referenced Nimi evidence",
+    }));
+    expect(architectureDefinition.edges).toContainEqual(expect.objectContaining({
       source: "stage-strategy-approval", target: "stage-plan", kind: "approval",
     }));
     expect(architectureDefinition.edges).toContainEqual(expect.objectContaining({

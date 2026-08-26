@@ -116,7 +116,7 @@ const edges = [
   { id: "temi-plan-state", source: "agent-temi", target: "firestore", kind: "workflow" as const, label: "Validate, digest, persist" },
   { id: "delegate-maya", source: "agent-harmonia", target: "agent-maya", kind: "delegation" as const, label: "Delegate presentation" },
   { id: "delegate-nova", source: "agent-harmonia", target: "agent-nova", kind: "delegation" as const, label: "Delegate insight" },
-  { id: "flo-1", source: "firestore", target: "agent-noni", kind: "workflow" as const, label: "Exact selected item" },
+  { id: "flo-1", source: "firestore", target: "agent-noni", kind: "workflow" as const, label: "Selected item + exact Ryan brief + referenced Nimi evidence" },
   { id: "flo-2", source: "agent-noni", target: "agent-dara", kind: "workflow" as const, label: "Draft for review" },
   { id: "flo-3", source: "agent-dara", target: "agent-noni", kind: "workflow" as const, label: "Bounded revision loop" },
   { id: "memory", source: "memory-bank", target: "agent-harmonia", kind: "memory" as const, label: "Exact-scope facts" },

@@ -51,7 +51,7 @@ flowchart LR
     subgraph "Cloud Run — harmonia-agent (Python ADK worker)"
         PUSH["Pub/Sub push receiver"]
         TG["Telegram webhook boundary<br/>not live-verified"]
-        STAGES[ingest · transcribe · understand · strategize ·<br/>strategy approval · draft · publish · verify handlers]
+        STAGES[ingest · transcribe · understand · strategize ·<br/>strategy approval · plan · draft · publish · verify handlers]
         RUNTIME[Vertex AI Agent Engine<br/>managed runtime only]
         MAYA["Maya presentation specialist<br/>reference-only SurfacePlan"]
     end

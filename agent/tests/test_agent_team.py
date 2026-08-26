@@ -7,7 +7,6 @@ import asyncio
 import pytest
 from pydantic import ValidationError
 
-from google.adk.agents import LoopAgent, SequentialAgent
 from google.adk.models._capabilities import LlmCapabilities
 from google.adk.models.base_llm import BaseLlm
 from google.adk.models.llm_response import LlmResponse
@@ -21,6 +20,7 @@ from harmonia_agent.agent_models import (
     CopywriterInput,
     EditorialPlan,
     EditorialPlannerInput,
+    EditorialReview,
     LiaisonInput,
     MediaEvidence,
     StrategistInput,
@@ -36,7 +36,6 @@ from harmonia_agent.agents import (
     _validated_state,
     analyze_with_team,
     build_agent_team,
-    draft_with_team,
     plan_with_team,
     strategize_with_team,
     RoleModelInstances,
@@ -44,7 +43,6 @@ from harmonia_agent.agents import (
 from harmonia_agent.tenant_context import tenant_scope
 from harmonia_agent.generation_policy import safety_settings
 from harmonia_agent.usage import InvocationContext
-from tests.test_ryan_strategy import strategy as _content_strategy
 
 
 def _temi_plan():
@@ -161,21 +159,6 @@ def _analysis() -> AnalysisResult:
     })
 
 
-def _editorial_plan() -> EditorialPlan:
-    return EditorialPlan.model_validate(_temi_plan())
-
-
-def _production_input() -> ProductionDraftInput:
-    strategy = _content_strategy()
-    item = _editorial_plan().items[0]
-    return ProductionDraftInput(
-        planId="plan-job-1-v1", strategyDigest="a" * 64, editorialItem=item,
-        brief=strategy.briefs[0], referencedMoments=_analysis().moments,
-        referencedAngles=[], brandContext="voice: direct",
-        constraints=item.constraints,
-    )
-
-
 class ManagedRuntime:
     def __init__(self) -> None:
         self.calls: list[dict] = []
@@ -210,27 +193,19 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
         ("ryan_strategist", "single_turn"),
         ("nimi_analyst", "single_turn"),
         ("temi_editorial_planner", "single_turn"),
+        ("noni_copywriter", "single_turn"),
+        ("dara_editor", "single_turn"),
         ("maya_presenter", "single_turn"),
         ("nova_liaison", "chat"),
     ]
-    workflow_tools = [
-        t for t in root.tools
-        if isinstance(t, AgentTool) and t.name == "flo_content_engine"
-    ]
-    assert len(workflow_tools) == 1
-    workflow = workflow_tools[0].agent
-    assert isinstance(workflow, SequentialAgent)
-    assert [a.name for a in workflow.sub_agents] == ["noni_dara_revision_loop"]
-    loop = workflow.sub_agents[0]
-    assert isinstance(loop, LoopAgent)
-    assert loop.max_iterations == 2
-    assert [a.name for a in loop.sub_agents] == ["noni_copywriter", "dara_editor"]
+    tool_names = {tool.name for tool in root.tools if isinstance(tool, AgentTool)}
+    assert "flo_content_engine" not in tool_names
+    assert "noni_dara_revision_loop" not in tool_names
 
 
 def test_noni_is_a_focused_tool_free_typed_specialist():
     root = build_agent_team()
-    workflow = next(tool.agent for tool in root.tools if tool.name == "flo_content_engine")
-    noni = workflow.sub_agents[0].sub_agents[0]
+    noni = next(agent for agent in root.sub_agents if agent.name == "noni_copywriter")
 
     assert noni.name == "noni_copywriter"
     assert noni.input_schema is CopywriterInput
@@ -238,6 +213,23 @@ def test_noni_is_a_focused_tool_free_typed_specialist():
     assert noni.output_key == "copywriter_draft"
     assert noni.mode == "single_turn"
     assert noni.tools == []
+
+
+def test_dara_is_a_focused_tool_free_review_only_specialist():
+    root = build_agent_team()
+    dara = next(agent for agent in root.sub_agents if agent.name == "dara_editor")
+
+    assert dara.output_schema is EditorialReview
+    assert dara.output_key == "editorial_review"
+    assert dara.mode == "single_turn"
+    assert dara.tools == []
+    instruction = " ".join(dara.instruction.split()).lower()
+    assert all(focus in instruction for focus in (
+        "grounding", "brief alignment", "brand voice", "cta",
+        "platform constraints", "safety", "clarity",
+    ))
+    assert "never write replacement copy" in instruction
+    assert "never approve" in instruction
 
 
 def test_team_assigns_the_configured_model_to_each_role():
@@ -257,10 +249,9 @@ def test_team_assigns_the_configured_model_to_each_role():
 
     assert root.model.model == "coordinator-fake"
     assert [agent.model.model for agent in root.sub_agents] == [
-        "strategist-fake", "analyst-fake", "planner-fake", "presenter-fake", "liaison-fake",
+        "strategist-fake", "analyst-fake", "planner-fake", "gemma-fake",
+        "editor-fake", "presenter-fake", "liaison-fake",
     ]
-    workflow = next(tool.agent for tool in root.tools if tool.name == "flo_content_engine")
-    assert [agent.model.model for agent in workflow.sub_agents[0].sub_agents] == ["gemma-fake", "editor-fake"]
 
 
 def test_team_applies_each_roles_generation_and_safety_policy(monkeypatch):
@@ -279,9 +270,7 @@ def test_team_applies_each_roles_generation_and_safety_policy(monkeypatch):
     assert analyst.generate_content_config.max_output_tokens == 2048
 
     planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
-    workflow = next(tool.agent for tool in root.tools if tool.name == "flo_content_engine")
-    revision_loop = workflow.sub_agents[0]
-    copywriter, _ = revision_loop.sub_agents
+    copywriter = next(agent for agent in root.sub_agents if agent.name == "noni_copywriter")
     assert copywriter.generate_content_config.temperature == 0.8
     assert copywriter.generate_content_config.max_output_tokens == 2048
     assert planner.generate_content_config.temperature == 0.1
@@ -365,18 +354,6 @@ def test_analyst_receives_source_video_as_a_real_multimodal_part():
     assert runtime.calls[0]["payload"]["media_evidence"]["video_uri"] == source
 
 
-def test_draft_agent_tool_forwards_all_sequential_state_to_coordinator():
-    runtime = ManagedRuntime()
-    input = _production_input()
-    with tenant_scope("workspace-test", "brand-test"):
-        state = asyncio.run(_run_coordinator(
-            "flo_content_engine", input, model="gemini-test", team_runtime=runtime,
-        ))
-
-    assert _validated_state(state, "reviewed_drafts", DraftSet).drafts[0].text == "Reviewed"
-    assert runtime.calls[0]["specialist"] == "flo_content_engine"
-
-
 def test_temi_runs_as_a_distinct_tool_free_typed_specialist():
     root = build_agent_team()
     planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
@@ -418,42 +395,6 @@ def test_liaison_must_return_nonempty_answer_text():
         LiaisonInput(question="q"),
         {"liaison_answer": "Two jobs await approval."},
     )
-
-
-def test_draft_workflow_result_requires_editor_to_preserve_identity_and_references():
-    original = DraftSet(drafts=[Draft(
-        id="d1", platform="x", momentId="m1", text="Original draft",
-    )])
-
-    with pytest.raises(ValidationError, match="preserve draft id"):
-        DraftWorkflowResult(
-            copywriter_drafts=original,
-            reviewed_drafts=DraftSet(drafts=[Draft(
-                id="changed", platform="x", momentId="m1", text="Revised draft",
-            )]),
-            action_plan=ActionPlan(actions=[]),
-        )
-
-    with pytest.raises(ValidationError, match="preserve source references"):
-        DraftWorkflowResult(
-            copywriter_drafts=original,
-            reviewed_drafts=DraftSet(drafts=[Draft(
-                id="d1", platform="x", angleId="a1", text="Revised draft",
-            )]),
-            action_plan=ActionPlan(actions=[]),
-        )
-
-
-def test_draft_workflow_result_limits_actions_to_reviewed_drafts():
-    original = DraftSet(drafts=[Draft(id="d1", platform="x", text="Original")])
-    reviewed = DraftSet(drafts=[Draft(id="d1", platform="x", text="Reviewed")])
-
-    with pytest.raises(ValidationError, match="reviewed draft text"):
-        DraftWorkflowResult(
-            copywriter_drafts=original,
-            reviewed_drafts=reviewed,
-            action_plan=ActionPlan(actions=[PublishAction(text="Original")]),
-        )
 
 
 def test_temi_run_output_rejects_an_unknown_brief():

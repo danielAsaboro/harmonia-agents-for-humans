@@ -116,6 +116,34 @@ def test_grounding_validator_accepts_one_grounded_brief_aligned_draft():
     assert validate_content_draft(supplied, draft) is draft
 
 
+@pytest.mark.parametrize("copy", [
+    "𝐋𝐚𝐮𝐧𝐜𝐡 𝐧𝐨𝐰, Request a demo.",
+    "开发者, Request a demo.",
+    "Request a demo, 开发者.",
+    "Request a demo 立即发布.",
+])
+def test_grounding_validator_explicitly_rejects_non_ascii_copy(copy):
+    draft = grounded_draft()
+    draft["text"] = copy
+
+    with pytest.raises(AgentProtocolError, match="ASCII-only"):
+        _validate(draft)
+
+
+@pytest.mark.parametrize("copy", [
+    "Launch now, Request a demo.",
+    "Developers, Request a demo.",
+    "Request a demo, Developers.",
+    "Request a demo Publish now.",
+])
+def test_grounding_validator_keeps_ascii_equivalents_fail_closed(copy):
+    draft = grounded_draft()
+    draft["text"] = copy
+
+    with pytest.raises(AgentProtocolError):
+        _validate(draft)
+
+
 def _validate(
     draft_payload: dict | None = None,
     input_payload: dict | None = None,
@@ -493,7 +521,7 @@ def test_grounding_validator_rejects_action_punctuation_and_inflection_bypasses(
     draft["text"] = f'{unsafe_action} {draft["text"]}'
     draft["assumptions"].append(unsafe_action)
 
-    with pytest.raises(AgentProtocolError, match="creative grammar|non-factual"):
+    with pytest.raises(AgentProtocolError, match="creative grammar|non-factual|ASCII-only"):
         _validate(draft)
 
 
@@ -638,7 +666,7 @@ def test_grounding_validator_rechecks_authority_after_stylistic_leadins(
     else:
         draft[field] = overreach
 
-    with pytest.raises(AgentProtocolError, match="authority overreach"):
+    with pytest.raises(AgentProtocolError, match="authority overreach|ASCII-only"):
         _validate(draft)
 
 

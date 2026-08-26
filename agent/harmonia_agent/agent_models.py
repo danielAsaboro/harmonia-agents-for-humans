@@ -733,6 +733,60 @@ class CopywriterInput(StrictModel):
         return self
 
 
+class DraftWorkflowResult(StrictModel):
+    originalDraft: ContentDraft
+    reviews: list[EditorialReview] = Field(min_length=1, max_length=2)
+    revisionDraft: ContentDraft | None = Field(...)
+    acceptedDraft: ContentDraft
+
+    _require_reviews_list = field_validator("reviews", mode="before")(_require_json_list)
+
+    @model_validator(mode="after")
+    def validate_bounded_trace(self) -> "DraftWorkflowResult":
+        original = self.originalDraft
+        if original.revision != 1:
+            raise ValueError("workflow original draft must be revision 1")
+        if len({review.id for review in self.reviews}) != len(self.reviews):
+            raise ValueError("workflow review ids must be unique")
+        first = self.reviews[0]
+        if first.draftId != original.id or first.revision != 1:
+            raise ValueError("first review must bind the exact original draft")
+        lineage = (
+            original.planId, original.planDigest, original.strategyDigest,
+            original.editorialItemId, original.briefId,
+        )
+        for review in self.reviews:
+            if (
+                review.planId, review.planDigest, review.strategyDigest,
+                review.editorialItemId, review.briefId,
+            ) != lineage:
+                raise ValueError("workflow reviews must preserve exact lineage")
+        if first.verdict == "accepted":
+            if len(self.reviews) != 1 or self.revisionDraft is not None:
+                raise ValueError("accepted original cannot contain a revision trace")
+            if self.acceptedDraft != original:
+                raise ValueError("accepted draft must equal the accepted original")
+            return self
+        revision = self.revisionDraft
+        if revision is None or len(self.reviews) != 2:
+            raise ValueError("revise verdict requires one complete revision trace")
+        final = self.reviews[1]
+        if revision.revision != 2 or revision.priorDraftId != original.id:
+            raise ValueError("workflow revision must link the exact original draft")
+        if (
+            revision.planId, revision.planDigest, revision.strategyDigest,
+            revision.editorialItemId, revision.briefId,
+        ) != lineage:
+            raise ValueError("workflow revision must preserve exact lineage")
+        if final.draftId != revision.id or final.revision != 2:
+            raise ValueError("final review must bind the exact revision draft")
+        if final.verdict != "accepted":
+            raise ValueError("bounded workflow final review must be accepted")
+        if self.acceptedDraft != revision:
+            raise ValueError("accepted draft must equal the accepted revision")
+        return self
+
+
 class LiaisonInput(StrictModel):
     """Operator question routed to the skill-enabled insight liaison."""
 

@@ -11,9 +11,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
-from google.adk.agents import Agent, LoopAgent, SequentialAgent
+from google.adk.agents import Agent
 from google.adk.models.base_llm import BaseLlm
-from google.adk.tools.agent_tool import AgentTool
 from pydantic import BaseModel, ValidationError
 
 from .agent_models import (
@@ -22,8 +21,10 @@ from .agent_models import (
     ContentDraft,
     ContentStrategy,
     CopywriterInput,
+    DraftWorkflowResult,
     EditorialPlan,
     EditorialPlannerInput,
+    EditorialReview,
     LiaisonInput,
     StrategistInput,
     StrategistResult,
@@ -46,6 +47,7 @@ from .agent_models import MemoryFact as StrategyMemoryFact
 from .ryan_prompt import RYAN_STRATEGIST_INSTRUCTION
 from .temi_prompt import TEMI_EDITORIAL_PLANNER_INSTRUCTION
 from .noni_prompt import NONI_COPYWRITER_INSTRUCTION
+from .dara_prompt import DARA_EDITOR_INSTRUCTION
 from .telemetry import current_trace_id, safe_attributes, tracer
 from .team_runtime import AgentEngineTeamRuntime, TeamRuntime
 from .tenant_context import current_tenant
@@ -312,15 +314,12 @@ def build_agent_team(
         model=resolved.editor,
         generate_content_config=generation_config(resolved.config_for("dara_editor")),
         name="dara_editor",
-        description="Reviews each Noni draft against brand voice, strategy, and source grounding.",
-        instruction=(
-            "Review and edit {copywriter_drafts} against the selected editorial item, exact brief, "
-            "referenced evidence, and brand context in session "
-            "state. Return the reviewed DraftSet. You may revise or omit drafts, "
-            "but must preserve each retained draft id, platform, momentId, and angleId. Never add a "
-            "new draft. Keep every text at most 280 characters."
-        ),
-        output_key="reviewed_drafts",
+        description="Returns a structured review of one exact Noni draft without rewriting it.",
+        instruction=DARA_EDITOR_INSTRUCTION,
+        output_schema=EditorialReview,
+        output_key="editorial_review",
+        tools=[],
+        mode="single_turn",
     )
     planner = Agent(
         model=resolved.planner,
@@ -332,17 +331,6 @@ def build_agent_team(
         output_schema=EditorialPlan,
         output_key="editorial_plan",
         mode="single_turn",
-    )
-    revision_loop = LoopAgent(
-        name="noni_dara_revision_loop",
-        description="Runs at most two bounded Noni writing and Dara review passes.",
-        sub_agents=[copywriter, editor],
-        max_iterations=2,
-    )
-    draft_workflow = SequentialAgent(
-        name="flo_content_engine",
-        description="Runs the bounded Noni-Dara production revision loop.",
-        sub_agents=[revision_loop],
     )
     from .skills_runtime import build_insight_skillset
 
@@ -376,14 +364,14 @@ def build_agent_team(
         instruction=(
             "Delegate exactly once to the specialist named in the user's task instruction. Use "
             "nimi_analyst for evidence analysis, ryan_strategist for strategy and content plans, "
-            "temi_editorial_planner for approved-strategy editorial planning, flo_content_engine "
-            "for the bounded Noni-Dara revision loop, maya_presenter "
+            "temi_editorial_planner for approved-strategy editorial planning, noni_copywriter "
+            "for one application-bounded draft pass, dara_editor for one structured review, maya_presenter "
             "for a reference-only A2UI surface plan, and nova_liaison for free-form operator "
             "questions. Never answer the task yourself and never call "
             "publishing or approval systems."
         ),
-        sub_agents=[strategist, analyst, planner, presenter, liaison],
-        tools=[AgentTool(draft_workflow)],
+        sub_agents=[strategist, analyst, planner, copywriter, editor, presenter, liaison],
+        tools=[],
     )
 
 
@@ -1135,6 +1123,7 @@ def validate_content_draft(
     """Fail closed when one Noni result exceeds its exact production boundary."""
     input = CopywriterInput.model_validate(input)
     draft = ContentDraft.model_validate(draft)
+    _validate_ascii_only_boundary(draft, "Noni draft")
     _noni_validate_lineage(input, draft)
     evidence = _noni_validate_references(input, draft)
     _noni_validate_constraints(input, draft)
@@ -1144,6 +1133,134 @@ def validate_content_draft(
     _noni_validate_claim_expression(draft)
     _noni_validate_authored_grammar_and_factual_ledger(draft)
     return draft
+
+
+def _validate_ascii_only_boundary(value: BaseModel, label: str) -> None:
+    """Reject Unicode until every semantic guard is Unicode-aware."""
+    pending: list[object] = [value.model_dump(mode="json")]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, str) and not item.isascii():
+            raise AgentProtocolError(
+                f"{label} violates the conservative ASCII-only safety policy"
+            )
+        if isinstance(item, dict):
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+
+
+def validate_editorial_review(
+    input: CopywriterInput,
+    draft: ContentDraft,
+    review: EditorialReview,
+) -> EditorialReview:
+    """Bind one Dara review to the exact supplied authority and Noni draft."""
+    input = CopywriterInput.model_validate(input)
+    draft = ContentDraft.model_validate(draft)
+    review = EditorialReview.model_validate(review)
+    _validate_ascii_only_boundary(review, "Dara review")
+    lineage = (
+        input.planId, input.planDigest, input.strategyDigest,
+        input.editorialItemId, input.briefId,
+    )
+    if (
+        review.planId, review.planDigest, review.strategyDigest,
+        review.editorialItemId, review.briefId,
+    ) != lineage:
+        raise AgentProtocolError("Dara review lineage does not match the exact input")
+    if review.draftId != draft.id or review.revision != draft.revision:
+        raise AgentProtocolError("Dara review must bind the exact draft and revision")
+    supplied_evidence = {
+        evidence.id for evidence in [*input.referencedMoments, *input.referencedAngles]
+    }
+    supplied_constraints = {
+        *input.constraints, *input.brief.constraints, *input.editorialItem.constraints,
+    }
+    for issue in review.issues:
+        unknown_evidence = set(issue.evidenceRefs) - supplied_evidence
+        if unknown_evidence:
+            raise AgentProtocolError(
+                f"Dara review contains unknown evidence ids: {sorted(unknown_evidence)}"
+            )
+        unknown_constraints = set(issue.constraintRefs) - supplied_constraints
+        if unknown_constraints:
+            raise AgentProtocolError(
+                "Dara review contains unknown constraint references: "
+                f"{sorted(unknown_constraints)}"
+            )
+    return review
+
+
+def run_noni_dara_loop(
+    input: CopywriterInput,
+    invoke_noni: Callable[[CopywriterInput], ContentDraft | dict[str, object]],
+    invoke_dara: Callable[
+        [CopywriterInput, ContentDraft], EditorialReview | dict[str, object]
+    ],
+) -> DraftWorkflowResult:
+    """Run exactly one Noni draft and at most one Dara-requested revision."""
+    try:
+        original_input = CopywriterInput.model_validate(input)
+    except ValidationError as exc:
+        raise AgentProtocolError(f"invalid Noni input: {exc}") from exc
+    if original_input.passType != "original":
+        raise AgentProtocolError("Noni-Dara loop requires an original input")
+    _validate_ascii_only_boundary(original_input, "Noni input")
+
+    try:
+        original = ContentDraft.model_validate(invoke_noni(original_input))
+    except ValidationError as exc:
+        raise AgentProtocolError(f"invalid Noni draft: {exc}") from exc
+    validate_content_draft(original_input, original)
+    try:
+        first_review = EditorialReview.model_validate(
+            invoke_dara(original_input, original)
+        )
+    except ValidationError as exc:
+        raise AgentProtocolError(f"invalid Dara review: {exc}") from exc
+    validate_editorial_review(original_input, original, first_review)
+    if first_review.verdict == "accepted":
+        return DraftWorkflowResult(
+            originalDraft=original,
+            reviews=[first_review],
+            revisionDraft=None,
+            acceptedDraft=original,
+        )
+
+    revision_payload = {
+        field: getattr(original_input, field)
+        for field in CopywriterInput.model_fields
+    }
+    revision_payload.update({
+        "passType": "revision",
+        "priorDraft": original,
+        "priorReview": first_review,
+    })
+    try:
+        revision_input = CopywriterInput.model_validate(revision_payload)
+        _validate_ascii_only_boundary(revision_input, "Noni revision input")
+        revision = ContentDraft.model_validate(invoke_noni(revision_input))
+    except ValidationError as exc:
+        raise AgentProtocolError(f"invalid Noni draft: {exc}") from exc
+    validate_content_draft(revision_input, revision)
+    try:
+        final_review = EditorialReview.model_validate(
+            invoke_dara(revision_input, revision)
+        )
+    except ValidationError as exc:
+        raise AgentProtocolError(f"invalid Dara review: {exc}") from exc
+    validate_editorial_review(revision_input, revision, final_review)
+    if final_review.verdict != "accepted":
+        raise AgentProtocolError(
+            "second Dara revise verdict requires operator attention; no third Noni invocation"
+        )
+    return DraftWorkflowResult(
+        originalDraft=original,
+        reviews=[first_review, final_review],
+        revisionDraft=revision,
+        acceptedDraft=revision,
+    )
 
 
 def _deterministic_action_plan(reviewed: DraftSet) -> ActionPlan:

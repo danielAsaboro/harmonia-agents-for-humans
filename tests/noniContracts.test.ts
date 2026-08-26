@@ -35,7 +35,9 @@ const originalDraft: ContentDraft = {
 const reviseReview: EditorialReview = {
   id: "review-1", planId: "plan-1", planDigest: "a".repeat(64), strategyDigest: "b".repeat(64), editorialItemId: "item-1", briefId: "brief-1",
   draftId: "draft-1", revision: 1, verdict: "revise", reviewedAt: "2026-08-27T10:00:00Z",
+  checks: ["grounding", "brief_alignment", "brand_voice", "platform_constraints", "cta", "safety", "clarity"].map((dimension) => ({ dimension, status: dimension === "clarity" ? "fail" : "pass", rationale: `Checked ${dimension}.`, evidenceRefs: [], constraintRefs: [] })) as EditorialReview["checks"],
   issues: [{ id: "issue-1", category: "clarity", severity: "medium", fieldPath: "text", instruction: "Name the source qualification before the call to action.", evidenceRefs: ["moment-1"], constraintRefs: [] }],
+  resolvedIssueIds: [],
 };
 
 const originalInput: CopywriterInput = {

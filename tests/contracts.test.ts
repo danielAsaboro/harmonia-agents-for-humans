@@ -27,7 +27,9 @@ const productionTrace = (() => {
   const review = {
     id: "r1", planId: draft.planId, planDigest: draft.planDigest, strategyDigest: draft.strategyDigest,
     editorialItemId: draft.editorialItemId, briefId: draft.briefId, draftId: draft.id,
-    revision: 1 as const, verdict: "accepted" as const, reviewedAt: "2026-08-27T10:00:00Z", issues: [],
+    revision: 1 as const, verdict: "accepted" as const, reviewedAt: "2026-08-27T10:00:00Z",
+    checks: ["grounding", "brief_alignment", "brand_voice", "platform_constraints", "cta", "safety", "clarity"].map((dimension) => ({ dimension, status: "pass", rationale: `Checked ${dimension}.`, evidenceRefs: [], constraintRefs: [] })),
+    issues: [], resolvedIssueIds: [],
   };
   return { originalDraft: draft, reviews: [review], revisionDraft: null, acceptedDraft: draft };
 })();

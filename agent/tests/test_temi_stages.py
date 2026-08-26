@@ -13,6 +13,7 @@ from harmonia_agent.agent_models import ContentDraft, DraftWorkflowResult, Edito
 from tests.test_ryan_stages import job as ryan_job
 from tests.test_ryan_strategy import strategy
 from tests.test_temi_editorial_plan import plan
+from tests.test_noni_contracts import editorial_checks
 
 
 def approved_job() -> dict:
@@ -74,7 +75,8 @@ def accepted_package(request, text="we cut nine days to forty hours Request a de
         id="review-1", planId=draft.planId, planDigest=draft.planDigest,
         strategyDigest=draft.strategyDigest, editorialItemId=draft.editorialItemId,
         briefId=draft.briefId, draftId=draft.id, revision=1, verdict="accepted",
-        reviewedAt="2026-08-30T01:00:00Z", issues=[],
+        reviewedAt="2026-08-30T01:00:00Z", checks=editorial_checks(), issues=[],
+        resolvedIssueIds=[],
     )
     return DraftWorkflowResult(originalDraft=draft, reviews=[review], revisionDraft=None, acceptedDraft=draft)
 

@@ -25,7 +25,7 @@ describe("Noni and Dara persisted production trace", () => {
       productionTraceDigest: "c".repeat(64),
       productionTrace: {
         originalDraft: draft, revisionDraft: null, acceptedDraft: draft,
-        reviews: [{ id: "review-1", planId: "plan-1", planDigest: "a".repeat(64), strategyDigest: "b".repeat(64), editorialItemId: "item-1", briefId: "brief-1", draftId: "draft-1", revision: 1 as const, verdict: "accepted" as const, reviewedAt: "2026-08-27T00:01:00Z", issues: [] }],
+        reviews: [{ id: "review-1", planId: "plan-1", planDigest: "a".repeat(64), strategyDigest: "b".repeat(64), editorialItemId: "item-1", briefId: "brief-1", draftId: "draft-1", revision: 1 as const, verdict: "accepted" as const, reviewedAt: "2026-08-27T00:01:00Z", checks: ["grounding", "brief_alignment", "brand_voice", "platform_constraints", "cta", "safety", "clarity"].map((dimension) => ({ dimension, status: "pass", rationale: `Checked ${dimension}.`, evidenceRefs: [], constraintRefs: [] })) as import("@/lib/types").EditorialCheck[], issues: [], resolvedIssueIds: [] }],
       },
     } satisfies JobFull;
     const html = renderToStaticMarkup(createElement(SourcesWorkspace, { job, receipts: [] }));

@@ -9,6 +9,7 @@ import pytest
 from harmonia_agent.agent_models import DraftWorkflowResult
 from harmonia_agent.agents import AgentProtocolError, run_noni_dara_loop
 from tests.test_noni_contracts import (
+    editorial_checks,
     grounded_draft,
     grounded_revision_draft,
     original_input,
@@ -28,7 +29,7 @@ def accepted_review(draft: dict, *, review_id: str = "review-accepted") -> dict:
         "revision": draft["revision"],
         "verdict": "accepted",
         "reviewedAt": "2026-08-27T10:05:00Z",
-        "issues": [],
+        "checks": editorial_checks(), "issues": [], "resolvedIssueIds": [],
     }
 
 

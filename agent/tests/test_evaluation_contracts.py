@@ -192,7 +192,8 @@ def test_noni_evaluation_accepts_grounded_copy_and_rejects_invented_evidence():
 
 def test_dara_evaluation_binds_review_to_the_exact_draft():
     accepted = revise_review()
-    accepted.update(verdict="accepted", issues=[])
+    from tests.test_noni_contracts import editorial_checks
+    accepted.update(verdict="accepted", checks=editorial_checks(), issues=[])
     assert evaluate_editorial_review(
         copywriter_input=original_input(), draft=grounded_draft(), review=accepted,
     ).passed

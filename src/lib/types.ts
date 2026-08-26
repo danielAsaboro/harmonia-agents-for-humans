@@ -167,10 +167,27 @@ export interface EditorialReviewIssue {
   id: string;
   category: "grounding" | "brief_alignment" | "brand_voice" | "platform_constraints" | "cta" | "safety" | "clarity";
   severity: "low" | "medium" | "high";
-  fieldPath: string;
+  fieldPath: "text" | "ctaTreatment" | "claims" | "assumptions" | "evidenceRefs" | "appliedConstraints" | "audienceId" | "objective" | "funnelStage" | "intendedConversion" | "platform" | "format";
   instruction: string;
   evidenceRefs: string[];
   constraintRefs: string[];
+}
+
+export type EditorialDimension = "grounding" | "brief_alignment" | "brand_voice" | "platform_constraints" | "cta" | "safety" | "clarity";
+
+export interface EditorialCheck {
+  dimension: EditorialDimension;
+  status: "pass" | "fail";
+  rationale: string;
+  evidenceRefs: string[];
+  constraintRefs: string[];
+}
+
+export interface EditorialAssessment {
+  verdict: "accepted" | "revise";
+  checks: EditorialCheck[];
+  issues: EditorialReviewIssue[];
+  resolvedIssueIds: string[];
 }
 
 export interface EditorialReview {
@@ -184,7 +201,9 @@ export interface EditorialReview {
   revision: 1 | 2;
   verdict: "accepted" | "revise";
   reviewedAt: string;
+  checks: EditorialCheck[];
   issues: EditorialReviewIssue[];
+  resolvedIssueIds: string[];
 }
 
 export interface DraftWorkflowResult {

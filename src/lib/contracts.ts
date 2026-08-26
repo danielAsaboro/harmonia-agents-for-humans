@@ -349,11 +349,44 @@ export const editorialReviewIssueSchema = z.object({
   id: strictIdentifierSchema,
   category: z.enum(["grounding", "brief_alignment", "brand_voice", "platform_constraints", "cta", "safety", "clarity"]),
   severity: confidenceSchema,
-  fieldPath: z.string().min(1).max(300),
+  fieldPath: z.enum(["text", "ctaTreatment", "claims", "assumptions", "evidenceRefs", "appliedConstraints", "audienceId", "objective", "funnelStage", "intendedConversion", "platform", "format"]),
   instruction: z.string().min(1).max(1000),
   evidenceRefs: z.array(strictIdentifierSchema).max(12),
   constraintRefs: z.array(constraintTextSchema).max(24),
 }).strict();
+
+const editorialDimensions = ["grounding", "brief_alignment", "brand_voice", "platform_constraints", "cta", "safety", "clarity"] as const;
+export const editorialCheckSchema = z.object({
+  dimension: z.enum(editorialDimensions),
+  status: z.enum(["pass", "fail"]),
+  rationale: z.string().min(1).max(1000),
+  evidenceRefs: z.array(strictIdentifierSchema).max(12),
+  constraintRefs: z.array(constraintTextSchema).max(24),
+}).strict();
+
+function validateAssessmentShape(
+  assessment: { verdict: "accepted" | "revise"; checks: z.infer<typeof editorialCheckSchema>[]; issues: z.infer<typeof editorialReviewIssueSchema>[]; resolvedIssueIds: string[] },
+  context: z.RefinementCtx,
+) {
+  const dimensions = assessment.checks.map((check) => check.dimension);
+  if (dimensions.length !== editorialDimensions.length || new Set(dimensions).size !== editorialDimensions.length || editorialDimensions.some((dimension) => !dimensions.includes(dimension))) {
+    context.addIssue({ code: "custom", message: "assessment must contain every editorial dimension exactly once" });
+  }
+  const failed = new Set(assessment.checks.filter((check) => check.status === "fail").map((check) => check.dimension));
+  const categories = new Set(assessment.issues.map((issue) => issue.category));
+  if (assessment.verdict === "accepted" && (failed.size > 0 || assessment.issues.length > 0)) context.addIssue({ code: "custom", message: "accepted assessment requires all checks to pass and no issues" });
+  if (assessment.verdict === "revise" && (failed.size === 0 || assessment.issues.length === 0)) context.addIssue({ code: "custom", message: "revise assessment requires failed checks and issues" });
+  if (assessment.verdict === "revise" && (failed.size !== categories.size || [...failed].some((dimension) => !categories.has(dimension)))) context.addIssue({ code: "custom", message: "failed assessment dimensions must match issue categories" });
+  if (new Set(assessment.issues.map((issue) => issue.id)).size !== assessment.issues.length) context.addIssue({ code: "custom", message: "assessment issue ids must be unique" });
+  if (new Set(assessment.resolvedIssueIds).size !== assessment.resolvedIssueIds.length) context.addIssue({ code: "custom", message: "resolved issue ids must be unique" });
+}
+
+export const editorialAssessmentSchema = z.object({
+  verdict: z.enum(["accepted", "revise"]),
+  checks: z.array(editorialCheckSchema).length(7),
+  issues: z.array(editorialReviewIssueSchema).max(12),
+  resolvedIssueIds: z.array(strictIdentifierSchema).max(12),
+}).strict().superRefine(validateAssessmentShape);
 
 export const editorialReviewSchema = z.object({
   id: strictIdentifierSchema,
@@ -366,17 +399,11 @@ export const editorialReviewSchema = z.object({
   revision: z.union([z.literal(1), z.literal(2)]),
   verdict: z.enum(["accepted", "revise"]),
   reviewedAt: utcTimestampSchema,
+  checks: z.array(editorialCheckSchema).length(7),
   issues: z.array(editorialReviewIssueSchema).max(12),
+  resolvedIssueIds: z.array(strictIdentifierSchema).max(12),
 }).strict().superRefine((review, context) => {
-  if (review.verdict === "accepted" && review.issues.length > 0) {
-    context.addIssue({ code: "custom", message: "accepted review cannot contain revision issues" });
-  }
-  if (review.verdict === "revise" && review.issues.length === 0) {
-    context.addIssue({ code: "custom", message: "revision review requires at least one issue" });
-  }
-  if (new Set(review.issues.map((issue) => issue.id)).size !== review.issues.length) {
-    context.addIssue({ code: "custom", message: "review issue ids must be unique" });
-  }
+  validateAssessmentShape(review, context);
 });
 
 export const draftWorkflowResultSchema = z.object({

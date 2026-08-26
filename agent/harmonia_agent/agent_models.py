@@ -616,12 +616,69 @@ class EditorialReviewIssue(StrictModel):
     id: StrictIdentifier
     category: Literal["grounding", "brief_alignment", "brand_voice", "platform_constraints", "cta", "safety", "clarity"]
     severity: Literal["low", "medium", "high"]
-    fieldPath: StrictStr = Field(min_length=1, max_length=300)
+    fieldPath: Literal[
+        "text", "ctaTreatment", "claims", "assumptions", "evidenceRefs",
+        "appliedConstraints", "audienceId", "objective", "funnelStage",
+        "intendedConversion", "platform", "format",
+    ]
     instruction: StrictStr = Field(min_length=1, max_length=1_000)
     evidenceRefs: list[StrictIdentifier] = Field(..., max_length=12)
     constraintRefs: list[StrictConstraintText] = Field(..., max_length=24)
 
     _require_reference_lists = field_validator("evidenceRefs", "constraintRefs", mode="before")(_require_json_list)
+
+
+EditorialDimension = Literal[
+    "grounding", "brief_alignment", "brand_voice", "platform_constraints",
+    "cta", "safety", "clarity",
+]
+_EDITORIAL_DIMENSIONS = (
+    "grounding", "brief_alignment", "brand_voice", "platform_constraints",
+    "cta", "safety", "clarity",
+)
+
+
+class EditorialCheck(StrictModel):
+    dimension: EditorialDimension
+    status: Literal["pass", "fail"]
+    rationale: StrictStr = Field(min_length=1, max_length=1_000)
+    evidenceRefs: list[StrictIdentifier] = Field(..., max_length=12)
+    constraintRefs: list[StrictConstraintText] = Field(..., max_length=24)
+
+    _require_reference_lists = field_validator(
+        "evidenceRefs", "constraintRefs", mode="before",
+    )(_require_json_list)
+
+
+class EditorialAssessment(StrictModel):
+    verdict: Literal["accepted", "revise"]
+    checks: list[EditorialCheck] = Field(min_length=7, max_length=7)
+    issues: list[EditorialReviewIssue] = Field(..., max_length=12)
+    resolvedIssueIds: list[StrictIdentifier] = Field(..., max_length=12)
+
+    _require_lists = field_validator(
+        "checks", "issues", "resolvedIssueIds", mode="before",
+    )(_require_json_list)
+
+    @model_validator(mode="after")
+    def validate_complete_consistent_judgment(self) -> "EditorialAssessment":
+        dimensions = [check.dimension for check in self.checks]
+        if set(dimensions) != set(_EDITORIAL_DIMENSIONS) or len(dimensions) != len(set(dimensions)):
+            raise ValueError("assessment must contain every editorial dimension exactly once")
+        failed = {check.dimension for check in self.checks if check.status == "fail"}
+        issue_categories = {issue.category for issue in self.issues}
+        if self.verdict == "accepted" and (failed or self.issues):
+            raise ValueError("accepted assessment requires all checks to pass and no issues")
+        if self.verdict == "revise" and (not failed or not self.issues):
+            raise ValueError("revise assessment requires failed checks and issues")
+        if self.verdict == "revise" and issue_categories != failed:
+            raise ValueError("failed assessment dimensions must match issue categories")
+        issue_ids = [issue.id for issue in self.issues]
+        if len(issue_ids) != len(set(issue_ids)):
+            raise ValueError("assessment issue ids must be unique")
+        if len(self.resolvedIssueIds) != len(set(self.resolvedIssueIds)):
+            raise ValueError("resolved issue ids must be unique")
+        return self
 
 
 class EditorialReview(StrictModel):
@@ -635,7 +692,9 @@ class EditorialReview(StrictModel):
     revision: StrictInt = Field(ge=1, le=2)
     verdict: Literal["accepted", "revise"]
     reviewedAt: datetime
+    checks: list[EditorialCheck] = Field(min_length=7, max_length=7)
     issues: list[EditorialReviewIssue] = Field(..., max_length=12)
+    resolvedIssueIds: list[StrictIdentifier] = Field(..., max_length=12)
 
     @field_validator("reviewedAt", mode="before")
     @classmethod
@@ -649,16 +708,15 @@ class EditorialReview(StrictModel):
 
     @model_validator(mode="after")
     def validate_verdict_and_issues(self) -> "EditorialReview":
-        if self.verdict == "accepted" and self.issues:
-            raise ValueError("accepted review cannot contain revision issues")
-        if self.verdict == "revise" and not self.issues:
-            raise ValueError("revision review requires at least one issue")
-        issue_ids = [issue.id for issue in self.issues]
-        if len(issue_ids) != len(set(issue_ids)):
-            raise ValueError("review issue ids must be unique")
+        EditorialAssessment(
+            verdict=self.verdict, checks=self.checks, issues=self.issues,
+            resolvedIssueIds=self.resolvedIssueIds,
+        )
         return self
 
-    _require_issues_list = field_validator("issues", mode="before")(_require_json_list)
+    _require_lists = field_validator(
+        "checks", "issues", "resolvedIssueIds", mode="before",
+    )(_require_json_list)
 
 
 class CopywriterInput(StrictModel):

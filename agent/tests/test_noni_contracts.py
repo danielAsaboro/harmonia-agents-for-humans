@@ -67,15 +67,29 @@ def original_draft() -> dict:
     }
 
 
+def editorial_checks(*, failed: set[str] | None = None) -> list[dict]:
+    failed = failed or set()
+    return [{
+        "dimension": dimension, "status": "fail" if dimension in failed else "pass",
+        "rationale": f"Checked {dimension} against the exact draft input.",
+        "evidenceRefs": ["moment-1"] if dimension in {"grounding", "brief_alignment"} else [],
+        "constraintRefs": ["Use an evidence-led voice"] if dimension in {"brand_voice", "safety"} else [],
+    } for dimension in (
+        "grounding", "brief_alignment", "brand_voice", "platform_constraints",
+        "cta", "safety", "clarity",
+    )]
+
+
 def revise_review() -> dict:
     return {
         "id": "review-1", "planId": "plan-1", "planDigest": "a" * 64, "strategyDigest": "b" * 64,
         "editorialItemId": "item-1", "briefId": "brief-1", "draftId": "draft-1", "revision": 1,
         "verdict": "revise", "reviewedAt": "2026-08-27T10:00:00Z",
+        "checks": editorial_checks(failed={"clarity"}),
         "issues": [{
             "id": "issue-1", "category": "clarity", "severity": "medium", "fieldPath": "text",
             "instruction": "Name the source qualification before the call to action.", "evidenceRefs": ["moment-1"], "constraintRefs": [],
-        }],
+        }], "resolvedIssueIds": [],
     }
 
 

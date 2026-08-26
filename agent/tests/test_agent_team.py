@@ -178,7 +178,7 @@ class ManagedRuntime:
             }}
         if kwargs["specialist"] == "temi_editorial_planner":
             return {"editorial_plan": _temi_plan()}
-        from tests.test_noni_contracts import grounded_draft
+        from tests.test_noni_contracts import editorial_checks, grounded_draft
         payload = kwargs["payload"]
         if kwargs["specialist"] == "noni_copywriter":
             draft = grounded_draft()
@@ -195,7 +195,8 @@ class ManagedRuntime:
                 "id": "review-1", "planId": draft["planId"], "planDigest": draft["planDigest"],
                 "strategyDigest": draft["strategyDigest"], "editorialItemId": draft["editorialItemId"],
                 "briefId": draft["briefId"], "draftId": draft["id"], "revision": draft["revision"],
-                "verdict": "accepted", "reviewedAt": "2026-08-27T10:00:00Z", "issues": [],
+                "verdict": "accepted", "reviewedAt": "2026-08-27T10:00:00Z",
+                "checks": editorial_checks(), "issues": [], "resolvedIssueIds": [],
             }}
         raise AssertionError(kwargs["specialist"])
 

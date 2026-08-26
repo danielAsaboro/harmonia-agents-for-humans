@@ -32,6 +32,26 @@ describe("editorial plan persistence boundary", () => {
     expect(editorialPlanDigest(plan)).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("matches the cross-runtime JSON-number fixture without erasing fractional scores", () => {
+    const boundary = {
+      planId: "p", version: 1, approvedStrategyDigest: "a".repeat(64),
+      horizonStartAt: "2026-08-31T00:00:00Z", horizonEndAt: "2026-09-28T00:00:00Z", timezone: "UTC",
+      summary: "s", sequencingRationale: "s", cadenceRationale: "c", assumptions: [], confidence: "high",
+      items: [{
+        id: "i", briefId: "b", campaignTheme: "t", contentPillar: "p", objective: "o", audienceId: "a",
+        funnelStage: "awareness", intendedConversion: "c", ctaIntent: "c", kpi: "k", channel: "x", format: "text",
+        evidenceRefs: ["m1"], publicationWindowStartAt: "2026-09-01T00:00:00Z", publicationWindowEndAt: "2026-09-01T01:00:00Z",
+        productionDeadlineAt: "2026-08-31T12:00:00Z", priority: 1, selectionScore: 0, dependencies: [], productionStatus: "planned",
+        constraints: [], requiredAssets: [], planningRationale: "r", selectionRationale: "r", confidence: "high",
+      }], selectedNextItemId: "i",
+    };
+    expect(editorialPlanDigest(boundary)).toBe("cffb8018ff7a322277d5461d6b77b46ef923371a97c977a7549b74706a10bea1");
+    const fractional = structuredClone(boundary);
+    fractional.items[0].selectionScore = 0.5;
+    expect(editorialPlanDigest(fractional)).not.toBe(editorialPlanDigest(boundary));
+    expect(editorialPlanDigest({ score: -0, priority: 1.0 })).toBe(editorialPlanDigest({ score: 0, priority: 1 }));
+  });
+
   it("binds a fresh plan to the exact approved strategy and revision", () => {
     expect(() => assertEditorialPlanSubmission(job, plan, 1)).not.toThrow();
     expect(() => assertEditorialPlanSubmission(job, { ...plan, approvedStrategyDigest: "b".repeat(64) }, 1)).toThrow("strategy digest");

@@ -10,6 +10,7 @@ import uuid
 import secrets
 from pathlib import Path
 import asyncio
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
 
@@ -88,9 +89,22 @@ class ClipRenderError(RuntimeError):
     pass
 
 
+def _canonical_plan_value(value: Any) -> Any:
+    """Normalize to JSON/JavaScript number semantics before hashing."""
+    if isinstance(value, dict):
+        return {key: _canonical_plan_value(value[key]) for key in sorted(value)}
+    if isinstance(value, list):
+        return [_canonical_plan_value(item) for item in value]
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("editorial plan digest requires finite numbers")
+        return int(value) if value.is_integer() else value
+    return value
+
+
 def editorial_plan_digest(plan: dict[str, Any]) -> str:
-    """Canonical SHA-256 shared with the TypeScript persistence boundary."""
-    encoded = json.dumps(plan, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    """Canonical SHA-256 using sorted keys and JavaScript JSON-number spelling."""
+    encoded = json.dumps(_canonical_plan_value(plan), separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 

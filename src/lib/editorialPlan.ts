@@ -3,6 +3,10 @@ import type { EditorialPlan } from "./types";
 
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error("editorial plan digest requires finite numbers");
+    return Object.is(value, -0) ? 0 : value;
+  }
   if (value && typeof value === "object") {
     return Object.fromEntries(Object.entries(value as Record<string, unknown>)
       .sort(([left], [right]) => left.localeCompare(right))

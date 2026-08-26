@@ -31,6 +31,25 @@ def test_editorial_plan_digest_is_canonical_and_matches_typescript():
     assert stages.editorial_plan_digest({"a": 1, "b": 2}) == "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"
 
 
+def test_editorial_plan_digest_matches_typescript_json_number_semantics():
+    boundary = {
+        "planId": "p", "version": 1, "approvedStrategyDigest": "a" * 64,
+        "horizonStartAt": "2026-08-31T00:00:00Z", "horizonEndAt": "2026-09-28T00:00:00Z", "timezone": "UTC",
+        "summary": "s", "sequencingRationale": "s", "cadenceRationale": "c", "assumptions": [], "confidence": "high",
+        "items": [{
+            "id": "i", "briefId": "b", "campaignTheme": "t", "contentPillar": "p", "objective": "o", "audienceId": "a",
+            "funnelStage": "awareness", "intendedConversion": "c", "ctaIntent": "c", "kpi": "k", "channel": "x", "format": "text",
+            "evidenceRefs": ["m1"], "publicationWindowStartAt": "2026-09-01T00:00:00Z", "publicationWindowEndAt": "2026-09-01T01:00:00Z",
+            "productionDeadlineAt": "2026-08-31T12:00:00Z", "priority": 1, "selectionScore": 0.0, "dependencies": [], "productionStatus": "planned",
+            "constraints": [], "requiredAssets": [], "planningRationale": "r", "selectionRationale": "r", "confidence": "high",
+        }], "selectedNextItemId": "i",
+    }
+    assert stages.editorial_plan_digest(boundary) == "cffb8018ff7a322277d5461d6b77b46ef923371a97c977a7549b74706a10bea1"
+    fractional = {**boundary, "items": [{**boundary["items"][0], "selectionScore": 0.5}]}
+    assert stages.editorial_plan_digest(fractional) != stages.editorial_plan_digest(boundary)
+    assert stages.editorial_plan_digest({"score": -0.0, "priority": 1.0}) == stages.editorial_plan_digest({"score": 0, "priority": 1})
+
+
 def test_plan_runs_temi_and_persists_complete_plan_before_any_draft(monkeypatch):
     calls, posts = [], []
 

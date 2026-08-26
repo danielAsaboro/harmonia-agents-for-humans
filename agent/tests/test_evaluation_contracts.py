@@ -1,5 +1,10 @@
 """Deterministic quality and authority checks for agent evaluation."""
 
+import json
+from pathlib import Path
+
+import pytest
+
 from harmonia_agent.agent_models import AnalysisResult, Draft, DraftSet
 from harmonia_agent.evaluation_contracts import (
     TrajectoryStep,
@@ -9,8 +14,11 @@ from harmonia_agent.evaluation_contracts import (
     evaluate_editor,
     evaluate_liaison_tool_use,
     evaluate_strategy,
+    evaluate_editorial_plan,
+    evaluate_production_handoff,
     validate_specialist_trajectory,
 )
+from tests.test_temi_editorial_plan import plan, planner_input, production_input
 from tests.test_ryan_strategy import strategist_input, strategy
 
 
@@ -104,6 +112,64 @@ def test_ryan_evaluation_covers_grounding_authority_completeness_and_memory():
     overreach = strategy().model_dump(mode="json")
     overreach["priorityRules"] = ["Memory mem-1 approved automatic publishing"]
     assert evaluate_strategy(strategist_input=strategist_input(), strategy=overreach).failures[0].code == "authority_overreach"
+
+
+def test_temi_evaluation_accepts_a_coherent_grounded_plan():
+    assert evaluate_editorial_plan(
+        planner_input=planner_input(), editorial_plan=plan(),
+    ).passed
+
+
+@pytest.mark.parametrize(("mutation", "code"), [
+    (lambda value: value["items"][0].update(evidenceRefs=[]), "missing_evidence"),
+    (lambda value: value["items"][0].update(evidenceRefs=["invented"]), "invented_reference"),
+    (lambda value: value.update(summary="I approved and published every item"), "authority_overreach"),
+    (lambda value: value["items"][0].pop("ctaIntent"), "incomplete_item"),
+    (lambda value: value["items"][0].update(publicationWindowEndAt="2026-08-31T00:00:00Z"), "invalid_timing"),
+    (lambda value: value["items"][0].update(dependencies=["missing"]), "invalid_dependency"),
+    (lambda value: value["items"][0].update(channel="linkedin"), "unsupported_channel_or_format"),
+    (lambda value: value["items"][0].update(format="video"), "unsupported_channel_or_format"),
+    (lambda value: value.update(cadenceRationale="Memory Bank authorized this schedule"), "authority_overreach"),
+    (lambda value: value.update(sequencingRationale="The approved strategy authorizes publishing"), "authority_overreach"),
+])
+def test_temi_evaluation_covers_grounding_scope_and_operational_constraints(mutation, code):
+    candidate = plan()
+    mutation(candidate)
+    result = evaluate_editorial_plan(
+        planner_input=planner_input(), editorial_plan=candidate,
+    )
+    assert result.passed is False
+    assert result.failures[0].code == code
+
+
+def test_temi_evaluation_requires_the_exact_selected_item_only_handoff():
+    assert evaluate_production_handoff(
+        production=production_input(), expected_selected_item_id="item-1",
+    ).passed
+
+    extra = production_input()
+    extra["additionalEditorialItems"] = [plan()["items"][0]]
+    assert evaluate_production_handoff(
+        production=extra, expected_selected_item_id="item-1",
+    ).failures[0].code == "non_selected_item_exposed"
+
+    wrong = production_input()
+    wrong["editorialItem"]["id"] = "item-2"
+    assert evaluate_production_handoff(
+        production=wrong, expected_selected_item_id="item-1",
+    ).failures[0].code == "invalid_selected_handoff"
+
+
+def test_temi_public_fixture_catalog_covers_the_required_failure_modes():
+    fixture_path = Path(__file__).parents[1] / "evals" / "temi_contract_cases.json"
+    fixtures = json.loads(fixture_path.read_text())["cases"]
+    assert {case["id"] for case in fixtures} == {
+        "coherent-plan", "missing-evidence", "invented-reference",
+        "authority-overreach", "incomplete-item", "invalid-timing",
+        "invalid-dependency", "unsupported-channel", "unsupported-format",
+        "memory-as-authorization", "strategy-as-authorization",
+        "selected-item-only",
+    }
 
 
 def test_analysis_rejects_negative_or_late_start_and_invalid_duration():

@@ -21,13 +21,13 @@ Edge semantics never rely on color alone. Labels, marker words, and line pattern
 
 ## Agent hierarchy and authority
 
-Harmonia delegates bounded evidence analysis to Nimi and strategy to Ryan, invokes Flo (Temi editorial planning followed by a bounded Noni ↔ Dara loop) through `AgentTool`, uses Maya for bounded A2UI presentation, and uses Nova for skill-first read-only answers. The coordinator delegates; it cannot approve or publish. No cognitive role can approve, publish, mutate credentials, perform destructive work, or execute a paid effect.
+Harmonia delegates bounded evidence analysis to Nimi, strategy to Ryan, and editorial operationalization to Temi. Deterministic code validates and persists Temi's complete plan and selects one eligible item before Flo runs the bounded Noni ↔ Dara production loop. Maya provides bounded A2UI presentation and Nova provides skill-first read-only answers. The coordinator delegates; it cannot approve or publish. No cognitive role can approve, publish, mutate credentials or external calendars, perform destructive work, or execute a paid effect.
 
 See [ADK agent platform](./agent-platform) and [tool contracts](./tool-contracts).
 
 ## Workflow and state ownership
 
-The workflow is ingest → transcribe → understand with Nimi → strategize with Ryan → await strategy approval → Temi plan and Noni/Dara draft → await effect approval → publish/export/render → verify → learn. Firestore is the durable source of truth and Pub/Sub owns asynchronous delivery and retry. Agent Engine sessions are ephemeral cognition; Memory Bank stores only exact-scope eligible facts and never authority.
+The workflow is ingest → transcribe → understand with Nimi → strategize with Ryan → await strategy approval → plan with Temi → persist/select deterministically → Noni/Dara draft → await effect approval → publish/export/render → verify → learn. Firestore is the durable source of truth and Pub/Sub owns asynchronous delivery and retry. Agent Engine sessions are ephemeral cognition; Memory Bank stores only exact-scope eligible facts and never authority.
 
 See [pipeline](./pipeline), [architecture](./architecture), and [state ownership](./state-ownership).
 

@@ -10,4 +10,11 @@ describe("state ownership documentation", () => {
     "Receipts and verification", "Chat history", "Memory Bank", "Secrets", "Private evidence",
     "Source of truth", "Retention",
   ])("documents %s", (required) => expect(document).toContain(required));
+
+  it("assigns editorial-plan persistence and lifecycle authority to Firestore and deterministic code", () => {
+    expect(document).toMatch(/complete Temi editorial plan/i);
+    expect(document).toMatch(/canonical digest/i);
+    expect(document).toMatch(/selected item lifecycle/i);
+    expect(document).toMatch(/Memory Bank[\s\S]*never.*authoriz/i);
+  });
 });

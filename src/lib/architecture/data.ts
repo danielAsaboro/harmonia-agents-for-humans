@@ -39,11 +39,12 @@ const nodes: ArchitectureNode[] = [
     ["analyze", "3 · Analyze", "Ground clip moments in transcript and video evidence."],
     ["strategize", "4 · Strategize", "Ryan proposes a grounded four-week strategy and content briefs."],
     ["strategy-approval", "5 · Approve strategy", "Human approval bound to the exact strategy digest."],
-    ["draft", "6 · Plan & draft", "Temi operationalizes approved briefs before bounded production."],
-    ["await-approval", "7 · Await effect approval", "Hard human gate before every external effect."],
-    ["publish-render", "8 · Publish / export / render", "Claim and execute only approved actions."],
-    ["verify", "9 · Verify", "Independently re-fetch providers or re-read artifact digests."],
-    ["learn", "10 · Learn", "Persist measured outcomes and eligible takeaways."],
+    ["plan", "6 · Plan", "Temi proposes a complete plan; deterministic code validates, persists, and selects one eligible item."],
+    ["draft", "7 · Draft & review", "Noni and Dara produce the exact selected item in a bounded revision loop."],
+    ["await-approval", "8 · Await effect approval", "Hard human gate before every external effect."],
+    ["publish-render", "9 · Publish / export / render", "Claim and execute only approved actions."],
+    ["verify", "10 · Verify", "Independently re-fetch providers or re-read artifact digests."],
+    ["learn", "11 · Learn", "Persist measured outcomes and eligible takeaways."],
   ].map(([id, name, summary]) => node({ id: `stage-${id}`, name, kind: id === "await-approval" || id === "strategy-approval" ? "gate" : id === "verify" ? "verification" : "stage", layer: "workflow", parentId: "group-workflow", summary, statuses: id === "await-approval" || id === "strategy-approval" ? ["approval-gated"] : ["implemented"], authorities: id === "await-approval" || id === "strategy-approval" ? ["approve"] : id === "verify" ? ["verify"] : ["write"], dataScope: "workspace", stateLifetime: "durable", sourceFiles: ["agent/harmonia_agent/stages.py"], docs: ["pipeline"] })),
 
   group("group-worker", "ADK worker", "control", "FastAPI Cloud Run worker consumes stages and persists results."),
@@ -57,10 +58,10 @@ const nodes: ArchitectureNode[] = [
   node({ id: "agent-harmonia", name: "Harmonia coordinator", kind: "agent", layer: "agents", parentId: "group-agent-team", summary: "Routes exactly one bounded specialist; cannot answer the task, approve, or publish.", statuses: ["offline-verified", "pending-live"], authorities: ["delegate"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash-Lite" }, promptResponsibility: "Exact one-specialist routing and delegation only.", sourceFiles: ["agent/harmonia_agent/agents.py"] }),
   node({ id: "agent-ryan", name: "Ryan strategist", kind: "agent", layer: "agents", parentId: "group-agent-team", summary: "Produces provenance-linked four-week strategy and content briefs for human approval.", statuses: ["offline-verified", "approval-gated", "pending-live"], authorities: ["propose"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash" }, promptResponsibility: "Agentic strategy from closed-world evidence; no tools, scheduling, approval, or effects." }),
   node({ id: "agent-nimi", name: "Nimi multimodal analyst", kind: "agent", layer: "agents", parentId: "group-agent-team", summary: "Analyzes bounded video plus timed transcript with quote/time/frame grounding.", statuses: ["offline-verified", "pending-live"], authorities: ["propose"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash" }, promptResponsibility: "Grounded moments, visual hooks, crop suitability, and evidence references." }),
-  group("workflow-flo", "Flo content engine", "agents", "ADK SequentialAgent with a bounded Noni-Dara LoopAgent."),
+  group("workflow-flo", "Flo production loop", "agents", "Bounded Noni-Dara LoopAgent for one deterministically selected item."),
   node({ id: "agent-noni", name: "Noni copywriter", kind: "agent", layer: "agents", parentId: "workflow-flo", summary: "Creates and revises typed platform-native drafts from Temi's editorial plan.", statuses: ["offline-verified", "pending-live"], authorities: ["propose"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemma 3 12B IT" }, promptResponsibility: "Draft with valid references and X length constraints." }),
   node({ id: "agent-dara", name: "Dara editor", kind: "agent", layer: "agents", parentId: "workflow-flo", summary: "Reviews Noni drafts in a bounded two-pass loop while preserving IDs and references.", statuses: ["offline-verified", "pending-live"], authorities: ["propose"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash" }, promptResponsibility: "Edit Noni drafts without creating new facts." }),
-  node({ id: "agent-temi", name: "Temi editorial planner", kind: "agent", layer: "agents", parentId: "workflow-flo", summary: "Converts Ryan's strategy into typed editorial calendar items and production priorities.", statuses: ["offline-verified", "pending-live"], authorities: ["propose"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash-Lite" }, promptResponsibility: "Calendar and brief planning without approval or publishing authority." }),
+  node({ id: "agent-temi", name: "Temi editorial planner", kind: "agent", layer: "agents", parentId: "group-agent-team", summary: "Agentically operationalizes the approved Ryan strategy as a complete typed editorial plan.", statuses: ["offline-verified", "pending-live"], authorities: ["propose"], dataScope: "workspace-brand", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash-Lite" }, promptResponsibility: "Editorial sequencing, cadence, supported channel/format choices, windows, deadlines, dependencies, and priorities; no tools, final copy, external scheduling, approval, or effects." }),
   node({ id: "agent-maya", name: "Maya A2UI presenter", kind: "agent", layer: "agents", parentId: "group-agent-team", summary: "Produces bounded declarative A2UI plans from typed UiContext.", statuses: ["offline-verified", "pending-live"], authorities: ["propose"], dataScope: "workspace", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash" }, promptResponsibility: "Reference known components and entities only." }),
   node({ id: "agent-nova", name: "Nova insight liaison", kind: "agent", layer: "agents", parentId: "group-agent-team", summary: "Loads the matching skill first and answers through read-only grounded tools.", statuses: ["offline-verified", "pending-live", "read-only"], authorities: ["read"], dataScope: "workspace", stateLifetime: "ephemeral", model: { name: "Gemini 3.5 Flash" }, promptResponsibility: "Skill-first grounded operator answers.", skills: ["trend-scan", "signal-watch", "engagement-insights", "job-status", "posting-schedule"] }),
 
@@ -73,7 +74,7 @@ const nodes: ArchitectureNode[] = [
   ].map(([id, name, scope]) => node({ id: `tool-${id}`, name, kind: "tool", layer: "skills", parentId: "group-skills", summary: `Read-only ${scope}-scoped tool.`, statuses: ["offline-verified", "read-only"], authorities: ["read"], dataScope: scope as "public" | "workspace", stateLifetime: "stateless", sourceFiles: ["agent/harmonia_agent/skills_runtime.py"] })),
 
   group("group-state", "Data stores + state ownership", "data", "Durable business state, scoped memory, assets, usage, and evidence."),
-  node({ id: "firestore", name: "Firestore", kind: "store", layer: "data", parentId: "group-state", summary: "Durable source of truth under workspaces/{workspaceId}/…", authorities: ["read", "write"], dataScope: "workspace", stateLifetime: "durable", sourceFiles: ["src/lib/firestore.ts"], docs: ["state-ownership"] }),
+  node({ id: "firestore", name: "Firestore", kind: "store", layer: "data", parentId: "group-state", summary: "Durable source of truth for jobs, complete editorial plans, digests, and selected item lifecycle under workspaces/{workspaceId}/…", authorities: ["read", "write"], dataScope: "workspace", stateLifetime: "durable", sourceFiles: ["src/lib/firestore.ts"], docs: ["state-ownership"] }),
   node({ id: "pubsub", name: "Pub/Sub", kind: "service", layer: "workflow", parentId: "group-state", summary: "Asynchronous stage delivery and retry; payload and attributes repeat tenant scope.", authorities: ["write"], dataScope: "workspace-brand", stateLifetime: "durable", sourceFiles: ["src/lib/pubsub.ts"] }),
   node({ id: "asset-store", name: "Cloud Storage / local artifacts", kind: "store", layer: "data", parentId: "group-state", summary: "Workspace- and brand-scoped content packs and generated media.", authorities: ["read", "write"], dataScope: "workspace-brand", stateLifetime: "durable", sourceFiles: ["src/lib/storage.ts"] }),
   ...[["budget", "Budget reservations"], ["usage", "Immutable usage ledger"], ["claims", "Effect claims"], ["receipts", "Immutable receipts"], ["verifications", "Verification records"]].map(([id, name]) => node({ id: `state-${id}`, name, kind: "store", layer: id === "budget" || id === "usage" ? "observability" : "data", parentId: "group-state", summary: `${name} persisted transactionally in workspace-scoped Firestore.`, authorities: ["read", "write"], dataScope: "workspace", stateLifetime: "durable" })),
@@ -95,16 +96,27 @@ const nodes: ArchitectureNode[] = [
   ...[["trace", "W3C trace propagation"], ["spans", "Metadata-only OpenTelemetry spans"], ["cost", "Role/model cost accounting"], ["budgets", "Workspace + job budget guards"]].map(([id, name]) => node({ id: `observe-${id}`, name, kind: "control", layer: "observability", parentId: "group-observability", summary: `${name}; no prompts, responses, transcripts, drafts, media, or chain-of-thought.`, statuses: id === "trace" || id === "spans" ? ["offline-verified", "pending-live"] : ["offline-verified"], authorities: ["read"], dataScope: "metadata-only", stateLifetime: "durable", sourceFiles: ["agent/harmonia_agent/telemetry.py"], docs: ["observability", "models-cost-evaluation"] })),
 ];
 
-const workflowIds = ["ingest", "transcribe", "analyze", "strategize", "strategy-approval", "draft", "await-approval", "publish-render", "verify", "learn"].map((id) => `stage-${id}`);
+const workflowIds = ["ingest", "transcribe", "analyze", "strategize", "strategy-approval", "plan", "draft", "await-approval", "publish-render", "verify", "learn"].map((id) => `stage-${id}`);
 const effectIds = nodes.filter((item) => item.kind === "effect").map((item) => item.id);
 const edges = [
-  ...workflowIds.slice(0, -1).map((source, index) => ({ id: `flow-${index + 1}`, source, target: workflowIds[index + 1], kind: index === 4 ? "approval" as const : index === 6 ? "verification" as const : "workflow" as const, label: index === 4 ? "Human approval" : index === 6 ? "Independent verification" : "Durable transition" })),
+  ...workflowIds.slice(0, -1).map((source, index) => {
+    const target = workflowIds[index + 1];
+    const isApproval = source === "stage-strategy-approval" || source === "stage-await-approval";
+    const isVerification = source === "stage-publish-render" && target === "stage-verify";
+    return {
+      id: `flow-${index + 1}`, source, target,
+      kind: isApproval ? "approval" as const : isVerification ? "verification" as const : "workflow" as const,
+      label: isApproval ? "Human approval" : isVerification ? "Independent verification" : "Durable transition",
+    };
+  }),
   { id: "delegate-ryan", source: "agent-harmonia", target: "agent-ryan", kind: "delegation" as const, label: "Delegate strategy" },
   { id: "delegate-nimi", source: "agent-harmonia", target: "agent-nimi", kind: "delegation" as const, label: "Delegate analysis" },
   { id: "delegate-flo", source: "agent-harmonia", target: "workflow-flo", kind: "delegation" as const, label: "AgentTool" },
+  { id: "plan-temi", source: "stage-plan", target: "agent-temi", kind: "delegation" as const, label: "Typed approved strategy" },
+  { id: "temi-plan-state", source: "agent-temi", target: "firestore", kind: "workflow" as const, label: "Validate, digest, persist" },
   { id: "delegate-maya", source: "agent-harmonia", target: "agent-maya", kind: "delegation" as const, label: "Delegate presentation" },
   { id: "delegate-nova", source: "agent-harmonia", target: "agent-nova", kind: "delegation" as const, label: "Delegate insight" },
-  { id: "flo-1", source: "agent-temi", target: "agent-noni", kind: "workflow" as const, label: "Editorial plan" },
+  { id: "flo-1", source: "firestore", target: "agent-noni", kind: "workflow" as const, label: "Exact selected item" },
   { id: "flo-2", source: "agent-noni", target: "agent-dara", kind: "workflow" as const, label: "Draft for review" },
   { id: "flo-3", source: "agent-dara", target: "agent-noni", kind: "workflow" as const, label: "Bounded revision loop" },
   { id: "memory", source: "memory-bank", target: "agent-harmonia", kind: "memory" as const, label: "Exact-scope facts" },

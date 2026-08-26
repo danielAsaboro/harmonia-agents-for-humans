@@ -9,6 +9,12 @@ outputs, and trajectories committed here; arbitrary free-form text is rejected. 
 and response metrics complement the pure deterministic grounding, reference-preservation, and
 authority evaluators in `evaluation_contracts.py`.
 
+`temi_contract_cases.json` catalogs the source-neutral cases exercised directly against Temi's
+strict contract validators: coherent planning, grounding failures, invented references, authority
+overreach, incomplete items, invalid timing/dependencies, unsupported capabilities, advisory
+context misused as authorization, and the selected-item-only Noni handoff. These assertions target
+schema and validator behavior, not prompt wording.
+
 Live evaluation refuses to run when `HARMONIA_MOCK_AI=1`, unless `HARMONIA_REAL_EVAL=1` is set, or
 without an absolute `HARMONIA_EVAL_EVIDENCE_ROOT`. The output resolves inside that private root and
 outside the public repository, including through symlinks and `..` segments. A public fixture

@@ -17,14 +17,15 @@ Harmonia is agentic where the problem is ambiguous: Gemini/ADK specialists inter
 Harmonia runs as an asynchronous, event-driven workflow on Pub/Sub. A single job travels across two services with durable state in Firestore at every step:
 
 ```
-ingest → transcribe → understand → strategize → awaiting_strategy_approval → draft → awaiting_approval → publish → verify
+ingest → transcribe → understand → strategize → awaiting_strategy_approval → plan → draft → awaiting_approval → publish → verify
 ```
 
 - **Ingest**: YouTube metadata via oEmbed / YouTube Data API; audio pulled with yt-dlp.
 - **Transcribe**: Gemini 3.5 Flash transcribes the audio into timed segments.
 - **Understand**: Nimi uses Gemini multimodal video plus the transcript to identify grounded spoken and visual moments and bounded angles.
 - **Strategize**: Ryan uses typed company, campaign, audience, performance, and eligible Memory Bank context to propose a provenance-linked four-week strategy and complete content briefs. A human must approve the exact strategy digest before Temi runs.
-- **Plan and draft**: Temi operationalizes only approved Ryan briefs into supported-channel editorial items, then Noni writes and Dara reviews in a bounded two-pass ADK loop. Deterministic code derives effect proposals from the reviewed text.
+- **Plan**: Temi agentically operationalizes the approved Ryan strategy into a complete four-week editorial plan. Deterministic code validates, digests, persists, and selects exactly one supported, eligible item; Temi has no tools and cannot write final copy or authorize external scheduling or effects.
+- **Draft**: Noni receives only the selected item, its exact Ryan brief, and referenced Nimi evidence; Dara reviews it in a bounded two-pass loop. Deterministic code derives effect proposals from the reviewed text.
 - **Awaiting approval**: publishing is proposed as discrete actions. The model cannot self-authorize.
 - **Publish**: approved actions execute idempotently (stable idempotency keys from `jobId + actionId + contentHash`); X posts go through the official X API v2, while separately approved Veo/Lyria actions create internal media assets.
 - **Verify**: published state is confirmed by fresh independent API reads — never because a model said so.

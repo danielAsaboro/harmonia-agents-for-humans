@@ -9,7 +9,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from .agent_models import AnalysisResult, ContentStrategy, DraftSet, StrategistInput
+from .agent_models import (
+    AnalysisResult,
+    ContentStrategy,
+    DraftSet,
+    EditorialPlan,
+    EditorialPlannerInput,
+    ProductionDraftInput,
+    StrategistInput,
+)
 
 
 class EvaluationFailure(BaseModel):
@@ -150,6 +158,86 @@ def evaluate_strategy(
         for item in [*parsed.objectives, *parsed.pillars, *parsed.briefs]
     ) and not all(fact.firestoreEvidenceRef for fact in strategist_input.memoryFacts):
         return _result([_failure("memory_without_provenance", "memory context lacks Firestore provenance")])
+    return _result([])
+
+
+def evaluate_editorial_plan(
+    *,
+    planner_input: EditorialPlannerInput | Mapping[str, Any],
+    editorial_plan: EditorialPlan | Mapping[str, Any],
+) -> EvaluationCaseResult:
+    """Evaluate Temi's plan through its strict schema and closed-world validator."""
+    raw_plan = (
+        editorial_plan.model_dump(mode="json")
+        if isinstance(editorial_plan, EditorialPlan)
+        else editorial_plan
+    )
+    raw_items = raw_plan.get("items") if isinstance(raw_plan, Mapping) else None
+    if isinstance(raw_items, list) and any(
+        isinstance(item, Mapping) and item.get("evidenceRefs") == []
+        for item in raw_items
+    ):
+        return _result([_failure("missing_evidence", "editorial item has no evidence references")])
+    try:
+        supplied = (
+            planner_input
+            if isinstance(planner_input, EditorialPlannerInput)
+            else EditorialPlannerInput.model_validate(planner_input)
+        )
+        parsed = (
+            editorial_plan
+            if isinstance(editorial_plan, EditorialPlan)
+            else EditorialPlan.model_validate(editorial_plan)
+        )
+    except Exception as exc:
+        message = str(exc)
+        timing_tokens = ("publication window", "production deadline", "horizon")
+        code = "invalid_timing" if any(token in message for token in timing_tokens) else "incomplete_item"
+        return _result([_failure(code, "editorial plan does not satisfy the strict contract")])
+
+    from .agents import AgentProtocolError, validate_editorial_plan
+    try:
+        validate_editorial_plan(supplied, parsed)
+    except AgentProtocolError as exc:
+        message = str(exc)
+        code = (
+            "authority_overreach" if "authority overreach" in message else
+            "invalid_dependency" if "dependenc" in message or "blocked" in message else
+            "unsupported_channel_or_format" if "unsupported channel" in message or "unsupported format" in message else
+            "invented_reference" if "unknown brief" in message or "outside brief" in message or "unknown campaign" in message or "unknown content" in message else
+            "invalid_timing" if "horizon" in message or "slot" in message or "cadence" in message or "commitment" in message else
+            "invalid_plan"
+        )
+        return _result([_failure(code, message)])
+    return _result([])
+
+
+def evaluate_production_handoff(
+    *, production: ProductionDraftInput | Mapping[str, Any],
+    expected_selected_item_id: str,
+) -> EvaluationCaseResult:
+    """Require Noni's handoff to expose only the exact selected plan item."""
+    if isinstance(production, Mapping) and any(
+        key in production for key in ("additionalEditorialItems", "items", "editorialPlan")
+    ):
+        return _result([_failure(
+            "non_selected_item_exposed",
+            "production handoff exposes editorial plan data beyond the selected item",
+        )])
+    try:
+        parsed = (
+            production
+            if isinstance(production, ProductionDraftInput)
+            else ProductionDraftInput.model_validate(production)
+        )
+    except Exception:
+        return _result([_failure(
+            "invalid_selected_handoff", "production handoff violates the strict selected-item contract",
+        )])
+    if parsed.editorialItem.id != expected_selected_item_id:
+        return _result([_failure(
+            "invalid_selected_handoff", "production handoff is not bound to the selected item",
+        )])
     return _result([])
 
 

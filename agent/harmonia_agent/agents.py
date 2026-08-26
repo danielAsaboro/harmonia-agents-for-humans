@@ -685,6 +685,7 @@ def _assert_acyclic_dependencies(items_by_id) -> None:
 
 
 _TEMI_AUTHORITY_PATTERNS = tuple(re.compile(pattern, re.IGNORECASE) for pattern in (
+    r"\b(?:memory bank|memory|strategy|strategic context)\b.{0,40}\b(?:authoriz(?:e|es|ed|ation)|approv(?:e|es|ed|al)|permit(?:s|ted)?)\b",
     r"\b(?:temi|i|we|harmonia)\s+(?:has\s+|have\s+|will\s+)?(?:approved|rejected|authorized)\b",
     r"\b(?:content|campaign|post|plan)\s+(?:is|was|has been)\s+(?:approved|rejected|authorized)\b",
     r"\bapproval\s+(?:is|was|has been)\s+(?:granted|recorded|received)\b",

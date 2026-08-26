@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import os
 import asyncio
+import hashlib
 import logging
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
@@ -24,6 +25,7 @@ from .agent_models import (
     DraftWorkflowResult,
     EditorialPlan,
     EditorialPlannerInput,
+    EditorialAssessment,
     EditorialReview,
     EditorialReviewInput,
     LiaisonInput,
@@ -1192,6 +1194,111 @@ def validate_editorial_review(
                 f"{sorted(unknown_constraints)}"
             )
     return review
+
+
+_DARA_ISSUE_PATHS = {
+    "grounding": {"text", "claims", "evidenceRefs"},
+    "brief_alignment": {"text", "audienceId", "objective", "funnelStage", "intendedConversion"},
+    "brand_voice": {"text", "assumptions", "appliedConstraints"},
+    "platform_constraints": {"text", "platform", "format"},
+    "cta": {"text", "ctaTreatment", "intendedConversion"},
+    "safety": {"text", "claims", "assumptions", "appliedConstraints"},
+    "clarity": {"text", "claims", "assumptions"},
+}
+_DARA_REPLACEMENT_OR_AUTHORITY = re.compile(
+    r"\b(?:replace\s+(?:the\s+)?(?:post|copy|draft)\s+with|use\s+this\s+(?:copy|post)|"
+    r"option\s*\d+\s*:|approved\s+for|publish(?:ing)?\s+(?:this|now)|"
+    r"schedule(?:d)?\s+(?:it|this|for|at|on)|receipt(?:\s+|[-_])?id|"
+    r"effect\s+payload|execute(?:d|\s+this)?)\b",
+    re.IGNORECASE,
+)
+
+
+def validate_editorial_assessment(
+    input: CopywriterInput,
+    draft: ContentDraft,
+    assessment: EditorialAssessment,
+) -> EditorialAssessment:
+    """Validate Dara's judgment without granting workflow metadata authority."""
+    input = CopywriterInput.model_validate(input)
+    draft = validate_content_draft(input, ContentDraft.model_validate(draft))
+    assessment = EditorialAssessment.model_validate(assessment)
+    _validate_ascii_only_boundary(assessment, "Dara assessment")
+    evidence_ids = {
+        item.id for item in [*input.referencedMoments, *input.referencedAngles]
+    }
+    constraints = {
+        *input.constraints, *input.brief.constraints, *input.editorialItem.constraints,
+    }
+    for check in assessment.checks:
+        unknown_evidence = set(check.evidenceRefs) - evidence_ids
+        if unknown_evidence:
+            raise AgentProtocolError(
+                f"Dara assessment contains unknown evidence ids: {sorted(unknown_evidence)}"
+            )
+        unknown_constraints = set(check.constraintRefs) - constraints
+        if unknown_constraints:
+            raise AgentProtocolError(
+                f"Dara assessment contains unknown constraint references: {sorted(unknown_constraints)}"
+            )
+        if check.dimension == "grounding" and draft.claims and not check.evidenceRefs:
+            raise AgentProtocolError("Dara grounding check must cite supplied evidence")
+        if check.dimension == "brand_voice" and constraints and not check.constraintRefs:
+            raise AgentProtocolError("Dara brand voice check must cite supplied constraints")
+        if check.dimension == "safety" and constraints and not check.constraintRefs:
+            raise AgentProtocolError("Dara safety check must cite supplied constraints")
+    for issue in assessment.issues:
+        if issue.fieldPath not in _DARA_ISSUE_PATHS[issue.category]:
+            raise AgentProtocolError(
+                f"Dara {issue.category} issue has an invalid field path: {issue.fieldPath}"
+            )
+        unknown_evidence = set(issue.evidenceRefs) - evidence_ids
+        if unknown_evidence:
+            raise AgentProtocolError(
+                f"Dara assessment contains unknown evidence ids: {sorted(unknown_evidence)}"
+            )
+        unknown_constraints = set(issue.constraintRefs) - constraints
+        if unknown_constraints:
+            raise AgentProtocolError(
+                f"Dara assessment contains unknown constraint references: {sorted(unknown_constraints)}"
+            )
+        if _DARA_REPLACEMENT_OR_AUTHORITY.search(issue.instruction):
+            raise AgentProtocolError(
+                "Dara issue instruction contains replacement copy, alternatives, or authority overreach"
+            )
+    if input.passType == "original" and assessment.resolvedIssueIds:
+        raise AgentProtocolError("Dara original assessment cannot resolve prior issues")
+    return assessment
+
+
+def materialize_editorial_review(
+    input: CopywriterInput,
+    draft: ContentDraft,
+    assessment: EditorialAssessment,
+    *,
+    reviewed_at: datetime,
+) -> EditorialReview:
+    """Attach deterministic review identity, exact lineage, and a trusted UTC time."""
+    input = CopywriterInput.model_validate(input)
+    draft = ContentDraft.model_validate(draft)
+    assessment = validate_editorial_assessment(input, draft, assessment)
+    if reviewed_at.tzinfo is None or reviewed_at.utcoffset() != timedelta(0):
+        raise AgentProtocolError("Dara review timestamp must be timezone-aware UTC")
+    seed = "\0".join((
+        input.planId, input.planDigest, input.strategyDigest,
+        input.editorialItemId, input.briefId, draft.id, str(draft.revision),
+    ))
+    return EditorialReview.model_validate({
+        "id": f"review-{hashlib.sha256(seed.encode()).hexdigest()[:16]}",
+        "planId": input.planId, "planDigest": input.planDigest,
+        "strategyDigest": input.strategyDigest,
+        "editorialItemId": input.editorialItemId, "briefId": input.briefId,
+        "draftId": draft.id, "revision": draft.revision,
+        "verdict": assessment.verdict,
+        "reviewedAt": reviewed_at.astimezone(timezone.utc).isoformat(),
+        "checks": assessment.checks, "issues": assessment.issues,
+        "resolvedIssueIds": assessment.resolvedIssueIds,
+    })
 
 
 def run_noni_dara_loop(

@@ -294,6 +294,192 @@ def test_grounding_validator_accepts_allowed_language_boundaries(mutation):
     assert _validate(draft, supplied).id == "draft-1"
 
 
+def test_grounding_validator_rejects_reversed_evidence_relation():
+    draft = grounded_draft()
+    draft["claims"][0]["text"] = "We cut forty hours to nine days."
+    draft["text"] = draft["text"].replace(
+        "We cut nine days to forty hours.",
+        "We cut forty hours to nine days.",
+    )
+
+    with pytest.raises(AgentProtocolError, match="relation or order"):
+        _validate(draft)
+
+
+@pytest.mark.parametrize(("field", "assertion"), [
+    ("assumptions", "Harmonia increased revenue by 50%."),
+    ("ctaTreatment", "Request a demo because Harmonia increased revenue by 50%."),
+])
+def test_grounding_validator_rejects_unledgered_facts_outside_post_text(field, assertion):
+    draft = grounded_draft()
+    draft[field] = [assertion] if field == "assumptions" else assertion
+
+    with pytest.raises(AgentProtocolError, match="factual"):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_unledgered_capability_with_unlisted_verb():
+    draft = grounded_draft()
+    draft["text"] = (
+        f'{draft["text"]} Harmonia transforms every startup into a category leader.'
+    )
+
+    with pytest.raises(AgentProtocolError, match="uncited factual statement"):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_factual_clause_piggybacking_on_a_claim():
+    draft = grounded_draft()
+    draft["text"] = draft["text"].replace(
+        "We cut nine days to forty hours.",
+        "We cut nine days to forty hours and Harmonia keeps content execution governed.",
+    )
+
+    with pytest.raises(AgentProtocolError, match="uncited factual statement"):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_repeated_fact_tokens_after_a_claim():
+    draft = grounded_draft()
+    draft["text"] = draft["text"].replace(
+        "We cut nine days to forty hours.",
+        "We cut nine days to forty hours forty.",
+    )
+
+    with pytest.raises(AgentProtocolError, match="uncited factual statement"):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_context_word_fact_after_audience_colon():
+    draft = grounded_draft()
+    draft["text"] = (
+        f'{draft["text"]} Founders: content execution governed.'
+    )
+
+    with pytest.raises(AgentProtocolError, match="uncited factual statement"):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_phantom_claim_not_expressed_in_text_or_cta():
+    draft = grounded_draft()
+    draft["claims"].append({
+        "text": "Cut the delay.",
+        "evidenceRefs": ["moment-1"],
+    })
+
+    with pytest.raises(AgentProtocolError, match="phantom claim"):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_evidence_consumed_only_by_a_phantom_claim():
+    draft = grounded_draft()
+    draft["text"] = (
+        "We cut nine days to forty hours. Request a demo for operating proof, founders."
+    )
+    draft["claims"] = [
+        draft["claims"][0],
+        {"text": "Evidence-led execution.", "evidenceRefs": ["angle-1"]},
+    ]
+
+    with pytest.raises(AgentProtocolError, match="phantom claim"):
+        _validate(draft)
+
+
+def test_grounding_validator_accepts_epistemic_nonfactual_assumption():
+    draft = grounded_draft()
+    draft["assumptions"] = ["This may resonate with founders."]
+
+    assert _validate(draft).confidence == "high"
+
+
+@pytest.mark.parametrize(("text", "message"), [
+    (
+        "Founders: request a demo for beach vacations and operating proof.",
+        "objective",
+    ),
+    (
+        "Astronauts: request a demo for verifiable operating proof.",
+        "audience",
+    ),
+    (
+        "Founders: join the waitlist for verifiable operating proof.",
+        "CTA|funnel",
+    ),
+])
+def test_grounding_validator_rejects_clear_brief_semantic_divergence(text, message):
+    draft = grounded_draft()
+    draft["text"] = text
+
+    with pytest.raises(AgentProtocolError, match=message):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_even_one_unbound_topic_term():
+    draft = grounded_draft()
+    draft["text"] = "Founders: request a demo for operating proof and vacations."
+
+    with pytest.raises(AgentProtocolError, match="objective"):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_negated_cta_intent():
+    draft = grounded_draft()
+    draft["text"] = "Founders: do not request a demo for verifiable operating proof."
+
+    with pytest.raises(AgentProtocolError, match="CTA"):
+        _validate(draft)
+
+
+def test_grounding_validator_fails_closed_for_non_substantive_cta_intent():
+    supplied = original_input()
+    supplied["brief"]["ctaIntent"] = "the"
+    supplied["editorialItem"]["ctaIntent"] = "the"
+
+    with pytest.raises(AgentProtocolError, match="CTA"):
+        _validate(input_payload=supplied)
+
+
+@pytest.mark.parametrize("overreach", [
+    "Publication approved.",
+    "Send this live now.",
+    "Effect payload queued.",
+    "Receipt saved.",
+    "Token provided.",
+    "Plan the campaign next.",
+])
+def test_grounding_validator_rejects_additional_authority_variants(overreach):
+    draft = grounded_draft()
+    draft["text"] = f'{draft["text"]} {overreach}'
+
+    with pytest.raises(AgentProtocolError, match="authority overreach"):
+        _validate(draft)
+
+
+def test_grounding_validator_rejects_lettered_final_alternatives():
+    draft = grounded_draft()
+    draft["text"] = "A) Request a demo. B) Join the waitlist."
+
+    with pytest.raises(AgentProtocolError, match="multiple final alternatives"):
+        _validate(draft)
+
+
+@pytest.mark.parametrize("prohibited_copy", [
+    "Competitors.",
+    "Guaranteed outcomes.",
+])
+def test_grounding_validator_splits_disjunctive_exclusions(prohibited_copy):
+    supplied = original_input()
+    exclusion = "Never mention competitors or guaranteed outcomes"
+    for owner in (supplied, supplied["brief"], supplied["editorialItem"]):
+        owner["constraints"].append(exclusion)
+    draft = grounded_draft()
+    draft["appliedConstraints"].append(exclusion)
+    draft["text"] = f'{draft["text"]} {prohibited_copy}'
+
+    with pytest.raises(AgentProtocolError, match="prohibited constraint language"):
+        _validate(draft, supplied)
+
+
 def revision_input() -> dict:
     value = original_input()
     value.update({"passType": "revision", "priorDraft": original_draft(), "priorReview": revise_review()})
@@ -304,6 +490,39 @@ def revision_draft() -> dict:
     value = original_draft()
     value.update({"id": "draft-2", "revision": 2, "text": "The source describes cutting a nine-day delay to forty hours. Request a demo for governed content execution.", "priorDraftId": "draft-1", "addressedIssueIds": ["issue-1"]})
     return value
+
+
+def grounded_revision_draft() -> dict:
+    value = grounded_draft()
+    value.update({
+        "id": "draft-2",
+        "revision": 2,
+        "priorDraftId": "draft-1",
+        "addressedIssueIds": ["issue-1"],
+    })
+    return value
+
+
+def test_grounding_validator_accepts_revision_addressing_exact_required_issues():
+    assert _validate(grounded_revision_draft(), revision_input()).revision == 2
+
+
+def test_grounding_validator_rejects_missing_required_revision_issue_ids():
+    supplied = revision_input()
+    second_issue = deepcopy(supplied["priorReview"]["issues"][0])
+    second_issue["id"] = "issue-2"
+    supplied["priorReview"]["issues"].append(second_issue)
+
+    with pytest.raises(AgentProtocolError, match="addressed issue ids"):
+        _validate(grounded_revision_draft(), supplied)
+
+
+def test_grounding_validator_rejects_invented_revision_issue_ids():
+    draft = grounded_revision_draft()
+    draft["addressedIssueIds"].append("issue-invented")
+
+    with pytest.raises(AgentProtocolError, match="addressed issue ids"):
+        _validate(draft, revision_input())
 
 
 def test_complete_original_and_revision_contracts_preserve_single_item_lineage():

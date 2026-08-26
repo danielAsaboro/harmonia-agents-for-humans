@@ -13,6 +13,25 @@ import {
   verificationSubmissionSchema,
 } from "@/lib/contracts";
 
+const productionTrace = (() => {
+  const draft = {
+    id: "d1", planId: "plan-1", planDigest: "a".repeat(64), strategyDigest: "b".repeat(64),
+    editorialItemId: "item-1", briefId: "brief-1", revision: 1 as const,
+    platform: "x" as const, format: "text_post" as const, audienceId: "founders",
+    objective: "Show proof", funnelStage: "consideration" as const, ctaIntent: "request a demo",
+    text: "hello world", ctaTreatment: "request a demo", intendedConversion: "qualified demo request",
+    evidenceRefs: ["m1"], claims: [{ text: "hello world", evidenceRefs: ["m1"] }],
+    assumptions: [], confidence: "high" as const, appliedConstraints: ["Use evidence"],
+    priorDraftId: null, addressedIssueIds: [],
+  };
+  const review = {
+    id: "r1", planId: draft.planId, planDigest: draft.planDigest, strategyDigest: draft.strategyDigest,
+    editorialItemId: draft.editorialItemId, briefId: draft.briefId, draftId: draft.id,
+    revision: 1 as const, verdict: "accepted" as const, reviewedAt: "2026-08-27T10:00:00Z", issues: [],
+  };
+  return { originalDraft: draft, reviews: [review], revisionDraft: null, acceptedDraft: draft };
+})();
+
 describe("internal contracts", () => {
   it("accepts a valid ingest submission", () => {
     const parsed = ingestSubmissionSchema.safeParse({
@@ -28,7 +47,7 @@ describe("internal contracts", () => {
       operation: "complete",
       editorialPlanId: "plan-1", editorialItemId: "item-1", briefId: "brief-1",
       editorialPlanDigest: "a".repeat(64),
-      drafts: [{ id: "d1", platform: "x", text: "hello world" }],
+      productionTrace,
       proposedActions: [
         { id: "a1", type: "publish_x_post", title: "post", description: "d",
           payload: { type: "publish_x_post", text: "hello world" } },
@@ -43,8 +62,15 @@ describe("internal contracts", () => {
       editorialItemId: "item-1", briefId: "brief-1",
     }).success).toBe(true);
     expect(draftsSubmissionSchema.safeParse({
-      jobId: "j1", stage: "draft", operation: "complete", drafts: [], proposedActions: [],
+      jobId: "j1", stage: "draft", operation: "complete", productionTrace, proposedActions: [],
     }).success).toBe(false);
+    const mismatched = {
+      jobId: "j1", stage: "draft", operation: "complete", editorialPlanId: "plan-1",
+      editorialPlanDigest: "a".repeat(64), editorialItemId: "item-1", briefId: "brief-1",
+      productionTrace, proposedActions: [{ id: "a1", type: "publish_x_post", title: "post", description: "d", payload: { type: "publish_x_post", text: "changed copy" } }],
+    };
+    expect(draftsSubmissionSchema.safeParse(mismatched).success).toBe(false);
+    expect(draftsSubmissionSchema.safeParse({ ...mismatched, proposedActions: [{ ...mismatched.proposedActions[0], payload: { type: "export_content_pack" } }] }).success).toBe(false);
   });
 
   it("preserves additive visual grounding on analyzed moments", () => {
@@ -71,11 +97,13 @@ describe("internal contracts", () => {
 
   it("accepts bounded Veo and Lyria action contracts", () => {
     const parsed = draftsSubmissionSchema.safeParse({
-      jobId: "j1", stage: "draft", drafts: [],
+      jobId: "j1", stage: "draft", productionTrace,
       operation: "complete",
       editorialPlanId: "plan-1", editorialItemId: "item-1", briefId: "brief-1",
       editorialPlanDigest: "a".repeat(64),
       proposedActions: [
+        { id: "publish1", type: "publish_x_post", title: "post", description: "d",
+          payload: { type: "publish_x_post", text: "hello world" } },
         { id: "veo1", type: "generate_veo_broll", title: "b-roll", description: "d",
           momentId: "m1", payload: { type: "generate_veo_broll", prompt: "abstract launch",
             durationSec: 4, aspectRatio: "9:16" } },

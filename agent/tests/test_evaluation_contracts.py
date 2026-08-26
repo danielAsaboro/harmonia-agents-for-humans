@@ -5,19 +5,20 @@ from pathlib import Path
 
 import pytest
 
-from harmonia_agent.agent_models import AnalysisResult, Draft, DraftSet
+from harmonia_agent.agent_models import AnalysisResult
 from harmonia_agent.evaluation_contracts import (
     TrajectoryStep,
-    evaluate_action_plan,
     evaluate_analysis,
-    evaluate_drafts,
-    evaluate_editor,
+    evaluate_content_draft,
+    evaluate_draft_workflow,
+    evaluate_editorial_review,
     evaluate_liaison_tool_use,
     evaluate_strategy,
     evaluate_editorial_plan,
     evaluate_production_handoff,
     validate_specialist_trajectory,
 )
+from tests.test_noni_contracts import grounded_draft, original_input, revise_review
 from tests.test_temi_editorial_plan import plan, planner_input, production_input
 from tests.test_ryan_strategy import strategist_input, strategy
 
@@ -40,23 +41,6 @@ def _analysis(**moment_overrides) -> AnalysisResult:
             "rationale": "Startup operators value speed.",
         }],
     })
-
-
-def test_planner_evaluation_rejects_authority_and_rewritten_text():
-    result = evaluate_action_plan(
-        reviewed=DraftSet(drafts=[Draft(id="d1", platform="x", text="Reviewed")]),
-        plan={
-            "actions": [{
-                "type": "publish_x_post",
-                "text": "Changed",
-                "approvalState": "approved",
-            }],
-        },
-    )
-
-    assert {failure.code for failure in result.failures} == {
-        "planner_text_mismatch", "planner_claimed_authority",
-    }
 
 
 def test_trajectory_requires_exact_specialist_route():
@@ -194,60 +178,52 @@ def test_analysis_rejects_negative_or_late_start_and_invalid_duration():
     assert [item.code for item in invalid_duration.failures] == ["invalid_source_duration"]
 
 
-def test_drafts_reject_unknown_references_and_overlong_x_text():
-    result = evaluate_drafts(
-        drafts={
-            "drafts": [{
-                "id": "d1", "platform": "x", "momentId": "missing",
-                "angleId": "also-missing", "text": "x" * 281,
-            }],
-        },
-        analysis=_analysis(),
-    )
+def test_noni_evaluation_accepts_grounded_copy_and_rejects_invented_evidence():
+    assert evaluate_content_draft(
+        copywriter_input=original_input(), draft=grounded_draft(),
+    ).passed
+    invented = grounded_draft()
+    invented["evidenceRefs"].append("invented")
+    invented["claims"].append({"text": "Invented.", "evidenceRefs": ["invented"]})
+    assert evaluate_content_draft(
+        copywriter_input=original_input(), draft=invented,
+    ).failures[0].code == "invented_reference"
 
-    assert {failure.code for failure in result.failures} == {
-        "unknown_moment", "unknown_angle", "x_text_too_long",
+
+def test_dara_evaluation_binds_review_to_the_exact_draft():
+    accepted = revise_review()
+    accepted.update(verdict="accepted", issues=[])
+    assert evaluate_editorial_review(
+        copywriter_input=original_input(), draft=grounded_draft(), review=accepted,
+    ).passed
+    accepted["draftId"] = "invented"
+    assert not evaluate_editorial_review(
+        copywriter_input=original_input(), draft=grounded_draft(), review=accepted,
+    ).passed
+
+
+def test_noni_dara_workflow_rejects_a_second_revision_request():
+    original = grounded_draft()
+    first_review = revise_review()
+    revised = grounded_draft()
+    revised.update(id="draft-2", revision=2, priorDraftId="draft-1", addressedIssueIds=["issue-1"])
+    second_review = revise_review()
+    second_review.update(id="review-2", draftId="draft-2", revision=2)
+    result = evaluate_draft_workflow(workflow={
+        "originalDraft": original, "firstReview": first_review,
+        "revisedDraft": revised, "finalReview": second_review,
+        "acceptedDraft": revised,
+    })
+    assert result.failures[0].code == "invalid_revision_trace"
+
+
+def test_noni_public_fixture_catalog_covers_required_failure_modes():
+    fixture_path = Path(__file__).parents[1] / "evals" / "noni_contract_cases.json"
+    ids = {case["id"] for case in json.loads(fixture_path.read_text())["cases"]}
+    assert ids == {
+        "grounded-copy", "missing-evidence", "invented-evidence", "unsupported-claim",
+        "invented-metric", "invented-trend", "invented-testimonial", "brief-deviation",
+        "cta-failure", "safety-exclusion", "platform-limit", "authority-overreach",
+        "incomplete-claims", "memory-as-fact", "accepted-original", "successful-revision",
+        "invalid-revision-lineage", "ignored-review-issues", "attempted-third-pass",
     }
-
-
-def test_editor_rejects_created_ids_and_changed_references():
-    originals = DraftSet(drafts=[
-        Draft(id="d1", platform="x", momentId="m1", text="Original"),
-    ])
-    result = evaluate_editor(
-        originals=originals,
-        reviewed={
-            "drafts": [
-                {"id": "d1", "platform": "x", "angleId": "a1", "text": "Edited"},
-                {"id": "d2", "platform": "x", "text": "Created"},
-            ],
-        },
-    )
-
-    assert {failure.code for failure in result.failures} == {
-        "editor_changed_reference", "editor_created_id",
-    }
-
-
-def test_planner_requires_at_least_one_action_when_drafts_exist():
-    result = evaluate_action_plan(
-        reviewed=DraftSet(drafts=[Draft(id="d1", platform="x", text="Reviewed")]),
-        plan={"actions": []},
-    )
-
-    assert [failure.code for failure in result.failures] == ["missing_planner_action"]
-
-
-def test_planner_rejects_nested_snake_case_and_status_authority_claims():
-    result = evaluate_action_plan(
-        reviewed=DraftSet(drafts=[Draft(id="d1", platform="x", text="Reviewed")]),
-        plan={
-            "actions": [{
-                "type": "publish_x_post", "text": "Reviewed",
-                "metadata": {"approval_state": "approved", "receipt_id": "r1"},
-                "result": {"status": "published", "executed": True},
-            }],
-        },
-    )
-
-    assert [failure.code for failure in result.failures] == ["planner_claimed_authority"]

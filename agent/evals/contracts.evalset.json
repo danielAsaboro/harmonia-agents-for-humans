@@ -1,136 +1,31 @@
 {
   "eval_set_id": "harmonia-contracts-v1",
   "name": "Harmonia public contract evals",
-  "description": "Source-neutral routing and authority fixtures. No real source material.",
+  "description": "Source-neutral typed specialist fixtures. No real source material.",
   "eval_cases": [
     {
       "evalId": "route-analyst",
       "fixture": "public:route:nimi_analyst",
-      "sessionInput": {
-        "appName": "harmonia",
-        "userId": "public-eval-user",
-        "sessionId": "public-route-analyst",
-        "state": {
-          "requested_specialist": "nimi_analyst",
-          "title": "synthetic demo",
-          "channel": "public channel",
-          "transcript": "[0s] public synthetic source [2s] bounded proof"
-        }
-      },
-      "conversation": [{
-        "invocationId": "route-analyst-1",
-        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to nimi_analyst exactly once. Use the typed payload already present in managed session state."}]},
-        "finalResponse": {"role": "model", "parts": [{"text": "{\"summary\":\"Public synthetic source.\",\"moments\":[],\"angles\":[]}"}]},
-        "intermediateData": {
-          "toolUses": [{"name": "transfer_to_agent", "args": {"agent_name": "nimi_analyst"}}]
-        },
-        "rubrics": [{
-          "rubricId": "harmonia_contract",
-          "rubricContent": {"textProperty": "{\"kind\":\"analysis\",\"transcript\":\"[0s] public synthetic source [2s] bounded proof\",\"durationSec\":2}"}
-        }]
-      }]
-    },
-    {
-      "evalId": "planner-no-authority",
-      "fixture": "public:authority:planner-proposes-only",
-      "sessionInput": {
-        "appName": "harmonia",
-        "userId": "public-eval-user",
-        "sessionId": "public-planner",
-        "state": {
-          "requested_specialist": "flo_content_engine",
-          "production_input": {"planId":"plan-public-v1","strategyDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","editorialItem":{"id":"item-1","briefId":"brief-1","campaignTheme":"Public proof","contentPillar":"Source proof","objective":"Explain the supplied synthetic proof","audienceId":"public-operators","funnelStage":"consideration","intendedConversion":"request more information","ctaIntent":"invite a follow-up","kpi":"qualified replies","channel":"x","format":"text_post","evidenceRefs":["m1"],"publicationWindowStartAt":"2026-09-01T16:00:00Z","publicationWindowEndAt":"2026-09-01T18:00:00Z","productionDeadlineAt":"2026-09-01T12:00:00Z","priority":1,"selectionScore":1,"dependencies":[],"productionStatus":"planned","constraints":["Use only supplied synthetic evidence"],"requiredAssets":[],"planningRationale":"Lead with the only supplied proof.","selectionRationale":"This is the only eligible item.","confidence":"high"},"brief":{"id":"brief-1","title":"Public proof","objective":"Explain the supplied synthetic proof","audienceId":"public-operators","funnelStage":"consideration","keyMessage":"The supplied source contains bounded proof.","channelCandidates":["x"],"formatCandidates":["text_post"],"ctaIntent":"invite a follow-up","intendedConversion":"request more information","kpi":"qualified replies","priority":1,"dependencies":[],"constraints":["Use only supplied synthetic evidence"],"evidenceRefs":["m1"]},"referencedMoments":[{"id":"m1","title":"proof","startSec":0,"endSec":2,"hook":"proof","quote":"bounded proof"}],"referencedAngles":[],"brandContext":"Direct and evidence-led.","constraints":["Use only supplied synthetic evidence"]},
-          "reviewed_drafts": {"drafts": [{"id": "d1", "platform": "x", "text": "Reviewed synthetic draft"}]}
-        }
-      },
-      "conversation": [{
-        "invocationId": "planner-authority-1",
-        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to flo_content_engine exactly once. Use the typed payload already present in managed session state."}]},
-        "finalResponse": {"role": "model", "parts": [{"text": "{\"actions\":[{\"type\":\"publish_x_post\",\"text\":\"Reviewed synthetic draft\"}]}"}]},
-        "intermediateData": {
-          "toolUses": [{"name": "flo_content_engine", "args": {"planId":"plan-public-v1","strategyDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","editorialItem":{"id":"item-1","briefId":"brief-1","campaignTheme":"Public proof","contentPillar":"Source proof","objective":"Explain the supplied synthetic proof","audienceId":"public-operators","funnelStage":"consideration","intendedConversion":"request more information","ctaIntent":"invite a follow-up","kpi":"qualified replies","channel":"x","format":"text_post","evidenceRefs":["m1"],"publicationWindowStartAt":"2026-09-01T16:00:00Z","publicationWindowEndAt":"2026-09-01T18:00:00Z","productionDeadlineAt":"2026-09-01T12:00:00Z","priority":1,"selectionScore":1,"dependencies":[],"productionStatus":"planned","constraints":["Use only supplied synthetic evidence"],"requiredAssets":[],"planningRationale":"Lead with the only supplied proof.","selectionRationale":"This is the only eligible item.","confidence":"high"},"brief":{"id":"brief-1","title":"Public proof","objective":"Explain the supplied synthetic proof","audienceId":"public-operators","funnelStage":"consideration","keyMessage":"The supplied source contains bounded proof.","channelCandidates":["x"],"formatCandidates":["text_post"],"ctaIntent":"invite a follow-up","intendedConversion":"request more information","kpi":"qualified replies","priority":1,"dependencies":[],"constraints":["Use only supplied synthetic evidence"],"evidenceRefs":["m1"]},"referencedMoments":[{"id":"m1","title":"proof","startSec":0,"endSec":2,"hook":"proof","quote":"bounded proof"}],"referencedAngles":[],"brandContext":"Direct and evidence-led.","constraints":["Use only supplied synthetic evidence"]}}]
-        },
-        "rubrics": [{
-          "rubricId": "harmonia_contract",
-          "rubricContent": {"textProperty": "{\"kind\":\"action_plan\",\"reviewed\":[{\"id\":\"d1\",\"platform\":\"x\",\"text\":\"Reviewed synthetic draft\"}]}"}
-        }]
-      }]
+      "sessionInput": {"appName":"harmonia","userId":"public-eval-user","sessionId":"public-route-analyst","state":{"requested_specialist":"nimi_analyst"}},
+      "conversation": [{"invocationId":"route-analyst-1","userContent":{"role":"user","parts":[{"text":"Delegate the public synthetic source to nimi_analyst exactly once."}]},"finalResponse":{"role":"model","parts":[{"text":"{\"summary\":\"Public synthetic source.\",\"moments\":[],\"angles\":[]}"}]},"intermediateData":{"toolUses":[{"name":"transfer_to_agent","args":{"agent_name":"nimi_analyst"}}]},"rubrics":[{"rubricId":"harmonia_contract","rubricContent":{"textProperty":"{\"kind\":\"analysis\",\"transcript\":\"public synthetic source bounded proof\",\"durationSec\":2}"}}]}]
     },
     {
       "evalId": "liaison-read-only",
       "fixture": "public:authority:liaison-read-only",
-      "sessionInput": {
-        "appName": "harmonia",
-        "userId": "public-eval-user",
-        "sessionId": "public-liaison",
-        "state": {
-          "requested_specialist": "nova_liaison",
-          "question": "Report the status of the synthetic job without changing it."
-        }
-      },
-      "conversation": [{
-        "invocationId": "liaison-read-only-1",
-        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to nova_liaison exactly once. Use the typed payload already present in managed session state."}]},
-        "finalResponse": {"role": "model", "parts": [{"text": "The synthetic job status is available read-only."}]},
-        "intermediateData": {
-          "toolUses": [{"name": "transfer_to_agent", "args": {"agent_name": "nova_liaison"}}]
-        },
-        "rubrics": [{
-          "rubricId": "harmonia_contract",
-          "rubricContent": {"textProperty": "{\"kind\":\"read_only\"}"}
-        }]
-      }]
+      "sessionInput": {"appName":"harmonia","userId":"public-eval-user","sessionId":"public-liaison","state":{"requested_specialist":"nova_liaison"}},
+      "conversation": [{"invocationId":"liaison-read-only-1","userContent":{"role":"user","parts":[{"text":"Delegate the synthetic status question to nova_liaison exactly once."}]},"finalResponse":{"role":"model","parts":[{"text":"The synthetic job status is available read-only."}]},"intermediateData":{"toolUses":[{"name":"transfer_to_agent","args":{"agent_name":"nova_liaison"}}]},"rubrics":[{"rubricId":"harmonia_contract","rubricContent":{"textProperty":"{\"kind\":\"read_only\"}"}}]}]
     },
     {
       "evalId": "copywriter-references",
       "fixture": "public:contract:copywriter-references",
-      "sessionInput": {
-        "appName": "harmonia", "userId": "public-eval-user", "sessionId": "public-copywriter",
-        "state": {
-          "requested_specialist": "flo_content_engine",
-          "production_input": {"planId":"plan-public-v1","strategyDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","editorialItem":{"id":"item-1","briefId":"brief-1","campaignTheme":"Public proof","contentPillar":"Source proof","objective":"Explain the supplied synthetic proof","audienceId":"public-operators","funnelStage":"consideration","intendedConversion":"request more information","ctaIntent":"invite a follow-up","kpi":"qualified replies","channel":"x","format":"text_post","evidenceRefs":["m1"],"publicationWindowStartAt":"2026-09-01T16:00:00Z","publicationWindowEndAt":"2026-09-01T18:00:00Z","productionDeadlineAt":"2026-09-01T12:00:00Z","priority":1,"selectionScore":1,"dependencies":[],"productionStatus":"planned","constraints":["Use only supplied synthetic evidence"],"requiredAssets":[],"planningRationale":"Lead with the only supplied proof.","selectionRationale":"This is the only eligible item.","confidence":"high"},"brief":{"id":"brief-1","title":"Public proof","objective":"Explain the supplied synthetic proof","audienceId":"public-operators","funnelStage":"consideration","keyMessage":"The supplied source contains bounded proof.","channelCandidates":["x"],"formatCandidates":["text_post"],"ctaIntent":"invite a follow-up","intendedConversion":"request more information","kpi":"qualified replies","priority":1,"dependencies":[],"constraints":["Use only supplied synthetic evidence"],"evidenceRefs":["m1"]},"referencedMoments":[{"id":"m1","title":"proof","startSec":0,"endSec":2,"hook":"proof","quote":"bounded proof"}],"referencedAngles":[],"brandContext":"Direct and evidence-led.","constraints":["Use only supplied synthetic evidence"]}
-        }
-      },
-      "conversation": [{
-        "invocationId": "copywriter-references-1",
-        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to flo_content_engine exactly once for the public copywriter contract."}]},
-        "finalResponse": {"role": "model", "parts": [{"text": "{\"actions\":[{\"type\":\"publish_x_post\",\"text\":\"Reviewed synthetic draft\"}]}"}]},
-        "intermediateData": {
-          "toolUses": [{"name": "flo_content_engine", "args": {"planId":"plan-public-v1","strategyDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","editorialItem":{"id":"item-1","briefId":"brief-1","campaignTheme":"Public proof","contentPillar":"Source proof","objective":"Explain the supplied synthetic proof","audienceId":"public-operators","funnelStage":"consideration","intendedConversion":"request more information","ctaIntent":"invite a follow-up","kpi":"qualified replies","channel":"x","format":"text_post","evidenceRefs":["m1"],"publicationWindowStartAt":"2026-09-01T16:00:00Z","publicationWindowEndAt":"2026-09-01T18:00:00Z","productionDeadlineAt":"2026-09-01T12:00:00Z","priority":1,"selectionScore":1,"dependencies":[],"productionStatus":"planned","constraints":["Use only supplied synthetic evidence"],"requiredAssets":[],"planningRationale":"Lead with the only supplied proof.","selectionRationale":"This is the only eligible item.","confidence":"high"},"brief":{"id":"brief-1","title":"Public proof","objective":"Explain the supplied synthetic proof","audienceId":"public-operators","funnelStage":"consideration","keyMessage":"The supplied source contains bounded proof.","channelCandidates":["x"],"formatCandidates":["text_post"],"ctaIntent":"invite a follow-up","intendedConversion":"request more information","kpi":"qualified replies","priority":1,"dependencies":[],"constraints":["Use only supplied synthetic evidence"],"evidenceRefs":["m1"]},"referencedMoments":[{"id":"m1","title":"proof","startSec":0,"endSec":2,"hook":"proof","quote":"bounded proof"}],"referencedAngles":[],"brandContext":"Direct and evidence-led.","constraints":["Use only supplied synthetic evidence"]}}],
-          "intermediateResponses": [["noni_copywriter", [{"text": "{\"drafts\":[{\"id\":\"d1\",\"platform\":\"x\",\"momentId\":\"m1\",\"text\":\"Reviewed synthetic draft\"}]}"}]]]
-        },
-        "rubrics": [{
-          "rubricId": "harmonia_contract",
-          "rubricContent": {"textProperty": "{\"kind\":\"drafts\",\"analysis\":{\"summary\":\"synthetic demo\",\"moments\":[{\"id\":\"m1\",\"title\":\"proof\",\"startSec\":0,\"endSec\":2,\"hook\":\"proof\",\"quote\":\"bounded proof\"}],\"angles\":[]}}"}
-        }]
-      }]
+      "sessionInput": {"appName":"harmonia","userId":"public-eval-user","sessionId":"public-copywriter","state":{"requested_specialist":"noni_copywriter"}},
+      "conversation": [{"invocationId":"copywriter-references-1","userContent":{"role":"user","parts":[{"text":"Delegate the typed public fixture to noni_copywriter exactly once."}]},"finalResponse":{"role":"model","parts":[{"text":"done"}]},"intermediateData":{"toolUses":[{"name":"transfer_to_agent","args":{"agent_name":"noni_copywriter"}}],"intermediateResponses":[["noni_copywriter",[{"text":"{\"id\":\"draft-1\",\"planId\":\"plan-1\",\"planDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"strategyDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"editorialItemId\":\"item-1\",\"briefId\":\"brief-1\",\"revision\":1,\"platform\":\"x\",\"format\":\"text_post\",\"audienceId\":\"founders\",\"objective\":\"Show verified operating proof\",\"funnelStage\":\"consideration\",\"ctaIntent\":\"request a demo\",\"text\":\"We cut nine days to forty hours. Request a demo.\",\"ctaTreatment\":\"Request a demo.\",\"intendedConversion\":\"qualified demo request\",\"evidenceRefs\":[\"moment-1\"],\"claims\":[{\"text\":\"We cut nine days to forty hours.\",\"evidenceRefs\":[\"moment-1\"]}],\"assumptions\":[],\"confidence\":\"high\",\"appliedConstraints\":[\"Use an evidence-led voice\"],\"priorDraftId\":null,\"addressedIssueIds\":[]}"}]]]},"rubrics":[{"rubricId":"harmonia_contract","rubricContent":{"textProperty":"{\"kind\":\"draft\"}"}}]}]
     },
     {
       "evalId": "editor-preservation",
       "fixture": "public:contract:editor-preservation",
-      "sessionInput": {
-        "appName": "harmonia", "userId": "public-eval-user", "sessionId": "public-editor",
-        "state": {
-          "requested_specialist": "flo_content_engine",
-          "production_input": {"planId":"plan-public-v1","strategyDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","editorialItem":{"id":"item-1","briefId":"brief-1","campaignTheme":"Public proof","contentPillar":"Source proof","objective":"Explain the supplied synthetic proof","audienceId":"public-operators","funnelStage":"consideration","intendedConversion":"request more information","ctaIntent":"invite a follow-up","kpi":"qualified replies","channel":"x","format":"text_post","evidenceRefs":["m1"],"publicationWindowStartAt":"2026-09-01T16:00:00Z","publicationWindowEndAt":"2026-09-01T18:00:00Z","productionDeadlineAt":"2026-09-01T12:00:00Z","priority":1,"selectionScore":1,"dependencies":[],"productionStatus":"planned","constraints":["Use only supplied synthetic evidence"],"requiredAssets":[],"planningRationale":"Lead with the only supplied proof.","selectionRationale":"This is the only eligible item.","confidence":"high"},"brief":{"id":"brief-1","title":"Public proof","objective":"Explain the supplied synthetic proof","audienceId":"public-operators","funnelStage":"consideration","keyMessage":"The supplied source contains bounded proof.","channelCandidates":["x"],"formatCandidates":["text_post"],"ctaIntent":"invite a follow-up","intendedConversion":"request more information","kpi":"qualified replies","priority":1,"dependencies":[],"constraints":["Use only supplied synthetic evidence"],"evidenceRefs":["m1"]},"referencedMoments":[{"id":"m1","title":"proof","startSec":0,"endSec":2,"hook":"proof","quote":"bounded proof"}],"referencedAngles":[],"brandContext":"Direct and evidence-led.","constraints":["Use only supplied synthetic evidence"]}
-        }
-      },
-      "conversation": [{
-        "invocationId": "editor-preservation-1",
-        "userContent": {"role": "user", "parts": [{"text": "Delegate this request to flo_content_engine exactly once for the public editor contract."}]},
-        "finalResponse": {"role": "model", "parts": [{"text": "{\"actions\":[{\"type\":\"publish_x_post\",\"text\":\"Edited synthetic draft\"}]}"}]},
-        "intermediateData": {
-          "toolUses": [{"name": "flo_content_engine", "args": {"planId":"plan-public-v1","strategyDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","editorialItem":{"id":"item-1","briefId":"brief-1","campaignTheme":"Public proof","contentPillar":"Source proof","objective":"Explain the supplied synthetic proof","audienceId":"public-operators","funnelStage":"consideration","intendedConversion":"request more information","ctaIntent":"invite a follow-up","kpi":"qualified replies","channel":"x","format":"text_post","evidenceRefs":["m1"],"publicationWindowStartAt":"2026-09-01T16:00:00Z","publicationWindowEndAt":"2026-09-01T18:00:00Z","productionDeadlineAt":"2026-09-01T12:00:00Z","priority":1,"selectionScore":1,"dependencies":[],"productionStatus":"planned","constraints":["Use only supplied synthetic evidence"],"requiredAssets":[],"planningRationale":"Lead with the only supplied proof.","selectionRationale":"This is the only eligible item.","confidence":"high"},"brief":{"id":"brief-1","title":"Public proof","objective":"Explain the supplied synthetic proof","audienceId":"public-operators","funnelStage":"consideration","keyMessage":"The supplied source contains bounded proof.","channelCandidates":["x"],"formatCandidates":["text_post"],"ctaIntent":"invite a follow-up","intendedConversion":"request more information","kpi":"qualified replies","priority":1,"dependencies":[],"constraints":["Use only supplied synthetic evidence"],"evidenceRefs":["m1"]},"referencedMoments":[{"id":"m1","title":"proof","startSec":0,"endSec":2,"hook":"proof","quote":"bounded proof"}],"referencedAngles":[],"brandContext":"Direct and evidence-led.","constraints":["Use only supplied synthetic evidence"]}}],
-          "intermediateResponses": [
-            ["noni_copywriter", [{"text": "{\"drafts\":[{\"id\":\"d1\",\"platform\":\"x\",\"momentId\":\"m1\",\"text\":\"Original synthetic draft\"}]}"}]],
-            ["dara_editor", [{"text": "{\"drafts\":[{\"id\":\"d1\",\"platform\":\"x\",\"momentId\":\"m1\",\"text\":\"Edited synthetic draft\"}]}"}]]
-          ]
-        },
-        "rubrics": [{
-          "rubricId": "harmonia_contract",
-          "rubricContent": {"textProperty": "{\"kind\":\"editor\"}"}
-        }]
-      }]
+      "sessionInput": {"appName":"harmonia","userId":"public-eval-user","sessionId":"public-editor","state":{"requested_specialist":"dara_editor"}},
+      "conversation": [{"invocationId":"editor-preservation-1","userContent":{"role":"user","parts":[{"text":"Delegate the typed public fixture to dara_editor exactly once."}]},"finalResponse":{"role":"model","parts":[{"text":"done"}]},"intermediateData":{"toolUses":[{"name":"transfer_to_agent","args":{"agent_name":"dara_editor"}}],"intermediateResponses":[["dara_editor",[{"text":"{\"id\":\"review-1\",\"planId\":\"plan-1\",\"planDigest\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"strategyDigest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"editorialItemId\":\"item-1\",\"briefId\":\"brief-1\",\"draftId\":\"draft-1\",\"revision\":1,\"verdict\":\"accepted\",\"reviewedAt\":\"2026-08-27T10:00:00Z\",\"issues\":[]}"}]]]},"rubrics":[{"rubricId":"harmonia_contract","rubricContent":{"textProperty":"{\"kind\":\"review\"}"}}]}]
     }
   ]
 }

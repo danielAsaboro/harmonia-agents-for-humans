@@ -36,7 +36,7 @@ Dashboard and chat confirmations call the same tenant-scoped decision transactio
 
 ## draft
 
-The production workflow passes only the selected editorial item, its exact Ryan brief, and the referenced Nimi moments/angles to a bounded `LoopAgent`: Noni (`noni_copywriter`) → Dara (`dara_editor`) for at most two passes. The rest of the plan is not exposed as drafting authority. Deterministic stage code derives `publish_x_post` proposals from exact reviewed text and adds the content pack, meme image generations, captioned vertical clips, and stitched highlight reel.
+The production workflow passes only the selected editorial item, its exact Ryan brief, and the referenced Nimi moments/angles to Noni (`noni_copywriter`). Dara (`dara_editor`) then receives the exact immutable input and draft and returns a typed accept/revise verdict. Deterministic code runs one original plus at most one issue-bound revision, requires the second review to accept, and persists the canonical-digested production trace. The rest of the plan is not exposed as drafting authority. Stage code derives `publish_x_post` proposals from the exact accepted text and adds the content pack, meme image generations, captioned vertical clips, and stitched highlight reel.
 
 Every action lands with `requiresApproval`, risk level, and its own idempotency key material.
 

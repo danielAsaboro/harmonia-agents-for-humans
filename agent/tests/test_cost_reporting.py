@@ -8,7 +8,7 @@ import pytest
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from harmonia_agent import content
-from harmonia_agent.agent_models import AnalystInput, MediaEvidence
+from harmonia_agent.agent_models import AnalystInput, ContentDraft, EditorialReviewInput, MediaEvidence
 from harmonia_agent.agents import _run_coordinator
 from harmonia_agent.agents import RoleModelInstances
 from harmonia_agent.gemma_model import VertexGemmaModel
@@ -52,8 +52,8 @@ def test_draft_run_reserves_and_reports_each_participating_role():
     model = ScriptedDraftModel(model="gemini-3.5-flash")
     payload = _production_input()
 
-    asyncio.run(_run_coordinator(
-        "flo_content_engine",
+    state = asyncio.run(_run_coordinator(
+        "noni_copywriter",
         payload,
         model=model,
         team_runtime=ManagedRuntime(),
@@ -64,16 +64,23 @@ def test_draft_run_reserves_and_reports_each_participating_role():
         budget_reserver=reservations.append,
         usage_reporter=reports.append,
     ))
+    draft = ContentDraft.model_validate(state["copywriter_draft"])
+    asyncio.run(_run_coordinator(
+        "dara_editor", EditorialReviewInput(copywriterInput=payload, draft=draft),
+        model=model, team_runtime=ManagedRuntime(),
+        invocation=InvocationContext(workspace_id="workspace-test", brand_id="brand-test", user_id="user-test", job_id="job-1", stage="draft", operation_id="job-1:draft:0:dara"),
+        budget_reserver=reservations.append, usage_reporter=reports.append,
+    ))
 
     assert [item["role"] for item in reservations] == [
-        "harmonia_coordinator", "noni_copywriter", "dara_editor",
+        "harmonia_coordinator", "noni_copywriter", "harmonia_coordinator", "dara_editor",
     ]
     assert [item["role"] for item in reports] == [
-        "harmonia_coordinator", "noni_copywriter", "dara_editor",
+        "harmonia_coordinator", "noni_copywriter", "harmonia_coordinator", "dara_editor",
     ]
     trace_ids = {item["traceId"] for item in reports}
-    assert len(trace_ids) == 1
-    assert next(iter(trace_ids)) != "0" * 32
+    assert len(trace_ids) == 2
+    assert "0" * 32 not in trace_ids
 
 
 def test_team_releases_prior_reservations_when_reservation_fails_before_dispatch():
@@ -88,7 +95,7 @@ def test_team_releases_prior_reservations_when_reservation_fails_before_dispatch
 
     with pytest.raises(RuntimeError, match="budget service unavailable"):
         asyncio.run(_run_coordinator(
-            "flo_content_engine",
+            "noni_copywriter",
             _production_input(),
             model=ScriptedDraftModel(model="gemini-3.5-flash"),
             team_runtime=ManagedRuntime(),
@@ -300,7 +307,7 @@ def test_agent_trace_has_safe_delegation_model_and_validation_spans():
     payload = _production_input().model_copy(update={"brandContext": "private voice instructions"})
 
     asyncio.run(_run_coordinator(
-        "flo_content_engine",
+        "noni_copywriter",
         payload,
         model=ScriptedDraftModel(model="gemini-3.5-flash"),
         team_runtime=ManagedRuntime(),
@@ -362,8 +369,8 @@ def test_heterogeneous_draft_usage_keeps_each_actual_role_model():
         },
     )
 
-    asyncio.run(_run_coordinator(
-        "flo_content_engine",
+    state = asyncio.run(_run_coordinator(
+        "noni_copywriter",
         _production_input(),
         models=models,
         team_runtime=ManagedRuntime(),
@@ -374,12 +381,15 @@ def test_heterogeneous_draft_usage_keeps_each_actual_role_model():
         budget_reserver=reservations.append,
         usage_reporter=reports.append,
     ))
+    draft = ContentDraft.model_validate(state["copywriter_draft"])
+    asyncio.run(_run_coordinator(
+        "dara_editor", EditorialReviewInput(copywriterInput=_production_input(), draft=draft),
+        models=models, team_runtime=ManagedRuntime(),
+        invocation=InvocationContext(workspace_id="workspace-test", brand_id="brand-test", user_id="user-test", job_id="job-1", stage="draft", operation_id="job-1:draft:0:dara"),
+        budget_reserver=reservations.append, usage_reporter=reports.append,
+    ))
 
-    expected = {
-        "harmonia_coordinator": "gemini-3.5-flash-lite",
-        "noni_copywriter": "gemma-3-12b-it",
-        "dara_editor": "gemini-3.5-flash",
-    }
+    expected = {"harmonia_coordinator": "gemini-3.5-flash-lite", "noni_copywriter": "gemma-3-12b-it", "dara_editor": "gemini-3.5-flash"}
     assert {item["role"]: item["model"] for item in reservations} == expected
     assert {item["role"]: item["model"] for item in reports} == expected
     gemma_usage = next(item for item in reports if item["role"] == "noni_copywriter")

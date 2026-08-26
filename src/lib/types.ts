@@ -187,6 +187,13 @@ export interface EditorialReview {
   issues: EditorialReviewIssue[];
 }
 
+export interface DraftWorkflowResult {
+  originalDraft: ContentDraft;
+  reviews: EditorialReview[];
+  revisionDraft: ContentDraft | null;
+  acceptedDraft: ContentDraft;
+}
+
 export interface CopywriterInput {
   planId: string;
   planDigest: string;
@@ -247,6 +254,8 @@ export interface Job {
   selectedNextItemId?: string;
   editorialItemStates?: Record<string, { status: "planned" | "selected" | "drafting" | "reviewed" | "awaiting_approval"; updatedAt: string }>;
   activeProductionLineage?: { editorialPlanId: string; editorialPlanDigest: string; editorialItemId: string; briefId: string };
+  productionTrace?: DraftWorkflowResult;
+  productionTraceDigest?: string;
   editorialPlanHistory?: Record<string, { plan: EditorialPlan; digest: string; revision: number; strategyId: string; strategyDigest: string; evidenceLineage: string[]; selectedNextItemId: string; acceptedAt: string }>;
   videoId?: string;
   budget?: JobBudget;
@@ -554,6 +563,7 @@ export interface ContentItem {
   id: string;
   jobId: string;
   draftId?: string;
+  draftRevision?: 1 | 2;
   editorialPlanId?: string;
   editorialItemId?: string;
   briefId?: string;

@@ -15,7 +15,7 @@ Harmonia uses **bounded agency inside a durable workflow**. Gemini/ADK handles a
 | strategize | agentic cognition | Ryan's four-week strategy and source-grounded briefs | strict context/evidence IDs, provenance validation, and no tools |
 | awaiting_strategy_approval | deterministic authority | exact strategy decision | authenticated actor, canonical digest, expiry, and one-revision limit |
 | plan | agentic cognition inside deterministic workflow | Temi's sequencing, cadence, supported channel/format, windows, deadlines, dependencies, and priorities | strict plan validation, canonical digest, Firestore persistence, deterministic eligible-item selection; no Temi tools or authority |
-| draft | agentic cognition in a bounded ADK loop | platform-native language | selected item only; Noni → Dara → bounded Noni revision; preserved references; no effect authority |
+| draft | separate agentic Noni and Dara calls inside a deterministic bounded loop | platform-native language and structured editorial judgment | selected item only; one original plus at most one issue-bound revision; exact lineage and evidence; final review must accept; no effect authority |
 | awaiting approval | human authority | approve or reject each proposed action | no external effect until a durable human decision exists |
 | publish/export | deterministic workflow | provider response | exact approved payload, idempotency key, bounded retry, immutable receipt |
 | verify | deterministic workflow | observed external/stored state | fresh official API read or digest reread; never trust executor/model assertion |

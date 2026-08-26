@@ -9,7 +9,7 @@ import pytest
 
 from harmonia_agent import stages
 from harmonia_agent.agents import AgentProtocolError
-from harmonia_agent.agent_models import ActionPlan, Draft, DraftSet, DraftWorkflowResult, EditorialPlan
+from harmonia_agent.agent_models import ContentDraft, DraftWorkflowResult, EditorialPlan, EditorialReview
 from tests.test_ryan_stages import job as ryan_job
 from tests.test_ryan_strategy import strategy
 from tests.test_temi_editorial_plan import plan
@@ -54,6 +54,29 @@ def drafting_job() -> dict:
         }},
     })
     return source
+
+
+def accepted_package(request, text="we cut nine days to forty hours Request a demo") -> DraftWorkflowResult:
+    draft = ContentDraft(
+        id="draft-1", planId=request.planId, planDigest=request.planDigest,
+        strategyDigest=request.strategyDigest, editorialItemId=request.editorialItemId,
+        briefId=request.briefId, revision=1, platform="x", format="text_post",
+        audienceId=request.brief.audienceId, objective=request.brief.objective,
+        funnelStage=request.brief.funnelStage, ctaIntent=request.brief.ctaIntent,
+        text=text, ctaTreatment="Request a demo",
+        intendedConversion=request.brief.intendedConversion,
+        evidenceRefs=[request.referencedMoments[0].id],
+        claims=[{"text": "we cut nine days to forty hours", "evidenceRefs": [request.referencedMoments[0].id]}],
+        assumptions=[], confidence="high", appliedConstraints=request.constraints,
+        priorDraftId=None, addressedIssueIds=[],
+    )
+    review = EditorialReview(
+        id="review-1", planId=draft.planId, planDigest=draft.planDigest,
+        strategyDigest=draft.strategyDigest, editorialItemId=draft.editorialItemId,
+        briefId=draft.briefId, draftId=draft.id, revision=1, verdict="accepted",
+        reviewedAt="2026-08-30T01:00:00Z", issues=[],
+    )
+    return DraftWorkflowResult(originalDraft=draft, reviews=[review], revisionDraft=None, acceptedDraft=draft)
 
 
 def test_editorial_plan_digest_is_canonical_and_matches_typescript():
@@ -129,11 +152,7 @@ def test_draft_claims_and_hands_only_selected_item_with_exact_brief_and_evidence
 
     async def fake_draft(request, *, invocation):
         calls.append(request)
-        return DraftWorkflowResult(
-            copywriter_drafts=DraftSet(drafts=[Draft(id="draft-1", platform="x", momentId="m1", text="Original")]),
-            reviewed_drafts=DraftSet(drafts=[Draft(id="draft-1", platform="x", momentId="m1", text="Reviewed")]),
-            action_plan=ActionPlan(actions=[]),
-        )
+        return accepted_package(request)
 
     def fake_post(path, payload):
         posts.append((path, payload))
@@ -192,8 +211,7 @@ def test_draft_uses_immutable_approved_strategy_history_not_mutable_current_stra
     captured = []
     async def fake_draft(request, *, invocation):
         captured.append(request)
-        empty = DraftSet(drafts=[])
-        return DraftWorkflowResult(copywriter_drafts=empty, reviewed_drafts=empty, action_plan=ActionPlan(actions=[]))
+        return accepted_package(request)
     monkeypatch.setattr(stages, "get_job", lambda _id: source)
     monkeypatch.setattr(stages, "draft_with_team", fake_draft)
     monkeypatch.setattr(stages, "get_insights", lambda: {})
@@ -222,8 +240,7 @@ def test_derived_media_actions_use_only_selected_item_evidence(monkeypatch):
     source["angles"].append({"id": "a-extra", "kind": "meme", "title": "Unselected meme", "rationale": "not selected"})
     posts = []
     async def fake_draft(*_args, **_kwargs):
-        empty = DraftSet(drafts=[])
-        return DraftWorkflowResult(copywriter_drafts=empty, reviewed_drafts=empty, action_plan=ActionPlan(actions=[]))
+        return accepted_package(_args[0])
     monkeypatch.setattr(stages, "get_job", lambda _id: source)
     monkeypatch.setattr(stages, "draft_with_team", fake_draft)
     monkeypatch.setattr(stages, "get_insights", lambda: {})

@@ -16,10 +16,10 @@ describe("architecture explorer state", () => {
   it("applies presets and toggles groups without mutating prior state", () => {
     const initial = createDefaultExplorerState(architectureDefinition);
     const agents = applyPreset(initial, "agents", architectureDefinition);
-    expect(agents.expanded).toContain("workflow-flo");
-    const collapsed = toggleGroup(agents, "workflow-flo");
-    expect(collapsed.expanded).not.toContain("workflow-flo");
-    expect(agents.expanded).toContain("workflow-flo");
+    expect(agents.expanded).toContain("workflow-writing-review");
+    const collapsed = toggleGroup(agents, "workflow-writing-review");
+    expect(collapsed.expanded).not.toContain("workflow-writing-review");
+    expect(agents.expanded).toContain("workflow-writing-review");
   });
 
   it("activates group nodes by selecting and expanding or collapsing them", () => {

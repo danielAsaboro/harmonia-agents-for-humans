@@ -705,8 +705,12 @@ class CopywriterInput(StrictModel):
         if set(self.brief.evidenceRefs) != set(self.editorialItem.evidenceRefs):
             raise ValueError("copywriter input brief evidence does not match the selected editorial item")
         supplied_ids = [item.id for item in [*self.referencedMoments, *self.referencedAngles]]
-        if set(supplied_ids) != set(self.editorialItem.evidenceRefs) or len(supplied_ids) != len(set(supplied_ids)):
-            raise ValueError("copywriter input evidence must exactly match selected evidence")
+        if (
+            not supplied_ids
+            or not set(supplied_ids).issubset(set(self.editorialItem.evidenceRefs))
+            or len(supplied_ids) != len(set(supplied_ids))
+        ):
+            raise ValueError("copywriter input must contain only referenced Nimi evidence")
         if self.editorialItem.channel != self.platform or self.editorialItem.format != self.format:
             raise ValueError("copywriter platform and format must match the selected item")
         if self.platform not in self.brief.channelCandidates or self.format not in self.brief.formatCandidates:
@@ -784,6 +788,34 @@ class DraftWorkflowResult(StrictModel):
             raise ValueError("bounded workflow final review must be accepted")
         if self.acceptedDraft != revision:
             raise ValueError("accepted draft must equal the accepted revision")
+        return self
+
+
+class EditorialReviewInput(StrictModel):
+    copywriterInput: CopywriterInput
+    draft: ContentDraft
+
+    @model_validator(mode="after")
+    def validate_exact_draft_authority(self) -> "EditorialReviewInput":
+        lineage = (
+            self.copywriterInput.planId,
+            self.copywriterInput.planDigest,
+            self.copywriterInput.strategyDigest,
+            self.copywriterInput.editorialItemId,
+            self.copywriterInput.briefId,
+        )
+        draft_lineage = (
+            self.draft.planId,
+            self.draft.planDigest,
+            self.draft.strategyDigest,
+            self.draft.editorialItemId,
+            self.draft.briefId,
+        )
+        if lineage != draft_lineage:
+            raise ValueError("Dara input must preserve exact production lineage")
+        expected_revision = 1 if self.copywriterInput.passType == "original" else 2
+        if self.draft.revision != expected_revision:
+            raise ValueError("Dara input draft revision does not match the copywriter pass")
         return self
 
 

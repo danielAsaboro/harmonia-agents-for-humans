@@ -48,7 +48,7 @@ flowchart TB
     subgraph AgentPlatform["Vertex AI Agent Engine"]
         COORD[ADK coordinator<br/>Gemini 3.5 Flash-Lite]
         SPECIALISTS[Single-turn specialists<br/>Nimi analysis · Ryan strategy · Temi plan]
-        DRAFTFLOW[Flo production loop<br/>selected item: Noni ↔ Dara]
+        DRAFTFLOW[Deterministic writing/review loop<br/>selected item: Noni ↔ Dara]
         MEMORY[(Memory Bank<br/>workspace + brand exact scope)]
     end
 
@@ -118,7 +118,7 @@ The UI exposes only concise activity and reasoning summaries derived from valida
 
 ### Typed multi-agent judgment
 
-Harmonia, the ADK root coordinator, delegates evidence analysis to Nimi (`nimi_analyst`), strategy/content briefs to Ryan (`ryan_strategist`), and editorial operationalization to Temi (`temi_editorial_planner`). After independent human strategy approval, Temi proposes the complete four-week plan. Deterministic code validates it, computes its digest and lineage, persists it in Firestore, and selects exactly one eligible item. Flo (`flo_content_engine`) then runs only the bounded Noni/Dara production loop for that item. Deterministic stage code derives effect proposals from exact reviewed text; Firestore remains durable truth between Pub/Sub stages.
+Harmonia, the ADK root coordinator, delegates evidence analysis to Nimi (`nimi_analyst`), strategy/content briefs to Ryan (`ryan_strategist`), and editorial operationalization to Temi (`temi_editorial_planner`). After independent human strategy approval, Temi proposes the complete four-week plan. Deterministic code validates it, computes its digest and lineage, persists it in Firestore, and selects exactly one eligible item. The worker then invokes Noni (`noni_copywriter`) and Dara (`dara_editor`) as separate typed ADK specialists in a deterministic loop: one original, one review, and at most one issue-bound revision plus final review. Deterministic stage code derives effect proposals from the exact accepted draft; Firestore persists the complete trace and remains durable truth between Pub/Sub stages.
 
 All cognitive roles use policy `gear-2026-08-24`, pricing catalog `2026-08-23`, the
 `harmonia-standard` safety profile, and a proposed promotion quality floor of `0.95`.
@@ -130,7 +130,7 @@ All cognitive roles use policy `gear-2026-08-24`, pricing catalog `2026-08-23`, 
 | Nimi analyst | Gemini 3.5 Flash multimodal | 0.2 / 2,048 | quote/time/frame grounding | bounded source media + transcript | invent evidence, define strategy, approve, publish |
 | Temi editorial planner | Gemini 3.5 Flash-Lite | 0.1 / 1,024 | coherent sequencing, cadence, supported channel/format, windows, deadlines, dependencies, priority | exact approved Ryan strategy, Nimi evidence, capabilities, commitments, capacity; no tools | invent evidence/strategy, write final copy, approve, schedule externally, publish |
 | Noni copywriter | Gemma 3 12B IT Vertex endpoint | 0.8 / 2,048 | references and X length | selected Temi item + exact Ryan brief + referenced Nimi evidence | inspect the rest of the plan, create facts, approve, publish |
-| Dara editor | Gemini 3.5 Flash | 0.2 / 2,048 | preserve IDs/references | Noni drafts + session state | create authority, approve, publish |
+| Dara editor | Gemini 3.5 Flash | 0.2 / 2,048 | exact lineage, grounding, brief, brand, platform, CTA, and safety review | exact Noni draft + immutable production input; no tools | rewrite copy, create facts or authority, approve, publish |
 | Maya presenter | Gemini 3.5 Flash | 0.2 / 2,048 | bounded component/entity references | typed `UiContext`; no effect tools | invent state or execute actions |
 | Nova liaison | Gemini 3.5 Flash | 0.2 / 2,048 | grounded read-only answers | insight skills + read-only tools | mutate, approve, publish |
 
@@ -150,7 +150,7 @@ the private evidence workspace and mock mode is explicitly refused by the live r
 
 For a newly ingested YouTube job, Harmonia persists the source media digest and passes the authorized public video URI to Nimi as a Gemini `file_data` video part. The timed transcript is supplied alongside it for exact quotes and boundaries. Nimi can return additive visual hooks, crop suitability, caption-safe regions, and references to bounded frame evidence. Brief-only jobs remain text-only. Media bytes and source URIs are excluded from trace content.
 
-No agent has publishing, approval, credential, external-calendar, or destructive tools. Temi proposes editorial plans; deterministic code owns validation, digest, persistence, item selection and lifecycle, and every external scheduling/effect mutation. It derives action proposals only from Dara-reviewed text and adds packs and media actions before the existing human gate.
+No agent has publishing, approval, credential, external-calendar, or destructive tools. Temi proposes editorial plans; Noni proposes grounded copy; Dara proposes structured review decisions. Deterministic code owns validation, canonical digests, persistence, item selection, the one-revision limit, and every external scheduling/effect mutation. It derives action proposals only from the exact accepted Noni draft and adds packs and media actions before the existing human gate.
 
 ### Managed runtime and persistent memory
 

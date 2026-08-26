@@ -17,7 +17,6 @@ from harmonia_agent.evaluation_runner import (
     validate_eval_set_privacy,
 )
 from harmonia_agent.evaluation_contracts import adk_contract_metric
-from harmonia_agent.agent_models import ProductionDraftInput
 
 
 def test_public_evalset_is_adk_pydantic_valid():
@@ -25,23 +24,21 @@ def test_public_evalset_is_adk_pydantic_valid():
 
     assert eval_set.eval_set_id == "harmonia-contracts-v1"
     assert {case.eval_id for case in eval_set.eval_cases} >= {
-        "route-analyst", "planner-no-authority", "liaison-read-only",
+        "route-analyst", "copywriter-references", "editor-preservation", "liaison-read-only",
     }
     validate_eval_set_privacy(eval_set)
 
 
-def test_flo_public_cases_use_the_exact_selected_production_contract():
+def test_noni_and_dara_public_cases_route_to_exact_specialists():
     eval_set = load_eval_set(Path("evals/contracts.evalset.json"))
-    flo_cases = [
+    production_cases = [
         case for case in eval_set.eval_cases
-        if case.eval_id in {"planner-no-authority", "copywriter-references", "editor-preservation"}
+        if case.eval_id in {"copywriter-references", "editor-preservation"}
     ]
-    for case in flo_cases:
-        state = case.session_input.state
-        ProductionDraftInput.model_validate(state["production_input"])
-        assert not {"title", "analysis", "brand_context"}.intersection(state)
+    expected = {"copywriter-references": "noni_copywriter", "editor-preservation": "dara_editor"}
+    for case in production_cases:
         tool_args = case.conversation[0].intermediate_data.tool_uses[0].args
-        assert tool_args == state["production_input"]
+        assert tool_args == {"agent_name": expected[case.eval_id]}
 
 
 def test_adk_custom_metric_executes_grounding_contract():
@@ -64,11 +61,11 @@ def test_adk_custom_metric_executes_grounding_contract():
 @pytest.mark.parametrize(("eval_id", "invalid_output"), [
     (
         "copywriter-references",
-        '{"drafts":[{"id":"d1","platform":"x","momentId":"missing","text":"Draft"}]}',
+        '{"id":"d1","planId":"plan-1","planDigest":"bad"}',
     ),
     (
         "editor-preservation",
-        '{"drafts":[{"id":"new","platform":"x","text":"Created"}]}',
+        '{"id":"review-1","draftId":"invented","verdict":"accepted","issues":[]}',
     ),
 ])
 def test_adk_custom_metric_executes_reference_preservation_contracts(
@@ -81,14 +78,6 @@ def test_adk_custom_metric_executes_reference_preservation_contracts(
         "editor-preservation": "dara_editor",
     }[eval_id]
     responses = [(author, [types.Part(text=invalid_output)])]
-    if eval_id == "editor-preservation":
-        responses.insert(0, (
-            "noni_copywriter",
-            [types.Part(text=(
-                '{"drafts":[{"id":"d1","platform":"x","momentId":"m1",'
-                '"text":"Original synthetic draft"}]}'
-            ))],
-        ))
     actual = [expected[0].model_copy(update={
         "final_response": types.Content(
             role="model", parts=[types.Part(text='{"actions":[]}')],
@@ -108,14 +97,6 @@ def test_adk_custom_metric_fails_closed_when_author_output_is_missing(eval_id):
     eval_set = load_eval_set(Path("evals/contracts.evalset.json"))
     expected = next(case for case in eval_set.eval_cases if case.eval_id == eval_id).conversation
     responses = []
-    if eval_id == "editor-preservation":
-        responses = [(
-            "noni_copywriter",
-            [types.Part(text=(
-                '{"drafts":[{"id":"d1","platform":"x","momentId":"m1",'
-                '"text":"Original synthetic draft"}]}'
-            ))],
-        )]
     actual = [expected[0].model_copy(update={
         "final_response": types.Content(
             role="model", parts=[types.Part(text='{"actions":[]}')],

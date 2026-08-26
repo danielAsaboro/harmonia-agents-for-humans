@@ -1,5 +1,6 @@
 import { Firestore, FieldValue } from "@google-cloud/firestore";
 import { createHash } from "node:crypto";
+import { canonicalJson } from "./recordReplay/integrity";
 import type {
   EvidencePacket,
   Engagement,
@@ -21,6 +22,7 @@ import type {
   EffectClaim,
   EffectClaimInput,
   EffectClaimOutcome,
+  DraftWorkflowResult,
 } from "./types";
 import { applyFinalizedUsage, applyReleasedReservation, applyReservation, canReserve, exceedsApprovalThreshold } from "./costs";
 import { markReservationFinalized, markReservationReleased, markReservationUncertain, type CostReservationState } from "./costReservations";
@@ -84,6 +86,8 @@ interface JobDoc extends Omit<Job, "id"> {
   angles?: Angle[];
   summary?: string;
   drafts?: PostDraft[];
+  productionTrace?: DraftWorkflowResult;
+  productionTraceDigest?: string;
   contentPack?: { markdown: string; digest: string; generatedAt: string };
   actions?: PlannedAction[];
   verifications?: VerificationResult[];
@@ -1612,25 +1616,26 @@ export async function claimSelectedEditorialItem(
 export async function finalizeEditorialItemDraft(
   jobId: string,
   lineage: { editorialPlanId: string; editorialPlanDigest: string; editorialItemId: string; briefId: string },
-  drafts: PostDraft[],
+  productionTrace: DraftWorkflowResult,
   actions: PlannedAction[],
   needsApproval: boolean,
 ) {
+  const traceDigest = createHash("sha256").update(canonicalJson(productionTrace), "utf8").digest("hex");
   return db().runTransaction(async (tx) => {
     const ref = jobRef(jobId);
     const snap = await tx.get(ref);
     const job = requireJobDoc(snap);
     const active = job.activeProductionLineage;
     if (isMatchingCompletedProduction(job, lineage, needsApproval)) {
-      return { outcome: "already_applied" as const, drafts: job.drafts, actions: job.actions };
+      if (job.productionTraceDigest !== traceDigest) throw new Error("completed production trace digest mismatch");
+      return { outcome: "already_applied" as const, productionTrace: job.productionTrace, actions: job.actions };
     }
     assertSelectedProductionAuthority(job, lineage, "drafting");
     if (!active || active.editorialPlanId !== lineage.editorialPlanId || active.editorialPlanDigest !== lineage.editorialPlanDigest || active.editorialItemId !== lineage.editorialItemId || active.briefId !== lineage.briefId) throw new Error("production lineage mismatch");
-    const linkedDrafts = drafts.map((draft) => ({ ...draft, ...lineage }));
     const linkedActions = actions.map((action) => ({ ...action, ...lineage }));
     const updatedAt = new Date().toISOString();
     tx.update(ref, {
-      drafts: linkedDrafts, actions: linkedActions,
+      productionTrace, productionTraceDigest: traceDigest, actions: linkedActions,
       ...editorialDraftCompletionPatch(lineage.editorialItemId, updatedAt, needsApproval),
     });
     for (const action of linkedActions) {
@@ -1638,11 +1643,14 @@ export async function finalizeEditorialItemDraft(
       const text = String((action.payload as { text?: unknown }).text ?? "");
       if (!text) continue;
       tx.set(contentItemRef(`item-${action.id}`), {
-        id: `item-${action.id}`, jobId, ...lineage, text, platforms: ["x"],
+        id: `item-${action.id}`, jobId, ...lineage,
+        draftId: productionTrace.acceptedDraft.id,
+        draftRevision: productionTrace.acceptedDraft.revision,
+        text, platforms: ["x"],
         status: "draft", publishMode: "approval", createdAt: updatedAt, updatedAt,
       } satisfies import("./types").ContentItem);
     }
-    return { outcome: "execute" as const, drafts: linkedDrafts, actions: linkedActions };
+    return { outcome: "execute" as const, productionTrace, actions: linkedActions };
   });
 }
 

@@ -28,17 +28,18 @@ export async function POST(req: Request) {
       return Response.json({ error: `job stage is '${job.stage}'` }, { status: 409 });
     }
 
-    const drafts = body.drafts.map((d) => ({
-      ...d,
-      ...validateDraftText(d.platform, d.text),
-    }));
+    const accepted = body.productionTrace.acceptedDraft;
+    const acceptedValidation = validateDraftText(accepted.platform, accepted.text);
+    if (!acceptedValidation.valid) {
+      return Response.json({ error: acceptedValidation.note || "accepted draft is invalid" }, { status: 422 });
+    }
     const withPolicy = applyPolicy(
       body.proposedActions.map((a) => ({ ...a, jobId: body.jobId })),
     );
     const actionable = withPolicy.filter((a) => {
       if (a.type !== "publish_x_post") return true;
       const text = String((a.payload as { text?: unknown }).text ?? "");
-      return validateDraftText("x", text).valid;
+      return text === accepted.text && validateDraftText("x", text).valid;
     });
     const lineage = {
       editorialPlanId: body.editorialPlanId,
@@ -48,16 +49,15 @@ export async function POST(req: Request) {
     };
     const needsApproval = actionable.filter((a) => a.requiresApproval);
     const autoRun = actionable.filter((a) => !a.requiresApproval);
-    const invalid = drafts.filter((d) => !d.valid);
     const completion = await finalizeEditorialItemDraft(
-      body.jobId, lineage, drafts, actionable, needsApproval.length > 0,
+      body.jobId, lineage, body.productionTrace, actionable, needsApproval.length > 0,
     );
     if (completion.outcome === "already_applied") {
       return Response.json({ ok: true, awaitingApproval: true, alreadyApplied: true });
     }
 
     if (needsApproval.length > 0) {
-      await appendEvent(body.jobId, "draft", `${drafts.length} draft(s); ${autoRun.length} auto action(s), ${needsApproval.length} awaiting approval${invalid.length ? `, ${invalid.length} rejected by limits` : ""}`, "agent");
+      await appendEvent(body.jobId, "draft", `1 accepted draft; ${autoRun.length} auto action(s), ${needsApproval.length} awaiting approval`, "agent");
       await createNotification({
         kind: "approval_needed",
         title: "Approval needed",

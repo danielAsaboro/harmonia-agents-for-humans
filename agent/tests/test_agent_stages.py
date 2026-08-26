@@ -7,10 +7,11 @@ from pathlib import Path
 import pytest
 
 from harmonia_agent import stages
-from harmonia_agent.agent_models import ActionPlan, AnalysisResult, Draft, DraftSet, DraftWorkflowResult
+from harmonia_agent.agent_models import AnalysisResult
 from harmonia_agent.web_client import EffectClaimInProgress, EffectClaimUncertain
 from tests.test_ryan_strategy import strategy as _content_strategy
 from tests.test_temi_editorial_plan import plan as _editorial_plan
+from tests.test_temi_stages import accepted_package
 
 
 def _analysis() -> dict:
@@ -88,8 +89,7 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
         "editorialItemStates": {persisted_plan["selectedNextItemId"]: {"status": "selected"}},
     }
     async def fake_draft(*_args, **_kwargs):
-        reviewed = DraftSet(drafts=[Draft(id="d1", platform="x", momentId="m1", text="Reviewed")])
-        return DraftWorkflowResult(copywriter_drafts=reviewed, reviewed_drafts=reviewed, action_plan=ActionPlan(actions=[]))
+        return accepted_package(_args[0])
 
     monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
     monkeypatch.setattr(stages, "get_insights", lambda: {"goals": {"voice": "direct"}})
@@ -103,8 +103,8 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
 
     path, payload = posts[-1]
     assert path == "/api/internal/drafts"
-    assert set(payload) == {"jobId", "stage", "operation", "editorialPlanId", "editorialPlanDigest", "editorialItemId", "briefId", "drafts", "proposedActions"}
-    draft_text = {draft["text"] for draft in payload["drafts"]}
+    assert set(payload) == {"jobId", "stage", "operation", "editorialPlanId", "editorialPlanDigest", "editorialItemId", "briefId", "productionTrace", "proposedActions"}
+    draft_text = {payload["productionTrace"]["acceptedDraft"]["text"]}
     publish_text = {
         action["payload"]["text"]
         for action in payload["proposedActions"]

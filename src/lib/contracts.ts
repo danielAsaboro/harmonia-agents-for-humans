@@ -379,6 +379,29 @@ export const editorialReviewSchema = z.object({
   }
 });
 
+export const draftWorkflowResultSchema = z.object({
+  originalDraft: contentDraftSchema,
+  reviews: z.array(editorialReviewSchema).min(1).max(2),
+  revisionDraft: contentDraftSchema.nullable(),
+  acceptedDraft: contentDraftSchema,
+}).strict().superRefine((trace, context) => {
+  const original = trace.originalDraft;
+  const first = trace.reviews[0];
+  const lineage = [original.planId, original.planDigest, original.strategyDigest, original.editorialItemId, original.briefId].join("\0");
+  const reviewLineage = (review: z.infer<typeof editorialReviewSchema>) => [review.planId, review.planDigest, review.strategyDigest, review.editorialItemId, review.briefId].join("\0");
+  if (original.revision !== 1 || first?.draftId !== original.id || first?.revision !== 1) context.addIssue({ code: "custom", message: "first review must bind the revision-1 original" });
+  if (trace.reviews.some((review) => reviewLineage(review) !== lineage)) context.addIssue({ code: "custom", message: "reviews must preserve production lineage" });
+  if (first?.verdict === "accepted") {
+    if (trace.reviews.length !== 1 || trace.revisionDraft !== null || trace.acceptedDraft.id !== original.id) context.addIssue({ code: "custom", message: "accepted original cannot contain a revision trace" });
+    return;
+  }
+  const revision = trace.revisionDraft;
+  const final = trace.reviews[1];
+  if (!revision || trace.reviews.length !== 2 || revision.revision !== 2 || revision.priorDraftId !== original.id || final?.draftId !== revision?.id || final?.verdict !== "accepted" || trace.acceptedDraft.id !== revision?.id) {
+    context.addIssue({ code: "custom", message: "revision trace must contain exactly one accepted revision" });
+  }
+});
+
 export const copywriterInputSchema = z.object({
   planId: strictIdentifierSchema,
   planDigest: z.string().regex(/^[0-9a-f]{64}$/),
@@ -468,14 +491,6 @@ export const strategyInvocationContextSchema = z.object({
   horizonWeeks: z.number().int().min(1).max(12),
 }).strict();
 
-export const draftSchema = z.object({
-  id: z.string().min(1),
-  platform: z.enum(["x"]),
-  momentId: z.string().optional(),
-  angleId: z.string().optional(),
-  text: z.string().min(1),
-});
-
 export const draftClaimSubmissionSchema = z.object({
   jobId: z.string().min(1), stage: z.literal("draft"), operation: z.literal("claim"),
   editorialPlanId: z.string().min(1).max(100), editorialPlanDigest: z.string().regex(/^[0-9a-f]{64}$/),
@@ -490,7 +505,7 @@ export const draftCompletionSubmissionSchema = z.object({
   editorialPlanDigest: z.string().regex(/^[0-9a-f]{64}$/),
   editorialItemId: z.string().min(1).max(100),
   briefId: z.string().min(1).max(100),
-  drafts: z.array(draftSchema).max(10).default([]),
+  productionTrace: draftWorkflowResultSchema,
   proposedActions: z
     .array(
       z.object({
@@ -546,6 +561,14 @@ export const draftCompletionSubmissionSchema = z.object({
     )
     .max(20)
     .default([]),
+}).strict().superRefine((submission, context) => {
+  const publish = submission.proposedActions.filter((action) => action.type === "publish_x_post");
+  if (submission.proposedActions.some((action) => action.type !== action.payload.type)) {
+    context.addIssue({ code: "custom", path: ["proposedActions"], message: "action type must match payload type" });
+  }
+  if (publish.length !== 1 || publish[0]?.payload.type !== "publish_x_post" || publish[0].payload.text !== submission.productionTrace.acceptedDraft.text) {
+    context.addIssue({ code: "custom", path: ["proposedActions"], message: "one publish action must contain the exact accepted draft text" });
+  }
 });
 
 export const receiptSubmissionSchema = z.object({

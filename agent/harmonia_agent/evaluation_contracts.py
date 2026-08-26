@@ -11,11 +11,13 @@ from pydantic import BaseModel, ConfigDict
 
 from .agent_models import (
     AnalysisResult,
+    ContentDraft,
     ContentStrategy,
-    DraftSet,
+    CopywriterInput,
+    DraftWorkflowResult,
     EditorialPlan,
     EditorialPlannerInput,
-    ProductionDraftInput,
+    EditorialReview,
     StrategistInput,
 )
 
@@ -213,7 +215,7 @@ def evaluate_editorial_plan(
 
 
 def evaluate_production_handoff(
-    *, production: ProductionDraftInput | Mapping[str, Any],
+    *, production: CopywriterInput | Mapping[str, Any],
     expected_selected_item_id: str,
 ) -> EvaluationCaseResult:
     """Require Noni's handoff to expose only the exact selected plan item."""
@@ -227,8 +229,8 @@ def evaluate_production_handoff(
     try:
         parsed = (
             production
-            if isinstance(production, ProductionDraftInput)
-            else ProductionDraftInput.model_validate(production)
+            if isinstance(production, CopywriterInput)
+            else CopywriterInput.model_validate(production)
         )
     except Exception:
         return _result([_failure(
@@ -241,45 +243,51 @@ def evaluate_production_handoff(
     return _result([])
 
 
-def evaluate_drafts(
-    *, drafts: DraftSet | Mapping[str, Any], analysis: AnalysisResult,
+def evaluate_content_draft(
+    *, copywriter_input: CopywriterInput | Mapping[str, Any],
+    draft: ContentDraft | Mapping[str, Any],
 ) -> EvaluationCaseResult:
-    items = drafts.drafts if isinstance(drafts, DraftSet) else drafts.get("drafts", [])
-    moment_ids = {moment.id for moment in analysis.moments}
-    angle_ids = {angle.id for angle in analysis.angles}
-    failures: list[EvaluationFailure] = []
-    for index, item in enumerate(items):
-        data = item.model_dump() if hasattr(item, "model_dump") else item
-        path = f"drafts.{index}"
-        if data.get("momentId") is not None and data["momentId"] not in moment_ids:
-            failures.append(_failure("unknown_moment", "draft cites an unknown moment", path))
-        if data.get("angleId") is not None and data["angleId"] not in angle_ids:
-            failures.append(_failure("unknown_angle", "draft cites an unknown angle", path))
-        if data.get("platform") == "x" and len(data.get("text", "")) > 280:
-            failures.append(_failure("x_text_too_long", "X draft exceeds 280 characters", path))
-    return _result(failures)
+    try:
+        supplied = copywriter_input if isinstance(copywriter_input, CopywriterInput) else CopywriterInput.model_validate(copywriter_input)
+        parsed = draft if isinstance(draft, ContentDraft) else ContentDraft.model_validate(draft)
+        from .agents import validate_content_draft
+        validate_content_draft(supplied, parsed)
+    except Exception as exc:
+        message = str(exc)
+        code = (
+            "authority_overreach" if "authority" in message or "publishing" in message else
+            "invented_reference" if "evidence" in message or "claim" in message else
+            "brief_deviation" if "brief" in message or "CTA" in message or "audience" in message or "funnel" in message else
+            "invalid_draft"
+        )
+        return _result([_failure(code, message)])
+    return _result([])
 
 
-def evaluate_editor(
-    *, originals: DraftSet, reviewed: DraftSet | Mapping[str, Any],
+def evaluate_editorial_review(
+    *, copywriter_input: CopywriterInput | Mapping[str, Any],
+    draft: ContentDraft | Mapping[str, Any],
+    review: EditorialReview | Mapping[str, Any],
 ) -> EvaluationCaseResult:
-    items = reviewed.drafts if isinstance(reviewed, DraftSet) else reviewed.get("drafts", [])
-    original_by_id = {draft.id: draft for draft in originals.drafts}
-    failures: list[EvaluationFailure] = []
-    for index, item in enumerate(items):
-        data = item.model_dump() if hasattr(item, "model_dump") else item
-        original = original_by_id.get(data.get("id"))
-        path = f"drafts.{index}"
-        if original is None:
-            failures.append(_failure("editor_created_id", "editor created a new draft ID", path))
-            continue
-        if (data.get("momentId"), data.get("angleId")) != (
-            original.momentId, original.angleId,
-        ):
-            failures.append(_failure(
-                "editor_changed_reference", "editor changed a source reference", path,
-            ))
-    return _result(failures)
+    try:
+        supplied = copywriter_input if isinstance(copywriter_input, CopywriterInput) else CopywriterInput.model_validate(copywriter_input)
+        parsed_draft = draft if isinstance(draft, ContentDraft) else ContentDraft.model_validate(draft)
+        parsed_review = review if isinstance(review, EditorialReview) else EditorialReview.model_validate(review)
+        from .agents import validate_editorial_review
+        validate_editorial_review(supplied, parsed_draft, parsed_review)
+    except Exception as exc:
+        return _result([_failure("invalid_editorial_review", str(exc))])
+    return _result([])
+
+
+def evaluate_draft_workflow(
+    *, workflow: DraftWorkflowResult | Mapping[str, Any],
+) -> EvaluationCaseResult:
+    try:
+        workflow if isinstance(workflow, DraftWorkflowResult) else DraftWorkflowResult.model_validate(workflow)
+    except Exception as exc:
+        return _result([_failure("invalid_revision_trace", str(exc))])
+    return _result([])
 
 
 _AUTHORITY_KEYS = frozenset({
@@ -308,29 +316,6 @@ def _claims_authority(value: object) -> bool:
     return False
 
 
-def evaluate_action_plan(
-    *, reviewed: DraftSet, plan: Mapping[str, Any],
-) -> EvaluationCaseResult:
-    actions = plan.get("actions", [])
-    reviewed_text = {draft.text for draft in reviewed.drafts}
-    failures: list[EvaluationFailure] = []
-    if reviewed.drafts and not actions:
-        failures.append(_failure(
-            "missing_planner_action", "planner returned no action for reviewed drafts", "actions",
-        ))
-    for index, action in enumerate(actions):
-        path = f"actions.{index}"
-        if action.get("text") not in reviewed_text:
-            failures.append(_failure(
-                "planner_text_mismatch", "planner changed or invented reviewed text", path,
-            ))
-        if _claims_authority(action):
-            failures.append(_failure(
-                "planner_claimed_authority", "planner claimed approval or effect authority", path,
-            ))
-    return _result(failures)
-
-
 def _content_text(invocation: Any) -> str:
     content = invocation.final_response
     return "\n".join(part.text for part in (content.parts or []) if part.text) if content else ""
@@ -351,6 +336,56 @@ def _contract_spec(invocation: Any) -> dict[str, Any]:
         if rubric.rubric_id == "harmonia_contract":
             return json.loads(rubric.rubric_content.text_property or "{}")
     raise ValueError("expected invocation is missing harmonia_contract rubric")
+
+
+def _public_copywriter_input() -> CopywriterInput:
+    return CopywriterInput.model_validate({
+        "planId": "plan-1", "planDigest": "a" * 64, "strategyDigest": "b" * 64,
+        "editorialItemId": "item-1", "briefId": "brief-1",
+        "editorialItem": {
+            "id": "item-1", "briefId": "brief-1", "campaignTheme": "Operating proof",
+            "contentPillar": "proof", "objective": "Show verified operating proof",
+            "audienceId": "founders", "funnelStage": "consideration",
+            "intendedConversion": "qualified demo request", "ctaIntent": "request a demo",
+            "kpi": "qualified demos", "channel": "x", "format": "text_post",
+            "evidenceRefs": ["moment-1"], "publicationWindowStartAt": "2026-09-01T16:00:00Z",
+            "publicationWindowEndAt": "2026-09-01T18:00:00Z", "productionDeadlineAt": "2026-09-01T12:00:00Z",
+            "priority": 1, "selectionScore": 1, "dependencies": [], "productionStatus": "planned",
+            "constraints": ["Use an evidence-led voice"], "requiredAssets": [],
+            "planningRationale": "Lead with proof.", "selectionRationale": "Selected.", "confidence": "high",
+        },
+        "brief": {
+            "id": "brief-1", "title": "Operating proof", "objective": "Show verified operating proof",
+            "audienceId": "founders", "funnelStage": "consideration",
+            "keyMessage": "We cut nine days to forty hours.", "channelCandidates": ["x"],
+            "formatCandidates": ["text_post"], "ctaIntent": "request a demo",
+            "intendedConversion": "qualified demo request", "kpi": "qualified demos", "priority": 1,
+            "dependencies": [], "constraints": ["Use an evidence-led voice"], "evidenceRefs": ["moment-1"],
+        },
+        "referencedMoments": [{
+            "id": "moment-1", "title": "Proof", "startSec": 0, "endSec": 2,
+            "hook": "Cut the delay", "quote": "We cut nine days to forty hours.",
+        }],
+        "referencedAngles": [], "brandContext": "Direct and evidence-led.",
+        "constraints": ["Use an evidence-led voice"], "platform": "x", "format": "text_post",
+        "passType": "original", "priorDraft": None, "priorReview": None,
+    })
+
+
+def _public_content_draft() -> ContentDraft:
+    return ContentDraft.model_validate({
+        "id": "draft-1", "planId": "plan-1", "planDigest": "a" * 64,
+        "strategyDigest": "b" * 64, "editorialItemId": "item-1", "briefId": "brief-1",
+        "revision": 1, "platform": "x", "format": "text_post", "audienceId": "founders",
+        "objective": "Show verified operating proof", "funnelStage": "consideration",
+        "ctaIntent": "request a demo", "text": "We cut nine days to forty hours. Request a demo.",
+        "ctaTreatment": "Request a demo.", "intendedConversion": "qualified demo request",
+        "evidenceRefs": ["moment-1"], "claims": [{
+            "text": "We cut nine days to forty hours.", "evidenceRefs": ["moment-1"],
+        }], "assumptions": [], "confidence": "high",
+        "appliedConstraints": ["Use an evidence-led voice"], "priorDraftId": None,
+        "addressedIssueIds": [],
+    })
 
 
 def adk_contract_metric(
@@ -376,8 +411,8 @@ def adk_contract_metric(
         try:
             kind = spec["kind"]
             response_text = _agent_output_text(actual, {
-                "drafts": "noni_copywriter",
-                "editor": "dara_editor",
+                "draft": "noni_copywriter",
+                "review": "dara_editor",
             }.get(kind))
             payload = json.loads(response_text)
             if kind == "analysis":
@@ -386,21 +421,11 @@ def adk_contract_metric(
                     transcript=spec["transcript"],
                     duration_sec=float(spec["durationSec"]),
                 )
-            elif kind == "drafts":
-                result = evaluate_drafts(
-                    drafts=payload,
-                    analysis=AnalysisResult.model_validate(spec["analysis"]),
-                )
-            elif kind == "editor":
-                original_payload = json.loads(_agent_output_text(actual, "noni_copywriter"))
-                result = evaluate_editor(
-                    originals=DraftSet.model_validate(original_payload),
-                    reviewed=payload,
-                )
-            elif kind == "action_plan":
-                result = evaluate_action_plan(
-                    reviewed=DraftSet.model_validate({"drafts": spec["reviewed"]}),
-                    plan=payload,
+            elif kind == "draft":
+                result = evaluate_content_draft(copywriter_input=_public_copywriter_input(), draft=payload)
+            elif kind == "review":
+                result = evaluate_editorial_review(
+                    copywriter_input=_public_copywriter_input(), draft=_public_content_draft(), review=payload,
                 )
             elif kind == "read_only":
                 forbidden = re.search(

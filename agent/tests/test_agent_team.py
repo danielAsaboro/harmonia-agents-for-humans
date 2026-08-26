@@ -40,6 +40,7 @@ from harmonia_agent.agents import (
     strategize_with_team,
     RoleModelInstances,
 )
+from harmonia_agent.stages import classify_failure
 from harmonia_agent.tenant_context import tenant_scope
 from harmonia_agent.generation_policy import safety_settings
 from harmonia_agent.usage import InvocationContext
@@ -159,6 +160,11 @@ def _analysis() -> AnalysisResult:
     })
 
 
+def _production_input() -> CopywriterInput:
+    from tests.test_noni_contracts import original_input
+    return CopywriterInput.model_validate(original_input())
+
+
 class ManagedRuntime:
     def __init__(self) -> None:
         self.calls: list[dict] = []
@@ -172,17 +178,26 @@ class ManagedRuntime:
             }}
         if kwargs["specialist"] == "temi_editorial_planner":
             return {"editorial_plan": _temi_plan()}
-        return {
-            "copywriter_drafts": {"drafts": [
-                {"id": "d1", "platform": "x", "momentId": "m1", "text": "Original"},
-            ]},
-            "reviewed_drafts": {"drafts": [
-                {"id": "d1", "platform": "x", "momentId": "m1", "text": "Reviewed"},
-            ]},
-            "action_plan": {"actions": [
-                {"type": "publish_x_post", "text": "Reviewed"},
-            ]},
-        }
+        from tests.test_noni_contracts import grounded_draft
+        payload = kwargs["payload"]
+        if kwargs["specialist"] == "noni_copywriter":
+            draft = grounded_draft()
+            for field in ("planId", "planDigest", "strategyDigest", "editorialItemId", "briefId"):
+                draft[field] = payload[field]
+            draft["audienceId"] = payload["brief"]["audienceId"]
+            draft["objective"] = payload["brief"]["objective"]
+            draft["funnelStage"] = payload["brief"]["funnelStage"]
+            draft["ctaIntent"] = payload["brief"]["ctaIntent"]
+            return {"copywriter_draft": draft}
+        if kwargs["specialist"] == "dara_editor":
+            draft = payload["draft"]
+            return {"editorial_review": {
+                "id": "review-1", "planId": draft["planId"], "planDigest": draft["planDigest"],
+                "strategyDigest": draft["strategyDigest"], "editorialItemId": draft["editorialItemId"],
+                "briefId": draft["briefId"], "draftId": draft["id"], "revision": draft["revision"],
+                "verdict": "accepted", "reviewedAt": "2026-08-27T10:00:00Z", "issues": [],
+            }}
+        raise AssertionError(kwargs["specialist"])
 
 
 def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
@@ -380,8 +395,11 @@ def test_missing_agent_state_is_a_permanent_protocol_failure():
     with pytest.raises(AgentProtocolError, match="required state key"):
         _validated_state({}, "analysis_result", AnalysisResult)
     assert classify_failure(AgentProtocolError("bad structured output")) is True
+    from tests.test_noni_contracts import grounded_draft
+    invalid_payload = grounded_draft()
+    invalid_payload["text"] = "x" * 281
     with pytest.raises(ValidationError) as invalid:
-        Draft(id="d1", platform="x", text="x" * 281)
+        ContentDraft.model_validate(invalid_payload)
     assert classify_failure(invalid.value) is True
 
 

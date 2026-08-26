@@ -25,6 +25,7 @@ from .agent_models import (
     EditorialPlan,
     EditorialPlannerInput,
     EditorialReview,
+    EditorialReviewInput,
     LiaisonInput,
     StrategistInput,
     StrategistResult,
@@ -38,7 +39,6 @@ from .mock_ai import (
     mock_ai_enabled,
     mock_analyze,
     mock_ask,
-    mock_drafts,
 )
 from .multimodal import attach_media_evidence
 from .memory_bank import MemoryBank, MemoryScope, VertexMemoryBank, format_memory_context
@@ -68,7 +68,8 @@ _SPECIALIST_ROLES = {
     "nimi_analyst": ("harmonia_coordinator", "nimi_analyst"),
     "ryan_strategist": ("harmonia_coordinator", "ryan_strategist"),
     "temi_editorial_planner": ("harmonia_coordinator", "temi_editorial_planner"),
-    "flo_content_engine": ("harmonia_coordinator", "noni_copywriter", "dara_editor"),
+    "noni_copywriter": ("harmonia_coordinator", "noni_copywriter"),
+    "dara_editor": ("harmonia_coordinator", "dara_editor"),
     "maya_presenter": ("harmonia_coordinator", "maya_presenter"),
     "nova_liaison": ("harmonia_coordinator", "nova_liaison"),
 }
@@ -316,6 +317,7 @@ def build_agent_team(
         name="dara_editor",
         description="Returns a structured review of one exact Noni draft without rewriting it.",
         instruction=DARA_EDITOR_INSTRUCTION,
+        input_schema=EditorialReviewInput,
         output_schema=EditorialReview,
         output_key="editorial_review",
         tools=[],
@@ -1263,11 +1265,6 @@ def run_noni_dara_loop(
     )
 
 
-def _deterministic_action_plan(reviewed: DraftSet) -> ActionPlan:
-    """Create proposals from exact reviewed text; models never choose effect payloads."""
-    return ActionPlan(actions=[{"type": "publish_x_post", "text": draft.text} for draft in reviewed.drafts])
-
-
 def _validate_run_output(
     specialist: str, payload: BaseModel, state: dict[str, Any],
 ) -> None:
@@ -1310,20 +1307,19 @@ def _validate_run_output(
         plan = _validated_state(state, "editorial_plan", EditorialPlan)
         validate_editorial_plan(planner_input, plan)
         return
-    try:
-        copywriter = _validated_state(state, "copywriter_drafts", DraftSet)
-        reviewed = _validated_state(state, "reviewed_drafts", DraftSet)
-        draft_input = ProductionDraftInput.model_validate(payload)
-        supplied = AnalysisResult(
-            summary="Selected-item evidence", moments=draft_input.referencedMoments,
-            angles=draft_input.referencedAngles,
+    if specialist == "noni_copywriter":
+        writer_input = CopywriterInput.model_validate(payload)
+        draft = _validated_state(state, "copywriter_draft", ContentDraft)
+        validate_content_draft(writer_input, draft)
+        return
+    if specialist == "dara_editor":
+        review_input = EditorialReviewInput.model_validate(payload)
+        review = _validated_state(state, "editorial_review", EditorialReview)
+        validate_editorial_review(
+            review_input.copywriterInput, review_input.draft, review,
         )
-        validate_draft_references(copywriter, supplied)
-        validate_draft_references(reviewed, supplied)
-    except AgentProtocolError:
-        raise
-    except (ValidationError, ValueError, TypeError) as exc:
-        raise AgentProtocolError(f"invalid draft workflow output: {exc}") from exc
+        return
+    raise AgentProtocolError(f"unsupported specialist output: {specialist}")
 
 
 async def _run_coordinator(
@@ -1830,29 +1826,42 @@ async def plan_with_team(
 
 
 async def draft_with_team(
-    input: ProductionDraftInput, *, invocation: InvocationContext | None = None,
+    input: CopywriterInput, *, invocation: InvocationContext | None = None,
 ) -> DraftWorkflowResult:
-    input = ProductionDraftInput.model_validate(input)
-    analysis = AnalysisResult(
-        summary="Evidence referenced by the selected approved brief.",
-        moments=input.referencedMoments,
-        angles=input.referencedAngles,
-    )
+    input = CopywriterInput.model_validate(input)
     if mock_ai_enabled():
         raise RuntimeError("Noni has no mock production path; inject a TeamRuntime in tests")
 
-    state = await _run_coordinator("flo_content_engine", input, invocation=invocation)
-    copywriter = _validated_state(state, "copywriter_drafts", DraftSet)
-    reviewed = _validated_state(state, "reviewed_drafts", DraftSet)
-    plan = _deterministic_action_plan(reviewed)
-    try:
-        validate_draft_references(copywriter, analysis)
-        validate_draft_references(reviewed, analysis)
-        return DraftWorkflowResult(
-            copywriter_drafts=copywriter, reviewed_drafts=reviewed, action_plan=plan,
-        )
-    except (ValidationError, ValueError) as exc:
-        raise AgentProtocolError(f"invalid draft workflow result: {exc}") from exc
+    async def noni(writer_input: CopywriterInput, pass_number: int) -> ContentDraft:
+        pass_invocation = invocation.model_copy(update={
+            "operation_id": f"{invocation.operation_id}:noni:{pass_number}",
+        }) if invocation else None
+        state = await _run_coordinator("noni_copywriter", writer_input, invocation=pass_invocation)
+        draft = _validated_state(state, "copywriter_draft", ContentDraft)
+        return validate_content_draft(writer_input, draft)
+
+    async def dara(writer_input: CopywriterInput, draft: ContentDraft, pass_number: int) -> EditorialReview:
+        review_input = EditorialReviewInput(copywriterInput=writer_input, draft=draft)
+        pass_invocation = invocation.model_copy(update={
+            "operation_id": f"{invocation.operation_id}:dara:{pass_number}",
+        }) if invocation else None
+        state = await _run_coordinator("dara_editor", review_input, invocation=pass_invocation)
+        review = _validated_state(state, "editorial_review", EditorialReview)
+        return validate_editorial_review(writer_input, draft, review)
+
+    original = await noni(input, 1)
+    first_review = await dara(input, original, 1)
+    if first_review.verdict == "accepted":
+        return DraftWorkflowResult(originalDraft=original, reviews=[first_review], revisionDraft=None, acceptedDraft=original)
+    revision_input = CopywriterInput.model_validate({
+        **input.model_dump(mode="python"), "passType": "revision",
+        "priorDraft": original, "priorReview": first_review,
+    })
+    revision = await noni(revision_input, 2)
+    final_review = await dara(revision_input, revision, 2)
+    if final_review.verdict != "accepted":
+        raise AgentProtocolError("second Dara revise verdict requires operator attention; no third Noni invocation")
+    return DraftWorkflowResult(originalDraft=original, reviews=[first_review, final_review], revisionDraft=revision, acceptedDraft=revision)
 
 
 async def ask_with_team(

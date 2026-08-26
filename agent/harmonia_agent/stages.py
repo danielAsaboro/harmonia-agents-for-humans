@@ -25,11 +25,12 @@ from .agent_models import (
     AnalystInput,
     CampaignContext,
     CompanyContext,
+    CopywriterInput,
+    DraftWorkflowResult,
     EditorialPlan,
     EditorialPlannerInput,
     MediaEvidence,
     PerformanceObservation,
-    ProductionDraftInput,
     StrategistInput,
 )
 from .agents import (
@@ -515,21 +516,21 @@ async def run_draft(job_id: str) -> None:
     })
     if claim.get("outcome") != "execute":
         raise AgentProtocolError("selected editorial item drafting claim was not granted")
-    brand_context = ""
-    try:
-        insights = get_insights()
-        brand_context = json.dumps({
-            "goals": insights.get("goals") or {},
-            "topPosts": (insights.get("topPosts") or [])[:3],
-        })[:4000]
-    except WebApiError:
-        logger.info("draft workflow has no brand goals or engagement context yet")
-    package = await draft_with_team(ProductionDraftInput(
-        planId=editorial_plan.planId, strategyDigest=job["strategyDigest"],
+    brand_context = json.dumps({
+        "strategicThesis": strategy.get("strategicThesis"),
+        "differentiatedNarrative": strategy.get("differentiatedNarrative"),
+        "brandSafety": strategy.get("brandSafety") or [],
+    }, sort_keys=True)[:4000]
+    package = await draft_with_team(CopywriterInput(
+        planId=editorial_plan.planId, planDigest=stored_digest,
+        strategyDigest=job["strategyDigest"], editorialItemId=selected.id,
+        briefId=selected.briefId,
         editorialItem=selected, brief=brief,
         referencedMoments=moments, referencedAngles=angles,
-        brandContext=brand_context or "No additional verified brand performance context supplied.",
+        brandContext=brand_context,
         constraints=[*selected.constraints, *strategy.get("brandSafety", [])],
+        platform="x", format="text_post", passType="original",
+        priorDraft=None, priorReview=None,
     ), invocation=InvocationContext(
         job_id=job_id,
         workspace_id=job["workspaceId"],
@@ -537,20 +538,13 @@ async def run_draft(job_id: str) -> None:
         user_id=job["createdByUserId"],
         stage="draft", operation_id=f"{job_id}:draft:0",
     ))
-    drafts = package.reviewed_drafts.model_dump(mode="json")["drafts"]
-    plan = package.action_plan.model_dump(mode="json")
-
-    def clean(a: dict) -> dict | None:
-        if a.get("type") == "publish_x_post" and a.get("text"):
-            return {
-                "id": f"act-{hashlib.sha256(a['text'].encode()).hexdigest()[:12]}",
-                "type": "publish_x_post", "title": a["text"][:48],
-                "description": "Publish drafted post to X after operator approval.",
-                "payload": {"type": "publish_x_post", "text": a["text"]},
-            }
-        return None
-
-    actions = [c for c in (clean(a) for a in plan.get("actions", [])) if c]
+    accepted = package.acceptedDraft
+    action_id = f"act-{hashlib.sha256(accepted.text.encode()).hexdigest()[:12]}"
+    actions = [{
+        "id": action_id, "type": "publish_x_post", "title": accepted.text[:48],
+        "description": "Publish the exact Dara-accepted X draft after operator approval.",
+        "payload": {"type": "publish_x_post", "text": accepted.text},
+    }]
     actions.append({
         "id": "act-content-pack", "type": "export_content_pack",
         "title": "Assemble content pack",
@@ -605,7 +599,8 @@ async def run_draft(job_id: str) -> None:
         actions.extend(deterministic_generative_media_actions({**job, "moments": moments, "angles": angles}))
 
     web_post("/api/internal/drafts", {
-        "jobId": job_id, "stage": "draft", "drafts": drafts,
+        "jobId": job_id, "stage": "draft",
+        "productionTrace": package.model_dump(mode="json"),
         "operation": "complete", "editorialPlanId": editorial_plan.planId,
         "editorialPlanDigest": stored_digest,
         "editorialItemId": selected.id, "briefId": selected.briefId,

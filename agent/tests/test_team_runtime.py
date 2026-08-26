@@ -171,7 +171,8 @@ def test_agent_engine_deployment_wraps_the_existing_root_hierarchy():
 
     assert app.agent.name == "harmonia_coordinator"
     assert [agent.name for agent in app.agent.sub_agents] == [
-        "ryan_strategist", "nimi_analyst", "temi_editorial_planner", "maya_presenter", "nova_liaison",
+        "ryan_strategist", "nimi_analyst", "temi_editorial_planner",
+        "noni_copywriter", "dara_editor", "maya_presenter", "nova_liaison",
     ]
 
 

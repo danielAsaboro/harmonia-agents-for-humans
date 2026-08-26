@@ -8,9 +8,9 @@ import pytest
 from pydantic import ValidationError
 
 from harmonia_agent.agent_models import (
+    CopywriterInput,
     EditorialPlan,
     EditorialPlannerInput,
-    ProductionDraftInput,
 )
 from harmonia_agent.agents import AgentProtocolError, validate_editorial_plan
 
@@ -93,38 +93,42 @@ def planner_input() -> dict:
 
 def production_input() -> dict:
     return {
-        "planId": "plan-job-1-v1", "strategyDigest": "a" * 64, "editorialItem": plan()["items"][0],
+        "planId": "plan-job-1-v1", "planDigest": "b" * 64,
+        "strategyDigest": "a" * 64, "editorialItemId": "item-1", "briefId": "brief-1",
+        "editorialItem": plan()["items"][0],
         "brief": strategy()["briefs"][0], "referencedMoments": analysis()["moments"],
         "referencedAngles": [], "brandContext": "Use a direct, evidence-led voice.",
         "constraints": ["Quote the source exactly", "Never imply autonomous approval"],
+        "platform": "x", "format": "text_post", "passType": "original",
+        "priorDraft": None, "priorReview": None,
     }
 
 
 def test_complete_strict_temi_contracts_are_accepted():
     assert EditorialPlannerInput.model_validate(planner_input()).timezone == "America/Los_Angeles"
     assert EditorialPlan.model_validate(plan()).selectedNextItemId == "item-1"
-    assert ProductionDraftInput.model_validate(production_input()).editorialItem.id == "item-1"
+    assert CopywriterInput.model_validate(production_input()).editorialItem.id == "item-1"
 
 
 def test_production_input_rejects_mismatched_brief_and_unreferenced_evidence():
     invalid = production_input()
     invalid["brief"]["id"] = "brief-other"
     with pytest.raises(ValidationError, match="exact selected brief"):
-        ProductionDraftInput.model_validate(invalid)
+        CopywriterInput.model_validate(invalid)
 
     invalid = production_input()
     invalid["referencedMoments"].append({
         "id": "m-extra", "title": "Invented", "startSec": 0, "endSec": 1,
         "hook": "h", "quote": "q",
     })
-    with pytest.raises(ValidationError, match="referenced evidence"):
-        ProductionDraftInput.model_validate(invalid)
+    with pytest.raises(ValidationError, match="referenced Nimi evidence"):
+        CopywriterInput.model_validate(invalid)
 
 
 @pytest.mark.parametrize(("model", "payload", "field"), [
     (EditorialPlannerInput, planner_input, "strategyApproval"),
     (EditorialPlan, plan, "sequencingRationale"),
-    (ProductionDraftInput, production_input, "brief"),
+    (CopywriterInput, production_input, "brief"),
 ])
 def test_temi_contracts_require_every_boundary_field(model, payload, field):
     invalid = deepcopy(payload())
@@ -154,7 +158,7 @@ def test_plan_requires_exactly_one_selected_item_and_planned_production_state():
 def test_temi_contracts_reject_copy_and_external_effect_authority(payload, field):
     invalid = deepcopy(payload())
     invalid[field] = "forbidden"
-    model = EditorialPlan if payload is plan else ProductionDraftInput
+    model = EditorialPlan if payload is plan else CopywriterInput
     with pytest.raises(ValidationError, match="extra_forbidden"):
         model.model_validate(invalid)
 
@@ -194,7 +198,7 @@ def test_python_rejects_the_same_new_list_item_boundaries_as_zod(factory, path, 
     for segment in path[:-1]:
         target = target[segment]
     target[path[-1]] = value
-    model = EditorialPlannerInput if factory is planner_input else EditorialPlan if factory is plan else ProductionDraftInput
+    model = EditorialPlannerInput if factory is planner_input else EditorialPlan if factory is plan else CopywriterInput
     with pytest.raises(ValidationError):
         model.model_validate(invalid)
 

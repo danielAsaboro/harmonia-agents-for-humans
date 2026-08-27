@@ -1,5 +1,5 @@
 import { db } from "@/lib/firestore";
-import { getPlatform, oauthRedirectUri, pkcePair, randomState } from "@/lib/oauth";
+import { getPlatform, oauthCredentialEnvNames, oauthRedirectUri, pkcePair, randomState } from "@/lib/oauth";
 import { administratorTenantHandler } from "@/lib/auth";
 import { platformStatus } from "@/lib/platforms";
 import { currentTenant } from "@/lib/tenancy";
@@ -52,7 +52,8 @@ async function get(
     });
 
   const url = new URL(def.oauth.authorizeUrl);
-  url.searchParams.set("client_id", process.env[def.requiredEnv.find((e) => e.includes("CLIENT_ID") || e.includes("CLIENT_KEY")) ?? ""] ?? "");
+  const credentialEnv = oauthCredentialEnvNames(def);
+  url.searchParams.set("client_id", process.env[credentialEnv.clientId ?? ""] ?? "");
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("state", state);

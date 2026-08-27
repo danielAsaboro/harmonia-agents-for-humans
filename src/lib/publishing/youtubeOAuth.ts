@@ -19,8 +19,16 @@ export async function discoverYouTubeDestinations(
     headers: { accept: "application/json", authorization: `Bearer ${accessToken}` },
     signal: AbortSignal.timeout(20_000),
   });
-  if (!response.ok) throw new Error(`YouTube channel discovery failed (${response.status})`);
-  const body: unknown = await response.json();
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const reason = body && typeof body === "object" && !Array.isArray(body)
+      ? (body as { error?: { errors?: Array<{ reason?: unknown }> } }).error?.errors?.[0]?.reason
+      : undefined;
+    const safeReason = typeof reason === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(reason)
+      ? `: ${reason}`
+      : "";
+    throw new Error(`YouTube channel discovery failed (${response.status}${safeReason})`);
+  }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new Error("YouTube channel discovery response was invalid");
   }

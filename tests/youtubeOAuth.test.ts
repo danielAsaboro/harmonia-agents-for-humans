@@ -32,9 +32,11 @@ describe("YouTube OAuth destination discovery", () => {
   it("rejects insufficient scopes and sanitizes provider errors", async () => {
     await expect(discoverYouTubeDestinations("token", [scopes[0]], vi.fn()))
       .rejects.toThrow("YouTube upload and read permissions are required");
-    const request = vi.fn<typeof fetch>().mockResolvedValue(json({ error: { message: "secret body" } }, 403));
+    const request = vi.fn<typeof fetch>().mockResolvedValue(json({
+      error: { message: "secret body", errors: [{ reason: "youtubeSignupRequired" }] },
+    }, 403));
     await expect(discoverYouTubeDestinations("token", scopes, request))
-      .rejects.toThrow("YouTube channel discovery failed (403)");
+      .rejects.toThrow("YouTube channel discovery failed (403: youtubeSignupRequired)");
     await expect(discoverYouTubeDestinations("token", scopes, request))
       .rejects.not.toThrow("secret body");
   });

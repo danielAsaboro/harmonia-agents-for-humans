@@ -13,6 +13,20 @@ export function getPlatform(id: string): PlatformDef | undefined {
   return PLATFORMS.find((p) => p.id === id);
 }
 
+export function oauthCredentialEnvNames(def: PlatformDef): {
+  clientId: string | undefined;
+  clientSecret: string | undefined;
+} {
+  return {
+    clientId: def.requiredEnv.find((name) =>
+      name.includes("CLIENT_ID") || name.includes("CLIENT_KEY") || name.endsWith("APP_ID")
+    ),
+    clientSecret: def.requiredEnv.find((name) =>
+      name.includes("CLIENT_SECRET") || name.endsWith("APP_SECRET")
+    ),
+  };
+}
+
 export function randomState(): string {
   return randomBytes(24).toString("base64url");
 }
@@ -109,8 +123,9 @@ export async function exchangeCode(
   def: PlatformDef,
   opts: ExchangeOptions,
 ): Promise<TokenSet> {
-  const clientId = process.env[def.requiredEnv.find((e) => e.includes("CLIENT_ID") || e.includes("CLIENT_KEY")) ?? ""];
-  const clientSecret = process.env[def.requiredEnv.find((e) => e.includes("CLIENT_SECRET")) ?? ""];
+  const credentialEnv = oauthCredentialEnvNames(def);
+  const clientId = process.env[credentialEnv.clientId ?? ""];
+  const clientSecret = process.env[credentialEnv.clientSecret ?? ""];
   if (!clientId || !clientSecret) {
     throw new Error(`missing app credentials for ${def.id}`);
   }
@@ -169,8 +184,9 @@ export async function exchangeCode(
 }
 
 export async function refreshAccessToken(def: PlatformDef, refreshToken: string): Promise<TokenSet> {
-  const clientId = process.env[def.requiredEnv.find((e) => e.includes("CLIENT_ID") || e.includes("CLIENT_KEY")) ?? ""];
-  const clientSecret = process.env[def.requiredEnv.find((e) => e.includes("CLIENT_SECRET")) ?? ""];
+  const credentialEnv = oauthCredentialEnvNames(def);
+  const clientId = process.env[credentialEnv.clientId ?? ""];
+  const clientSecret = process.env[credentialEnv.clientSecret ?? ""];
   if (!clientId || !clientSecret) {
     throw new Error(`missing app credentials for ${def.id}`);
   }

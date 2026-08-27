@@ -180,6 +180,19 @@ if [[ -n "${GOOGLE_CLIENT_ID:-}" || -n "${GOOGLE_CLIENT_SECRET:-}" ]]; then
 else
   echo "  Google OAuth credentials not provided; Calendar and YouTube OAuth will remain unavailable."
 fi
+: "${HARMONIA_CONNECTION_ENVELOPE_KEY:?set HARMONIA_CONNECTION_ENVELOPE_KEY to a private base64-encoded 32-byte key}"
+printf '%s' "${HARMONIA_CONNECTION_ENVELOPE_KEY}" | gcloud secrets create harmonia-connection-envelope-key --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
+  || printf '%s' "${HARMONIA_CONNECTION_ENVELOPE_KEY}" | gcloud secrets versions add harmonia-connection-envelope-key --data-file=- --project "${PROJECT_ID}"
+if [[ -n "${X_CLIENT_ID:-}" || -n "${X_CLIENT_SECRET:-}" ]]; then
+  : "${X_CLIENT_ID:?set X_CLIENT_ID together with X_CLIENT_SECRET}"
+  : "${X_CLIENT_SECRET:?set X_CLIENT_SECRET together with X_CLIENT_ID}"
+  printf '%s' "${X_CLIENT_ID}" | gcloud secrets create x-oauth-client-id --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
+    || printf '%s' "${X_CLIENT_ID}" | gcloud secrets versions add x-oauth-client-id --data-file=- --project "${PROJECT_ID}"
+  printf '%s' "${X_CLIENT_SECRET}" | gcloud secrets create x-oauth-client-secret --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
+    || printf '%s' "${X_CLIENT_SECRET}" | gcloud secrets versions add x-oauth-client-secret --data-file=- --project "${PROJECT_ID}"
+else
+  echo "  X OAuth credentials not provided; X connection and publishing will remain unavailable."
+fi
 if [[ -n "${MALWARE_SCANNER_TOKEN:-}" ]]; then
   printf '%s' "${MALWARE_SCANNER_TOKEN}" | gcloud secrets create malware-scanner-token --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
     || printf '%s' "${MALWARE_SCANNER_TOKEN}" | gcloud secrets versions add malware-scanner-token --data-file=- --project "${PROJECT_ID}"
@@ -199,7 +212,7 @@ for sa in harmonia-web harmonia-agent; do
     --member "serviceAccount:${sa}@${PROJECT_ID}.iam.gserviceaccount.com" \
     --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
 done
-for secret in google-oauth-client-id google-oauth-client-secret; do
+for secret in google-oauth-client-id google-oauth-client-secret harmonia-connection-envelope-key x-oauth-client-id x-oauth-client-secret; do
   gcloud secrets add-iam-policy-binding "${secret}" \
     --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
     --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true

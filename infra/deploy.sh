@@ -90,6 +90,21 @@ for pair in GOOGLE_CLIENT_ID:google-oauth-client-id GOOGLE_CLIENT_SECRET:google-
   fi
   WEB_SECRETS="${WEB_SECRETS},${env_name}=${secret_name}:latest"
 done
+if ! secret_exists harmonia-connection-envelope-key; then
+  echo "required connection envelope secret 'harmonia-connection-envelope-key' not found; run infra/setup.sh with HARMONIA_CONNECTION_ENVELOPE_KEY" >&2
+  exit 2
+fi
+WEB_SECRETS="${WEB_SECRETS},HARMONIA_CONNECTION_ENVELOPE_KEY=harmonia-connection-envelope-key:latest"
+if secret_exists x-oauth-client-id || secret_exists x-oauth-client-secret; then
+  for pair in X_CLIENT_ID:x-oauth-client-id X_CLIENT_SECRET:x-oauth-client-secret; do
+    env_name="${pair%%:*}"; secret_name="${pair##*:}"
+    if ! secret_exists "${secret_name}"; then
+      echo "incomplete X OAuth secret pair; missing '${secret_name}'" >&2
+      exit 2
+    fi
+    WEB_SECRETS="${WEB_SECRETS},${env_name}=${secret_name}:latest"
+  done
+fi
 WEB_ENV="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GCS_BUCKET=${GCS_BUCKET},MODEL_ID=${MODEL_ID},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},DEFAULT_WORKSPACE_BUDGET_USD=${DEFAULT_WORKSPACE_BUDGET_USD},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-web,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false"
 if [[ -n "${MALWARE_SCANNER_URL:-}" ]] && secret_exists malware-scanner-token; then
   WEB_SECRETS="${WEB_SECRETS},MALWARE_SCANNER_TOKEN=malware-scanner-token:latest"

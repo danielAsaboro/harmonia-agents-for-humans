@@ -34,6 +34,9 @@ exit 0
       REGION: "us-central1",
       GOOGLE_CLIENT_ID: "calendar-client-id",
       GOOGLE_CLIENT_SECRET: "calendar-client-secret",
+      HARMONIA_CONNECTION_ENVELOPE_KEY: "dGVzdC1vbmx5LTMyLWJ5dGUtZW52ZWxvcGUta2V5ISE=",
+      X_CLIENT_ID: "x-client-id",
+      X_CLIENT_SECRET: "x-client-secret",
       MALWARE_SCANNER_URL: "https://malware-scanner.example.run.app/scan",
       MALWARE_SCANNER_TOKEN: "scanner-token",
   };
@@ -93,6 +96,28 @@ describe("Google Cloud deployment automation", () => {
 
     expect(fake.log()).toContain("GOOGLE_CLIENT_ID=google-oauth-client-id:latest");
     expect(fake.log()).toContain("GOOGLE_CLIENT_SECRET=google-oauth-client-secret:latest");
+  });
+
+  it("provisions and mounts the connection envelope and X OAuth secrets", () => {
+    const setup = fakeGcloudEnvironment();
+    execFileSync("bash", ["infra/setup.sh"], { cwd: repoRoot, env: setup.env });
+    expect(setup.log()).toContain("secrets create harmonia-connection-envelope-key");
+    expect(setup.log()).toContain("secrets create x-oauth-client-id");
+    expect(setup.log()).toContain("secrets create x-oauth-client-secret");
+
+    const deploy = fakeGcloudEnvironment();
+    execFileSync("bash", ["infra/deploy.sh"], {
+      cwd: repoRoot,
+      env: {
+        ...deploy.env,
+        FIREBASE_API_KEY: "firebase-api-key",
+        FIREBASE_APP_ID: "firebase-app-id",
+        AGENT_ENGINE_RESOURCE: "projects/p/locations/us-central1/reasoningEngines/2",
+      },
+    });
+    expect(deploy.log()).toContain("HARMONIA_CONNECTION_ENVELOPE_KEY=harmonia-connection-envelope-key:latest");
+    expect(deploy.log()).toContain("X_CLIENT_ID=x-oauth-client-id:latest");
+    expect(deploy.log()).toContain("X_CLIENT_SECRET=x-oauth-client-secret:latest");
   });
 
   it("deploys the core with uploads fail-closed when no scanner is configured", () => {

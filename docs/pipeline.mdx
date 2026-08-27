@@ -61,11 +61,11 @@ Every action lands with `requiresApproval`, risk level, and its own idempotency 
 
 ## awaiting_approval
 
-Hard gate. Approvals arrive through the dashboard queue, chat ("approve job \<id\>"), or a Telegram inline-button callback — all through the same decision engine, which records who approved what and when.
+Hard gate for X publishing and paid Veo/Lyria generation. Approvals arrive through the dashboard queue, chat ("approve job \<id\>"), or a Telegram inline-button callback — all through the same decision engine, which records who approved what and when. Content-pack export, Gemini image generation, and local ffmpeg rendering are internal artifact actions with `approvalState: not_required`; they never inherit a fictional human decision and do not publish anything.
 
 ## publish
 
-Executes approved actions in order, checking receipts first for idempotency:
+Executes policy-authorized actions in order, checking effect claims and receipts first for idempotency. Approval-required actions must carry the exact matching decision; internal artifact actions execute under their deterministic safe-action mandate:
 
 | Action | Effect |
 |---|---|

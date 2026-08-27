@@ -2,7 +2,7 @@
 
 **Harmonia is an asynchronous social media content agent for startups.** Give it authorized source material and it creates a durable content job: Nimi extracts evidence, Ryan proposes a four-week strategy for human approval, Temi operationalizes approved briefs, Noni and Dara produce reviewed drafts, and deterministic code authorizes and verifies exact effects.
 
-The dashboard and authenticated web chat are active operator surfaces. Telegram has a verified webhook/nonce approval boundary in code, but live message ingestion and webhook configuration are not yet production-verified; do not present Telegram as an equivalent working surface until that evidence exists.
+The dashboard and authenticated web chat are active operator surfaces. Telegram’s official Bot API integration routes ordinary allow-listed messages through the canonical chat router, configures its webhook through `setWebhook`, and retains the nonce-bound inline-button approval boundary. Those paths are covered locally but are not live-evidenced against a real bot, so Telegram is not yet claimed as a production-verified equivalent surface.
 
 The repository also implements governed resident autonomy: an hourly Heartbeat, post-outcome Micro-reflections, a budget-gated nightly Dream Cycle, a morning Wakeup Call with durable agendas, bounded experiments, conservative tuning, and rollback. Its schedules are disabled by default, not deployed, and not authenticated evidence. See [`docs/resident-autonomy.mdx`](./docs/resident-autonomy.mdx).
 
@@ -26,9 +26,9 @@ ingest → transcribe → understand → strategize → awaiting_strategy_approv
 - **Strategize**: Ryan uses typed company, campaign, audience, performance, and eligible Memory Bank context to propose a provenance-linked four-week strategy and complete content briefs. A human must approve the exact strategy digest before Temi runs.
 - **Plan**: deterministic code persists a tenant-scoped planning snapshot, then Temi loads `temi-editorial-planning-skills` and uses only request-bound read views over that immutable snapshot to operationalize the approved Ryan strategy. Deterministic code validates both snapshot and plan digests, persists the complete four-week plan, and selects exactly one supported, eligible item; Temi cannot search, write final copy, mutate calendars, or authorize effects.
 - **Draft**: Noni receives the selected item, exact Ryan brief, and referenced Nimi evidence; its bounded reads may add verified prior-publication links and brief-scoped public-source provenance. Dara returns seven grounded editorial checks plus a bounded accept/revise assessment; deterministic code assigns review metadata, permits at most one issue-bound revision, persists the full trace, and derives effect proposals only from the exact accepted text.
-- **Awaiting approval**: publishing is proposed as discrete actions. The model cannot self-authorize.
-- **Publish**: approved actions execute idempotently (stable idempotency keys from `jobId + actionId + contentHash`); X posts go through the official X API v2, while separately approved Veo/Lyria actions create internal media assets.
-- **Verify**: published state is confirmed by fresh independent API reads — never because a model said so.
+- **Awaiting approval**: X publishing and paid Veo/Lyria actions wait for exact operator approval. Deterministically safe content-pack, image, and ffmpeg artifact actions do not pretend to have human approval; none publishes externally.
+- **Publish**: executable actions run idempotently (stable idempotency keys from `jobId + actionId + contentHash`); X posts use the official X API v2, while internal artifact actions remain separate from publication.
+- **Verify**: provider effects are confirmed by fresh independent API reads and internal artifacts by digest read-back — never because a model said so.
 
 ## Architecture
 
@@ -106,7 +106,7 @@ flowchart LR
 - **Bounded Noni writing skill**: Noni loads `noni-writing-skills` and approved local references covering thought leadership, introductions, MECE structure, case studies, storytelling, diagnosis, persuasion, outlines, titles, and convincing content. It may then read verified prior publications or use native ADK Google Search grounding through a brief-bound research agent. Guidance never counts as evidence, and every web-derived claim must match native grounding chunks and supports.
 - **Google generative media**: Veo 3.1 Fast for 4-second vertical b-roll and Lyria 3 Clip for 30-second music, both individually priced and always approval-gated.
 - **Google ADK** (Python) for the worker service and agent scaffolding.
-- **Google A2UI v0.9** for streamed, durable generative interfaces. Maya chooses a graph from Harmonia’s fixed campaign vocabulary; the web server resolves every draft, moment, action, asset, and receipt reference from authenticated persisted state before the official A2UI React renderer sees it.
+- **Google A2UI v0.9 wire protocol**, rendered with pinned `@a2ui/react` 0.10.2 and `@a2ui/web_core` 0.10.6 packages. Maya chooses a graph from Harmonia’s fixed campaign vocabulary; the web server resolves every draft, moment, action, asset, and receipt reference from authenticated persisted state before the official renderer sees it.
 - **Vertex AI Agent Engine + Memory Bank** as mandatory managed cognition and exact-scope cross-session context; Firestore/Pub/Sub remain the durable workflow engine.
 - **Cloud Run** hosts both services (web: Next.js standalone build; agent: Python container).
 - **Firestore** persists job state, stage events, approvals, receipts, verifications, and packets.
@@ -156,19 +156,21 @@ Click the chat bubble on the dashboard (or `POST /api/chat` with `{message}`):
 
 All chat reads and mutations use the verified Google session and active workspace. Intent parsing never selects tenant identity.
 
-The full Console additionally uses a durable `POST /api/chat/stream` NDJSON transport and a strict Harmonia catalog rendered by Google’s official A2UI React packages. The managed Maya specialist can compose three independent revisions—conversation, working canvas, and approval—from `CampaignBrief`, `JobProgress`, `MomentExplorer`, `DraftComparison`, `PlatformPreview`, `SourceEvidence`, `ApprovalReview`, and `VerificationReceipt`. Its output contains references and layout only. Matching Python and TypeScript validators bind every node to the exact supplied job/entity catalog and permit approval presentation only for one supplied pending action in the approval slot. Full draft copy, transcript excerpts, action risk, approval state, asset routes, and receipts are hydrated server-side from the active persisted job. Loading, empty, unresolved, and failure components are host-owned; presenter failures terminate the run without a generic-success surface.
+The full Console additionally uses a durable `POST /api/chat/stream` NDJSON transport and a strict Harmonia catalog rendered by Google’s official A2UI React packages. The managed Maya specialist can compose three independent revisions—conversation, working canvas, and approval—from `CampaignBrief`, `JobProgress`, `MomentExplorer`, `DraftComparison`, `PlatformPreview`, `SourceEvidence`, `ApprovalReview`, and `VerificationReceipt`. Its output contains references and layout only. Matching Python and TypeScript validators bind every node to the exact supplied job/entity catalog and permit approval presentation only for one supplied pending action in the approval slot. Full draft copy, transcript excerpts, action risk, approval state, asset routes, and receipts are hydrated server-side from the active persisted job. Loading, empty, unresolved, and failure components are host-owned. If optional A2UI presentation fails after a durable chat mutation, the mutation remains successful and the stream returns a truthful presentation warning.
 
 Generated approval detail never owns authorization controls. The existing server-protected approval dock remains authoritative and validates the persisted `jobId + actionId` before making a decision request. Raw hidden chain-of-thought is never requested or displayed.
 
 ### Telegram integration status
 
-The repository contains an allow-listed, secret-verified webhook callback path with one-time approval nonces. The older long-poll message path no longer has browser authority and is not a production chat surface. Live webhook setup, message submission, and approval evidence remain intentionally unverified in this repository.
+The repository contains an allow-listed, secret-verified webhook path with one-time approval nonces. Settings calls Telegram’s official `setWebhook`; ordinary messages use the same intent router as web chat; replies use the official `sendMessage` endpoint; and approval still requires an inline-button callback. The older long-poll path is not a production surface. Live bot setup, message submission, and approval evidence remain intentionally unverified.
 
 Run tests:
 
 ```bash
 npm test                     # TypeScript: policy gate, idempotency, state machine, packet assembly
+npm run test:integration     # required Firestore transaction suite; starts its own emulator
 npm run lint                 # Next.js / React / TypeScript lint
+npx tsc --noEmit             # complete TypeScript check
 npm run build                # production Next.js build
 npm run test:agent           # Python: ingest parsing, telegram callbacks, failure classification
 ```

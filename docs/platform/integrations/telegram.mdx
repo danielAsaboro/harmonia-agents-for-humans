@@ -7,7 +7,7 @@ Telegram is a remote operator interface to the same deterministic workflows used
 
 ## How Harmonia uses it
 
-The settings flow stores a hashed route token, webhook secret digest, and allow-listed chat identity. The webhook validates the route, Telegram secret, update schema, sender, chat scope, and replay identity before translating a message or callback into a Harmonia principal.
+The settings flow calls the official `setWebhook` method, then stores a hashed route token, webhook secret digest, and allow-listed chat identity only after Telegram accepts the configuration. The webhook validates the route, Telegram secret, update schema, sender, chat scope, and replay identity before translating a message or callback into a Harmonia principal. Ordinary messages use the canonical chat handler and responses use the official `sendMessage` method.
 
 Operators can submit supported job requests, inspect status, receive notifications, and open exact approval/rejection confirmations. Decisions call the same digest-bound application handlers as the dashboard.
 
@@ -21,11 +21,12 @@ Unknown senders, invalid secrets, malformed updates, duplicate updates, stale de
 
 ## Evidence status
 
-Webhook parsing, allow-listing, decisions, and replay behavior have automated coverage. A configured route is not proof of live Telegram delivery; authenticated webhook and Bot API evidence must be captured separately.
+Webhook setup, ordinary-message routing, replies, allow-listing, decisions, replay behavior, and durable-mutation/reply-failure handling have automated coverage. A configured route is not proof of live Telegram delivery; authenticated webhook and Bot API evidence must be captured separately.
 
 ## Relevant files
 
 - `src/lib/telegramWebhook.ts`
+- `src/lib/telegramApi.ts`
 - `src/app/api/telegram/webhook/[routeToken]/route.ts`
 - `src/app/api/settings/telegram/route.ts`
 - `agent/harmonia_agent/telegram_bot.py`

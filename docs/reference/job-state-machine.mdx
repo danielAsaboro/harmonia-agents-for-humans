@@ -8,7 +8,7 @@ The canonical stage vocabulary is declared by `STAGES` in `src/lib/types.ts`.
 ```text
 queued → ingest → transcribe → understand → strategize
 → awaiting_strategy_approval → plan → draft → awaiting_approval
-→ publish → verify → learn → packet → complete
+→ publish → verify → learn → complete
 ```
 
 `failed` is terminal until an eligible deterministic retry creates the next authorized transition. Brief-only jobs may enter later work without media ingestion, but persisted state still identifies the actual stage.
@@ -19,3 +19,5 @@ queued → ingest → transcribe → understand → strategize
 | `awaiting_approval` | Per-action decision bound to exact payload digest | Action is skipped or job completes according to deterministic policy |
 
 Only application transactions advance the stage. Agents, Pub/Sub messages, logs, and external providers cannot do so directly. See [Production flow](/diagrams/production-flow) and [State ownership](/state-ownership).
+
+The evidence packet is assembled and persisted during verification. It is an artifact and audit event, not a job stage.

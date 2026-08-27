@@ -18,6 +18,13 @@ describe("public documentation truth boundaries", () => {
   it("does not describe Telegram long polling as the production surface", () => {
     expect(readme).not.toContain("T -- long polling");
     expect(readme).toContain("not live-evidenced");
+    expect(readme).toContain("ordinary allow-listed messages through the canonical chat router");
+  });
+
+  it("distinguishes the A2UI wire protocol from installed package versions", () => {
+    expect(readme).toContain("v0.9 wire protocol");
+    expect(readme).toContain("`@a2ui/react` 0.10.2");
+    expect(readme).toContain("`@a2ui/web_core` 0.10.6");
   });
 
   it("separates fixture inspection from authenticated evidence", () => {

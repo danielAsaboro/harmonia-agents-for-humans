@@ -3,7 +3,7 @@ title: "Operator Interfaces"
 description: "Dashboard, chat console, and Telegram — one pipeline behind every surface."
 ---
 
-Harmonia exposes the same job submission, status, drafting, and approval surface through three interfaces. None of them bypasses the approval gate.
+Harmonia exposes the same job submission, status, drafting, and approval surface through three interfaces. None of them bypasses an action that policy marks approval-required; safe internal artifact actions remain explicitly `not_required` on every surface.
 
 ## Dashboard
 
@@ -63,4 +63,4 @@ POST /api/chat
 
 ## Telegram bot
 
-The same intents over the official Bot API, using one workspace-owned bot connection and one allowed chat. The worker restores that workspace's tenant context before handling any update. Ryan proposals receive expiring, digest-bound inline controls. Approval is a one-tap authenticated callback; rejection opens a bounded ForceReply prompt and records the decision only after the operator supplies notes. Nonces and feedback prompts are single-consumption Firestore records. A plain "approve" message only lists pending actions.
+The same intents run over the official Bot API, using one workspace-owned bot connection and one allowed chat. Settings registers the webhook through `setWebhook`; ordinary allow-listed messages enter the canonical chat router; replies use `sendMessage`. Ryan proposals receive expiring, digest-bound inline controls. Approval is a one-tap authenticated callback; rejection opens a bounded ForceReply prompt and records the decision only after the operator supplies notes. Nonces and feedback prompts are single-consumption Firestore records. A plain "approve" message only lists pending actions. Automated tests cover this contract, but a real bot exchange is still an external evidence gate.

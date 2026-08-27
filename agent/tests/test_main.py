@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from harmonia_agent import main
 from harmonia_agent.operation_context import current_operation
+from harmonia_agent.tenant_context import current_tenant
 
 
 def envelope() -> dict:
@@ -107,13 +108,31 @@ def test_health_reports_durable_runtime_capabilities_without_secrets() -> None:
 
 def test_recovery_wake_uses_bounded_config(monkeypatch) -> None:
     calls = []
-    monkeypatch.setattr("harmonia_agent.recovery.recover_missed", lambda **kwargs: calls.append(kwargs) or [])
+    monkeypatch.setattr("harmonia_agent.web_client.get_workspaces", lambda: [
+        {"workspaceId": "workspace-1", "brandId": "brand-1"},
+        {"workspaceId": "workspace-2", "brandId": "brand-2"},
+    ])
+
+    def recover(**kwargs):
+        tenant = current_tenant()
+        calls.append({"workspaceId": tenant.workspace_id, "brandId": tenant.brand_id, **kwargs})
+        return [{"id": f"recovery:{tenant.workspace_id}"}]
+
+    monkeypatch.setattr("harmonia_agent.recovery.recover_missed", recover)
     response = TestClient(main.app).post("/durable/recover")
     assert response.status_code == 200
-    assert response.json()["actions"] == []
-    assert calls == [{
+    assert response.json()["actionCount"] == 2
+    assert response.json()["workspaces"] == [
+        {"workspaceId": "workspace-1", "actionCount": 1, "actions": [{"id": "recovery:workspace-1"}]},
+        {"workspaceId": "workspace-2", "actionCount": 1, "actions": [{"id": "recovery:workspace-2"}]},
+    ]
+    expected = {
         "limit": 20,
         "deadline_seconds": 15,
         "max_retries": 3,
         "max_cost_usd": "0.250000",
-    }]
+    }
+    assert calls == [
+        {"workspaceId": "workspace-1", "brandId": "brand-1", **expected},
+        {"workspaceId": "workspace-2", "brandId": "brand-2", **expected},
+    ]

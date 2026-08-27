@@ -102,7 +102,11 @@ export function planRecovery(candidates: RecoveryCandidate[], bounds: RecoveryBo
       used += cost;
     }
     actions.push({
-      id: `recovery:${candidate.kind}:${candidate.id}:${decision.action}`,
+      // A scan of the same failed attempt must be idempotent, while a later
+      // claimed attempt of the same durable resource needs fresh recovery
+      // authority. retryCount is the persisted attempt generation for every
+      // replayable candidate kind.
+      id: `recovery:${candidate.kind}:${candidate.id}:attempt:${candidate.retryCount}:${decision.action}`,
       candidateId: candidate.id, candidateKind: candidate.kind,
       action: decision.action, reason: decision.reason,
       ...(candidate.resourcePath ? { resourcePath: candidate.resourcePath } : {}),

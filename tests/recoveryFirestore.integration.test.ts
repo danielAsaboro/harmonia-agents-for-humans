@@ -90,6 +90,18 @@ describe.skipIf(!emulator)("recovery Firestore controller", () => {
     }, db()));
     expect(replay.actions).toHaveLength(2);
     expect(replay.actions.every((item) => !item.emitted)).toBe(true);
+
+    const secondClaim = claimOperation(safeAfter.data() as typeof safe, {
+      ownerId: "replacement-worker", ownerTokenDigest: "e".repeat(64),
+      now: "2026-08-28T10:01:00.000Z", leaseExpiresAt: "2026-08-28T10:02:00.000Z",
+    }).operation;
+    await safeAfter.ref.set(secondClaim);
+    const laterCrash = await runWithTenant(scope, () => runRecovery({
+      limit: 20, deadlineSeconds: 15, maxRetries: 3, maxCostUsd: "1.000000",
+    }, db()));
+    const laterReplay = laterCrash.actions.find((item) => item.candidateId === `operation:${safe.id}`);
+    expect(laterReplay).toMatchObject({ action: "replay_operation", emitted: true });
+    expect((await safeAfter.ref.get()).get("state")).toBe("waiting");
   });
 
   afterAll(async () => {

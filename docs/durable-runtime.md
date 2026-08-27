@@ -16,7 +16,7 @@ Large tool results use prune + spill: the prompt retains a bounded head/tail pre
 
 ## Recovery and external events
 
-The model-free heartbeat scans bounded pages under deadline, retry, and cost limits. Safe expired work becomes replayable; reconcile/never work becomes unknown or operator-required; abandoned inbox and outbox claims are requeued. Observed effects, unverified receipts, and broken artifacts emit idempotent `recovery_work` records. Recovery never calls an unknown external effect.
+The model-free heartbeat scans bounded pages under deadline, retry, and cost limits. Safe expired work becomes replayable; reconcile/never work becomes unknown or operator-required; abandoned inbox and outbox claims are requeued. Observed effects, unverified receipts, and broken artifacts emit idempotent `recovery_work` records. Recovery identities include the persisted attempt generation: repeated scans of one crash deduplicate, while a later crash of the same operation gets fresh recovery authority. Recovery never calls an unknown external effect.
 
 Harmonia can be awakened by Pub/Sub, Cloud Scheduler, Telegram's official webhook, and approved platform webhooks. These sources enter through the same inbox, operation, fencing, approval, and audit path as dashboard requests.
 

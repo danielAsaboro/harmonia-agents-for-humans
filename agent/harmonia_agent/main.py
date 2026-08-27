@@ -74,16 +74,27 @@ async def healthz() -> dict[str, Any]:
 async def durable_recover() -> dict[str, Any]:
     """OIDC/IAM-protected, model-free recovery wake with deployment bounds."""
     from .recovery import recover_missed
+    from .web_client import get_workspaces
 
     config = settings()
-    actions = await asyncio.to_thread(
-        recover_missed,
-        limit=config.durable_recovery_limit,
-        deadline_seconds=config.durable_recovery_deadline_seconds,
-        max_retries=config.durable_recovery_max_retries,
-        max_cost_usd=config.durable_recovery_max_cost_usd,
-    )
-    return {"ok": True, "actions": actions, "actionCount": len(actions)}
+    results = []
+    action_count = 0
+    for scope in await asyncio.to_thread(get_workspaces):
+        with tenant_scope(scope["workspaceId"], scope["brandId"]):
+            actions = await asyncio.to_thread(
+                recover_missed,
+                limit=config.durable_recovery_limit,
+                deadline_seconds=config.durable_recovery_deadline_seconds,
+                max_retries=config.durable_recovery_max_retries,
+                max_cost_usd=config.durable_recovery_max_cost_usd,
+            )
+        action_count += len(actions)
+        results.append({
+            "workspaceId": scope["workspaceId"],
+            "actionCount": len(actions),
+            "actions": actions,
+        })
+    return {"ok": True, "workspaces": results, "actionCount": action_count}
 
 
 @app.post("/durable/tick")

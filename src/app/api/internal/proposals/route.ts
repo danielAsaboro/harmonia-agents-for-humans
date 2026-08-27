@@ -41,7 +41,7 @@ export async function POST(req: Request) {
                 : "Your top post deserves a refresh",
         body: p.topic,
         severity: "info",
-        href: "/dashboard/proposals",
+        href: "/dashboard/monitoring?tab=proposals",
         createdAt: new Date().toISOString(),
         readAt: null,
       });

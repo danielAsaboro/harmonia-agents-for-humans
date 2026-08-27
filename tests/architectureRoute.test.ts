@@ -9,8 +9,8 @@ describe("architecture route integration", () => {
     expect(read("src/app/docs/architecture/page.tsx")).toContain("architecture.css");
     expect(read("src/app/dashboard/architecture/page.tsx")).toContain('redirect("/docs/architecture")');
     const nav = read("src/components/NavRail.tsx");
-    expect(nav).toContain('href: "/docs/architecture"');
-    expect(nav).toContain("ArchitectureIcon");
+    expect(nav).not.toContain('href: "/docs/architecture"');
+    expect(nav).not.toContain("ArchitectureIcon");
   });
 
   it("uses Harmonia's paper, forest, and acid system without the PNG as graph background", () => {

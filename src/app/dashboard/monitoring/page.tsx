@@ -8,9 +8,13 @@ import AssetsGallery from "@/components/monitoring/AssetsGallery";
 import ReceiptsLedger from "@/components/monitoring/ReceiptsLedger";
 import AgentActivityView from "@/components/monitoring/AgentActivityView";
 import WorkflowActivityView from "@/components/monitoring/WorkflowActivityView";
+import AutonomousOperationsView from "@/components/AutonomousOperationsView";
+import ProposalsView from "@/components/ProposalsView";
 
 const TABS = [
   { key: "overview", label: "Overview" },
+  { key: "autonomy", label: "Autonomy" },
+  { key: "proposals", label: "Proposals" },
   { key: "agents", label: "Agents" },
   { key: "logs", label: "Logs" },
   { key: "activity", label: "Agent activity" },
@@ -62,6 +66,8 @@ export default function MonitoringPage() {
       </div>
 
       {tab === "overview" && <MonitoringView />}
+      {tab === "autonomy" && <AutonomousOperationsView />}
+      {tab === "proposals" && <ProposalsView />}
       {tab === "agents" && <WorkflowActivityView />}
       {tab === "logs" && <LogsView />}
       {tab === "activity" && <AgentActivityView />}

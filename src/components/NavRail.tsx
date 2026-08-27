@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FocusEvent } from "react";
 import { signOut as firebaseSignOut } from "firebase/auth";
 import { BrandMark } from "@/components/BrandMark";
-import { ArchitectureIcon, ChatIcon, CalendarIcon, ChartIcon, SettingsIcon, SparklesIcon } from "@/components/icons";
+import { ChatIcon, CalendarIcon, ChartIcon, SettingsIcon } from "@/components/icons";
 import { clientAuth } from "@/lib/firebaseClient";
 import { signOutPersistedSession } from "@/lib/sessionPersistence";
 import styles from "./NavRail.module.css";
@@ -13,11 +13,8 @@ import styles from "./NavRail.module.css";
 const RAIL = [
   { href: "/dashboard", label: "Console", Icon: ChatIcon },
   { href: "/dashboard/calendar", label: "Calendar", Icon: CalendarIcon },
-  { href: "/dashboard/proposals", label: "Proposals", Icon: SparklesIcon },
   { href: "/dashboard/monitoring", label: "Monitoring", Icon: ChartIcon },
   { href: "/dashboard/notifications", label: "Notifications", Icon: BellIcon },
-  { href: "/dashboard/autonomy", label: "Autonomy", Icon: SparklesIcon },
-  { href: "/docs/architecture", label: "Architecture", Icon: ArchitectureIcon },
   { href: "/dashboard/settings", label: "Settings", Icon: SettingsIcon },
 ];
 
@@ -42,6 +39,15 @@ export function reduceRailPresence(state: RailPresence, event: RailPresenceEvent
 export function isRailItemActive(pathname: string, href: string): boolean {
   if (href === "/dashboard") return pathname === href || pathname === `${href}/`;
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+export async function confirmThenSignOut(
+  confirm: (message: string) => boolean,
+  performSignOut: () => Promise<void>,
+): Promise<boolean> {
+  if (!confirm("Are you sure you want to log out?")) return false;
+  await performSignOut();
+  return true;
 }
 
 function BellIcon({ className }: { className?: string }) {
@@ -95,10 +101,14 @@ export default function NavRail() {
   }
 
   async function signOut() {
-    await signOutPersistedSession(
-      () => firebaseSignOut(clientAuth()),
-      async () => { await fetch("/api/auth/session", { method: "DELETE" }); },
+    const signedOut = await confirmThenSignOut(
+      window.confirm,
+      () => signOutPersistedSession(
+        () => firebaseSignOut(clientAuth()),
+        async () => { await fetch("/api/auth/session", { method: "DELETE" }); },
+      ),
     );
+    if (!signedOut) return;
     router.replace("/login");
     router.refresh();
   }

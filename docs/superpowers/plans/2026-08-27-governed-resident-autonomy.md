@@ -182,7 +182,7 @@
 **Files:**
 - Create: `src/app/api/autonomy/route.ts`
 - Create: `src/components/AutonomousOperationsView.tsx`
-- Create: `src/app/dashboard/autonomy/page.tsx`
+- Modify: `src/app/dashboard/monitoring/page.tsx` to expose the Autonomy tab
 - Modify: `src/components/NavRail.tsx`
 - Modify: `src/lib/recordReplay/schema.ts`
 - Modify: `src/lib/recordReplay/sanitize.ts`

@@ -27,11 +27,8 @@ describe("dashboard navigation rail", () => {
       "Harmonia home",
       "Console",
       "Calendar",
-      "Proposals",
       "Monitoring",
       "Notifications",
-      "Autonomy",
-      "Architecture",
       "Settings",
       "Sign out",
     ];
@@ -42,6 +39,27 @@ describe("dashboard navigation rail", () => {
       );
     }
     expect(html.match(/role="separator"/g)).toHaveLength(2);
+    expect(html).not.toContain('aria-label="Proposals"');
+    expect(html).not.toContain('aria-label="Autonomy"');
+    expect(html).not.toContain('aria-label="Architecture"');
+  });
+
+  it("requires confirmation before performing sign out", async () => {
+    const confirmThenSignOut = (navRailModule as unknown as {
+      confirmThenSignOut?: (
+        confirm: (message: string) => boolean,
+        performSignOut: () => Promise<void>,
+      ) => Promise<boolean>;
+    }).confirmThenSignOut;
+    expect(confirmThenSignOut).toBeTypeOf("function");
+    if (!confirmThenSignOut) return;
+
+    const performSignOut = vi.fn(async () => undefined);
+    expect(await confirmThenSignOut(() => false, performSignOut)).toBe(false);
+    expect(performSignOut).not.toHaveBeenCalled();
+
+    expect(await confirmThenSignOut(() => true, performSignOut)).toBe(true);
+    expect(performSignOut).toHaveBeenCalledOnce();
   });
 
   it("marks only the exact dashboard destination as current", () => {

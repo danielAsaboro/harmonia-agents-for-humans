@@ -245,6 +245,14 @@ def run_stage_outbox_tick(limit: int = 20) -> list[dict[str, Any]]:
     return list(res.json().get("results") or [])
 
 
+def run_recovery(payload: dict[str, Any]) -> dict[str, Any]:
+    with _client() as c:
+        res = c.post("/api/internal/recovery", json=payload)
+    if res.status_code != 200:
+        raise WebApiError(f"recovery tick failed: {res.status_code} {res.text}", res.status_code)
+    return dict(res.json())
+
+
 def claim_autonomy_cycle(cycle_type: str, scheduled_at: str, lease_seconds: int) -> dict[str, Any]:
     """Create-once and claim a tenant-scoped resident cycle."""
     tenant = current_tenant()

@@ -18,6 +18,7 @@ async def run_durable_tick(
     proactive: Callable[[], Awaitable[list[dict[str, Any]]]],
     retention: Callable[[int], list[str]],
     stage_outbox: Callable[[int], list[dict[str, Any]]],
+    recovery: Callable[[], list[dict[str, Any]]],
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for workspace in workspaces:
@@ -36,6 +37,11 @@ async def run_durable_tick(
                 }
             except Exception as exc:  # noqa: BLE001 - arms are isolated by design
                 arms["stage_outbox"] = {"status": "failed", "errorType": type(exc).__name__}
+            try:
+                recovered = await asyncio.to_thread(recovery)
+                arms["recovery"] = {"status": "ok", "actionCount": len(recovered)}
+            except Exception as exc:  # noqa: BLE001
+                arms["recovery"] = {"status": "failed", "errorType": type(exc).__name__}
             for name, operation in (
                 ("scheduled", scheduled),
                 ("proactive", proactive),

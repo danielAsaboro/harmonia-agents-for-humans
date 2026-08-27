@@ -62,6 +62,7 @@ async def healthz() -> dict[str, Any]:
 async def durable_tick() -> dict[str, Any]:
     from datetime import datetime, timezone
     from . import proactive, scheduler
+    from .recovery import recover_missed
     from .web_client import claim_tick, get_workspaces, run_retention_tick, run_stage_outbox_tick
 
     workspaces = await asyncio.to_thread(get_workspaces)
@@ -77,6 +78,7 @@ async def durable_tick() -> dict[str, Any]:
             proactive=proactive.tick,
             retention=run_retention_tick,
             stage_outbox=run_stage_outbox_tick,
+            recovery=recover_missed,
         ),
     }
 
@@ -87,13 +89,14 @@ async def resident_heartbeat() -> dict[str, Any]:
     from datetime import datetime, timezone
     from .heartbeat import run_heartbeat
     from .web_client import claim_autonomy_cycle, finalize_autonomy_cycle, get_feed, get_workspaces, run_retention_tick, run_stage_outbox_tick
+    from .recovery import recover_missed
     from .tenant_context import tenant_scope
     scheduled_at = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0).isoformat()
     results = []
     for scope in await asyncio.to_thread(get_workspaces):
         with tenant_scope(scope["workspaceId"], scope["brandId"]):
             feed = await asyncio.to_thread(get_feed)
-            result = await run_heartbeat(scheduled_at=scheduled_at, claim_cycle=claim_autonomy_cycle, finalize_cycle=finalize_autonomy_cycle, stage_outbox=run_stage_outbox_tick, recover_missed=lambda: [], inspect_stuck=lambda: list(feed.get("failedJobs") or []), provider_health=lambda: {"status": "configured"}, budget_health=lambda: {"available": False, "reason": "no cognitive arm due"}, maintenance=lambda: run_retention_tick(20))
+            result = await run_heartbeat(scheduled_at=scheduled_at, claim_cycle=claim_autonomy_cycle, finalize_cycle=finalize_autonomy_cycle, stage_outbox=run_stage_outbox_tick, recover_missed=recover_missed, inspect_stuck=lambda: list(feed.get("failedJobs") or []), provider_health=lambda: {"status": "configured"}, budget_health=lambda: {"available": False, "reason": "no cognitive arm due"}, maintenance=lambda: run_retention_tick(20))
             results.append({"workspaceId": scope["workspaceId"], **result})
     return {"ok": True, "scheduledAt": scheduled_at, "workspaces": results}
 

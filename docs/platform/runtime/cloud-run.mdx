@@ -26,7 +26,7 @@ Container restart or scale-to-zero does not erase job state. Pub/Sub redelivery,
 
 ## Evidence status
 
-Docker builds, production builds, and deployment scripts verify packaging locally. A web-preview revision does not prove the worker or managed agent stack is deployed; use correlated service revisions and traces.
+Production builds verify standalone packaging locally. The full deployment path builds commit-tagged images once, deploys their resolved digests, and emits the Cloud Run revision/image identities. A web-preview revision does not prove the worker or managed agent stack is deployed; retain the full release identity lines with correlated service revisions and traces.
 
 ## Relevant files
 

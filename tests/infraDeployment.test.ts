@@ -16,6 +16,10 @@ function fakeGcloudEnvironment() {
     `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$FAKE_GCLOUD_LOG"
 case "$*" in
+  *"artifacts docker images describe"*) printf 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n' ;;
+  *"run services describe harmonia-web"*"status.latestReadyRevisionName"*) printf 'harmonia-web-revision\\n' ;;
+  *"run services describe harmonia-agent"*"status.latestReadyRevisionName"*) printf 'harmonia-agent-revision\\n' ;;
+  *"run revisions describe"*"status.imageDigest"*) printf 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n' ;;
   *"storage buckets describe"*"format=value(location)"*) printf 'us-central1\\n' ;;
   *"firestore databases describe"*"format=value(locationId)"*) printf 'us-central1\\n' ;;
   *"run services describe harmonia-web"*) printf 'https://harmonia-web.example.run.app\\n' ;;

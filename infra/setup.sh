@@ -21,6 +21,13 @@ for svc in run.googleapis.com firestore.googleapis.com pubsub.googleapis.com \
   gcloud services enable "$svc" --project "${PROJECT_ID}"
 done
 
+echo "-- Immutable release image repository"
+if ! gcloud artifacts repositories describe harmonia --location "${REGION}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud artifacts repositories create harmonia \
+    --repository-format docker --location "${REGION}" \
+    --description "Immutable Harmonia release images" --project "${PROJECT_ID}"
+fi
+
 echo "-- Agent Engine staging bucket"
 STAGING_BUCKET="gs://${PROJECT_ID}-harmonia-agent-staging"
 if ! gcloud storage buckets describe "${STAGING_BUCKET}" --project="${PROJECT_ID}" >/dev/null 2>&1; then

@@ -62,10 +62,12 @@ Resident Heartbeat, Dream, and Wakeup schedules are separate and disabled by def
 
 ## Deploying
 
-Both services containerize from the repo root:
+Both services use digest-pinned base images and exact dependency inputs:
 
-- Web app: standard Next.js build (`infra/` holds deployment scaffolding)
-- Worker: see `agent/Dockerfile`
+- Web app: standalone Next.js image from `Dockerfile`
+- Worker: Python image from `agent/Dockerfile` and `agent/requirements.lock`
+
+`infra/deploy.sh` builds each image once with the source commit as its tag, resolves the Artifact Registry SHA-256 digest, and deploys that exact `tag@digest`. It then fails closed unless Cloud Run reports a revision and image digest, emitting one `RELEASE_IDENTITY` line per service for the private release log. The script does not deploy mutable tags or reuse a separately rebuilt demo image.
 
 Set the [configuration](/configuration) secrets as Cloud Run environment variables (Secret Manager for tokens). With `PUBSUB_EMULATOR_HOST` unset, both clients connect to real Google Cloud services automatically.
 

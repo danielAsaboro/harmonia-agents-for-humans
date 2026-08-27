@@ -33,6 +33,8 @@ DURABLE_RECOVERY_LIMIT="${DURABLE_RECOVERY_LIMIT:-20}"
 DURABLE_RECOVERY_DEADLINE_SECONDS="${DURABLE_RECOVERY_DEADLINE_SECONDS:-15}"
 DURABLE_RECOVERY_MAX_RETRIES="${DURABLE_RECOVERY_MAX_RETRIES:-3}"
 DURABLE_RECOVERY_MAX_COST_USD="${DURABLE_RECOVERY_MAX_COST_USD:-0.250000}"
+SOURCE_COMMIT="$(git rev-parse HEAD)"
+IMAGE_REPOSITORY="${REGION}-docker.pkg.dev/${PROJECT_ID}/harmonia"
 
 resource_location() {
   local resource="$1"
@@ -78,6 +80,30 @@ secret_exists() {
   gcloud secrets describe "$1" --project "${PROJECT_ID}" >/dev/null 2>&1
 }
 
+record_release_identity() {
+  local service="$1"
+  local revision digest source_commit
+  revision="$(gcloud run services describe "${service}" --region "${REGION}" --project "${PROJECT_ID}" --format 'value(status.latestReadyRevisionName)')"
+  digest="$(gcloud run revisions describe "${revision}" --region "${REGION}" --project "${PROJECT_ID}" --format 'value(status.imageDigest)')"
+  if [[ -z "${revision}" || ! "${digest}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+    echo "could not resolve immutable release identity for ${service}" >&2
+    exit 2
+  fi
+  source_commit="$(git rev-parse HEAD 2>/dev/null || printf unknown)"
+  echo "RELEASE_IDENTITY service=${service} revision=${revision} imageDigest=${digest} sourceCommit=${source_commit}"
+}
+
+resolve_built_image_digest() {
+  local image_tag="$1"
+  local digest
+  digest="$(gcloud artifacts docker images describe "${image_tag}" --project "${PROJECT_ID}" --format 'value(image_summary.digest)')"
+  if [[ ! "${digest}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+    echo "could not resolve built image digest for ${image_tag}" >&2
+    exit 2
+  fi
+  printf '%s' "${digest}"
+}
+
 WEB_SECRETS="INTERNAL_API_TOKEN=internal-api-token:latest"
 if secret_exists gemini-api-key; then
   WEB_SECRETS="${WEB_SECRETS},GEMINI_API_KEY=gemini-api-key:latest"
@@ -114,16 +140,22 @@ else
 fi
 
 echo "== Deploying harmonia-web (Next.js) =="
+WEB_IMAGE_TAG="${IMAGE_REPOSITORY}/harmonia-web:${SOURCE_COMMIT}"
+gcloud builds submit . \
+  --config cloudbuild.web.yaml \
+  --substitutions "_IMAGE=${WEB_IMAGE_TAG},_FIREBASE_API_KEY=${FIREBASE_API_KEY},_FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN},_FIREBASE_APP_ID=${FIREBASE_APP_ID}" \
+  --project "${PROJECT_ID}"
+WEB_IMAGE_DIGEST="$(resolve_built_image_digest "${WEB_IMAGE_TAG}")"
 gcloud run deploy harmonia-web \
-  --source . \
+  --image "${WEB_IMAGE_TAG}@${WEB_IMAGE_DIGEST}" \
   --region "${REGION}" \
   --service-account "harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
   --allow-unauthenticated \
   --min-instances 0 --max-instances 2 \
-  --set-build-env-vars "NEXT_PUBLIC_FIREBASE_API_KEY=${FIREBASE_API_KEY},NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN},NEXT_PUBLIC_FIREBASE_PROJECT_ID=${PROJECT_ID},NEXT_PUBLIC_FIREBASE_APP_ID=${FIREBASE_APP_ID}" \
   --set-env-vars "${WEB_ENV}" \
   --set-secrets "${WEB_SECRETS}" \
   --project "${PROJECT_ID}"
+record_release_identity harmonia-web
 
 WEB_URL="$(gcloud run services describe harmonia-web --region "${REGION}" --project "${PROJECT_ID}" --format 'value(status.url)')"
 echo "web: ${WEB_URL}"
@@ -147,9 +179,11 @@ done
 AGENT_ENV="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},WEB_INTERNAL_URL=${WEB_URL},GOOGLE_CSE_ID=${GOOGLE_CSE_ID},PUBSUB_STAGE_TOPIC=harmonia-stages,MODEL_ID=${MODEL_ID},COORDINATOR_MODEL_ID=${COORDINATOR_MODEL_ID},STRATEGIST_MODEL_ID=${STRATEGIST_MODEL_ID},ANALYST_MODEL_ID=${ANALYST_MODEL_ID},COPYWRITER_MODEL_ID=${COPYWRITER_MODEL_ID},EDITOR_MODEL_ID=${EDITOR_MODEL_ID},PLANNER_MODEL_ID=${PLANNER_MODEL_ID},PRESENTER_MODEL_ID=${PRESENTER_MODEL_ID},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},IMAGE_MAX_COST_USD=${IMAGE_MAX_COST_USD},AGENT_ENGINE_RESOURCE=${AGENT_ENGINE_RESOURCE},MEMORY_BANK_ENABLED=${MEMORY_BANK_ENABLED},MEMORY_BANK_RESOURCE=${MEMORY_BANK_RESOURCE},GENERATIVE_MEDIA_ENABLED=${GENERATIVE_MEDIA_ENABLED},ALLOW_GLOBAL_LYRIA=${ALLOW_GLOBAL_LYRIA},VERTEX_MEDIA_LOCATION=${VERTEX_MEDIA_LOCATION},DURABLE_RECOVERY_LIMIT=${DURABLE_RECOVERY_LIMIT},DURABLE_RECOVERY_DEADLINE_SECONDS=${DURABLE_RECOVERY_DEADLINE_SECONDS},DURABLE_RECOVERY_MAX_RETRIES=${DURABLE_RECOVERY_MAX_RETRIES},DURABLE_RECOVERY_MAX_COST_USD=${DURABLE_RECOVERY_MAX_COST_USD},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-agent,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false"
 
 echo "== Deploying harmonia-agent (Python ADK worker) =="
-pushd agent >/dev/null
+AGENT_IMAGE_TAG="${IMAGE_REPOSITORY}/harmonia-agent:${SOURCE_COMMIT}"
+gcloud builds submit agent --tag "${AGENT_IMAGE_TAG}" --project "${PROJECT_ID}"
+AGENT_IMAGE_DIGEST="$(resolve_built_image_digest "${AGENT_IMAGE_TAG}")"
 gcloud run deploy harmonia-agent \
-  --source . \
+  --image "${AGENT_IMAGE_TAG}@${AGENT_IMAGE_DIGEST}" \
   --region "${REGION}" \
   --service-account "harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
   --no-allow-unauthenticated \
@@ -158,7 +192,7 @@ gcloud run deploy harmonia-agent \
   --set-env-vars "${AGENT_ENV}" \
   --set-secrets "${AGENT_SECRETS}" \
   --project "${PROJECT_ID}"
-popd >/dev/null
+record_release_identity harmonia-agent
 
 AGENT_URL="$(gcloud run services describe harmonia-agent --region "${REGION}" --project "${PROJECT_ID}" --format 'value(status.url)')"
 echo "agent: ${AGENT_URL}"

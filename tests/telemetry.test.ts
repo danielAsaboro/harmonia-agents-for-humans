@@ -12,9 +12,13 @@ describe("trace propagation", () => {
     await tracer.startActiveSpan("root", async (span) => {
       const message = buildStageMessage(
         { workspaceId: "workspace-a", brandId: "brand-a" },
-        "j1",
-        "understand",
-        0,
+        {
+          id: "outbox-1", workspaceId: "workspace-a", brandId: "brand-a", jobId: "j1",
+          stage: "understand", attempt: 0, schemaVersion: 1,
+          sourceEventId: "stage-outbox:outbox-1", operationId: "job:j1:stage:understand",
+          correlationId: "job:j1", publishAttempt: 1, state: "claimed",
+          createdAt: "2026-08-28T12:00:00.000Z",
+        },
       );
       expect(message.attributes.traceparent).toMatch(/^00-/);
       expect(message.attributes).toMatchObject({ jobId: "j1", stage: "understand" });

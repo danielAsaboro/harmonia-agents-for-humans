@@ -20,9 +20,7 @@ export async function dispatchStageOutboxRecord(id: string): Promise<StageOutbox
   try {
     const messageId = await publishStage(
       currentTenant(),
-      decision.record.jobId,
-      decision.record.stage,
-      decision.record.attempt,
+      decision.record,
     );
     await finalizeStageOutboxPublish(id, tokenDigest, messageId);
     return { id, outcome: "published", pubsubMessageId: messageId };

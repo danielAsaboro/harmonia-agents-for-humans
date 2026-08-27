@@ -1,3 +1,5 @@
+import { operationIdForStage } from "./operations";
+
 export type StageOutboxState = "pending" | "claimed" | "published";
 
 export interface StageOutboxRecord {
@@ -7,6 +9,12 @@ export interface StageOutboxRecord {
   jobId: string;
   stage: string;
   attempt: number;
+  schemaVersion: 1;
+  sourceEventId: string;
+  operationId: string;
+  correlationId: string;
+  causationId?: string;
+  publishAttempt: number;
   completedStage?: string;
   note?: string;
   state: StageOutboxState;
@@ -20,6 +28,25 @@ export interface StageOutboxRecord {
 export type StageOutboxClaimDecision =
   | { outcome: "publish"; record: StageOutboxRecord }
   | { outcome: "in_progress" | "already_published" };
+
+export function normalizeStageOutboxRecord(
+  current: Omit<StageOutboxRecord, "schemaVersion" | "sourceEventId" | "operationId" | "correlationId" | "publishAttempt">
+    & Partial<Pick<StageOutboxRecord, "schemaVersion" | "sourceEventId" | "operationId" | "correlationId" | "causationId" | "publishAttempt">>,
+): StageOutboxRecord {
+  return {
+    ...current,
+    schemaVersion: 1,
+    sourceEventId: current.sourceEventId ?? `stage-outbox:${current.id}`,
+    operationId: current.operationId ?? operationIdForStage(current.jobId, current.stage),
+    correlationId: current.correlationId ?? `job:${current.jobId}`,
+    ...(current.causationId
+      ? { causationId: current.causationId }
+      : current.completedStage
+        ? { causationId: operationIdForStage(current.jobId, current.completedStage) }
+        : {}),
+    publishAttempt: current.publishAttempt ?? 0,
+  };
+}
 
 export function decideStageOutboxClaim(
   current: StageOutboxRecord,
@@ -38,6 +65,7 @@ export function decideStageOutboxClaim(
     record: {
       ...current,
       state: "claimed",
+      publishAttempt: current.publishAttempt + 1,
       claimTokenDigest,
       claimUntil: new Date(now.getTime() + leaseMs).toISOString(),
     },

@@ -51,6 +51,7 @@ import {
   decideStageOutboxClaim,
   finalizeStageOutbox,
   releaseStageOutboxClaim,
+  normalizeStageOutboxRecord,
   type StageOutboxRecord,
 } from "./stageOutbox";
 import {
@@ -58,14 +59,17 @@ import {
   OperationStore,
   type OperationRecoveryPage,
 } from "./operationStore";
-import type {
-  CreateOperationInput,
-  FinalizeOperationInput,
-  OperationClaimInput,
-  OperationClaimResult,
-  OperationFence,
-  OperationRecord,
+import {
+  operationIdForStage,
+  type CreateOperationInput,
+  type FinalizeOperationInput,
+  type OperationClaimInput,
+  type OperationClaimResult,
+  type OperationFence,
+  type OperationRecord,
 } from "./operations";
+import { EventInboxStore, type DurableEventClaimInput } from "./eventInboxStore";
+import type { EventInboxClaimResult, EventInboxRecord } from "./eventInbox";
 
 let client: Firestore | null = null;
 
@@ -78,6 +82,31 @@ export function db(): Firestore {
 
 function durableOperations(): OperationStore {
   return new OperationStore(new FirestoreOperationPersistence(db()));
+}
+
+function durableEvents(): EventInboxStore {
+  return new EventInboxStore(db());
+}
+
+export function claimDurableEvent(input: DurableEventClaimInput): Promise<EventInboxClaimResult> {
+  return durableEvents().claim(input);
+}
+
+export function getDurableEvent(source: string, sourceEventId: string): Promise<EventInboxRecord | null> {
+  return durableEvents().get(source, sourceEventId);
+}
+
+export function completeDurableEvent(
+  source: string,
+  sourceEventId: string,
+  input: {
+    ownerTokenDigest: string;
+    outcome: "completed" | "rejected";
+    now: string;
+    rejectionReason?: string;
+  },
+): Promise<EventInboxRecord> {
+  return durableEvents().complete(source, sourceEventId, input);
 }
 
 export function createDurableOperation(
@@ -184,6 +213,22 @@ function stageOutboxId(jobId: string, stage: Stage, attempt: number): string {
   return createHash("sha256").update(`${jobId}:${stage}:${attempt}`).digest("hex");
 }
 
+function stageOutboxDurability(
+  id: string,
+  jobId: string,
+  stage: Stage,
+  completedStage?: Stage,
+): Pick<StageOutboxRecord, "schemaVersion" | "sourceEventId" | "operationId" | "correlationId" | "causationId" | "publishAttempt"> {
+  return {
+    schemaVersion: 1,
+    sourceEventId: `stage-outbox:${id}`,
+    operationId: operationIdForStage(jobId, stage),
+    correlationId: `job:${jobId}`,
+    ...(completedStage ? { causationId: operationIdForStage(jobId, completedStage) } : {}),
+    publishAttempt: 0,
+  };
+}
+
 function stageOutboxRef(id: string) {
   return tenantCollection(STAGE_OUTBOX).doc(id);
 }
@@ -205,6 +250,7 @@ export async function enqueueStageTrigger(
     tx.create(ref, {
       id, workspaceId: tenant.workspaceId, brandId: tenant.brandId,
       jobId, stage, attempt, ...metadata,
+      ...stageOutboxDurability(id, jobId, stage, metadata.completedStage),
       state: "pending", createdAt: new Date().toISOString(),
     } satisfies StageOutboxRecord);
   });
@@ -235,6 +281,7 @@ export async function transitionStageWithOutbox(
     tx.create(ref, {
       id, workspaceId: tenant.workspaceId, brandId: tenant.brandId,
       jobId, stage: nextStage, attempt: 0, completedStage, note,
+      ...stageOutboxDurability(id, jobId, nextStage, completedStage),
       state: "pending", createdAt: new Date().toISOString(),
     } satisfies StageOutboxRecord);
   });
@@ -262,7 +309,7 @@ export async function claimStageOutbox(
   return db().runTransaction(async (tx) => {
     const snapshot = await tx.get(ref);
     if (!snapshot.exists) throw new Error("stage outbox record not found");
-    const record = snapshot.data() as StageOutboxRecord;
+    const record = normalizeStageOutboxRecord(snapshot.data() as StageOutboxRecord);
     assertResourceWorkspace(currentTenant(), record);
     const decision = decideStageOutboxClaim(record, claimTokenDigest, now);
     if (decision.outcome === "publish") tx.set(ref, decision.record);
@@ -278,7 +325,7 @@ export async function releaseStageOutbox(
   await db().runTransaction(async (tx) => {
     const snapshot = await tx.get(ref);
     if (!snapshot.exists) return;
-    const record = snapshot.data() as StageOutboxRecord;
+    const record = normalizeStageOutboxRecord(snapshot.data() as StageOutboxRecord);
     assertResourceWorkspace(currentTenant(), record);
     tx.set(ref, releaseStageOutboxClaim(record, claimTokenDigest));
   });
@@ -294,7 +341,7 @@ export async function finalizeStageOutboxPublish(
   await db().runTransaction(async (tx) => {
     const snapshot = await tx.get(ref);
     if (!snapshot.exists) throw new Error("stage outbox record not found");
-    const current = snapshot.data() as StageOutboxRecord;
+    const current = normalizeStageOutboxRecord(snapshot.data() as StageOutboxRecord);
     assertResourceWorkspace(currentTenant(), current);
     const finalized = finalizeStageOutbox(current, claimTokenDigest, pubsubMessageId, now);
     tx.set(ref, finalized);
@@ -1244,6 +1291,7 @@ export async function createJob(
       jobId: id,
       stage: initialStage,
       attempt: 0,
+      ...stageOutboxDurability(outboxId, id, initialStage),
       state: "pending",
       createdAt: now,
     } satisfies StageOutboxRecord);
@@ -1262,6 +1310,7 @@ export async function retryFailedJobWithOutbox(jobId: string, stage: Stage, atte
     tx.update(jobRef(jobId), { stage, status: "running", updatedAt: new Date().toISOString() });
     if (!existing.exists) tx.create(ref, {
       id, workspaceId: tenant.workspaceId, brandId: tenant.brandId, jobId, stage, attempt,
+      ...stageOutboxDurability(id, jobId, stage),
       state: "pending", createdAt: new Date().toISOString(),
     } satisfies StageOutboxRecord);
   });
@@ -1690,6 +1739,7 @@ export async function acceptEditorialPlan(
       id: outboxId, workspaceId: tenant.workspaceId, brandId: tenant.brandId,
       jobId, stage: "draft", attempt: 0, completedStage: "plan",
       note: `editorial plan ${digest} accepted; selected ${plan.selectedNextItemId}`,
+      ...stageOutboxDurability(outboxId, jobId, "draft", "plan"),
       state: "pending", createdAt: acceptedAt,
     } satisfies StageOutboxRecord);
     return { digest, evidenceLineage, selectedNextItemId: plan.selectedNextItemId, outboxId };
@@ -1792,6 +1842,7 @@ export async function decideStrategy(jobId: string, input: StrategyDecisionInput
         id: outboxId, workspaceId: tenant.workspaceId, brandId: tenant.brandId,
         jobId, stage: result.nextStage, attempt, completedStage: "awaiting_strategy_approval",
         note: result.nextStage === "plan" ? "strategy approved; editorial planning dispatched" : "strategy revision requested",
+        ...stageOutboxDurability(outboxId, jobId, result.nextStage, "awaiting_strategy_approval"),
         state: "pending", createdAt: new Date().toISOString(),
       } satisfies StageOutboxRecord);
     }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import io
 import logging
 import os
 from collections.abc import Callable
@@ -21,6 +22,9 @@ from .web_client import report_usage, reserve_budget, resolve_budget_reservation
 
 MODEL = "gemini-3.5-flash"
 IMAGE_MODEL = os.environ.get("IMAGE_MODEL_ID", "gemini-3.5-flash-image")
+# Base64 expands bytes by roughly 4/3. Keep inline media comfortably below
+# generateContent's 20 MiB total-request limit, including the text envelope.
+MAX_INLINE_MEDIA_BYTES = 14 * 1024 * 1024
 logger = logging.getLogger("harmonia.content")
 
 
@@ -87,6 +91,11 @@ def transcribe_audio(
     dispatched = False
     try:
         client = _client()
+        prompt = (
+            "Transcribe this audio. Return JSON: "
+            "{language, segments:[{id,startSec,endSec,text}]}. "
+            "startSec/endSec are numbers."
+        )
         with tracer().start_as_current_span("harmonia.model.generate") as span:
             span.set_attributes(safe_attributes({
                 "job.id": invocation.job_id,
@@ -94,22 +103,28 @@ def transcribe_audio(
                 "agent": role,
                 "model": MODEL,
             }))
+            if len(audio) <= MAX_INLINE_MEDIA_BYTES:
+                media_content: Any = {"role": "user", "parts": [
+                    {"inlineData": {
+                        "mimeType": mime_type,
+                        "data": __import__("base64").b64encode(audio).decode(),
+                    }},
+                    {"text": prompt},
+                ]}
+            else:
+                dispatched = True
+                uploaded = client.files.upload(
+                    file=io.BytesIO(audio),
+                    config={
+                        "mime_type": mime_type,
+                        "display_name": "harmonia-transcription-media",
+                    },
+                )
+                media_content = [uploaded, prompt]
             dispatched = True
             res = client.models.generate_content(
                 model=MODEL,
-                contents=[
-                    {"role": "user", "parts": [
-                        {"inlineData": {
-                            "mimeType": mime_type,
-                            "data": __import__("base64").b64encode(audio).decode(),
-                        }},
-                        {"text": (
-                            "Transcribe this audio. Return JSON: "
-                            "{language, segments:[{id,startSec,endSec,text}]}. "
-                            "startSec/endSec are numbers."
-                        )},
-                    ]},
-                ],
+                contents=media_content,
             )
             result = _parse_json(res.text)
             accumulator = UsageAccumulator(

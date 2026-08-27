@@ -36,8 +36,9 @@ const MIME_CATEGORY: Record<string, AttachmentCategory> = {
 const CATEGORY_LIMITS: Record<AttachmentCategory, number> = {
   image: 25 * 1024 * 1024,
   document: 50 * 1024 * 1024,
-  // The current authenticated transcription path sends media inline to
-  // Gemini, so uploads stay within its verified 24 MiB processing boundary.
+  // Product limits bound upload, scan, storage, ffmpeg, and transcription
+  // work. The worker routes media above its conservative inline threshold
+  // through Gemini's Files API instead of base64-encoding it in the request.
   audio: 24 * 1024 * 1024,
   video: 24 * 1024 * 1024,
 };

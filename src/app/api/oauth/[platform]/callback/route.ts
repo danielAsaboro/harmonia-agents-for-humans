@@ -26,7 +26,7 @@ export async function GET(
   const { platform } = await params;
   const def = getPlatform(platform);
   if (!def) return backToSettings(platform, "error", "unknown platform");
-  if (def.productAvailability !== "active") {
+  if (def.productAvailability === "credential_groundwork") {
     return backToSettings(platform, "error", "credential groundwork only; publishing is not implemented");
   }
 

@@ -23,7 +23,7 @@ async function get(
   const { platform } = await params;
   const def = getPlatform(platform);
   if (!def) return backToSettings("error", `unknown platform ${platform}`);
-  if (def.productAvailability !== "active") {
+  if (def.productAvailability === "credential_groundwork") {
     return backToSettings("error", `${def.label}: credential groundwork only; publishing is not implemented`);
   }
 

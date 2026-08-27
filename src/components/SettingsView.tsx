@@ -223,7 +223,7 @@ interface ConnectionInfo {
   id: string;
   label: string;
   capabilities: string[];
-  productAvailability: "active" | "credential_groundwork";
+  productAvailability: "active" | "oauth_connectable" | "credential_groundwork";
   note: string;
   docsUrl: string;
   status: "connected" | "connectable" | "credentials_needed";

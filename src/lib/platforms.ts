@@ -26,7 +26,7 @@ export interface PlatformDef {
   /** Env vars that must be set for this platform to be connectable. */
   requiredEnv: string[];
   capabilities: PlatformCapability[];
-  productAvailability: "active" | "credential_groundwork";
+  productAvailability: "active" | "oauth_connectable" | "credential_groundwork";
   docsUrl: string;
   note: string;
   oauth: OAuthConfig;
@@ -90,7 +90,7 @@ export const PLATFORMS: PlatformDef[] = [
     label: "Instagram",
     requiredEnv: ["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET", "INSTAGRAM_CONFIGURATION_ID"],
     capabilities: [],
-    productAvailability: "credential_groundwork",
+    productAvailability: "oauth_connectable",
     oauth: {
     authorizeUrl: "https://www.facebook.com/v21.0/dialog/oauth",
     tokenUrl: "https://graph.facebook.com/v21.0/oauth/access_token",
@@ -108,7 +108,7 @@ export const PLATFORMS: PlatformDef[] = [
     label: "LinkedIn member",
     requiredEnv: ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"],
     capabilities: [],
-    productAvailability: "credential_groundwork",
+    productAvailability: "oauth_connectable",
     oauth: {
     authorizeUrl: "https://www.linkedin.com/oauth/v2/authorization",
     tokenUrl: "https://www.linkedin.com/oauth/v2/accessToken",
@@ -125,7 +125,7 @@ export const PLATFORMS: PlatformDef[] = [
     label: "LinkedIn company page",
     requiredEnv: ["LINKEDIN_ORGANIZATION_CLIENT_ID", "LINKEDIN_ORGANIZATION_CLIENT_SECRET"],
     capabilities: [],
-    productAvailability: "credential_groundwork",
+    productAvailability: "oauth_connectable",
     oauth: {
       authorizeUrl: "https://www.linkedin.com/oauth/v2/authorization",
       tokenUrl: "https://www.linkedin.com/oauth/v2/accessToken",
@@ -159,7 +159,7 @@ export const PLATFORMS: PlatformDef[] = [
     label: "YouTube",
     requiredEnv: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
     capabilities: [],
-    productAvailability: "credential_groundwork",
+    productAvailability: "oauth_connectable",
     oauth: {
     authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     tokenUrl: "https://oauth2.googleapis.com/token",

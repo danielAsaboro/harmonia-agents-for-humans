@@ -1,147 +1,238 @@
 ---
 title: "Context and memory continuity"
-description: "How Harmonia prevents context rot, memory rot, duplicate effects, and lost work across long-running asynchronous agent operations."
+description: "The story of a Harmonia job that survives context trimming, stale memory, duplicate delivery, and a worker crash."
 ---
 
-Harmonia does not try to keep one model conversation alive for hours or weeks. It keeps the **work**
-alive while model calls, workers, sessions, and prompt windows remain replaceable.
+Imagine Harmonia has been following a startup campaign for weeks. It has analysed long videos,
+proposed strategy, generated drafts, received corrections, and observed what was eventually approved.
+Then a new event arrives: a scheduled post is due.
 
-<CardGroup cols={2}>
-  <Card title="Context rot" icon="message-slash">
-    Relevant constraints, tool results, and decisions become diluted, truncated, or contradicted as
-    an invocation transcript grows.
-  </Card>
-  <Card title="Memory rot" icon="brain">
-    Old summaries, stale revisions, unverified claims, or facts from the wrong scope are retrieved as
-    if they were current truth.
-  </Card>
-</CardGroup>
+This is the moment when many agent systems become unreliable. The useful context is scattered across
+an enormous transcript. A summary may mention an obsolete draft. A memory may describe another brand.
+A tool result may have been trimmed. The worker may die halfway through publishing. When it restarts,
+the model may not know whether the post already went live.
 
-The optimisation target is therefore not maximum prompt retention. It is **bounded reconstruction**:
-each cognitive turn receives the smallest reproducible view that preserves current truth, authority,
-unresolved risk, and retrievable evidence.
+Harmonia is designed around a different premise:
 
-## The continuity model
+> The conversation may disappear. The work, authority, and evidence must not.
 
-```mermaid
-flowchart LR
-    E[External event or scheduled wake] --> I[(Event inbox)]
-    I --> O[(Durable operation + epoch)]
-    O --> C[Context compiler]
-    S[(Firestore current state)] --> C
-    M[(Memory Bank)] -->|scoped, advisory facts| C
-    A[(Artifact store)] -->|digest-verified ranges| C
-    C --> P[Bounded prompt projection]
-    P --> G[Gemini / ADK turn]
-    G --> R[(Typed result)]
-    R --> X[Deterministic transition]
-    X --> Q[(Stage outbox)]
-    Q --> E
-```
+This page follows that scheduled post from wakeup to recovery. Along the way, it explains how Harmonia
+addresses **Context rot**, **Memory rot**, and execution ambiguity without pretending that a larger
+prompt is durable state.
 
-Firestore is authoritative workflow truth. Agent Engine sessions provide invocation continuity.
-Memory Bank is advisory cross-session context. The artifact store preserves large values omitted from
-the prompt. Pub/Sub, Scheduler, Telegram, and approved provider webhooks are wake signals—not memory
-and not authorization.
+## 1. The event arrives before an agent is awake
 
-## Deterministic context projection
+The scheduled wake does not reopen an immortal chat session. It enters a versioned event inbox with a
+stable source ID, payload digest, trust label, correlation ID, and optional causal parent.
 
-Every stage-level ADK call and managed chat run compiles a fresh context projection. The compiler is
-deterministic: the same canonical manifest produces the same manifest digest, rendered digest, and
-projection identity.
+Inbox acceptance and operation creation happen together in Firestore. If Pub/Sub delivers the same
+message twice, both deliveries converge on the same event and operation identities. There is now an
+authoritative answer to the first recovery question—*did Harmonia begin this work?*—before a model is
+called.
+
+The operation starts with a goal, acceptance criteria, replay policy, retry budget, and epoch. A worker
+may claim it for a bounded lease. Every mutation after that claim must carry the same operation ID and
+epoch. If another worker later takes over, its newer epoch fences the first worker out.
+
+<Info>
+Pub/Sub, Cloud Scheduler, Telegram, and approved provider webhooks can all wake Harmonia. They provide
+work signals, not memory and not permission to publish.
+</Info>
+
+## 2. Harmonia rebuilds the present instead of replaying the past
+
+The new worker does not stuff the complete event history into Gemini. It asks Firestore for current
+durable state and compiles a fresh, deterministic context projection.
+
+The distinction matters. A chronological transcript tells the model everything that happened,
+including drafts that were rejected and assumptions that were superseded. A projection tells it what
+is true **now**, why that truth is authoritative, and where omitted evidence can be recovered.
 
 ### Authority comes first
 
-The projection orders information by consequence rather than chronology:
+The compiler orders information by consequence rather than recency:
 
-1. tenant and operation identity;
-2. operation epoch, goal digest, and acceptance criteria;
-3. policy version, approval IDs, and unresolved effects;
-4. current strategy, plan, draft, and evidence revisions;
+1. the tenant, operation identity, and epoch;
+2. the goal digest and acceptance criteria;
+3. the active policy version, approval IDs, and unresolved effects;
+4. the current strategy, plan, draft, and evidence revision digests;
 5. trusted durable observations;
-6. explicitly delimited external or model-generated content; and
-7. bounded, non-authoritative Memory Bank facts.
+6. clearly delimited external or model-produced material; and
+7. bounded Memory Bank facts, labeled non-authoritative.
 
-Authority fields are non-compactable. A summary or retrieved memory cannot replace an approval,
-current revision digest, operation fence, effect command, receipt, or verification record. Changing
-the epoch, policy, current revision, evidence, or compiler version changes the projection identity.
+These authority fields cannot be compacted away. A polished summary cannot replace an approval. A
+retrieved memory cannot select the current draft. A model assertion cannot manufacture a receipt.
 
-The TypeScript manifest and persistence contract lives in `src/lib/contextProjections.ts` and
-`src/lib/contextProjectionStore.ts`. The matching Python compiler and ADK integration live in
-`agent/harmonia_agent/context_projection.py` and `agent/harmonia_agent/agents.py`.
+The projection itself is reproducible. Its canonical manifest records the compiler version, operation
+epoch, policy, model, current revisions, evidence, and artifact references. That manifest produces a
+stable digest, rendered digest, and projection ID. Change any consequential input and the identity
+changes with it.
 
-## Prune + spill instead of permanent loss
+```mermaid
+flowchart LR
+    E[Durable event] --> O[Operation + epoch]
+    O --> C[Context compiler]
+    F[(Firestore current truth)] --> C
+    M[(Scoped Memory Bank facts)] -->|advisory| C
+    A[(Artifact store)] -->|digest-verified ranges| C
+    C --> P[Bounded projection]
+    P --> G[Gemini / ADK turn]
+    G --> T[Typed result]
+    T --> F
+```
 
-Large tool results do not consume the prompt indefinitely. Harmonia uses **prune + spill**:
+The matching contracts live in `src/lib/contextProjections.ts`,
+`src/lib/contextProjectionStore.ts`, and `agent/harmonia_agent/context_projection.py`. Every
+stage-level ADK invocation and managed chat run enters through this projection boundary.
 
-- Persist the complete result as a tenant-scoped artifact before relying on it.
-- Record byte length, content type, trust label, producer, retention class, and SHA-256 digest.
-- Keep a bounded head/tail preview plus an opaque artifact ID in the projection.
-- Retrieve only bounded byte ranges when a later operation needs detail.
-- Verify the artifact digest and tenant scope before returning content.
+## 3. The transcript is too large, but the evidence is not lost
 
-This reduces prompt volume without making compaction destructive. A missing, incomplete, expired, or
-digest-invalid artifact remains a visible recovery problem; the compiler never invents the omitted
-middle. Artifact records move through `writing -> ready|failed`, preventing a partially written value
-from being presented as durable evidence. The implementation is in `src/lib/artifacts.ts` and
-`src/lib/artifactStore.ts`.
+Suppose the source-analysis tool returned thousands of lines. Keeping all of them in every subsequent
+prompt wastes tokens and makes the relevant constraints harder to find. Permanently deleting the
+middle would be cheaper, but it would make later recovery guesswork.
 
-## Preventing memory rot
+Harmonia uses **prune + spill** instead.
 
-Memory Bank writes are allowlisted, typed, evidence-linked, and scoped to the exact workspace and
-brand. Eligible memories include explicit operator preferences, approved decisions, independently
-verified outcomes, and measured learnings with durable record IDs.
+The complete result is written as a tenant-scoped artifact with its content type, byte count, trust
+label, producer, retention class, and SHA-256 digest. The prompt keeps a bounded head/tail preview and
+an opaque artifact ID. If the agent later needs the missing detail, it can request a bounded byte range;
+the runtime checks tenant scope and digest before returning it.
 
-Raw transcripts, prompts, drafts, credentials, provider bodies, errors, unverified claims, and legacy
-facts without lineage are rejected. Retrieval is count- and character-bounded. Wrong-scope or
-malformed results fail visibly instead of entering the prompt.
+This gives compaction a different meaning. The prompt becomes smaller, but the system has not
+forgotten. What left the immediate context remains addressable while retention permits.
+
+Artifact state also makes interrupted writes honest:
+
+```text
+writing -> ready
+        -> failed
+```
+
+A partial artifact never masquerades as evidence. Missing, failed, expired, or digest-invalid content
+becomes visible recovery work. The compiler does not invent the omitted middle. The implementation is
+in `src/lib/artifacts.ts` and `src/lib/artifactStore.ts`.
+
+## 4. Memory returns a lesson, not a command
+
+The worker may now retrieve a fact learned from an earlier campaign: perhaps the operator consistently
+prefers evidence-led openings over hype. That can improve the next draft, but only if it belongs to the
+same workspace and brand and points back to eligible durable evidence.
+
+This is Harmonia's defense against Memory rot. Memory Bank writes are allowlisted and typed. Eligible
+facts come from explicit operator preferences, approved decisions, independently verified outcomes,
+or measured learnings with durable record IDs. Raw transcripts, prompts, draft copy, credentials,
+provider bodies, errors, unverified claims, and facts without lineage are rejected.
+
+Retrieval is bounded by count and characters. Wrong-scope or malformed memories fail visibly instead
+of entering the projection. Even a valid result carries less authority than current Firestore state.
 
 <Warning>
-Memory Bank is advisory. It may improve judgment, but it cannot authorize an effect, advance a job,
-repair a receipt, choose the current revision, or reconstruct Firestore after a crash.
+Memory Bank is advisory. It can influence judgment; it cannot approve an effect, advance an operation,
+choose the current revision, repair a receipt, or reconstruct Firestore after a crash.
 </Warning>
 
-See [Sessions, history, and memory](/session-memory) for the complete eligibility and retention matrix.
+This is why Harmonia keeps four different kinds of continuity instead of calling all of them “memory”:
 
-## Execution continuity after compaction or crashes
+| Layer | What it preserves | What it cannot do |
+|---|---|---|
+| ADK invocation state | typed handoffs inside one cognitive turn | survive as workflow truth |
+| Agent Engine session | continuity for one scoped operation | own leases or authorize effects |
+| Firestore | current workflow, authority, receipts, and failures | provide generative judgment |
+| Memory Bank | evidence-linked lessons across sessions | override current durable state |
 
-A good prompt is insufficient if the worker forgets whether it already acted. Harmonia therefore
-separates cognitive continuity from execution continuity.
+The detailed eligibility and retention boundaries are documented in
+[Sessions, history, and memory](/session-memory).
 
-Every source event has a version, stable source ID, payload digest, trust label, correlation ID, and
-optional causation ID. Inbox acceptance and operation creation are atomic. A worker claim increments
-a durable epoch; every later mutation must present the same operation ID and epoch. A stale worker is
-rejected even if it resumes with a valid old transcript.
+## 5. The model proposes an action, but does not perform it yet
 
-For external actions, Harmonia writes **intent before effect**:
+With its bounded projection assembled, Gemini and the ADK team can decide what content work is needed.
+Their output still crosses a typed validation boundary before deterministic workflow code accepts it.
+
+When an approved external action is ready, Harmonia writes **intent before effect**. The effect command
+captures the exact approved payload digest and operation fence before the provider is contacted:
 
 ```text
 prepared -> dispatched -> observed -> applied | failed | unknown
 ```
 
-An ordinary error after dispatch becomes `unknown`, not a retryable failure. Recovery never guesses
-whether the provider acted. It reconciles with provider state or waits for an operator decision backed
-by digest-verified evidence.
+Now imagine the provider receives the publish request, but the worker loses its network connection
+before the response is committed. Calling that a failure would invite an automatic retry and possibly
+publish twice. Calling it success would fabricate evidence.
 
-## Bounded recovery
+Harmonia records it as `unknown`.
 
-The model-free recovery wake scans finite pages under explicit deadline, retry, and cost ceilings. It
-can requeue safe inbox/outbox work, release an expired safe operation, request reconciliation, enqueue
-verification, or create operator work. It cannot execute an unknown external effect.
+Unknown is not an error label to hide. It is a durable statement that the provider may have acted and
+that automatic execution must stop until reconciliation or human resolution supplies evidence.
 
-Recovery identities include the persisted **attempt generation**. Repeating the scan for the same
-crash is idempotent; a later crash of the same operation receives new recovery authority. This avoids
-both duplicate repair and the subtler failure where an old recovery record prevents a newer attempt
-from being recovered.
+## 6. The worker dies, and the conversation dies with it
 
-See [Failure and recovery](/failure-recovery) for state-specific behavior and
-[State ownership](/state-ownership) for the database boundaries.
+The process restarts with no trustworthy recollection of its last instruction. That is acceptable,
+because the next worker does not recover from recollection.
 
-## What was measured
+A model-free recovery wake scans bounded pages under deadline, retry, and cost ceilings. It finds the
+expired operation, abandoned inbox/outbox claim, observed result without a receipt, unverified receipt,
+or broken artifact. Depending on replay policy and state, it may:
 
-`scripts/verify-durable-runtime.ts` injects failures at ten durable boundaries: before and after inbox
-acceptance, operation claim, projection persistence, model result, effect preparation, provider
-dispatch, provider response, receipt commit, and verification.
+- release safe work for another attempt;
+- requeue an inbox or outbox record;
+- request provider reconciliation;
+- enqueue independent verification; or
+- require an operator decision.
+
+It may not execute an unknown external effect.
+
+Recovery records are idempotent for one crash, but not forever. Their identities include the persisted
+**attempt generation**. Repeating a scan for attempt 1 emits nothing new; if a replacement worker later
+claims attempt 2 and also crashes, attempt 2 receives fresh recovery authority. Without that generation,
+an old recovery record could leave a later crash stuck indefinitely.
+
+Meanwhile, epoch fencing rejects the original worker if it wakes up and tries to finalize stale work.
+The replacement worker compiles a new projection from current state rather than trusting the abandoned
+conversation.
+
+## 7. A human resolves what automation cannot know
+
+If provider read-back proves the post exists, Harmonia can bind that observation to a receipt and
+verification record. If the provider proves it never began, the command can safely return to
+`prepared` for a new fenced attempt.
+
+When neither conclusion is independently available, the operator receives four explicit choices:
+
+- confirm applied using ready, digest-verified evidence;
+- confirm not applied and permit a new attempt;
+- create separate compensation work; or
+- cancel without claiming success.
+
+The resolution records the human identity, authentication ID, reason, operation goal digest, command
+payload digest, evidence digests, and decision digest. Compensation is separate work; it is never a
+hidden side effect of resolving the original operation.
+
+At this point the job has survived event redelivery, bounded context, retrieved memory, a lost worker,
+and ambiguous provider state. No single conversation had to survive with it.
+
+## 8. The next job starts with less context and more continuity
+
+Weeks later, another source arrives. Harmonia does not replay this job's full transcript. It starts a
+new operation, retrieves only eligible same-scope learnings, selects the latest durable revisions, and
+builds another bounded projection.
+
+That is the core optimisation:
+
+- prompt volume depends on the bounded projection, not the age of the agent;
+- current authority survives trimming;
+- large evidence remains retrievable by artifact and digest;
+- stale memory cannot overwrite present state;
+- worker death does not erase progress; and
+- ambiguous effects stop instead of becoming duplicate actions.
+
+The result is not an immortal conversation. It is a system where conversation loss does not imply work
+loss, memory retrieval does not imply authority, and process death does not imply starting over.
+
+## What the fault benchmark proves
+
+`scripts/verify-durable-runtime.ts` injects faults at ten boundaries: before and after inbox acceptance,
+operation claim, projection persistence, model result, effect preparation, provider dispatch, provider
+response, receipt commit, and verification.
 
 | Metric | Deterministic result |
 |---|---:|
@@ -154,27 +245,17 @@ dispatch, provider response, receipt commit, and verification.
 | Artifact digest checks | 2 |
 | Prompt projection characters in the fixed benchmark | 178 |
 
-Two independent executions produce byte-identical benchmark JSON. Firestore integration tests also
-exercise concurrent claims, stale epochs, recurring recovery attempts, artifact integrity, effect
-ambiguity, and operator resolution.
+Two independent benchmark executions produce byte-identical JSON. Firestore integration tests cover
+concurrent claims, recurring recovery attempts, artifact integrity, stale epochs, effect ambiguity,
+and operator resolution.
 
 <Info>
-These results prove the implemented state transitions and deterministic benchmark. This does not prove multi-week uptime,
-authenticated Memory Bank behavior, cloud IAM correctness, provider availability,
-or successful external publication. Those require a deployed soak run and independent provider
-read-back. See [Observability](/observability) for the evidence surfaces.
+This does not prove multi-week uptime, authenticated Memory Bank behavior, cloud IAM correctness,
+provider availability, or successful external publication. Those claims require a deployed soak run,
+real elapsed time, and independent provider read-back. The benchmark proves the implemented state
+transitions and reconstruction contract—not the availability of systems outside it.
 </Info>
 
-## Why this is an optimisation
-
-The design improves several axes together:
-
-- **Quality:** current revisions and authority survive transcript trimming.
-- **Token use:** prompt volume is bounded rather than proportional to runtime age.
-- **Recoverability:** omitted results remain addressable by artifact and digest.
-- **Safety:** stale workers and ambiguous effects cannot silently advance state.
-- **Latency and cost:** model-free recovery and low-complexity bookkeeping avoid unnecessary model calls.
-- **Auditability:** every projection, event, operation, effect, receipt, and recovery action has a stable identity.
-
-The result is not an immortal conversation. It is a runtime where conversation loss does not imply
-work loss, memory retrieval does not imply authority, and process death does not imply starting over.
+Continue with [Failure and recovery](/failure-recovery) for the state-by-state reference,
+[State ownership](/state-ownership) for database boundaries, and
+[Observability](/observability) for the evidence surfaces.

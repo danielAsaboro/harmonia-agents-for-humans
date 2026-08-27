@@ -34,7 +34,9 @@ export function validateArchitecture(input: unknown): ArchitectureDefinition {
   const engine = nodes.get("agent-engine");
   if (!engine || engine.stateLifetime !== "ephemeral") throw new Error("Agent Engine must be ephemeral");
   for (const effect of definition.nodes.filter((node) => node.kind === "effect")) {
-    if (!definition.edges.some((edge) => edge.target === effect.id && edge.kind === "approval")) throw new Error(`Effect requires approval: ${effect.id}`);
+    if (effect.approval === "Required" && !definition.edges.some((edge) => edge.target === effect.id && edge.kind === "approval")) {
+      throw new Error(`Approval-gated effect requires approval: ${effect.id}`);
+    }
     if (!definition.edges.some((edge) => edge.source === effect.id && edge.kind === "verification")) throw new Error(`Effect requires independent verification: ${effect.id}`);
   }
   return definition;

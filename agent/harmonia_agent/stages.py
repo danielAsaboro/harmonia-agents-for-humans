@@ -147,6 +147,10 @@ def _source_angles(job: dict[str, Any]) -> list[dict[str, Any]]:
     return _source_analysis_items(job, "angles")
 
 
+def _meme_angles(job: dict[str, Any]) -> list[dict[str, Any]]:
+    return [angle for angle in _source_angles(job) if angle.get("angleType") == "meme"]
+
+
 def deterministic_generative_media_actions(job: dict[str, Any]) -> list[dict[str, Any]]:
     """Propose bounded paid media from validated analysis, outside the planner."""
     title = str(job.get("ingestedTitle") or "startup launch")[:200]
@@ -593,7 +597,7 @@ async def run_draft(job_id: str) -> None:
     })
 
     # Propose image assets for the top meme angles (capped to bound cost).
-    meme_angles = [a for a in angles if a.get("kind") == "meme"]
+    meme_angles = [a for a in angles if a.get("angleType") == "meme"]
     for angle in meme_angles[:2]:
         prompt_text = (
             f"Social media meme image for a startup. Concept: {angle['title']}. "

@@ -75,6 +75,25 @@ describe("Harmonia architecture dataset", () => {
     }
   });
 
+  it("represents the canonical approval policy for each effect", () => {
+    for (const id of ["effect-publish-x", "effect-generate-veo", "effect-generate-lyria", "effect-schedule-content"]) {
+      expect(byId(id).statuses).toContain("approval-gated");
+      expect(byId(id).approval).toBe("Required");
+    }
+    for (const id of ["effect-export-pack", "effect-generate-image", "effect-render-media"]) {
+      expect(byId(id).statuses).not.toContain("approval-gated");
+      expect(byId(id).approval).toBe("Not required");
+      expect(byId(id).summary).toMatch(/internal|artifact|local/i);
+    }
+    const approvalTargets = architectureDefinition.edges
+      .filter((edge) => edge.source === "approval-receipt")
+      .map((edge) => edge.target)
+      .sort();
+    expect(approvalTargets).toEqual([
+      "effect-generate-lyria", "effect-generate-veo", "effect-publish-x", "effect-schedule-content",
+    ]);
+  });
+
   it("defines all required explorer presets", () => {
     expect(architectureDefinition.presets.map((preset) => preset.id)).toEqual([
       "overview", "agents", "workflow", "effect-safety", "state", "apis", "observability",

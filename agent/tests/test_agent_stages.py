@@ -274,6 +274,13 @@ def test_paid_media_actions_read_canonical_source_analysis():
     assert actions[0]["momentId"] == "m1"
 
 
+def test_meme_angles_use_the_canonical_angle_type():
+    analysis = _analysis()
+    analysis["angles"][0].update(angleType="meme", evidenceKind="public_context")
+
+    assert stages._meme_angles({"sourceAnalysis": analysis}) == analysis["angles"]
+
+
 def test_publish_never_enters_effect_adapter_without_execute_claim(monkeypatch):
     calls = []
     job = {

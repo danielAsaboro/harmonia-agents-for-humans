@@ -41,8 +41,8 @@ const nodes: ArchitectureNode[] = [
     ["strategy-approval", "5 · Approve strategy", "Human approval bound to the exact strategy digest."],
     ["plan", "6 · Plan", "Temi proposes a complete plan; deterministic code validates, persists, and selects one eligible item."],
     ["draft", "7 · Draft & review", "Noni and Dara produce the exact selected item in a bounded revision loop."],
-    ["await-approval", "8 · Await effect approval", "Hard human gate before every external effect."],
-    ["publish-render", "9 · Publish / export / render", "Claim and execute only approved actions."],
+    ["await-approval", "8 · Await effect approval", "Hard human gate before consequential or paid external effects."],
+    ["publish-render", "9 · Publish / export / render", "Claim and execute actions authorized by exact approval or deterministic safe-action mandate."],
     ["verify", "10 · Verify", "Independently re-fetch providers or re-read artifact digests."],
     ["learn", "11 · Learn", "Persist measured outcomes and eligible takeaways."],
   ].map(([id, name, summary]) => node({ id: `stage-${id}`, name, kind: id === "await-approval" || id === "strategy-approval" ? "gate" : id === "verify" ? "verification" : "stage", layer: "workflow", parentId: "group-workflow", summary, statuses: id === "await-approval" || id === "strategy-approval" ? ["approval-gated"] : ["implemented"], authorities: id === "await-approval" || id === "strategy-approval" ? ["approve"] : id === "verify" ? ["verify"] : ["write"], dataScope: "workspace", stateLifetime: "durable", sourceFiles: ["agent/harmonia_agent/stages.py"], docs: ["pipeline"] })),
@@ -92,7 +92,24 @@ const nodes: ArchitectureNode[] = [
   node({ id: "approval-receipt", name: "Action-specific approval receipt", kind: "gate", layer: "effects", parentId: "group-effect-safety", summary: "Records who approved exactly which action and payload.", statuses: ["approval-gated"], authorities: ["approve"], dataScope: "workspace", stateLifetime: "durable", approval: "Required before every external effect." }),
   ...[["idempotency-key", "SHA-256 idempotency key"], ["effect-claim", "Atomic Firestore effect claim"], ["execution-receipt", "Immutable execution receipt"], ["independent-readback", "Independent provider/digest read-back"], ["verification-record", "Immutable verification record"]].map(([id, name]) => node({ id, name, kind: id.includes("verification") || id.includes("readback") ? "verification" : "control", layer: "effects", parentId: "group-effect-safety", summary: `${name} in the deterministic effect-safety lifecycle.`, statuses: ["implemented"], authorities: id.includes("verification") || id.includes("readback") ? ["verify"] : ["write"], dataScope: "workspace", stateLifetime: "durable" })),
   node({ id: "uncertain-claim", name: "UNCERTAIN · operator reconciliation", kind: "control", layer: "effects", parentId: "group-effect-safety", summary: "Expired unresolved claims never auto-retry unsafely.", statuses: ["implemented"], authorities: ["none"], dataScope: "workspace", stateLifetime: "durable", limitations: ["Requires explicit operator reconciliation."] }),
-  ...[["publish-x", "Publish X post"], ["export-pack", "Export content pack"], ["generate-image", "Generate image"], ["render-media", "Render clip / reel"], ["generate-veo", "Generate Veo b-roll"], ["generate-lyria", "Generate Lyria soundtrack"], ["schedule-content", "Schedule due content"]].map(([id, name]) => node({ id: `effect-${id}`, name, kind: "effect", layer: "effects", parentId: "group-effect-safety", summary: `${name} only after an action-specific approval receipt.`, statuses: ["approval-gated"], authorities: ["execute-effect"], dataScope: "external", stateLifetime: "external", approval: "Required", idempotency: "Deterministic SHA-256 operation key", verification: "Independent re-fetch or digest read-back" })),
+  ...[
+    { id: "publish-x", name: "Publish X post", approval: true, summary: "Publishes externally only after an action-specific approval receipt." },
+    { id: "export-pack", name: "Export content pack", approval: false, summary: "Assembles an internal artifact under the deterministic safe-action mandate." },
+    { id: "generate-image", name: "Generate image", approval: false, summary: "Generates an internal image asset; separate approval is required before external publication." },
+    { id: "render-media", name: "Render clip / reel", approval: false, summary: "Renders a local internal media asset; separate approval is required before external publication." },
+    { id: "generate-veo", name: "Generate Veo b-roll", approval: true, summary: "Incurs paid external generation only after an action-specific approval receipt." },
+    { id: "generate-lyria", name: "Generate Lyria soundtrack", approval: true, summary: "Incurs paid external generation only after an action-specific approval receipt." },
+    { id: "schedule-content", name: "Schedule due content", approval: true, summary: "Schedules an external publication only after an action-specific approval receipt." },
+  ].map((effect) => node({
+    id: `effect-${effect.id}`, name: effect.name, kind: "effect", layer: "effects",
+    parentId: "group-effect-safety", summary: effect.summary,
+    statuses: effect.approval ? ["approval-gated"] : ["implemented"],
+    authorities: ["execute-effect"], dataScope: effect.approval ? "external" : "workspace",
+    stateLifetime: effect.approval ? "external" : "durable",
+    approval: effect.approval ? "Required" : "Not required",
+    idempotency: "Deterministic SHA-256 operation key",
+    verification: "Independent re-fetch or digest read-back",
+  })),
 
   group("group-external", "External services", "external", "Official APIs and Google model services."),
   ...[
@@ -107,6 +124,9 @@ const nodes: ArchitectureNode[] = [
 
 const workflowIds = ["ingest", "transcribe", "analyze", "strategize", "strategy-approval", "plan", "draft", "await-approval", "publish-render", "verify", "learn"].map((id) => `stage-${id}`);
 const effectIds = nodes.filter((item) => item.kind === "effect").map((item) => item.id);
+const approvalEffectIds = nodes
+  .filter((item) => item.kind === "effect" && item.approval === "Required")
+  .map((item) => item.id);
 const edges = [
   ...workflowIds.slice(0, -1).map((source, index) => {
     const target = workflowIds[index + 1];
@@ -131,10 +151,14 @@ const edges = [
   { id: "flo-3", source: "agent-dara", target: "agent-noni", kind: "workflow" as const, label: "Bounded revision loop" },
   { id: "memory", source: "memory-bank", target: "agent-harmonia", kind: "memory" as const, label: "Exact-scope facts" },
   { id: "state-pubsub", source: "firestore", target: "pubsub", kind: "workflow" as const, label: "Persist then publish" },
-  ...effectIds.flatMap((effectId) => [
-    { id: `approval-${effectId}`, source: "approval-receipt", target: effectId, kind: "approval" as const, label: "Human approval" },
-    { id: `verification-${effectId}`, source: effectId, target: "verification-record", kind: "verification" as const, label: "Independent read-back" },
-  ]),
+  ...approvalEffectIds.map((effectId) => ({
+    id: `approval-${effectId}`, source: "approval-receipt", target: effectId,
+    kind: "approval" as const, label: "Human approval",
+  })),
+  ...effectIds.map((effectId) => ({
+    id: `verification-${effectId}`, source: effectId, target: "verification-record",
+    kind: "verification" as const, label: "Independent read-back",
+  })),
   { id: "claim-uncertain", source: "effect-claim", target: "uncertain-claim", kind: "blocked" as const, label: "Expired unresolved claim" },
   { id: "telemetry-worker", source: "group-worker", target: "group-observability", kind: "telemetry" as const, label: "Trace context" },
   { id: "retrieval-hn", source: "external-hn", target: "agent-nova", kind: "retrieval" as const, label: "Read-only public signals" },

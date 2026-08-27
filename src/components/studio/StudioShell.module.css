@@ -1,13 +1,7 @@
 .grid {
   display: grid;
-  grid-template-columns: 66px minmax(300px, var(--studio-conversation)) 6px minmax(400px, var(--studio-canvas));
+  grid-template-columns: minmax(300px, var(--studio-conversation)) 6px minmax(400px, var(--studio-canvas));
   padding: 15px;
-}
-
-.rail {
-  min-width: 0;
-  overflow: hidden;
-  border-radius: 23px 0 0 23px;
 }
 
 .separator {
@@ -24,7 +18,7 @@
     padding: 0;
   }
 
-  .separator, .rail {
+  .separator {
     display: none;
   }
 

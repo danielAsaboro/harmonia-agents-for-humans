@@ -18,6 +18,7 @@ describe("StudioShell", () => {
     expect(html).toContain('role="separator"');
     expect(html).toContain('aria-valuenow="40"');
     expect(html).toContain('aria-label="1 generated workspace active, 2 approvals pending"');
+    expect(html).not.toContain('aria-label="Harmonia home"');
   });
 
   it("clamps resized conversation widths", () => {

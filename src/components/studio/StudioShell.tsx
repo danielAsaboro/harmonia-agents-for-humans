@@ -2,7 +2,6 @@
 
 import type { CSSProperties, KeyboardEvent, PointerEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import { StudioNavRail } from "./StudioNavRail";
 import styles from "./StudioShell.module.css";
 
 export const DEFAULT_CONVERSATION_PERCENT = 40;
@@ -63,7 +62,6 @@ export function StudioShell({ conversation, canvas, mobilePane, onMobilePaneChan
 
   return (
     <section ref={rootRef} className={`${styles.grid} h-dvh min-h-[640px] overflow-hidden bg-[#c9c5bc] text-[#11110f]`} style={splitStyle}>
-      <div className={styles.rail}><StudioNavRail /></div>
       <div className={`${styles.pane} h-full min-w-0 overflow-hidden`} data-mobile-active={mobilePane === "conversation"}>
         {conversation}
       </div>

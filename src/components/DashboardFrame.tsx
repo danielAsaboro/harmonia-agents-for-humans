@@ -9,8 +9,8 @@ export default function DashboardFrame({ children }: { children: React.ReactNode
   const isStudio = pathname === "/dashboard" || pathname === "/dashboard/";
   return (
     <>
-      <main className={isStudio ? "h-dvh w-full overflow-hidden" : "min-h-screen pl-0 sm:pl-24"}>
-        {!isStudio ? <NavRail /> : null}
+      <NavRail />
+      <main className={isStudio ? "h-dvh w-full overflow-hidden" : "min-h-screen"}>
         <div className={isStudio ? "h-full" : "mx-auto w-full max-w-6xl"}>{children}</div>
       </main>
       {!isStudio ? <ChatDrawer /> : null}

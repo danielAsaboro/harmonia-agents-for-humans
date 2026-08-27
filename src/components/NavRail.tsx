@@ -2,22 +2,47 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type FocusEvent } from "react";
 import { signOut as firebaseSignOut } from "firebase/auth";
 import { BrandMark } from "@/components/BrandMark";
 import { ArchitectureIcon, ChatIcon, CalendarIcon, ChartIcon, SettingsIcon, SparklesIcon } from "@/components/icons";
 import { clientAuth } from "@/lib/firebaseClient";
 import { signOutPersistedSession } from "@/lib/sessionPersistence";
+import styles from "./NavRail.module.css";
 
 const RAIL = [
   { href: "/dashboard", label: "Console", Icon: ChatIcon },
-  { href: "/dashboard/proposals", label: "Proposals", Icon: SparklesIcon },
   { href: "/dashboard/calendar", label: "Calendar", Icon: CalendarIcon },
+  { href: "/dashboard/proposals", label: "Proposals", Icon: SparklesIcon },
   { href: "/dashboard/monitoring", label: "Monitoring", Icon: ChartIcon },
+  { href: "/dashboard/notifications", label: "Notifications", Icon: BellIcon },
   { href: "/dashboard/autonomy", label: "Autonomy", Icon: SparklesIcon },
   { href: "/docs/architecture", label: "Architecture", Icon: ArchitectureIcon },
   { href: "/dashboard/settings", label: "Settings", Icon: SettingsIcon },
 ];
+
+const HIDE_DELAY_MS = 220;
+
+interface RailPresence {
+  pointerInside: boolean;
+  focusInside: boolean;
+}
+
+type RailPresenceEvent = "pointer-enter" | "pointer-leave" | "focus-enter" | "focus-leave";
+
+export function reduceRailPresence(state: RailPresence, event: RailPresenceEvent): RailPresence {
+  switch (event) {
+    case "pointer-enter": return { ...state, pointerInside: true };
+    case "pointer-leave": return { ...state, pointerInside: false };
+    case "focus-enter": return { ...state, focusInside: true };
+    case "focus-leave": return { ...state, focusInside: false };
+  }
+}
+
+export function isRailItemActive(pathname: string, href: string): boolean {
+  if (href === "/dashboard") return pathname === href || pathname === `${href}/`;
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 function BellIcon({ className }: { className?: string }) {
   return (
@@ -28,11 +53,46 @@ function BellIcon({ className }: { className?: string }) {
   );
 }
 
+function LogoutIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5" aria-hidden>
+      <path d="M10 17l5-5-5-5" />
+      <path d="M15 12H3" />
+      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+    </svg>
+  );
+}
+
 /** Floating vertical nav rail — a single dynamic-island capsule, vertically centered. */
 export default function NavRail() {
   const pathname = usePathname();
   const router = useRouter();
   const [unread, setUnread] = useState(0);
+  const [open, setOpen] = useState(false);
+  const presence = useRef<RailPresence>({ pointerInside: false, focusInside: false });
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function clearHideTimer() {
+    if (!hideTimer.current) return;
+    clearTimeout(hideTimer.current);
+    hideTimer.current = null;
+  }
+
+  function registerPresence(event: RailPresenceEvent) {
+    const next = reduceRailPresence(presence.current, event);
+    presence.current = next;
+    clearHideTimer();
+    if (next.pointerInside || next.focusInside) {
+      setOpen(true);
+      return;
+    }
+    hideTimer.current = setTimeout(() => setOpen(false), HIDE_DELAY_MS);
+  }
+
+  function leaveFocusRegion(event: FocusEvent<HTMLElement>, region: "trigger" | "rail") {
+    if (region === "rail" && event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    registerPresence("focus-leave");
+  }
 
   async function signOut() {
     await signOutPersistedSession(
@@ -61,65 +121,83 @@ export default function NavRail() {
     };
   }, [pathname]);
 
+  useEffect(() => () => {
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+  }, []);
+
   return (
-    <nav className="fixed left-3 top-1/2 z-40 hidden -translate-y-1/2 sm:left-4 sm:block" aria-label="Primary">
-      <div className="flex flex-col items-center gap-1 rounded-full border border-zinc-200/80 bg-white/80 px-2 py-4 shadow-xl shadow-zinc-900/5 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-900/80">
-        <Link
-          href="/"
-          title="Harmonia"
-          aria-label="Harmonia home"
-          className="mb-2 flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-[#080b08] shadow-sm"
-        >
-          <BrandMark className="h-full w-full object-contain" decorative />
-        </Link>
-        <div className="mb-1 h-px w-6 bg-zinc-200 dark:bg-zinc-700" />
-        {RAIL.map(({ href, label, Icon }) => {
-          const active = pathname === href || pathname.startsWith(`${href}/`);
-          return (
-            <Link
-              key={href}
-              href={href}
-              title={label}
-              aria-label={label}
-              className={`flex h-10 w-10 items-center justify-center rounded-full transition-all ${
-                active
-                  ? "bg-zinc-900 text-white shadow-md dark:bg-white dark:text-black"
-                  : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-              }`}
-            >
-              <Icon />
-            </Link>
-          );
-        })}
-        <Link
-          href="/dashboard/notifications"
-          title={`Notifications${unread ? ` (${unread} unread)` : ""}`}
-          aria-label={`Notifications${unread ? ` (${unread} unread)` : ""}`}
-          className={`relative mt-1 flex h-10 w-10 items-center justify-center rounded-full transition-all ${
-            pathname === "/dashboard/notifications"
-              ? "bg-zinc-900 text-white shadow-md dark:bg-white dark:text-black"
-              : unread > 0
-                ? "text-zinc-600 ring-2 ring-amber-400 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-          }`}
-        >
-          <BellIcon />
-          {unread > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
-              {unread > 99 ? "99+" : unread}
-            </span>
-          )}
-        </Link>
-        <button
-          type="button"
-          onClick={signOut}
-          title="Sign out"
-          aria-label="Sign out"
-          className="mt-1 flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
-        >
-          <span aria-hidden>⇥</span>
-        </button>
-      </div>
-    </nav>
+    <aside className={styles.desktopOnly} aria-label="Dashboard navigation">
+      <button
+        type="button"
+        aria-label="Open navigation"
+        aria-controls="dashboard-navigation-rail"
+        aria-expanded={open}
+        className="fixed inset-y-0 left-0 z-50 w-3 border-0 bg-transparent p-0 outline-none focus-visible:bg-[#d8ff3e]/40"
+        onPointerEnter={() => registerPresence("pointer-enter")}
+        onPointerLeave={() => registerPresence("pointer-leave")}
+        onFocus={() => registerPresence("focus-enter")}
+        onBlur={(event) => leaveFocusRegion(event, "trigger")}
+      />
+      <nav
+        id="dashboard-navigation-rail"
+        aria-label="Primary"
+        aria-hidden={!open}
+        inert={!open}
+        className={`${styles.rail} ${open ? styles.railOpen : ""} fixed left-3 top-1/2 z-40 sm:left-4`}
+        onPointerEnter={() => registerPresence("pointer-enter")}
+        onPointerLeave={() => registerPresence("pointer-leave")}
+        onFocusCapture={() => registerPresence("focus-enter")}
+        onBlurCapture={(event) => leaveFocusRegion(event, "rail")}
+      >
+        <div className="flex flex-col items-center gap-1 rounded-full border border-[#292927] bg-[#454544] px-2 py-4 text-[#b9bab8] shadow-2xl shadow-black/20">
+          <Link
+            href="/"
+            title="Harmonia"
+            aria-label="Harmonia home"
+            className="mb-2 flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-[#080b08] shadow-sm ring-1 ring-[#d8ff3e]/30"
+          >
+            <BrandMark className="h-full w-full object-contain" decorative />
+          </Link>
+          <div role="separator" aria-hidden className="mb-1 h-px w-6 bg-white/20" />
+          {RAIL.map(({ href, label, Icon }) => {
+            const active = isRailItemActive(pathname, href);
+            const notificationLabel = label === "Notifications" && unread ? `${label} (${unread} unread)` : label;
+            return (
+              <Link
+                key={href}
+                href={href}
+                title={notificationLabel}
+                aria-label={notificationLabel}
+                aria-current={active ? "page" : undefined}
+                className={`relative flex h-10 w-10 items-center justify-center rounded-full transition-colors ${
+                  active
+                    ? "bg-[#f7f7f4] text-[#171715] shadow-md"
+                    : label === "Notifications" && unread > 0
+                      ? "text-white ring-2 ring-[#d8ff3e] hover:bg-white/10"
+                      : "text-[#b9bab8] hover:bg-white/10 hover:text-white"
+                }`}
+              >
+                <Icon />
+                {label === "Notifications" && unread > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#d8ff3e] px-1 text-[9px] font-bold text-[#171715]">
+                    {unread > 99 ? "99+" : unread}
+                  </span>
+                )}
+              </Link>
+            );
+          })}
+          <div role="separator" aria-hidden className="my-1 h-px w-6 bg-white/20" />
+          <button
+            type="button"
+            onClick={signOut}
+            title="Sign out"
+            aria-label="Sign out"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-[#b9bab8] transition-colors hover:bg-white/10 hover:text-white"
+          >
+            <LogoutIcon />
+          </button>
+        </div>
+      </nav>
+    </aside>
   );
 }

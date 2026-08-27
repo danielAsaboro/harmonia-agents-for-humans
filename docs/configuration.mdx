@@ -1,9 +1,11 @@
 ---
 title: "Configuration"
-description: "Every environment variable Harmonia reads, with defaults and requirements."
+description: "Operator-facing runtime configuration, defaults, requirements, and source-of-truth boundaries."
 ---
 
 ## Web application (Next.js)
+
+This page documents supported operator-facing configuration. It deliberately excludes shell-local implementation variables inside deployment scripts (for example computed URLs, temporary file paths, and image tags) and platform-injected variables such as `PORT`, `K_SERVICE`, and `K_REVISION`. The executable validators in `src/lib/config.ts` and `agent/harmonia_agent/config.py` remain authoritative; `.env.example` is the local template, while `infra/setup.sh` and `infra/deploy.sh` fail closed on cloud-only inputs.
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|

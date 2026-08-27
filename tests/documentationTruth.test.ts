@@ -9,6 +9,7 @@ describe("public documentation truth boundaries", () => {
   const deployment = readFileSync("docs/deployment.mdx", "utf8");
   const durableRuntime = readFileSync("docs/durable-runtime.md", "utf8");
   const continuity = readFileSync("docs/optimization/context-memory-continuity.mdx", "utf8");
+  const durableRuntimeNote = readFileSync("docs/durable-runtime.md", "utf8");
 
   it("shows the recoverable stage outbox instead of direct transition publication", () => {
     expect(readme).toContain("one transaction --> OUTBOX");
@@ -52,5 +53,15 @@ describe("public documentation truth boundaries", () => {
     ]) expect(continuity).toContain(required);
     expect(continuity).toContain("Memory Bank is advisory");
     expect(continuity).not.toContain("exactly-once external effects");
+  });
+
+  it("archives the orphaned runtime note and marks cited obsolete designs as historical", () => {
+    expect(durableRuntimeNote).toContain("Archived implementation note (superseded 2026-08-28)");
+    for (const path of [
+      "docs/superpowers/specs/2026-08-23-managed-multimodel-agent-platform-design.md",
+      "docs/superpowers/specs/2026-08-26-interactive-architecture-explorer-design.md",
+      "docs/superpowers/plans/2026-08-23-role-routing-multimodal-analysis.md",
+      "docs/superpowers/specs/2026-08-28-documentation-information-architecture-design.md",
+    ]) expect(readFileSync(path, "utf8")).toContain("superseded 2026-08-28");
   });
 });

@@ -1,5 +1,7 @@
 # Managed Multi-Model Agent Platform Design
 
+> **Historical design — superseded 2026-08-28.** Role names, models, and runtime assignments here record an earlier proposal and are not current product claims. Use [`docs/reference/agent-runtime-inventory.mdx`](../../reference/agent-runtime-inventory.mdx) and [`docs/architecture.mdx`](../../architecture.mdx) for the maintained contract.
+
 **Status:** Approved architecture, pending implementation plan
 
 **Date:** 2026-08-23

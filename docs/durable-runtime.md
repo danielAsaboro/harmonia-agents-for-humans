@@ -1,5 +1,7 @@
 # Durable agent runtime
 
+> **Archived implementation note (superseded 2026-08-28).** This detailed build record is preserved for engineering history and is not part of the maintained navigation. Current normative behavior lives in [Failure recovery](./failure-recovery.mdx), [State ownership](./state-ownership.mdx), and [Context and memory continuity](./optimization/context-memory-continuity.mdx).
+
 Harmonia treats a long-running agent as a durable state machine, not as an indefinitely growing chat transcript. Firestore is the system of record; Pub/Sub and external webhooks are at-least-once wake signals; Cloud Run workers are disposable compute. A worker may stop after any durable boundary and another worker may resume from the persisted operation epoch.
 
 The public documentation presents the full context- and memory-rot strategy under

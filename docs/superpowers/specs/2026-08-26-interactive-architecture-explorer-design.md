@@ -1,5 +1,7 @@
 # Interactive Architecture Explorer Design
 
+> **Historical design — superseded 2026-08-28.** Earlier agent names in this record are not current product claims. Use [`docs/reference/agent-runtime-inventory.mdx`](../../reference/agent-runtime-inventory.mdx) and [`docs/architecture-explorer.mdx`](../../architecture-explorer.mdx) for the maintained contract.
+
 **Date:** 2026-08-26
 **Status:** Approved
 

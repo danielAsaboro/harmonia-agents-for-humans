@@ -1,5 +1,7 @@
 # Role-Aware Model Routing and Multimodal Analysis Implementation Plan
 
+> **Historical implementation plan — superseded 2026-08-28.** Its unchecked tasks and earlier model/role assignments do not describe current implementation status. Use [`docs/reference/agent-runtime-inventory.mdx`](../../reference/agent-runtime-inventory.mdx) and [`docs/agents/overview.mdx`](../../agents/overview.mdx).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace Harmonia's global-model team with explicit per-role models, run Nimi through a configured Gemma 3 endpoint, and give Sophia direct video evidence while preserving every public and durable pipeline contract.

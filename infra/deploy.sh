@@ -180,7 +180,7 @@ gcloud run services add-iam-policy-binding harmonia-agent \
 
 gcloud run services update harmonia-web \
   --region "${REGION}" --project "${PROJECT_ID}" \
-  --update-env-vars "AGENT_SERVICE_URL=${AGENT_URL}" >/dev/null
+  --update-env-vars "AGENT_SERVICE_URL=${AGENT_URL},PUBLIC_BASE_URL=${WEB_URL}" >/dev/null
 
 echo "== Wiring Pub/Sub push subscription =="
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format 'value(projectNumber)')"

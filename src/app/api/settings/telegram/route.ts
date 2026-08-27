@@ -7,6 +7,7 @@ import {
 } from "@/lib/firestore";
 import { administratorTenantHandler } from "@/lib/auth";
 import { telegramDigest } from "@/lib/telegramWebhook";
+import { configureTelegramWebhook } from "@/lib/telegramApi";
 
 const schema = z.object({
   botToken: z.string().min(20).max(256),
@@ -27,6 +28,13 @@ async function put(req: Request) {
   if (!parsed.success) return Response.json({ error: "invalid Telegram connection" }, { status: 400 });
   const routeToken = randomBytes(24).toString("base64url");
   const webhookSecret = randomBytes(32).toString("base64url");
+  const publicBaseUrl = process.env.PUBLIC_BASE_URL?.replace(/\/$/, "");
+  if (!publicBaseUrl) return Response.json({ error: "PUBLIC_BASE_URL is required to configure Telegram" }, { status: 503 });
+  await configureTelegramWebhook({
+    botToken: parsed.data.botToken,
+    webhookUrl: `${publicBaseUrl}/api/telegram/webhook/${routeToken}`,
+    webhookSecret,
+  });
   await saveTelegramConnection({
     ...parsed.data,
     connectedAt: new Date().toISOString(),
@@ -37,8 +45,7 @@ async function put(req: Request) {
   return Response.json({
     ok: true,
     webhookPath: `/api/telegram/webhook/${routeToken}`,
-    webhookSecret,
-    configuredWithTelegram: false,
+    configuredWithTelegram: true,
   });
 }
 

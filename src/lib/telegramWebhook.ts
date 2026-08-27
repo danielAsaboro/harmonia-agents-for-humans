@@ -31,7 +31,14 @@ const feedbackUpdate = z.object({
     reply_to_message: z.object({ message_id: z.number().int().positive() }).passthrough(),
   }).strict(),
 }).strict();
-export const telegramUpdateSchema = z.union([callbackUpdate, feedbackUpdate]);
+const operatorMessageUpdate = z.object({
+  update_id: z.number().int().nonnegative(),
+  message: z.object({
+    message_id: z.number().int().positive(), from: z.object({ id: z.number().int() }).strict(),
+    chat: z.object({ id: z.number().int() }).strict(), text: z.string().min(1).max(2000),
+  }).strict(),
+}).strict();
+export const telegramUpdateSchema = z.union([callbackUpdate, feedbackUpdate, operatorMessageUpdate]);
 
 export class TelegramWebhookError extends Error {
   constructor(message: string, readonly status: 400 | 401 | 403 | 404 | 409 | 413) {
@@ -86,6 +93,10 @@ export function verifyTelegramWebhook(input: {
   kind: "strategy_feedback";
   principal: Extract<Principal, { kind: "telegram_user" }>;
   promptMessageId: number; feedback: string; updateId: number;
+} | {
+  kind: "operator_message";
+  principal: Extract<Principal, { kind: "telegram_user" }>;
+  messageId: number; message: string; updateId: number;
 } {
   const digest = input.digest ?? telegramDigest;
   if (!equalDigest(digest(input.routeToken), input.route.routeTokenDigest)) {
@@ -109,10 +120,19 @@ export function verifyTelegramWebhook(input: {
     chatIdDigest,
     callbackQueryIdDigest: callback ? digest(callback.id) : digest(`message:${message!.message_id}`),
   });
-  if (message) return {
-    kind: "strategy_feedback", principal, promptMessageId: message.reply_to_message.message_id,
-    feedback: message.text.trim(), updateId: parsed.data.update_id,
-  };
+  if (message) {
+    if ("reply_to_message" in message) {
+      const replyTo = message.reply_to_message as { message_id: number };
+      return {
+        kind: "strategy_feedback", principal, promptMessageId: replyTo.message_id,
+        feedback: message.text.trim(), updateId: parsed.data.update_id,
+      };
+    }
+    return {
+      kind: "operator_message", principal, messageId: message.message_id,
+      message: message.text.trim(), updateId: parsed.data.update_id,
+    };
+  }
   return {
     kind: "callback",
     principal,

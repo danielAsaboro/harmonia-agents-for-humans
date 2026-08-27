@@ -12,6 +12,8 @@ import { resolveDecision } from "@/lib/decisions";
 import { runWithTenant } from "@/lib/tenancy";
 import { TelegramWebhookError, verifyTelegramWebhook } from "@/lib/telegramWebhook";
 import { promptTelegramStrategyFeedback } from "@/lib/telegramStrategyApproval";
+import { handleChat, type ChatResponse } from "@/lib/chatHandler";
+import { sendTelegramMessage } from "@/lib/telegramApi";
 
 const MAX_UPDATE_BYTES = 64 * 1024;
 
@@ -53,6 +55,37 @@ export async function POST(
       secret: req.headers.get("x-telegram-bot-api-secret-token") ?? "",
       update: JSON.parse(raw) as unknown,
     });
+    if (verified.kind === "operator_message") {
+      const result = await runWithTenant({
+        workspaceId: route.workspaceId, brandId: route.brandId, principal: verified.principal,
+      }, async () => {
+        const connection = await getTelegramConnection();
+        if (!connection) throw new Error("Telegram not connected");
+        const chatResponse = await handleChat(new Request("https://harmonia.internal/api/chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: verified.message, surface: "telegram",
+            conversationId: "telegram", attachmentIds: [],
+          }),
+        }));
+        const payload = await chatResponse.json().catch(() => null) as (ChatResponse & { error?: string }) | null;
+        const reply = payload?.reply ?? payload?.error ?? `Harmonia could not process that request (${chatResponse.status}).`;
+        let delivered = true;
+        try {
+          await sendTelegramMessage({ botToken: connection.botToken, chatId: connection.chatId, text: reply });
+        } catch {
+          // The canonical chat mutation may already be durable. Acknowledge the
+          // update so Telegram does not retry it and accidentally create a duplicate job.
+          delivered = false;
+        }
+        return { chatResponse, payload, delivered };
+      });
+      return Response.json({
+        ok: true, updateId: verified.updateId, replyDelivered: result.delivered,
+        intent: result.payload?.intent,
+      });
+    }
     if (verified.kind === "strategy_feedback") {
       const claim = await claimTelegramStrategyPrompt(routeToken, verified.promptMessageId);
       const prompt = claim.prompt;

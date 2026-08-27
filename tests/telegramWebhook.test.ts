@@ -62,6 +62,15 @@ describe("Telegram webhook authority", () => {
     expect(verified).toMatchObject({ kind: "strategy_feedback", promptMessageId: 90, feedback: "Narrow the audience" });
   });
 
+  it("authenticates ordinary allow-listed operator messages", () => {
+    const verified = verifyTelegramWebhook({
+      route, routeToken: "route-token", secret: "correct",
+      update: { update_id: 12, message: { message_id: 92, from: { id: 42 }, chat: { id: -1001 }, text: "status job-1" } },
+      digest: (value) => value === "route-token" ? route.routeTokenDigest : value === "correct" ? route.webhookSecretDigest : value === "-1001" ? route.chatIdDigest : "c".repeat(64),
+    });
+    expect(verified).toMatchObject({ kind: "operator_message", message: "status job-1", messageId: 92 });
+  });
+
   it("strictly rejects extra callback fields", () => {
     expect(() => verifyTelegramWebhook({
       route,

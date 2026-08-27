@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { ChatResponse } from "../src/lib/chatHandler";
 import type { JobFull } from "../src/components/jobTypes";
 import { loadGeneratedPresentation } from "../src/lib/a2ui/generatedPresentation";
@@ -9,6 +11,12 @@ const job: JobFull = {
 };
 
 describe("streamed A2UI presentation integration", () => {
+  it("keeps a successful chat mutation terminally successful when presentation fails", () => {
+    const route = readFileSync(resolve(process.cwd(), "src/app/api/chat/stream/route.ts"), "utf8");
+    const presentationCatch = route.slice(route.indexOf("} catch (error) {", route.indexOf("loadGeneratedPresentation")), route.indexOf("          }\n          for (let offset", route.indexOf("loadGeneratedPresentation")));
+    expect(presentationCatch).toContain("Maya could not compose the campaign workspace");
+    expect(presentationCatch).not.toContain("throw error");
+  });
   it("reloads authenticated job state and returns exact slot operations", async () => {
     const canvas = [{ version: "v0.9", createSurface: { surfaceId: "studio-run-1-canvas-r1", catalogId: "catalog" } }];
     const conversation = [{ version: "v0.9", createSurface: { surfaceId: "studio-run-1-conversation-r1", catalogId: "catalog" } }];

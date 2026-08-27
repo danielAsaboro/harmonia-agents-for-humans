@@ -84,7 +84,6 @@ async function post(req: Request): Promise<Response> {
               const message = error instanceof Error ? error.message : String(error);
               await emit({ type: "tool_activity", tool: { name: "maya_presenter", status: "failed", outputSummary: message.slice(0, 2_000), durationMs: Date.now() - presentationStartedAt } });
               await emit({ type: "activity", activity: { id: "interface-presenter", label: "Maya could not compose the campaign workspace", description: message.slice(0, 2_000), status: "failed" } });
-              throw error;
             }
           }
           for (let offset = 0; offset < payload.reply.length; offset += 512) {

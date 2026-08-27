@@ -16,6 +16,8 @@ export interface OAuthConfig {
   /** Scope list joiner expected by the platform's authorize URL. */
   scopeSeparator: string;
   extraAuthorizeParams?: Record<string, string>;
+  /** Authorize-query parameter names mapped to server-side environment variables. */
+  extraAuthorizeEnvParams?: Record<string, string>;
 }
 
 export interface PlatformDef {
@@ -86,7 +88,7 @@ export const PLATFORMS: PlatformDef[] = [
   {
     id: "instagram",
     label: "Instagram",
-    requiredEnv: ["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"],
+    requiredEnv: ["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET", "INSTAGRAM_CONFIGURATION_ID"],
     capabilities: [],
     productAvailability: "credential_groundwork",
     oauth: {
@@ -96,6 +98,7 @@ export const PLATFORMS: PlatformDef[] = [
     usesPkce: false,
     scopeSeparator: ",",
     tokenAuth: "body",
+    extraAuthorizeEnvParams: { config_id: "INSTAGRAM_CONFIGURATION_ID" },
   },
     docsUrl: "https://developers.facebook.com/docs/instagram-api/getting-started",
     note: "Reels/posts via Instagram Graph API — requires a Professional (Business/Creator) account linked to a Facebook Page.",

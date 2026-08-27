@@ -61,6 +61,9 @@ async function get(
   for (const [k, v] of Object.entries(def.oauth.extraAuthorizeParams ?? {})) {
     url.searchParams.set(k, v);
   }
+  for (const [parameter, envName] of Object.entries(def.oauth.extraAuthorizeEnvParams ?? {})) {
+    url.searchParams.set(parameter, process.env[envName] ?? "");
+  }
   if (pkce) {
     url.searchParams.set("code_challenge", pkce.challenge);
     url.searchParams.set("code_challenge_method", "S256");

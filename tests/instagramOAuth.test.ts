@@ -1,11 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { getPlatform } from "@/lib/oauth";
 import { discoverInstagramDestinations } from "@/lib/publishing/instagramOAuth";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
 describe("Instagram OAuth destination discovery", () => {
+  it("requires the Meta business-login configuration for authorization", () => {
+    const platform = getPlatform("instagram");
+
+    expect(platform?.requiredEnv).toContain("INSTAGRAM_CONFIGURATION_ID");
+    expect(platform?.oauth.extraAuthorizeEnvParams).toEqual({
+      config_id: "INSTAGRAM_CONFIGURATION_ID",
+    });
+  });
+
   it("paginates Pages, filters non-professional accounts, and removes duplicates", async () => {
     const request = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(json({

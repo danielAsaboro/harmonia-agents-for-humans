@@ -1,5 +1,5 @@
 import { db } from "@/lib/firestore";
-import { getPlatform, pkcePair, randomState } from "@/lib/oauth";
+import { getPlatform, oauthRedirectUri, pkcePair, randomState } from "@/lib/oauth";
 import { administratorTenantHandler } from "@/lib/auth";
 import { platformStatus } from "@/lib/platforms";
 import { currentTenant } from "@/lib/tenancy";
@@ -35,8 +35,7 @@ async function get(
     return backToSettings("error", `${def.label}: missing app credentials`);
   }
 
-  const origin = new URL(req.url).origin;
-  const redirectUri = `${origin}/api/oauth/${platform}/callback`;
+  const redirectUri = oauthRedirectUri(req, platform);
   const state = randomState();
   const pkce = def.oauth.usesPkce ? pkcePair() : null;
 

@@ -23,6 +23,12 @@ export function pkcePair(): { verifier: string; challenge: string } {
   return { verifier, challenge };
 }
 
+export function oauthRedirectUri(req: Request, platform: string): string {
+  const configuredOrigin = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  const origin = configuredOrigin ? new URL(configuredOrigin).origin : new URL(req.url).origin;
+  return new URL(`/api/oauth/${encodeURIComponent(platform)}/callback`, origin).toString();
+}
+
 export interface TokenSet {
   accessToken: string;
   refreshToken?: string;

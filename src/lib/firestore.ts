@@ -53,6 +53,19 @@ import {
   releaseStageOutboxClaim,
   type StageOutboxRecord,
 } from "./stageOutbox";
+import {
+  FirestoreOperationPersistence,
+  OperationStore,
+  type OperationRecoveryPage,
+} from "./operationStore";
+import type {
+  CreateOperationInput,
+  FinalizeOperationInput,
+  OperationClaimInput,
+  OperationClaimResult,
+  OperationFence,
+  OperationRecord,
+} from "./operations";
 
 let client: Firestore | null = null;
 
@@ -61,6 +74,46 @@ export function db(): Firestore {
     client = new Firestore();
   }
   return client;
+}
+
+function durableOperations(): OperationStore {
+  return new OperationStore(new FirestoreOperationPersistence(db()));
+}
+
+export function createDurableOperation(
+  input: CreateOperationInput,
+): Promise<{ created: boolean; operation: OperationRecord }> {
+  return durableOperations().create(input);
+}
+
+export function getDurableOperation(operationId: string): Promise<OperationRecord | null> {
+  return durableOperations().get(operationId);
+}
+
+export function claimDurableOperation(
+  operationId: string,
+  input: OperationClaimInput,
+): Promise<OperationClaimResult> {
+  return durableOperations().claim(operationId, input);
+}
+
+export function assertDurableOperationFence(fence: OperationFence): Promise<OperationRecord> {
+  return durableOperations().assertFence(fence);
+}
+
+export function finalizeDurableOperation(
+  operationId: string,
+  input: FinalizeOperationInput,
+): Promise<OperationRecord> {
+  return durableOperations().finalize(operationId, input);
+}
+
+export function listDurableOperationRecoveryCandidates(input: {
+  now: string;
+  limit: number;
+  cursor?: { leaseExpiresAt: string; id: string };
+}): Promise<OperationRecoveryPage> {
+  return durableOperations().listRecoveryCandidates(input);
 }
 
 export interface WorkspaceScopeDoc {

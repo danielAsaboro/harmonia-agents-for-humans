@@ -78,6 +78,11 @@ describe("Google Cloud deployment automation", () => {
     expect(log).toContain("--max-instances 1");
     expect(log).toContain("--cpu-throttling");
     expect(log).toContain("HARMONIA_PREVIEW_MODE=1");
+    expect(log).toContain("HARMONIA_CONNECTION_ENVELOPE_KEY=harmonia-connection-envelope-key:latest");
+    expect(log).toContain("TIKTOK_CLIENT_KEY=tiktok-client-key:latest");
+    expect(log).toContain("TIKTOK_CLIENT_SECRET=tiktok-client-secret:latest");
+    expect(log).toContain("--update-env-vars");
+    expect(log).toContain("--update-secrets");
     expect(log).not.toContain("run deploy harmonia-agent");
     expect(log).not.toContain("GEMMA_VERTEX_ENDPOINT");
     expect(log).not.toContain("AGENT_ENGINE_RESOURCE");

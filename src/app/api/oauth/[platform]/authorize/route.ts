@@ -53,7 +53,7 @@ async function get(
 
   const url = new URL(def.oauth.authorizeUrl);
   const credentialEnv = oauthCredentialEnvNames(def);
-  url.searchParams.set("client_id", process.env[credentialEnv.clientId ?? ""] ?? "");
+  url.searchParams.set(def.oauth.clientIdParam ?? "client_id", process.env[credentialEnv.clientId ?? ""] ?? "");
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("state", state);

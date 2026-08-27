@@ -41,6 +41,7 @@ import { currentTraceId } from "./telemetry";
 import { decideEffectClaim, decideEffectFinalization } from "./effectClaims";
 import { decideTelegramNonceClaim, telegramDigest, type TelegramWebhookRoute } from "./telegramWebhook";
 import { connectionEnvelopeKey, decryptSecret, encryptSecret, type SecretEnvelope } from "./secretEnvelope";
+import { omitUndefinedFields } from "./firestoreValues";
 import { claimStageExecution as decideStageClaim, finalizeStageExecution, type StageExecution, type StageClaimResult } from "./stageExecutions";
 import { decideConnectionRefresh, type ConnectionRefreshState } from "./connectionRefresh";
 import { deleteArtifactUri, deleteWorkspaceArtifactUri } from "./storage";
@@ -627,11 +628,11 @@ function encodeConnection(connection: ConnectionDoc, tokenRefresh?: ConnectionRe
   const key = connectionEnvelopeKey();
   const { accessToken, refreshToken, ...metadata } = connection;
   return {
-    ...metadata,
+    ...omitUndefinedFields(metadata),
     accessTokenEnvelope: encryptSecret(accessToken, key, `${connectionAad(connection.platform)}:access`),
-    refreshTokenEnvelope: refreshToken
-      ? encryptSecret(refreshToken, key, `${connectionAad(connection.platform)}:refresh`)
-      : undefined,
+    ...(refreshToken
+      ? { refreshTokenEnvelope: encryptSecret(refreshToken, key, `${connectionAad(connection.platform)}:refresh`) }
+      : {}),
     ...(tokenRefresh ? { tokenRefresh } : {}),
   };
 }

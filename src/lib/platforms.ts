@@ -15,6 +15,8 @@ export interface OAuthConfig {
   tokenAuth: "basic" | "body";
   /** Scope list joiner expected by the platform's authorize URL. */
   scopeSeparator: string;
+  /** Provider-specific client identifier parameter; OAuth defaults to client_id. */
+  clientIdParam?: string;
   extraAuthorizeParams?: Record<string, string>;
   /** Authorize-query parameter names mapped to server-side environment variables. */
   extraAuthorizeEnvParams?: Record<string, string>;
@@ -73,13 +75,14 @@ export const PLATFORMS: PlatformDef[] = [
     label: "TikTok",
     requiredEnv: ["TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"],
     capabilities: [],
-    productAvailability: "credential_groundwork",
+    productAvailability: "oauth_connectable",
     oauth: {
     authorizeUrl: "https://www.tiktok.com/v2/auth/authorize/",
     tokenUrl: "https://open.tiktokapis.com/v2/oauth/token/",
     scopes: ["user.info.basic", "video.publish", "video.upload"],
     usesPkce: false,
     scopeSeparator: ",",
+    clientIdParam: "client_key",
     tokenAuth: "body",
   },
     docsUrl: "https://developers.tiktok.com/doc/content-posting-api-get-started",

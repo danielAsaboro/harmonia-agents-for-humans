@@ -134,8 +134,9 @@ export async function exchangeCode(
     grant_type: "authorization_code",
     code: opts.code,
     redirect_uri: opts.redirectUri,
-    client_id: clientId,
   });
+  const clientIdParam = def.oauth.clientIdParam ?? "client_id";
+  body.set(clientIdParam, clientId);
   if (opts.codeVerifier) body.set("code_verifier", opts.codeVerifier);
 
   // Meta (Graph API) takes appsecret_proof-free GET-style params and returns
@@ -146,8 +147,8 @@ export async function exchangeCode(
   };
   if (def.oauth.tokenAuth === "basic") {
     headers.authorization = `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
-    body.delete("client_id"); // conveyed via Basic auth
-    body.set("client_id", clientId); // harmless duplicates tolerated by X/Google
+    body.delete(clientIdParam); // conveyed via Basic auth
+    body.set(clientIdParam, clientId); // harmless duplicates tolerated by X/Google
   } else {
     body.set("client_secret", clientSecret);
   }
@@ -193,8 +194,8 @@ export async function refreshAccessToken(def: PlatformDef, refreshToken: string)
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: refreshToken,
-    client_id: clientId,
   });
+  body.set(def.oauth.clientIdParam ?? "client_id", clientId);
   const headers: Record<string, string> = {
     "content-type": "application/x-www-form-urlencoded",
     accept: "application/json",

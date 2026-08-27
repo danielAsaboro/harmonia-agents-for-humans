@@ -45,7 +45,9 @@ export async function discoverPublishDestinations(
   request: RequestFn = fetch,
 ): Promise<PublishDestination[]> {
   const scopes = grantedScopes(def, tokens.scopes);
-  if (def.id === "linkedin") return discoverLinkedInDestinations(tokens.accessToken, scopes, request);
+  if (def.id === "linkedin" || def.id === "linkedin-organization") {
+    return discoverLinkedInDestinations(tokens.accessToken, scopes, request);
+  }
   if (def.id === "instagram") return discoverInstagramDestinations(tokens.accessToken, scopes, request);
   if (def.id === "youtube") return discoverYouTubeDestinations(tokens.accessToken, scopes, request);
   return [];

@@ -21,4 +21,14 @@ describe("OAuth destination routing", () => {
       scopes: "https://www.googleapis.com/auth/calendar.app.created",
     }, vi.fn())).resolves.toEqual([]);
   });
+
+  it("routes the dedicated LinkedIn organization client independently", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(json({
+      elements: [{ state: "APPROVED", role: "ADMINISTRATOR", organizationalTarget: "urn:li:organization:42" }],
+    }));
+    await expect(discoverPublishDestinations(platform("linkedin-organization"), {
+      accessToken: "token",
+      scopes: "w_organization_social",
+    }, request)).resolves.toEqual([{ kind: "linkedin_organization", id: "42" }]);
+  });
 });

@@ -102,7 +102,7 @@ export const PLATFORMS: PlatformDef[] = [
   },
   {
     id: "linkedin",
-    label: "LinkedIn",
+    label: "LinkedIn member",
     requiredEnv: ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"],
     capabilities: [],
     productAvailability: "credential_groundwork",
@@ -116,6 +116,23 @@ export const PLATFORMS: PlatformDef[] = [
   },
     docsUrl: "https://learn.microsoft.com/en-us/linkedin/marketing/",
     note: "Posts via LinkedIn API (w_member_social or w_organization_social scopes). OAuth 2.0 three-legged flow.",
+  },
+  {
+    id: "linkedin-organization",
+    label: "LinkedIn company page",
+    requiredEnv: ["LINKEDIN_ORGANIZATION_CLIENT_ID", "LINKEDIN_ORGANIZATION_CLIENT_SECRET"],
+    capabilities: [],
+    productAvailability: "credential_groundwork",
+    oauth: {
+      authorizeUrl: "https://www.linkedin.com/oauth/v2/authorization",
+      tokenUrl: "https://www.linkedin.com/oauth/v2/accessToken",
+      scopes: ["rw_organization_admin", "w_organization_social", "r_organization_social"],
+      usesPkce: false,
+      scopeSeparator: " ",
+      tokenAuth: "body",
+    },
+    docsUrl: "https://learn.microsoft.com/en-us/linkedin/marketing/community-management/",
+    note: "Uses a dedicated Community Management API app because LinkedIn requires that product to be the only product on the application.",
   },
   {
     id: "facebook",

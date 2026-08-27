@@ -16,6 +16,7 @@ async function linkedInJson(
     headers: {
       accept: "application/json",
       authorization: `Bearer ${accessToken}`,
+      "linkedin-version": "202608",
       "x-restli-protocol-version": "2.0.0",
     },
     signal: AbortSignal.timeout(20_000),
@@ -44,24 +45,23 @@ export async function discoverLinkedInDestinations(
     throw new Error("LinkedIn publishing permission is required");
   }
 
-  const member = await linkedInJson("/v2/userinfo", "identity", accessToken, request);
-  if (typeof member.sub !== "string" || !member.sub) {
-    throw new Error("LinkedIn identity response was invalid");
+  const destinations: PublishDestination[] = [];
+  if (scopes.has(MEMBER_SCOPE)) {
+    const member = await linkedInJson("/v2/userinfo", "identity", accessToken, request);
+    if (typeof member.sub !== "string" || !member.sub) {
+      throw new Error("LinkedIn identity response was invalid");
+    }
+    destinations.push({ kind: "linkedin_member", id: member.sub });
   }
-
-  const destinations: PublishDestination[] = scopes.has(MEMBER_SCOPE)
-    ? [{ kind: "linkedin_member", id: member.sub }]
-    : [];
   if (!scopes.has(ORGANIZATION_SCOPE)) return destinations;
 
   const query = new URLSearchParams({
     q: "roleAssignee",
     role: "ADMINISTRATOR",
     state: "APPROVED",
-    projection: "(elements*(organizationalTarget,role,state))",
   });
   const result = await linkedInJson(
-    `/v2/organizationalEntityAcls?${query.toString()}`,
+    `/rest/organizationAcls?${query.toString()}`,
     "organization authority",
     accessToken,
     request,

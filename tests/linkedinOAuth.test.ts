@@ -36,6 +36,17 @@ describe("LinkedIn OAuth destination discovery", () => {
       .rejects.toThrow("LinkedIn publishing permission is required");
   });
 
+  it("discovers approved organizations without requiring member identity scope", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(json({
+      elements: [
+        { state: "APPROVED", role: "ADMINISTRATOR", organizationalTarget: "urn:li:organization:42" },
+      ],
+    }));
+    await expect(discoverLinkedInDestinations("token", ["w_organization_social"], request))
+      .resolves.toEqual([{ kind: "linkedin_organization", id: "42" }]);
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
   it("does not expose provider bodies in errors", async () => {
     const request = vi.fn<typeof fetch>().mockResolvedValue(json({ message: "token=very-secret" }, 401));
 

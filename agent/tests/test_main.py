@@ -89,3 +89,31 @@ def test_push_leaves_claims_for_recovery_on_transient_crash(monkeypatch) -> None
     response = TestClient(main.app, raise_server_exceptions=False).post("/pubsub/push", json=envelope())
     assert response.status_code == 503
     assert response.json()["retryable"] is True
+
+
+def test_health_reports_durable_runtime_capabilities_without_secrets() -> None:
+    response = TestClient(main.app).get("/healthz")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["durableRuntime"] == {
+        "protocolVersion": 1,
+        "stateStore": "firestore",
+        "wakeTransport": "pubsub",
+        "contextCompiler": "harmonia-context/v1",
+        "recovery": {"limit": 20, "deadlineSeconds": 15, "maxRetries": 3},
+    }
+    assert "internalApiToken" not in payload
+
+
+def test_recovery_wake_uses_bounded_config(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr("harmonia_agent.recovery.recover_missed", lambda **kwargs: calls.append(kwargs) or [])
+    response = TestClient(main.app).post("/durable/recover")
+    assert response.status_code == 200
+    assert response.json()["actions"] == []
+    assert calls == [{
+        "limit": 20,
+        "deadline_seconds": 15,
+        "max_retries": 3,
+        "max_cost_usd": "0.250000",
+    }]

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const deploy = readFileSync(new URL("../infra/deploy.sh", import.meta.url), "utf8");
 const setup = readFileSync(new URL("../infra/setup.sh", import.meta.url), "utf8");
+const indexes = JSON.parse(readFileSync(new URL("../firestore.indexes.json", import.meta.url), "utf8"));
 
 describe("cloud infrastructure scripts", () => {
   it("updates an existing push subscription instead of silently keeping stale settings", () => {
@@ -26,5 +27,30 @@ describe("cloud infrastructure scripts", () => {
   it("does not grant the worker direct object-admin access it does not use", () => {
     expect(setup).not.toMatch(/for sa in harmonia-web harmonia-agent; do[\s\S]{0,180}roles\/storage\.objectAdmin/);
     expect(setup).toMatch(/harmonia-web@\$\{PROJECT_ID\}[\s\S]{0,180}roles\/storage\.objectAdmin/);
+  });
+
+  it("deploys the composite index required for ordered expired-lease recovery", () => {
+    expect(indexes.indexes).toContainEqual({
+      collectionGroup: "operations",
+      queryScope: "COLLECTION",
+      fields: [
+        { fieldPath: "state", order: "ASCENDING" },
+        { fieldPath: "leaseExpiresAt", order: "ASCENDING" },
+        { fieldPath: "id", order: "ASCENDING" },
+      ],
+    });
+    expect(setup).toContain("firestore indexes composite create");
+    expect(setup).toContain("--collection-group=operations");
+  });
+
+  it("bounds redelivery and runs recovery on its own authenticated wake", () => {
+    expect(deploy).toContain("--min-retry-delay 10s");
+    expect(deploy).toContain("--max-retry-delay 600s");
+    expect(deploy).toContain("--message-retention-duration 7d");
+    expect(deploy).toContain("harmonia-durable-recovery");
+    expect(deploy).toContain("/durable/recover");
+    expect(deploy).toContain("DURABLE_RECOVERY_LIMIT=");
+    expect(deploy).toContain("DURABLE_RECOVERY_DEADLINE_SECONDS=");
+    expect(deploy).toContain("${WEB_URL}/api/health");
   });
 });

@@ -41,6 +41,10 @@ class Settings:
     memory_bank_resource: str | None
     generative_media_enabled: bool
     vertex_media_location: str
+    durable_recovery_limit: int
+    durable_recovery_deadline_seconds: int
+    durable_recovery_max_retries: int
+    durable_recovery_max_cost_usd: str
 
     @classmethod
     def load(cls) -> "Settings":
@@ -60,6 +64,22 @@ class Settings:
                 raise ValueError
         except (InvalidOperation, ValueError) as exc:
             raise RuntimeError("IMAGE_MAX_COST_USD must be a positive decimal") from exc
+        recovery_limit = int(os.environ.get("DURABLE_RECOVERY_LIMIT", "20"))
+        recovery_deadline = int(os.environ.get("DURABLE_RECOVERY_DEADLINE_SECONDS", "15"))
+        recovery_retries = int(os.environ.get("DURABLE_RECOVERY_MAX_RETRIES", "3"))
+        recovery_cost = os.environ.get("DURABLE_RECOVERY_MAX_COST_USD", "0.250000")
+        if not 1 <= recovery_limit <= 100:
+            raise RuntimeError("DURABLE_RECOVERY_LIMIT must be between 1 and 100")
+        if not 1 <= recovery_deadline <= 60:
+            raise RuntimeError("DURABLE_RECOVERY_DEADLINE_SECONDS must be between 1 and 60")
+        if not 0 <= recovery_retries <= 20:
+            raise RuntimeError("DURABLE_RECOVERY_MAX_RETRIES must be between 0 and 20")
+        try:
+            recovery_cost = f"{Decimal(recovery_cost):.6f}"
+            if Decimal(recovery_cost) < 0:
+                raise ValueError
+        except (InvalidOperation, ValueError) as exc:
+            raise RuntimeError("DURABLE_RECOVERY_MAX_COST_USD must be a nonnegative decimal") from exc
         return cls(
             web_internal_url=_require("WEB_INTERNAL_URL").rstrip("/"),
             internal_api_token=_require("INTERNAL_API_TOKEN"),
@@ -77,6 +97,10 @@ class Settings:
             memory_bank_resource=os.environ.get("MEMORY_BANK_RESOURCE") or None,
             generative_media_enabled=_bool_env("GENERATIVE_MEDIA_ENABLED"),
             vertex_media_location=os.environ.get("VERTEX_MEDIA_LOCATION", "us-central1"),
+            durable_recovery_limit=recovery_limit,
+            durable_recovery_deadline_seconds=recovery_deadline,
+            durable_recovery_max_retries=recovery_retries,
+            durable_recovery_max_cost_usd=recovery_cost,
         )
 
 

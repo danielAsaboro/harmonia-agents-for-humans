@@ -49,13 +49,41 @@ if settings().telemetry_enabled:
 
 @app.get("/healthz")
 async def healthz() -> dict[str, Any]:
+    config = settings()
     return {
         "ok": True,
         "service": "harmonia-agent",
-        "project": settings().gcp_project,
-        "model": settings().model_id,
+        "project": config.gcp_project,
+        "model": config.model_id,
         "stages": sorted(HANDLERS.keys()),
+        "durableRuntime": {
+            "protocolVersion": 1,
+            "stateStore": "firestore",
+            "wakeTransport": "pubsub",
+            "contextCompiler": "harmonia-context/v1",
+            "recovery": {
+                "limit": config.durable_recovery_limit,
+                "deadlineSeconds": config.durable_recovery_deadline_seconds,
+                "maxRetries": config.durable_recovery_max_retries,
+            },
+        },
     }
+
+
+@app.post("/durable/recover")
+async def durable_recover() -> dict[str, Any]:
+    """OIDC/IAM-protected, model-free recovery wake with deployment bounds."""
+    from .recovery import recover_missed
+
+    config = settings()
+    actions = await asyncio.to_thread(
+        recover_missed,
+        limit=config.durable_recovery_limit,
+        deadline_seconds=config.durable_recovery_deadline_seconds,
+        max_retries=config.durable_recovery_max_retries,
+        max_cost_usd=config.durable_recovery_max_cost_usd,
+    )
+    return {"ok": True, "actions": actions, "actionCount": len(actions)}
 
 
 @app.post("/durable/tick")

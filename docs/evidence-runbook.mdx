@@ -9,6 +9,11 @@ This protocol preserves the private/public boundary: raw provider responses, aut
 
 Before creating or changing application state, confirm an active gcloud identity and matching project. Record the deployed Cloud Run revision for both services, the exact Agent Engine resource, Firestore database, Pub/Sub topic/subscription, secret metadata (never values), and deployed health response. `HARMONIA_MOCK_AI` and `HARMONIA_MOCK_X` must be unset, as must every emulator setting. Any missing or unauthorized prerequisite stops the run.
 
+Also record the ready `operations` composite index, the subscription retry/dead-letter policy, and
+both scheduler jobs (`harmonia-durable-autonomy` and `harmonia-durable-recovery`). Confirm the worker
+health response exposes the expected protocol/compiler and bounded recovery settings without any
+credential, tenant content, prompt, or artifact body.
+
 ```bash
 gcloud auth list --filter=status:ACTIVE
 gcloud config get-value project
@@ -42,6 +47,19 @@ npm run verify:evidence -- /absolute/private/run/bundle.json
 The complete capture must correlate the approval action, finalized effect claim, idempotency key, effect receipt, verification readback or artifact digest, cognition usage, cost records, and trace lineage. The claim must follow durable human approval, precede effect execution, own the same idempotency key, operation, and action trace as the effect, and finalize against the original receipt. Cognition must share a trace with a lifecycle event; approval, claim, effect, and verification must share their action trace; replay must be a distinct traced attempt. A missing or late claim, zero trace ID, verification timestamp before effect execution, receipt mismatch, unknown observed cost, mock provenance, or raw private field fails closed.
 
 The redacted bundle also requires replay evidence: a distinct replay operation after the original effect must return `already_applied` and reference the original receipt.
+
+## Restart and ambiguity proof
+
+In a separate authorized test job, interrupt the worker after a persisted boundary and before its
+next commit. Preserve the pre-interrupt operation epoch and lease, allow or invoke bounded recovery,
+and record the replacement claim's newer epoch. Attempt the old finalize call and retain the rejected
+fence result. Redeliver the same source event and retain the canonical duplicate response.
+
+For effects, inject failure only at the supported deterministic fault boundary. A failure before
+provider dispatch may return to `prepared`; a failure after dispatch must remain `unknown` until
+provider reconciliation or the operator-resolution workflow supplies digest-verified evidence.
+Never perform the provider call merely to manufacture failure evidence, and never relabel unknown as
+failed. Keep raw records and command output in the private parent evidence directory.
 
 ## Replay proof
 

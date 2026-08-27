@@ -58,6 +58,18 @@ if [[ "${FIRESTORE_LOCATION}" != "${REGION}" ]]; then
   exit 2
 fi
 
+echo "-- Firestore durable-recovery indexes"
+if ! gcloud firestore indexes composite list --database='(default)' --project "${PROJECT_ID}" \
+  --filter='collectionGroupId=operations AND state=READY AND fields.fieldPath:leaseExpiresAt AND fields.fieldPath:id' \
+  --format='value(name)' | grep -q .; then
+  gcloud firestore indexes composite create \
+    --database='(default)' --collection-group=operations --query-scope=collection \
+    --field-config=field-path=state,order=ascending \
+    --field-config=field-path=leaseExpiresAt,order=ascending \
+    --field-config=field-path=id,order=ascending \
+    --project "${PROJECT_ID}"
+fi
+
 echo "-- Pub/Sub topics"
 gcloud pubsub topics create harmonia-stages --project "${PROJECT_ID}" 2>/dev/null || echo "topic exists"
 gcloud pubsub topics create harmonia-stages-dlq --project "${PROJECT_ID}" 2>/dev/null || echo "dlq topic exists"

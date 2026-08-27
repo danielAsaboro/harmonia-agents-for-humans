@@ -22,6 +22,12 @@ describe("GET /api/health", () => {
       service: "harmonia-web",
       project: "harmonia-preview",
       region: "us-central1",
+      durableRuntime: {
+        protocolVersion: 1,
+        stateStore: "firestore",
+        wakeTransport: "pubsub",
+        contextCompiler: "harmonia-context/v1",
+      },
     });
   });
 });

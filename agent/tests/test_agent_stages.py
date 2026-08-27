@@ -226,9 +226,11 @@ def test_verify_posts_observed_receipt_and_trace_lineage(monkeypatch):
 
 def test_content_pack_receipt_carries_the_applied_artifact_digest(monkeypatch):
     posts = []
+    captured = {}
+    analysis = _analysis()
     job = {
         "stage": "publish", "ingestedTitle": "Launch", "config": {"brief": "Launch"},
-        "moments": [], "angles": [], "drafts": [],
+        "sourceAnalysis": analysis, "drafts": [],
         "actions": [{
             "id": "a1", "type": "export_content_pack", "state": "planned",
             "requiresApproval": True, "approvalState": "approved", "payload": {},
@@ -240,6 +242,10 @@ def test_content_pack_receipt_carries_the_applied_artifact_digest(monkeypatch):
     monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
     monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
     monkeypatch.setattr(stages, "transition_effect_command", lambda _phase, _payload: {})
+    def build_pack(title, source, moments, angles, drafts):
+        captured.update({"title": title, "source": source, "moments": moments, "angles": angles, "drafts": drafts})
+        return "pack"
+    monkeypatch.setattr(stages.content, "build_content_pack", build_pack)
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
 
     asyncio.run(stages.run_publish("job-1"))
@@ -249,6 +255,23 @@ def test_content_pack_receipt_carries_the_applied_artifact_digest(monkeypatch):
     assert receipt["artifact"]["digest"] == receipt["detail"]["digest"]
     assert len(receipt["artifact"]["digest"]) == 64
     assert receipt["claimToken"]
+    assert captured["moments"] == analysis["moments"]
+    assert captured["angles"] == analysis["angles"]
+
+
+def test_paid_media_actions_read_canonical_source_analysis():
+    analysis = _analysis()
+    analysis["moments"][0]["visualHook"] = "Metric rises on screen"
+
+    actions = stages.deterministic_generative_media_actions({
+        "ingestedTitle": "Activation launch",
+        "sourceAnalysis": analysis,
+    })
+
+    assert [action["type"] for action in actions] == [
+        "generate_veo_broll", "generate_lyria_soundtrack",
+    ]
+    assert actions[0]["momentId"] == "m1"
 
 
 def test_publish_never_enters_effect_adapter_without_execute_claim(monkeypatch):
@@ -345,14 +368,16 @@ def test_uploaded_media_is_materialized_for_clip_rendering(monkeypatch, tmp_path
 def test_paid_media_actions_are_deterministic_and_reference_reviewed_evidence_only():
     actions = stages.deterministic_generative_media_actions({
         "ingestedTitle": "Activation launch",
-        "moments": [{
-            "id": "m1", "title": "Dashboard reveal", "visualHook": "Metric rises on screen",
-            "startSec": 1, "endSec": 8,
-        }],
-        "angles": [{
-            "id": "a1", "kind": "trend", "title": "Speed wins",
-            "rationale": "Founders care about activation.",
-        }],
+        "sourceAnalysis": {
+            "moments": [{
+                "id": "m1", "title": "Dashboard reveal", "visualHook": "Metric rises on screen",
+                "startSec": 1, "endSec": 8,
+            }],
+            "angles": [{
+                "id": "a1", "angleType": "trend_response", "title": "Speed wins",
+                "rationale": "Founders care about activation.",
+            }],
+        },
     })
 
     assert [action["type"] for action in actions] == [

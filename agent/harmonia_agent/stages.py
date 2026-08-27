@@ -128,14 +128,33 @@ def editorial_plan_digest(plan: dict[str, Any]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def _source_analysis_items(job: dict[str, Any], field: str) -> list[dict[str, Any]]:
+    """Read persisted analysis artifacts from their canonical job envelope."""
+    analysis = job.get("sourceAnalysis")
+    if not isinstance(analysis, dict):
+        return []
+    items = analysis.get(field)
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict)]
+
+
+def _source_moments(job: dict[str, Any]) -> list[dict[str, Any]]:
+    return _source_analysis_items(job, "moments")
+
+
+def _source_angles(job: dict[str, Any]) -> list[dict[str, Any]]:
+    return _source_analysis_items(job, "angles")
+
+
 def deterministic_generative_media_actions(job: dict[str, Any]) -> list[dict[str, Any]]:
     """Propose bounded paid media from validated analysis, outside the planner."""
     title = str(job.get("ingestedTitle") or "startup launch")[:200]
     moments = [
-        item for item in (job.get("moments") or [])
+        item for item in _source_moments(job)
         if item.get("id") and item.get("visualHook")
     ]
-    angles = [item for item in (job.get("angles") or []) if item.get("id")]
+    angles = [item for item in _source_angles(job) if item.get("id")]
     actions: list[dict[str, Any]] = []
     if moments:
         moment = moments[0]
@@ -718,7 +737,7 @@ async def run_publish(job_id: str) -> None:
                 pack = content.build_content_pack(
                     job.get("ingestedTitle", ""),
                     job["config"].get("youtubeUrl") or "operator brief",
-                    job.get("moments", []), job.get("angles", []), job.get("drafts", []),
+                    _source_moments(job), _source_angles(job), job.get("drafts", []),
                 )
                 digest = hashlib.sha256(pack.encode()).hexdigest()
                 web_post("/api/internal/pack", {"jobId": job_id, "markdown": pack, "digest": digest})
@@ -887,7 +906,7 @@ async def run_publish(job_id: str) -> None:
                         src = _materialize_source_video(job, td)
                         if action["type"] == "render_clip":
                             moment = next(
-                                (m for m in job.get("moments", []) if m["id"] == action["payload"]["momentId"]),
+                                (m for m in _source_moments(job) if m["id"] == action["payload"]["momentId"]),
                                 None,
                             )
                             if not moment:
@@ -902,7 +921,7 @@ async def run_publish(job_id: str) -> None:
                         else:
                             parts: list[Path] = []
                             for i, mid in enumerate(action["payload"]["momentIds"]):
-                                m = next((m for m in job.get("moments", []) if m["id"] == mid), None)
+                                m = next((m for m in _source_moments(job) if m["id"] == mid), None)
                                 if not m:
                                     raise ClipRenderError(f"moment {mid} no longer exists")
                                 part = Path(td) / f"part{i}.mp4"

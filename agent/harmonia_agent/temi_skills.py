@@ -86,8 +86,8 @@ def build_temi_editorial_planning_skillset() -> skill_toolset.SkillToolset:
     )
 
 
-def reset_temi_trace(context: Context) -> None:
-    context.state[TEMI_TRACE_KEY] = []
+def reset_temi_trace(callback_context: Context) -> None:
+    callback_context.state[TEMI_TRACE_KEY] = []
 
 
 def _skill_name(args: dict[str, Any]) -> str | None:
@@ -95,7 +95,7 @@ def _skill_name(args: dict[str, Any]) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def guard_temi_tool(tool: BaseTool, args: dict[str, Any], context: Context) -> None:
+def guard_temi_tool(tool: BaseTool, args: dict[str, Any], tool_context: Context) -> None:
     allowed = {*_LOAD_TOOLS, *_READ_FIELDS}
     if tool.name not in allowed:
         raise ValueError(f"Temi used a prohibited tool: {tool.name}")
@@ -105,18 +105,18 @@ def guard_temi_tool(tool: BaseTool, args: dict[str, Any], context: Context) -> N
         if tool.name == "load_skill_resource" and args.get("file_path") not in TEMI_SKILL_REFERENCES:
             raise ValueError(f"Temi loaded an unapproved resource: {args.get('file_path')}")
         return
-    snapshot = context.state.get("planningSnapshot")
+    snapshot = tool_context.state.get("planningSnapshot")
     if not isinstance(snapshot, dict) or args.get("snapshot_id") != snapshot.get("snapshotId"):
         raise ValueError("Temi may read only the exact planning snapshot")
 
 
-def record_temi_tool(tool: BaseTool, args: dict[str, Any], context: Context, tool_response: dict[str, Any]) -> None:
-    trace = list(context.state.get(TEMI_TRACE_KEY) or [])
+def record_temi_tool(tool: BaseTool, args: dict[str, Any], tool_context: Context, tool_response: dict[str, Any]) -> None:
+    trace = list(tool_context.state.get(TEMI_TRACE_KEY) or [])
     entry: dict[str, Any] = {"sequence": len(trace) + 1, "name": tool.name, "args": dict(args)}
     if tool.name in _READ_FIELDS:
         entry["response"] = tool_response
     trace.append(entry)
-    context.state[TEMI_TRACE_KEY] = trace
+    tool_context.state[TEMI_TRACE_KEY] = trace
 
 
 def validate_temi_trace(trace: list[dict[str, Any]], *, snapshot_id: str) -> None:

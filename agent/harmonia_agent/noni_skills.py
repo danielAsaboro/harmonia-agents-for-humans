@@ -146,17 +146,17 @@ def build_noni_google_search_tool(model: str | BaseLlm) -> AgentTool:
     return AgentTool(agent=research_agent, propagate_grounding_metadata=True)
 
 
-def reset_noni_skill_trace(context: Context) -> None:
-    context.state[NONI_SKILL_TRACE_KEY] = []
+def reset_noni_skill_trace(callback_context: Context) -> None:
+    callback_context.state[NONI_SKILL_TRACE_KEY] = []
 
 
 def record_noni_skill_tool(
     tool: BaseTool,
     args: dict[str, Any],
-    context: Context,
+    tool_context: Context,
     tool_response: dict[str, Any],
 ) -> None:
-    trace = list(context.state.get(NONI_SKILL_TRACE_KEY) or [])
+    trace = list(tool_context.state.get(NONI_SKILL_TRACE_KEY) or [])
     entry = {
         "sequence": len(trace) + 1,
         "name": tool.name,
@@ -165,7 +165,7 @@ def record_noni_skill_tool(
     if tool.name in NONI_RESEARCH_TOOLS:
         entry["response"] = tool_response
     trace.append(entry)
-    context.state[NONI_SKILL_TRACE_KEY] = trace
+    tool_context.state[NONI_SKILL_TRACE_KEY] = trace
 
 
 def _skill_name(entry: dict[str, Any]) -> str | None:

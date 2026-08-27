@@ -168,13 +168,13 @@ class AgentProtocolError(RuntimeError):
     """The agent team returned missing or contract-invalid structured output."""
 
 
-def _reset_nimi_capability_traces(context: Any) -> None:
-    reset_nimi_skill_trace(context)
-    reset_nimi_research_trace(context)
+def _reset_nimi_capability_traces(callback_context: Any) -> None:
+    reset_nimi_skill_trace(callback_context)
+    reset_nimi_research_trace(callback_context)
 
 
-def _guard_nimi_capability(tool: Any, args: dict[str, Any], context: Any) -> None:
-    del context
+def _guard_nimi_capability(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
+    del tool_context
     if is_nimi_research_tool(tool):
         guard_nimi_research_tool(tool)
     else:
@@ -182,12 +182,12 @@ def _guard_nimi_capability(tool: Any, args: dict[str, Any], context: Any) -> Non
 
 
 def _record_nimi_capability(
-    tool: Any, args: dict[str, Any], context: Any, tool_response: dict[str, Any],
+    tool: Any, args: dict[str, Any], tool_context: Any, tool_response: dict[str, Any],
 ) -> None:
     if is_nimi_research_tool(tool):
-        record_nimi_research_tool(tool, args, context, tool_response)
+        record_nimi_research_tool(tool, args, tool_context, tool_response)
     else:
-        record_nimi_skill_tool(tool, args, context)
+        record_nimi_skill_tool(tool, args, tool_context)
 
 
 @dataclass(frozen=True)

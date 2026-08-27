@@ -32,8 +32,8 @@ def build_dara_editing_skillset() -> skill_toolset.SkillToolset:
     return skill_toolset.SkillToolset(skills=[skill], tool_filter=sorted(_LOAD_TOOLS))
 
 
-def reset_dara_skill_trace(context: Context) -> None:
-    context.state[DARA_SKILL_TRACE_KEY] = []
+def reset_dara_skill_trace(callback_context: Context) -> None:
+    callback_context.state[DARA_SKILL_TRACE_KEY] = []
 
 
 def _skill_name(args: dict[str, Any]) -> str | None:
@@ -46,8 +46,8 @@ def _resource_path(args: dict[str, Any]) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def guard_dara_skill_tool(tool: BaseTool, args: dict[str, Any], context: Context) -> None:
-    del context
+def guard_dara_skill_tool(tool: BaseTool, args: dict[str, Any], tool_context: Context) -> None:
+    del tool_context
     if tool.name not in _LOAD_TOOLS:
         raise ValueError(f"Dara used a prohibited tool: {tool.name}")
     if _skill_name(args) != DARA_SKILL_NAME:
@@ -57,13 +57,13 @@ def guard_dara_skill_tool(tool: BaseTool, args: dict[str, Any], context: Context
 
 
 def record_dara_skill_tool(
-    tool: BaseTool, args: dict[str, Any], context: Context,
+    tool: BaseTool, args: dict[str, Any], tool_context: Context,
     tool_response: dict[str, Any],
 ) -> None:
     del tool_response
-    trace = list(context.state.get(DARA_SKILL_TRACE_KEY) or [])
+    trace = list(tool_context.state.get(DARA_SKILL_TRACE_KEY) or [])
     trace.append({"sequence": len(trace) + 1, "name": tool.name, "args": dict(args)})
-    context.state[DARA_SKILL_TRACE_KEY] = trace
+    tool_context.state[DARA_SKILL_TRACE_KEY] = trace
 
 
 def validate_dara_skill_trace(trace: list[dict[str, Any]]) -> dict[str, tuple[str, ...]]:

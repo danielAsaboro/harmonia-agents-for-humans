@@ -32,8 +32,8 @@ def build_nimi_analysis_skillset() -> skill_toolset.SkillToolset:
     return skill_toolset.SkillToolset(skills=[skill], tool_filter=sorted(_LOAD_TOOLS))
 
 
-def reset_nimi_skill_trace(context: Context) -> None:
-    context.state[NIMI_SKILL_TRACE_KEY] = []
+def reset_nimi_skill_trace(callback_context: Context) -> None:
+    callback_context.state[NIMI_SKILL_TRACE_KEY] = []
 
 
 def _skill_name(args: dict[str, Any]) -> str | None:
@@ -55,10 +55,10 @@ def guard_nimi_skill_tool(tool: BaseTool, args: dict[str, Any]) -> None:
         raise ValueError(f"Nimi loaded an unapproved resource: {_resource_path(args)}")
 
 
-def record_nimi_skill_tool(tool: BaseTool, args: dict[str, Any], context: Context) -> None:
-    trace = list(context.state.get(NIMI_SKILL_TRACE_KEY) or [])
+def record_nimi_skill_tool(tool: BaseTool, args: dict[str, Any], tool_context: Context) -> None:
+    trace = list(tool_context.state.get(NIMI_SKILL_TRACE_KEY) or [])
     trace.append({"sequence": len(trace) + 1, "name": tool.name, "args": dict(args)})
-    context.state[NIMI_SKILL_TRACE_KEY] = trace
+    tool_context.state[NIMI_SKILL_TRACE_KEY] = trace
 
 
 def validate_nimi_skill_trace(trace: list[dict[str, Any]]) -> None:

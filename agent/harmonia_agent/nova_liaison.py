@@ -22,14 +22,14 @@ _AUTHORITY = re.compile(
 _META_TOOLS = frozenset({"load_skill", "load_skill_resource"})
 
 
-def reset_liaison_trace(context: Context) -> None:
-    context.state[TRACE_KEY] = []
+def reset_liaison_trace(callback_context: Context) -> None:
+    callback_context.state[TRACE_KEY] = []
 
 
 def record_liaison_tool(
-    tool: BaseTool, args: dict[str, Any], context: Context, tool_response: dict[str, Any],
+    tool: BaseTool, args: dict[str, Any], tool_context: Context, tool_response: dict[str, Any],
 ) -> None:
-    trace = list(context.state.get(TRACE_KEY) or [])
+    trace = list(tool_context.state.get(TRACE_KEY) or [])
     trace.append({
         "sequence": len(trace) + 1,
         "name": tool.name,
@@ -38,11 +38,11 @@ def record_liaison_tool(
         "traceId": current_trace_id(),
         "spanId": current_span_id(),
     })
-    context.state[TRACE_KEY] = trace
+    tool_context.state[TRACE_KEY] = trace
 
 
 def record_liaison_tool_error(
-    tool: BaseTool, args: dict[str, Any], context: Context, error: Exception,
+    tool: BaseTool, args: dict[str, Any], tool_context: Context, error: Exception,
 ) -> dict[str, Any]:
     response = tool_error(
         "tool_execution_failed",
@@ -50,7 +50,7 @@ def record_liaison_tool_error(
         category="dependency",
         retryable=False,
     )
-    record_liaison_tool(tool, args, context, response)
+    record_liaison_tool(tool, args, tool_context, response)
     return response
 
 

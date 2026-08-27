@@ -71,8 +71,8 @@ def build_nimi_agent_search_tool(model: str | BaseLlm, data_store_id: str) -> Ag
     )
 
 
-def reset_nimi_research_trace(context: Context) -> None:
-    context.state[NIMI_RESEARCH_TRACE_KEY] = []
+def reset_nimi_research_trace(callback_context: Context) -> None:
+    callback_context.state[NIMI_RESEARCH_TRACE_KEY] = []
 
 
 def is_nimi_research_tool(tool: BaseTool) -> bool:
@@ -84,10 +84,10 @@ def guard_nimi_research_tool(tool: BaseTool) -> None:
         raise ValueError(f"Nimi used a prohibited research tool: {tool.name}")
 
 
-def record_nimi_research_tool(tool: BaseTool, args: dict[str, Any], context: Context, tool_response: dict[str, Any]) -> None:
-    trace = list(context.state.get(NIMI_RESEARCH_TRACE_KEY) or [])
+def record_nimi_research_tool(tool: BaseTool, args: dict[str, Any], tool_context: Context, tool_response: dict[str, Any]) -> None:
+    trace = list(tool_context.state.get(NIMI_RESEARCH_TRACE_KEY) or [])
     trace.append({"sequence": len(trace) + 1, "name": tool.name, "args": dict(args), "response": tool_response})
-    context.state[NIMI_RESEARCH_TRACE_KEY] = trace
+    tool_context.state[NIMI_RESEARCH_TRACE_KEY] = trace
 
 
 def _typed(value: Any) -> Any:

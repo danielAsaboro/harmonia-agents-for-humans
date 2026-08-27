@@ -86,8 +86,8 @@ def build_ryan_google_search_tool(model: str | BaseLlm) -> AgentTool:
     return AgentTool(agent=agent, propagate_grounding_metadata=True)
 
 
-def reset_ryan_skill_trace(context: Context) -> None:
-    context.state[RYAN_SKILL_TRACE_KEY] = []
+def reset_ryan_skill_trace(callback_context: Context) -> None:
+    callback_context.state[RYAN_SKILL_TRACE_KEY] = []
 
 
 def _skill_name(args: dict[str, Any]) -> str | None:
@@ -101,10 +101,10 @@ def _resource_path(args: dict[str, Any]) -> str | None:
 
 
 def guard_ryan_skill_tool(
-    tool: BaseTool, args: dict[str, Any], context: Context,
+    tool: BaseTool, args: dict[str, Any], tool_context: Context,
 ) -> None:
     """Reject disallowed loaders and paths before ADK reads the resource."""
-    del context
+    del tool_context
     if tool.name not in {*_LOAD_TOOLS, _SEARCH_TOOL}:
         raise ValueError(f"Ryan used a prohibited tool: {tool.name}")
     if tool.name == _SEARCH_TOOL:
@@ -118,11 +118,11 @@ def guard_ryan_skill_tool(
 def record_ryan_skill_tool(
     tool: BaseTool,
     args: dict[str, Any],
-    context: Context,
+    tool_context: Context,
     tool_response: dict[str, Any],
 ) -> None:
     """Record only loader identity and arguments; skill prose is not evidence."""
-    trace = list(context.state.get(RYAN_SKILL_TRACE_KEY) or [])
+    trace = list(tool_context.state.get(RYAN_SKILL_TRACE_KEY) or [])
     entry = {
         "sequence": len(trace) + 1,
         "name": tool.name,
@@ -131,7 +131,7 @@ def record_ryan_skill_tool(
     if tool.name == _SEARCH_TOOL:
         entry["response"] = tool_response
     trace.append(entry)
-    context.state[RYAN_SKILL_TRACE_KEY] = trace
+    tool_context.state[RYAN_SKILL_TRACE_KEY] = trace
 
 
 def validate_ryan_skill_trace(

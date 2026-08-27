@@ -1,0 +1,19 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
+describe("agent image dependency contract", () => {
+  const dockerfile = readFileSync(new URL("../agent/Dockerfile", import.meta.url), "utf8");
+  const direct = readFileSync(new URL("../agent/requirements.txt", import.meta.url), "utf8");
+  const lock = readFileSync(new URL("../agent/requirements.lock", import.meta.url), "utf8");
+
+  it("ships the real YouTube downloader used by ingest", () => {
+    expect(direct).toMatch(/^yt-dlp[<=>]/m);
+    expect(lock).toMatch(/^yt-dlp==/m);
+  });
+
+  it("builds the worker from exact resolved versions", () => {
+    expect(dockerfile).toContain("COPY requirements.lock .");
+    expect(dockerfile).toContain("pip install --no-cache-dir -r requirements.lock");
+    expect(lock).toContain("google-adk==2.7.1");
+  });
+});

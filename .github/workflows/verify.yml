@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: agent/requirements.txt
+          cache-dependency-path: agent/requirements.lock
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -37,7 +37,7 @@ jobs:
           install_components: beta,cloud-firestore-emulator
 
       - run: npm ci
-      - run: python -m pip install --disable-pip-version-check -r agent/requirements.txt
+      - run: python -m pip install --disable-pip-version-check -r agent/requirements.lock
       - run: npm test
       - run: npm run test:integration
       - run: npm run test:agent

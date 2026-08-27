@@ -1222,12 +1222,15 @@ export async function eraseWorkspaceData(
   if (plan.workspaceId !== tenant.workspaceId) throw new Error("workspace deletion plan is out of scope");
   if (tenant.principal.workspaceRole !== "owner") throw new Error("workspace owner role required");
 
-  const [jobs, contentItems, assets, attachments, telegram] = await Promise.all([
+  const [jobs, contentItems, assets, attachments, telegram, connections, oauthStates, user] = await Promise.all([
     tenantCollection(JOBS).get(),
     tenantCollection(CONTENT_ITEMS).get(),
     tenantCollection(ASSETS).get(),
     tenantCollection("chat_attachments").get(),
     tenantCollection(CONFIG).doc("telegram").get(),
+    tenantCollection(CONNECTIONS).get(),
+    db().collection("oauth_states").where("workspaceId", "==", plan.workspaceId).get(),
+    db().collection("users").doc(actorSubjectId).get(),
   ]);
   if (jobs.docs.some((doc) => {
     const value = doc.data() as JobDoc;
@@ -1239,6 +1242,9 @@ export async function eraseWorkspaceData(
     ["scheduled", "awaiting_final_review", "publishing"].includes(String(doc.get("status"))),
   )) {
     throw new Error("workspace contains pending external work");
+  }
+  if (!connections.empty) {
+    throw new Error("disconnect external connections before workspace deletion");
   }
 
   const tombstoneRef = db().collection("workspace_deletion_tombstones").doc(plan.workspaceId);
@@ -1257,11 +1263,17 @@ export async function eraseWorkspaceData(
   if (routeTokenDigest) {
     await db().collection(TELEGRAM_WEBHOOK_ROUTES).doc(routeTokenDigest).delete();
   }
+  await Promise.all(oauthStates.docs.map((state) => state.ref.delete()));
   await db().recursiveDelete(db().collection("workspaces").doc(plan.workspaceId));
+  if (user.exists && user.get("defaultWorkspaceId") === plan.workspaceId) {
+    await user.ref.delete();
+  }
   await tombstoneRef.set({
     state: "erased",
     completedAt: new Date().toISOString(),
     contentErased: true,
+    oauthStatesErased: true,
+    identityPointerErased: !user.exists || user.get("defaultWorkspaceId") === plan.workspaceId,
   }, { merge: true });
 }
 

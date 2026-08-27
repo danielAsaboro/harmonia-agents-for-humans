@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { deleteConnection, saveConnection } from "@/lib/firestore";
+import { deleteConnection, getConnection, saveConnection } from "@/lib/firestore";
 import { administratorTenantHandler } from "@/lib/auth";
-import { getPlatform } from "@/lib/oauth";
+import { getPlatform, revokeAccess } from "@/lib/oauth";
+import { disconnectConnection } from "@/lib/connectionDisconnect";
 
 const manualTokenSchema = z.object({
   accessToken: z.string().min(8),
@@ -50,8 +51,18 @@ async function del(
   if (!getPlatform(platform)) {
     return Response.json({ error: "unknown platform" }, { status: 404 });
   }
-  await deleteConnection(platform);
-  return Response.json({ ok: true });
+  try {
+    await disconnectConnection(platform, {
+      get: getConnection,
+      revoke: (connection) => revokeAccess(getPlatform(connection.platform)!, connection),
+      remove: deleteConnection,
+    });
+    return Response.json({ ok: true });
+  } catch (error) {
+    return Response.json({
+      error: error instanceof Error ? error.message : "connection revocation failed",
+    }, { status: 502 });
+  }
 }
 
 export const PUT = administratorTenantHandler(put);

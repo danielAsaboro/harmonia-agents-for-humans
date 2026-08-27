@@ -7,7 +7,7 @@ const valid = {
     { id: "firestore", name: "Firestore", kind: "store", layer: "data", statuses: ["implemented"], authorities: ["read", "write"], dataScope: "workspace", stateLifetime: "durable", summary: "Durable source of truth" },
     { id: "agent-engine", name: "Agent Engine", kind: "runtime", layer: "agents", statuses: ["pending-live"], authorities: ["delegate"], dataScope: "workspace", stateLifetime: "ephemeral", summary: "Cognitive runtime" },
     { id: "approval", name: "Approval", kind: "gate", layer: "effects", statuses: ["approval-gated"], authorities: ["approve"], dataScope: "workspace", stateLifetime: "durable", summary: "Human gate" },
-    { id: "effect", name: "Effect", kind: "effect", layer: "effects", statuses: ["approval-gated"], authorities: ["execute-effect"], dataScope: "external", stateLifetime: "external", summary: "Official provider effect" },
+    { id: "effect", name: "Effect", kind: "effect", layer: "effects", statuses: ["approval-gated"], authorities: ["execute-effect"], dataScope: "external", stateLifetime: "external", summary: "Official provider effect", approval: "Required" },
     { id: "verification", name: "Verification", kind: "verification", layer: "effects", statuses: ["implemented"], authorities: ["read"], dataScope: "external", stateLifetime: "durable", summary: "Independent read-back" },
   ],
   edges: [

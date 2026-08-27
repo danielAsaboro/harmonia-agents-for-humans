@@ -26,6 +26,47 @@ export interface TokenSet {
   scopes?: string;
 }
 
+type RequestFn = (input: string, init?: RequestInit) => Promise<Response>;
+
+/** Revoke the provider grant before deleting the encrypted local credential. */
+export async function revokeAccess(
+  def: PlatformDef,
+  tokens: Pick<TokenSet, "accessToken" | "refreshToken">,
+  request: RequestFn = fetch,
+): Promise<void> {
+  const token = tokens.refreshToken ?? tokens.accessToken;
+  let url: string;
+  const headers: Record<string, string> = {
+    "content-type": "application/x-www-form-urlencoded",
+    accept: "application/json",
+  };
+  const body = new URLSearchParams({ token });
+
+  if (def.id === "google-calendar" || def.id === "youtube") {
+    url = "https://oauth2.googleapis.com/revoke";
+  } else if (def.id === "x") {
+    url = "https://api.x.com/2/oauth2/revoke";
+    const clientId = process.env.X_CLIENT_ID;
+    const clientSecret = process.env.X_CLIENT_SECRET;
+    if (!clientId || !clientSecret) throw new Error("missing app credentials for x");
+    headers.authorization = `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
+    body.set("client_id", clientId);
+  } else {
+    throw new Error(`token revocation is not implemented for ${def.id}`);
+  }
+
+  const response = await request(url, {
+    method: "POST",
+    headers,
+    body,
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 200);
+    throw new Error(`token revocation failed (${response.status}): ${detail}`);
+  }
+}
+
 interface ExchangeOptions {
   code: string;
   redirectUri: string;

@@ -385,6 +385,30 @@ def read_artifact(
     return dict(res.json())
 
 
+def save_context_projection(
+    *,
+    job_id: str,
+    manifest: dict[str, Any],
+    rendered_digest: str,
+    rendered_chars: int,
+    rendered_artifact_id: str,
+) -> dict[str, Any]:
+    with _client() as c:
+        res = c.post("/api/internal/context-projections", json={
+            "jobId": job_id,
+            "manifest": manifest,
+            "renderedDigest": rendered_digest,
+            "renderedChars": rendered_chars,
+            "renderedArtifactId": rendered_artifact_id,
+        })
+    if res.status_code not in {200, 201}:
+        raise WebApiError(
+            f"context projection persistence failed: {res.status_code} {res.text}",
+            res.status_code,
+        )
+    return dict(res.json()["projection"])
+
+
 def finalize_stage_execution(payload: dict[str, Any]) -> None:
     post("/api/internal/stage-execution/finalize", payload)
 

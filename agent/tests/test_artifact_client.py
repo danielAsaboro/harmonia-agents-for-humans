@@ -56,3 +56,50 @@ def test_artifact_client_uploads_and_reads_by_opaque_id(monkeypatch) -> None:
         "get", "/api/internal/artifacts/artifact-1", {"lineStart": 4, "lineCount": 10}
     )
     assert page["text"] == "tail"
+
+
+def test_context_projection_client_persists_the_digest_bound_manifest(monkeypatch) -> None:
+    calls = []
+
+    class Response:
+        status_code = 201
+        text = ""
+
+        def json(self):
+            return {"projection": {"id": "projection-1"}}
+
+    class Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def post(self, path, json):
+            calls.append((path, json))
+            return Response()
+
+    monkeypatch.setattr(web_client, "_client", lambda: Client())
+    manifest = {
+        "compilerVersion": "harmonia-context/v1",
+        "operationId": "job:job-1:stage:draft",
+        "operationEpoch": 2,
+    }
+    with tenant_scope("workspace-1", "brand-1"):
+        with operation_scope("job:job-1:stage:draft", 2):
+            result = web_client.save_context_projection(
+                job_id="job-1",
+                manifest=manifest,
+                rendered_digest="a" * 64,
+                rendered_chars=1200,
+                rendered_artifact_id="018f47a2-4f40-7b1f-b19f-8f6b916b7d12",
+            )
+
+    assert result == {"id": "projection-1"}
+    assert calls == [("/api/internal/context-projections", {
+        "jobId": "job-1",
+        "manifest": manifest,
+        "renderedDigest": "a" * 64,
+        "renderedChars": 1200,
+        "renderedArtifactId": "018f47a2-4f40-7b1f-b19f-8f6b916b7d12",
+    })]

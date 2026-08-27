@@ -118,6 +118,28 @@ def test_runtime_resumes_the_same_managed_session_after_process_restart():
     assert remote.queries[0]["session_id"] == remote.queries[1]["session_id"]
 
 
+def test_runtime_explicitly_directs_agents_to_the_pinned_projection_when_present():
+    remote = _RemoteAgent()
+    runtime = AgentEngineTeamRuntime(
+        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
+        client=_Client(remote),
+    )
+    asyncio.run(runtime.invoke(
+        specialist="nimi_analyst",
+        payload={
+            "title": "Demo",
+            "_durable_context_projection": {
+                "manifestDigest": "a" * 64,
+                "rendered": "# AUTHORITY — PINNED, NON-COMPACTABLE",
+            },
+        },
+        user_id="job-123",
+        session_key="op-1:projection-a",
+    ))
+    assert "_durable_context_projection" in remote.queries[0]["message"]
+    assert "pinned authority" in remote.queries[0]["message"]
+
+
 def test_runtime_preserves_native_google_search_grounding_metadata():
     class GroundedRemote(_RemoteAgent):
         async def async_stream_query(self, **kwargs):

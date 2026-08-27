@@ -16,6 +16,7 @@ _OPERATION_ID = re.compile(r"^[A-Za-z0-9:_-]{1,512}$")
 class OperationFence:
     operation_id: str
     epoch: int
+    goal_digest: str | None = None
 
 
 _current: ContextVar[OperationFence | None] = ContextVar(
@@ -38,12 +39,18 @@ def operation_headers() -> dict[str, str]:
 
 
 @contextmanager
-def operation_scope(operation_id: str, epoch: int) -> Iterator[OperationFence]:
+def operation_scope(
+    operation_id: str, epoch: int, *, goal_digest: str | None = None
+) -> Iterator[OperationFence]:
     if not _OPERATION_ID.fullmatch(operation_id):
         raise ValueError("invalid operation id")
     if not isinstance(epoch, int) or isinstance(epoch, bool) or epoch < 1:
         raise ValueError("invalid operation epoch")
-    fence = OperationFence(operation_id=operation_id, epoch=epoch)
+    if goal_digest is not None and not re.fullmatch(r"[a-f0-9]{64}", goal_digest):
+        raise ValueError("invalid operation goal digest")
+    fence = OperationFence(
+        operation_id=operation_id, epoch=epoch, goal_digest=goal_digest
+    )
     token = _current.set(fence)
     try:
         yield fence

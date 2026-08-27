@@ -189,7 +189,8 @@ async def _process_stage_event(
             }
 
         epoch = int(operation_claim["operation"]["epoch"])
-        with operation_scope(operation_id, epoch):
+        goal_digest = str((operation_claim["operation"].get("goal") or {}).get("digest") or "")
+        with operation_scope(operation_id, epoch, goal_digest=goal_digest or None):
             acknowledge = await dispatch(job_id, stage, attempt=attempt)
             if not acknowledge:
                 return False, {"ack": False, "retryable": True, "attempt": attempt}

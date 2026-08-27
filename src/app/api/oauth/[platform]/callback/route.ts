@@ -1,6 +1,6 @@
 import { Timestamp } from "@google-cloud/firestore";
 import { db, getConnection, saveConnection } from "@/lib/firestore";
-import { exchangeCode, fetchIdentity, getPlatform } from "@/lib/oauth";
+import { discoverPublishDestinations, exchangeCode, fetchIdentity, getPlatform } from "@/lib/oauth";
 import { currentTenant, runWithTenant } from "@/lib/tenancy";
 import { oauthCallbackPrincipal, requireOAuthCallback } from "@/lib/authority";
 
@@ -72,6 +72,12 @@ export async function GET(
     return backToSettings(platform, "error", e instanceof Error ? e.message : String(e));
   }
 
+  let destinations;
+  try {
+    destinations = await discoverPublishDestinations(def, tokens);
+  } catch (e) {
+    return backToSettings(platform, "error", e instanceof Error ? e.message : "destination discovery failed");
+  }
   const identity = await fetchIdentity(def, tokens.accessToken);
   await runWithTenant(
     {
@@ -82,6 +88,11 @@ export async function GET(
     async () => {
       requireOAuthCallback(currentTenant(), platform);
       const existing = await getConnection(platform);
+      const defaultDestinationId = existing?.defaultDestinationId && destinations.some(
+        (destination) => destination.id === existing.defaultDestinationId,
+      )
+        ? existing.defaultDestinationId
+        : destinations.length === 1 ? destinations[0].id : undefined;
       await saveConnection({
         ...existing,
         platform,
@@ -94,6 +105,10 @@ export async function GET(
         expiresAt: tokens.expiresInSeconds
           ? new Date(Date.now() + tokens.expiresInSeconds * 1000).toISOString()
           : existing?.expiresAt,
+        credentialRevision: (existing?.credentialRevision ?? 0) + 1,
+        health: "active",
+        destinations,
+        defaultDestinationId,
         connectedAt: new Date().toISOString(),
       });
     },

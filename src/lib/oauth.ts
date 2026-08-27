@@ -4,6 +4,10 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import { PLATFORMS, type PlatformDef } from "./platforms";
+import type { PublishDestination } from "./publishing/contracts";
+import { discoverInstagramDestinations } from "./publishing/instagramOAuth";
+import { discoverLinkedInDestinations } from "./publishing/linkedinOAuth";
+import { discoverYouTubeDestinations } from "./publishing/youtubeOAuth";
 
 export function getPlatform(id: string): PlatformDef | undefined {
   return PLATFORMS.find((p) => p.id === id);
@@ -27,6 +31,25 @@ export interface TokenSet {
 }
 
 type RequestFn = (input: string, init?: RequestInit) => Promise<Response>;
+
+function grantedScopes(def: PlatformDef, scopes?: string): string[] {
+  return (scopes ?? def.oauth.scopes.join(def.oauth.scopeSeparator))
+    .split(/[\s,]+/)
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+}
+
+export async function discoverPublishDestinations(
+  def: PlatformDef,
+  tokens: Pick<TokenSet, "accessToken" | "scopes">,
+  request: RequestFn = fetch,
+): Promise<PublishDestination[]> {
+  const scopes = grantedScopes(def, tokens.scopes);
+  if (def.id === "linkedin") return discoverLinkedInDestinations(tokens.accessToken, scopes, request);
+  if (def.id === "instagram") return discoverInstagramDestinations(tokens.accessToken, scopes, request);
+  if (def.id === "youtube") return discoverYouTubeDestinations(tokens.accessToken, scopes, request);
+  return [];
+}
 
 /** Revoke the provider grant before deleting the encrypted local credential. */
 export async function revokeAccess(

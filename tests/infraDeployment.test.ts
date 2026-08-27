@@ -51,6 +51,15 @@ exit 0
 }
 
 describe("Google Cloud deployment automation", () => {
+  it("fails the web image build when Firebase client configuration is missing", () => {
+    const dockerfile = readFileSync(join(repoRoot, "Dockerfile"), "utf8");
+
+    expect(dockerfile).toContain('RUN test -n "$NEXT_PUBLIC_FIREBASE_API_KEY"');
+    expect(dockerfile).toContain('test -n "$NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN"');
+    expect(dockerfile).toContain('test -n "$NEXT_PUBLIC_FIREBASE_PROJECT_ID"');
+    expect(dockerfile).toContain('test -n "$NEXT_PUBLIC_FIREBASE_APP_ID"');
+  });
+
   it("deploys a scale-to-zero web preview without paid agent resources", () => {
     const fake = fakeGcloudEnvironment();
 

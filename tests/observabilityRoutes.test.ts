@@ -7,7 +7,7 @@ vi.mock("@/lib/observability/repository", async () => {
 });
 
 import { POST } from "@/app/api/internal/observability/route";
-import { parseObservabilityQuery } from "@/app/api/observability/route";
+import { parseObservabilityQuery } from "@/lib/observability/query";
 
 const activity = {
   schemaVersion: 1,

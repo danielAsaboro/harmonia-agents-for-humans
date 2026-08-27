@@ -92,6 +92,19 @@ const entityRefsSchema = z.object({
   receiptIds: boundedList(id, 20).default([]),
 }).strict();
 
+export const surfaceArtDirectionSchema = z.object({
+  rhythm: z.enum(["editorial", "operational", "cinematic", "evidence"]).default("editorial"),
+  composition: z.enum(["stack", "split", "mosaic", "rail"]).default("stack"),
+  energy: z.enum(["quiet", "active", "resolved"]).default("quiet"),
+}).strict();
+
+export const nodeArtDirectionSchema = z.object({
+  tone: z.enum(["paper", "ink", "acid", "blue", "coral", "violet"]).default("paper"),
+  role: z.enum(["hero", "feature", "support", "strip", "inline"]).default("support"),
+  density: z.enum(["airy", "balanced", "compact"]).default("balanced"),
+  motion: z.enum(["none", "reveal", "pulse", "trace"]).default("none"),
+}).strict();
+
 const surfacePlanNodeSchema = z.object({
   id,
   component: z.enum(surfaceComponentNames),
@@ -105,6 +118,12 @@ const surfacePlanNodeSchema = z.object({
   })),
   title: z.string().max(160).optional(),
   emphasis: z.enum(["primary", "secondary", "compact"]).default("primary"),
+  artDirection: nodeArtDirectionSchema.default(() => ({
+    tone: "paper",
+    role: "support",
+    density: "balanced",
+    motion: "none",
+  })),
   children: boundedList(id, 30).default([]),
 }).strict();
 
@@ -112,6 +131,11 @@ const plannedSurfaceSchema = z.object({
   slot: z.enum(surfaceSlots),
   revision: z.number().int().positive(),
   rootId: id,
+  artDirection: surfaceArtDirectionSchema.default(() => ({
+    rhythm: "editorial",
+    composition: "stack",
+    energy: "quiet",
+  })),
   nodes: z.array(surfacePlanNodeSchema).min(1).max(40),
 }).strict().superRefine((surface, context) => {
   const ids = surface.nodes.map((node) => node.id);
@@ -168,3 +192,5 @@ export type UiContext = z.infer<typeof uiContextSchema>;
 export type SurfacePlan = z.infer<typeof surfacePlanSchema>;
 export type SurfaceSlot = (typeof surfaceSlots)[number];
 export type SurfaceComponentName = (typeof surfaceComponentNames)[number];
+export type SurfaceArtDirection = z.infer<typeof surfaceArtDirectionSchema>;
+export type NodeArtDirection = z.infer<typeof nodeArtDirectionSchema>;

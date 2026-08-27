@@ -73,6 +73,68 @@ def test_surface_plan_accepts_only_known_components_and_references() -> None:
     assert plan.surfaces[0].nodes[0].refs.draftIds == ["draft-1"]
 
 
+def test_surface_plan_accepts_bounded_art_direction() -> None:
+    plan = SurfacePlan.model_validate(
+        {
+            "version": "harmonia.ui/v1",
+            "surfaces": [
+                {
+                    "slot": "canvas",
+                    "revision": 1,
+                    "rootId": "brief",
+                    "artDirection": {
+                        "rhythm": "editorial",
+                        "composition": "mosaic",
+                        "energy": "active",
+                    },
+                    "nodes": [
+                        {
+                            "id": "brief",
+                            "component": "CampaignBrief",
+                            "refs": {"jobId": "job-1"},
+                            "artDirection": {
+                                "tone": "ink",
+                                "role": "hero",
+                                "density": "airy",
+                                "motion": "reveal",
+                            },
+                            "children": [],
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert plan.surfaces[0].artDirection.composition == "mosaic"
+    assert plan.surfaces[0].nodes[0].artDirection.tone == "ink"
+
+
+def test_surface_plan_rejects_arbitrary_style() -> None:
+    with pytest.raises(ValidationError):
+        SurfacePlan.model_validate(
+            {
+                "version": "harmonia.ui/v1",
+                "surfaces": [
+                    {
+                        "slot": "canvas",
+                        "revision": 1,
+                        "rootId": "brief",
+                        "nodes": [
+                            {
+                                "id": "brief",
+                                "component": "CampaignBrief",
+                                "refs": {},
+                                "style": "color:red",
+                                "children": [],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+
 def test_surface_plan_rejects_authoritative_inline_content() -> None:
     with pytest.raises(ValidationError):
         SurfacePlan.model_validate(

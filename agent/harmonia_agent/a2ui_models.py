@@ -105,12 +105,26 @@ class EntityRefs(StrictModel):
     receiptIds: list[str] = Field(default_factory=list, max_length=20)
 
 
+class SurfaceArtDirection(StrictModel):
+    rhythm: Literal["editorial", "operational", "cinematic", "evidence"] = "editorial"
+    composition: Literal["stack", "split", "mosaic", "rail"] = "stack"
+    energy: Literal["quiet", "active", "resolved"] = "quiet"
+
+
+class NodeArtDirection(StrictModel):
+    tone: Literal["paper", "ink", "acid", "blue", "coral", "violet"] = "paper"
+    role: Literal["hero", "feature", "support", "strip", "inline"] = "support"
+    density: Literal["airy", "balanced", "compact"] = "balanced"
+    motion: Literal["none", "reveal", "pulse", "trace"] = "none"
+
+
 class SurfacePlanNode(StrictModel):
     id: str = Field(min_length=1, max_length=200)
     component: ComponentName
     refs: EntityRefs = Field(default_factory=EntityRefs)
     title: str | None = Field(default=None, max_length=160)
     emphasis: Literal["primary", "secondary", "compact"] = "primary"
+    artDirection: NodeArtDirection = Field(default_factory=NodeArtDirection)
     children: list[str] = Field(default_factory=list, max_length=30)
 
 
@@ -118,6 +132,7 @@ class PlannedSurface(StrictModel):
     slot: SurfaceSlot
     revision: int = Field(ge=1)
     rootId: str = Field(min_length=1, max_length=200)
+    artDirection: SurfaceArtDirection = Field(default_factory=SurfaceArtDirection)
     nodes: list[SurfacePlanNode] = Field(min_length=1, max_length=40)
 
     @model_validator(mode="after")

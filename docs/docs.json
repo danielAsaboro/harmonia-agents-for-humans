@@ -1,13 +1,91 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "palm",
+  "theme": "maple",
   "name": "Harmonia",
+  "description": "Product, operator, and engineering documentation for Harmonia, the governed social media agent for startups.",
   "colors": {
-    "primary": "#7c3aed",
-    "light": "#a78bfa",
-    "dark": "#8b5cf6"
+    "primary": "#5F8F22",
+    "light": "#B9FF66",
+    "dark": "#17221D"
   },
-  "favicon": "/favicon.svg",
+  "logo": {
+    "light": "/brand/harmonia-mark.png",
+    "dark": "/brand/harmonia-mark.png",
+    "href": "https://useharmonia.xyz"
+  },
+  "favicon": "/brand/harmonia-mark.png",
+  "appearance": {
+    "default": "system"
+  },
+  "fonts": {
+    "family": "Inter"
+  },
+  "background": {
+    "decoration": "gradient",
+    "color": {
+      "light": "#F4F3E9",
+      "dark": "#0D1511"
+    }
+  },
+  "styling": {
+    "eyebrows": "breadcrumbs",
+    "codeblocks": "system"
+  },
+  "search": {
+    "prompt": "Search Harmonia docs..."
+  },
+  "metadata": {
+    "timestamp": true
+  },
+  "seo": {
+    "indexing": "navigable",
+    "metatags": {
+      "og:site_name": "Harmonia Docs",
+      "og:image": "https://docs.useharmonia.xyz/brand/harmonia-banner.png",
+      "twitter:card": "summary_large_image",
+      "twitter:image": "https://docs.useharmonia.xyz/brand/harmonia-banner.png"
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/danielAsaboro/harmonia"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Open Harmonia",
+      "href": "https://useharmonia.xyz"
+    }
+  },
+  "footer": {
+    "socials": {
+      "website": "https://useharmonia.xyz",
+      "github": "https://github.com/danielAsaboro/harmonia"
+    },
+    "links": [
+      {
+        "header": "Start",
+        "items": [
+          { "label": "Product overview", "href": "/product/overview" },
+          { "label": "Quickstart", "href": "/quickstart" },
+          { "label": "Architecture", "href": "/architecture" }
+        ]
+      },
+      {
+        "header": "Operate",
+        "items": [
+          { "label": "Approval and audit", "href": "/approval-and-audit" },
+          { "label": "Failure recovery", "href": "/failure-recovery" },
+          { "label": "Observability", "href": "/observability" }
+        ]
+      }
+    ]
+  },
+  "contextual": {
+    "options": ["copy", "view", "chatgpt", "claude"]
+  },
   "navigation": {
     "tabs": [
       {

@@ -21,5 +21,17 @@ describe("agent monitoring surface", () => {
     expect(route).toContain('params.get("role")');
     expect(route).toContain('params.get("kind")');
     expect(route).toContain('params.get("status")');
+    expect(route).toContain("getDurableRuntimeSnapshot");
+  });
+
+  it("surfaces durable runtime health and all four explicit ambiguity decisions", () => {
+    for (const label of [
+      "Stale leases", "Unknown effects", "Inbox lag", "Outbox lag",
+      "Projection compiler", "Artifact integrity", "Recovery work",
+      "Confirm applied", "Confirm not applied", "Compensate", "Cancel",
+    ]) expect(view).toContain(label);
+    expect(view).toContain("expectedEpoch");
+    expect(view).toContain("artifactId");
+    expect(view).toContain("digest");
   });
 });

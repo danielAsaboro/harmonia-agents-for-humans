@@ -1,5 +1,6 @@
 import { listEventLog, type EventLogEntry } from "@/lib/firestore";
 import { tenantHandler } from "@/lib/auth";
+import { getDurableRuntimeSnapshot } from "@/lib/observability/repository";
 
 /**
  * Searchable, filterable log stream.
@@ -18,7 +19,8 @@ async function get(req: Request) {
   const until = params.get("until");
   const limit = Math.min(Math.max(Number(params.get("limit") ?? "100"), 1), 300);
 
-  let entries: EventLogEntry[] = await listEventLog(500);
+  const [eventEntries, runtime] = await Promise.all([listEventLog(500), getDurableRuntimeSnapshot()]);
+  let entries: EventLogEntry[] = eventEntries;
 
   if (q) entries = entries.filter((e) => e.message.toLowerCase().includes(q) || e.jobId.toLowerCase().includes(q));
   if (stages.length) entries = entries.filter((e) => stages.includes(e.stage));
@@ -31,7 +33,7 @@ async function get(req: Request) {
   if (until) entries = entries.filter((e) => e.at && Date.parse(e.at) <= Date.parse(until));
 
   const total = entries.length;
-  return Response.json({ events: entries.slice(0, limit), total });
+  return Response.json({ events: entries.slice(0, limit), total, runtime });
 }
 
 export const GET = tenantHandler(get);

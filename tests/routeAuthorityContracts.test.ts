@@ -13,6 +13,7 @@ const operatorMutationRoutes = [
   "src/app/api/content-items/[id]/approve/route.ts",
   "src/app/api/content-items/route.ts",
   "src/app/api/jobs/[id]/actions/[actionId]/decision/route.ts",
+  "src/app/api/jobs/[id]/operations/[operationId]/resolve/route.ts",
   "src/app/api/jobs/route.ts",
   "src/app/api/notifications/route.ts",
   "src/app/api/proposals/decide/route.ts",

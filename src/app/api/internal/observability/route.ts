@@ -1,6 +1,6 @@
 import { agentActivitySchema } from "@/lib/observability/schema";
-import { writeAgentActivity } from "@/lib/observability/repository";
-import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
+import { getDurableRuntimeSnapshot, writeAgentActivity } from "@/lib/observability/repository";
+import { internalTenantHandler, isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { internalRoute } from "@/lib/internalHandler";
 
 export async function POST(req: Request) {
@@ -10,3 +10,5 @@ export async function POST(req: Request) {
     return Response.json(result, { status: 201 });
   });
 }
+
+export const GET = internalTenantHandler(async () => Response.json({ runtime: await getDurableRuntimeSnapshot() }));

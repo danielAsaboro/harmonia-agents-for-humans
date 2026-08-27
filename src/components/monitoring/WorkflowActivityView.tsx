@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { AgentActivity } from "@/lib/contracts";
+import type { DurableRuntimeSnapshot } from "@/lib/observability/schema";
 
 interface ActivityEvent {
   id: string;
@@ -26,6 +27,9 @@ export default function WorkflowActivityView() {
   const [role, setRole] = useState("");
   const [status, setStatus] = useState("");
   const [selected, setSelected] = useState<ActivityEvent | null>(null);
+  const [runtime, setRuntime] = useState<DurableRuntimeSnapshot | null>(null);
+  const [resolution, setResolution] = useState({ reason: "", artifactId: "", digest: "" });
+  const [resolutionStatus, setResolutionStatus] = useState("");
 
   const load = useCallback(async () => {
     const params = new URLSearchParams({ limit: "200" });
@@ -36,12 +40,37 @@ export default function WorkflowActivityView() {
       if (!response.ok) throw new Error("activity request failed");
       const body = await response.json();
       setEvents((body.events as ActivityEvent[]).filter((event) => event.activity));
+      setRuntime(body.runtime as DurableRuntimeSnapshot);
       setError("");
     } catch {
       setError("Agent activity could not be loaded. Retry when the service is available.");
       setEvents([]);
     }
   }, [role, status]);
+
+  const resolveEffect = async (
+    effect: DurableRuntimeSnapshot["unknownEffects"][number],
+    choice: "confirm_applied" | "confirm_not_applied" | "compensate" | "cancel",
+  ) => {
+    setResolutionStatus("Submitting resolution…");
+    try {
+      const response = await fetch(`/api/jobs/${encodeURIComponent(effect.jobId)}/operations/${encodeURIComponent(effect.operationId)}/resolve`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          choice, reason: resolution.reason, expectedEpoch: effect.epoch,
+          evidence: [{ artifactId: resolution.artifactId, digest: resolution.digest }],
+        }),
+      });
+      if (!response.ok) throw new Error("resolution rejected");
+      setResolutionStatus("Resolution recorded.");
+      await load();
+    } catch {
+      setResolutionStatus("Resolution could not be recorded. Check the epoch and audit evidence.");
+    }
+  };
+  const resolutionReady = resolution.reason.trim().length >= 10
+    && /^[0-9a-f-]{36}$/i.test(resolution.artifactId)
+    && /^[a-f0-9]{64}$/.test(resolution.digest);
 
   useEffect(() => {
     // Fetching is the external synchronization performed by this effect.
@@ -52,6 +81,38 @@ export default function WorkflowActivityView() {
   return (
     <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]" aria-label="Agent activity">
       <div className="space-y-3">
+        {runtime && <div className="space-y-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800" aria-label="Durable runtime health">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <RuntimeMetric label="Stale leases" value={String(runtime.staleLeases.operations + runtime.staleLeases.inbox + runtime.staleLeases.outbox)} />
+            <RuntimeMetric label="Unknown effects" value={String(runtime.unknownEffects.length)} />
+            <RuntimeMetric label="Inbox lag" value={`${runtime.inboxLagSeconds}s`} />
+            <RuntimeMetric label="Outbox lag" value={`${runtime.outboxLagSeconds}s`} />
+            <RuntimeMetric label="Projection compiler" value={runtime.projection.compilerVersion ?? "none"} />
+            <RuntimeMetric label="Artifact integrity" value={`${runtime.artifacts.ready} ready · ${runtime.artifacts.failed} failed · ${runtime.artifacts.writing} writing`} />
+            <RuntimeMetric label="Recovery work" value={`${runtime.recovery.pending} pending`} />
+            <RuntimeMetric label="Observed effects" value={String(runtime.observedEffects)} />
+          </div>
+          {runtime.unknownEffects.length > 0 && <div className="space-y-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+            <h2 className="text-sm font-semibold">Resolve unknown effects</h2>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <label className="text-xs text-zinc-500">Reason<input aria-label="Resolution reason" value={resolution.reason} onChange={(event) => setResolution((current) => ({ ...current, reason: event.target.value }))} className="mt-1 w-full rounded border border-zinc-300 bg-transparent px-2 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-100" /></label>
+              <label className="text-xs text-zinc-500">Evidence artifact ID<input aria-label="Evidence artifact ID" value={resolution.artifactId} onChange={(event) => setResolution((current) => ({ ...current, artifactId: event.target.value }))} className="mt-1 w-full rounded border border-zinc-300 bg-transparent px-2 py-1.5 font-mono text-zinc-900 dark:border-zinc-700 dark:text-zinc-100" /></label>
+              <label className="text-xs text-zinc-500">Evidence digest<input aria-label="Evidence digest" value={resolution.digest} onChange={(event) => setResolution((current) => ({ ...current, digest: event.target.value }))} className="mt-1 w-full rounded border border-zinc-300 bg-transparent px-2 py-1.5 font-mono text-zinc-900 dark:border-zinc-700 dark:text-zinc-100" /></label>
+            </div>
+            {runtime.unknownEffects.map((effect) => <article key={effect.operationId} className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-900 dark:bg-amber-950/30">
+              <p className="font-semibold">{effect.commandId}</p>
+              <p className="mt-1 break-all font-mono text-[10px] text-zinc-500">{effect.operationId}@{effect.epoch}</p>
+              <p className="mt-1 text-zinc-600 dark:text-zinc-300">{effect.reason}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {([
+                  ["confirm_applied", "Confirm applied"], ["confirm_not_applied", "Confirm not applied"],
+                  ["compensate", "Compensate"], ["cancel", "Cancel"],
+                ] as const).map(([choice, label]) => <button key={choice} disabled={!resolutionReady} onClick={() => void resolveEffect(effect, choice)} className="rounded-full border border-zinc-300 px-2.5 py-1 font-medium disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700">{label}</button>)}
+              </div>
+            </article>)}
+            {resolutionStatus && <p role="status" className="text-xs text-zinc-500">{resolutionStatus}</p>}
+          </div>}
+        </div>}
         <div className="flex flex-wrap gap-2">
           <select aria-label="Filter by agent" value={role} onChange={(event) => setRole(event.target.value)} className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950">
             <option value="">all agents</option>
@@ -96,4 +157,8 @@ export default function WorkflowActivityView() {
       </aside>
     </section>
   );
+}
+
+function RuntimeMetric({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-lg bg-zinc-50 p-2 dark:bg-zinc-900"><p className="text-[10px] uppercase tracking-wide text-zinc-400">{label}</p><p className="mt-1 truncate text-xs font-semibold" title={value}>{value}</p></div>;
 }

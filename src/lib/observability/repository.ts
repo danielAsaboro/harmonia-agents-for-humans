@@ -8,6 +8,8 @@ import {
   type AgentActivityData,
   type ObservabilityPage,
   type ObservabilityQuery,
+  durableRuntimeSnapshotSchema,
+  type DurableRuntimeSnapshot,
 } from "./schema";
 
 const COLLECTION = "agent_activity";
@@ -139,4 +141,60 @@ export async function listAgentActivity(filters: ObservabilityQuery): Promise<Ob
     hasMore,
     facets: facets(items),
   };
+}
+
+export function oldestLagSeconds(timestamps: string[], now = new Date().toISOString()): number {
+  if (!timestamps.length) return 0;
+  const nowMs = Date.parse(now);
+  if (!Number.isFinite(nowMs)) throw new Error("invalid runtime snapshot timestamp");
+  const valid = timestamps.map(Date.parse).filter(Number.isFinite);
+  if (!valid.length) return 0;
+  return Math.max(0, Math.min(30 * 24 * 60 * 60, Math.floor((nowMs - Math.min(...valid)) / 1000)));
+}
+
+export async function getDurableRuntimeSnapshot(now = new Date().toISOString()): Promise<DurableRuntimeSnapshot> {
+  const tenant = currentTenant();
+  const tenantCollection = (name: string) => db().collection(tenantCollectionPath(tenant, name));
+  const [operations, inbox, outbox, unknown, observed, projections, artifacts, recovery] = await Promise.all([
+    tenantCollection("operations").where("state", "==", "claimed").limit(100).get(),
+    tenantCollection("event_inbox").where("state", "==", "processing").limit(100).get(),
+    tenantCollection("stage_outbox").where("state", "==", "claimed").limit(100).get(),
+    tenantCollection("effect_commands").where("state", "==", "unknown").limit(100).get(),
+    tenantCollection("effect_commands").where("state", "==", "observed").limit(100).get(),
+    tenantCollection("context_projections").orderBy("createdAt", "desc").limit(100).get(),
+    tenantCollection("artifacts").limit(100).get(),
+    tenantCollection("recovery_work").orderBy("createdAt", "desc").limit(100).get(),
+  ]);
+  const nowMs = Date.parse(now);
+  const staleOperations = operations.docs.filter((doc) => Date.parse(String(doc.get("leaseExpiresAt") ?? "")) <= nowMs);
+  const staleInbox = inbox.docs.filter((doc) => Date.parse(String(doc.get("claimUntil") ?? "")) <= nowMs);
+  const staleOutbox = outbox.docs.filter((doc) => Date.parse(String(doc.get("claimUntil") ?? "")) <= nowMs);
+  const latestProjection = projections.docs[0];
+  const artifactStates = artifacts.docs.map((doc) => String(doc.get("state")));
+  return durableRuntimeSnapshotSchema.parse({
+    generatedAt: now,
+    staleLeases: { operations: staleOperations.length, inbox: staleInbox.length, outbox: staleOutbox.length },
+    inboxLagSeconds: oldestLagSeconds(inbox.docs.map((doc) => String(doc.get("receivedAt") ?? doc.get("updatedAt") ?? now)), now),
+    outboxLagSeconds: oldestLagSeconds(outbox.docs.map((doc) => String(doc.get("createdAt") ?? now)), now),
+    unknownEffects: unknown.docs.map((doc) => ({
+      jobId: String(doc.get("jobId")), operationId: String(doc.get("operationId")), commandId: doc.id,
+      epoch: Number(doc.get("operationEpoch")), reason: String(doc.get("unknownReason") ?? "provider outcome unknown"),
+      ...(doc.get("dispatchedAt") ? { dispatchedAt: String(doc.get("dispatchedAt")) } : {}),
+    })),
+    observedEffects: observed.size,
+    projection: {
+      count: projections.size,
+      compilerVersion: latestProjection ? String(latestProjection.get("compilerVersion")) : null,
+      manifestDigest: latestProjection ? String(latestProjection.get("manifestDigest")) : null,
+    },
+    artifacts: {
+      ready: artifactStates.filter((state) => state === "ready").length,
+      writing: artifactStates.filter((state) => state === "writing").length,
+      failed: artifactStates.filter((state) => state === "failed").length,
+    },
+    recovery: {
+      pending: recovery.docs.filter((doc) => doc.get("state") === "pending").length,
+      recentActions: recovery.docs.map((doc) => String(doc.get("action"))).filter(Boolean),
+    },
+  });
 }

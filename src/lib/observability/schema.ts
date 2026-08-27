@@ -77,3 +77,20 @@ export interface ObservabilityPage {
     tools: string[];
   };
 }
+
+export const durableRuntimeSnapshotSchema = z.object({
+  generatedAt: z.iso.datetime({ offset: true }),
+  staleLeases: z.object({ operations: z.number().int().nonnegative(), inbox: z.number().int().nonnegative(), outbox: z.number().int().nonnegative() }).strict(),
+  inboxLagSeconds: z.number().int().nonnegative(),
+  outboxLagSeconds: z.number().int().nonnegative(),
+  unknownEffects: z.array(z.object({
+    jobId: tenantId, operationId: z.string().min(1).max(512), commandId: z.string().min(1).max(256),
+    epoch: z.number().int().positive(), reason: z.string().max(2000), dispatchedAt: z.iso.datetime({ offset: true }).optional(),
+  }).strict()).max(100),
+  observedEffects: z.number().int().nonnegative(),
+  projection: z.object({ count: z.number().int().nonnegative(), compilerVersion: z.string().max(100).nullable(), manifestDigest: z.string().regex(/^[a-f0-9]{64}$/).nullable() }).strict(),
+  artifacts: z.object({ ready: z.number().int().nonnegative(), writing: z.number().int().nonnegative(), failed: z.number().int().nonnegative() }).strict(),
+  recovery: z.object({ pending: z.number().int().nonnegative(), recentActions: z.array(z.string().min(1).max(100)).max(100) }).strict(),
+}).strict();
+
+export type DurableRuntimeSnapshot = z.infer<typeof durableRuntimeSnapshotSchema>;

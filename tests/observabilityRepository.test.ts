@@ -3,6 +3,7 @@ import {
   decodeActivityCursor,
   encodeActivityCursor,
   matchesActivityFilters,
+  oldestLagSeconds,
 } from "@/lib/observability/repository";
 import type { AgentActivity } from "@/lib/observability/schema";
 
@@ -55,5 +56,12 @@ describe("agent activity repository helpers", () => {
     expect(matchesActivityFilters(item, {
       types: ["log"], limit: 25,
     })).toBe(false);
+  });
+
+  it("reports bounded inbox and outbox lag without content inspection", () => {
+    expect(oldestLagSeconds([
+      "2026-08-28T09:59:40.000Z", "2026-08-28T09:59:50.000Z",
+    ], "2026-08-28T10:00:00.000Z")).toBe(20);
+    expect(oldestLagSeconds([], "2026-08-28T10:00:00.000Z")).toBe(0);
   });
 });

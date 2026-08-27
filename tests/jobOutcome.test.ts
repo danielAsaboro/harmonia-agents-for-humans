@@ -7,6 +7,6 @@ describe("job business outcome", () => {
   });
 
   it("never calls an uncertain effect successful", () => {
-    expect(decideTerminalOutcome([{ state: "applied" }, { state: "uncertain" }])).toBe("unresolved");
+    expect(decideTerminalOutcome([{ state: "applied" }, { state: "unknown" }])).toBe("unresolved");
   });
 });

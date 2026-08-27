@@ -6,7 +6,8 @@ export type EffectCommandAuthorization =
   | { kind: "approval"; approvalId: string; approvedPayloadDigest: string }
   | { kind: "mandate"; mandateId: string; mandateDigest: string; authorizedPayloadDigest: string };
 
-export type EffectCommandState = "pending" | "claimed" | "applied" | "failed" | "uncertain" | "cancelled";
+export type EffectCommandState = "prepared" | "dispatched" | "observed" | "applied" | "failed" | "unknown" | "cancelled";
+export type EffectObservedOutcome = "applied" | "already_applied" | "rejected" | "failed";
 
 export interface EffectCommand {
   id: string;
@@ -25,6 +26,15 @@ export interface EffectCommand {
   createdAt: string;
   updatedAt: string;
   invalidatedReason?: string;
+  operationId?: string;
+  operationEpoch?: number;
+  dispatchAttempt?: number;
+  dispatchedAt?: string;
+  observedAt?: string;
+  observedOutcome?: EffectObservedOutcome;
+  observationDigest?: string;
+  observation?: { outcome: EffectObservedOutcome; artifact?: unknown; detail: Record<string, unknown> };
+  unknownReason?: string;
 }
 
 export interface EffectCommandInput {
@@ -100,19 +110,94 @@ export function createEffectCommand(input: EffectCommandInput): EffectCommand {
     payloadDigest,
     authorization: structuredClone(input.authorization),
     ...(input.executeAfter ? { executeAfter: input.executeAfter } : {}),
-    state: "pending",
+    state: "prepared",
     createdAt: now,
     updatedAt: now,
   };
 }
 
 export function invalidateEffectCommand(command: EffectCommand, reason: string, now = new Date().toISOString()): EffectCommand {
-  if (command.state !== "pending") throw new Error(`cannot invalidate ${command.state} effect command`);
+  if (command.state !== "prepared") throw new Error(`cannot invalidate ${command.state} effect command`);
   return { ...command, state: "cancelled", invalidatedReason: reason, updatedAt: now };
 }
 
+interface EffectFence { operationId: string; operationEpoch: number }
+
+function assertEffectFence(command: EffectCommand, fence: EffectFence): void {
+  if (command.operationId !== fence.operationId || command.operationEpoch !== fence.operationEpoch) {
+    throw new Error("effect command operation fence mismatch");
+  }
+}
+
+export function markEffectDispatched(
+  command: EffectCommand,
+  input: EffectFence & { attempt: number; now: string },
+): EffectCommand {
+  if (command.state === "dispatched") {
+    assertEffectFence(command, input);
+    return command;
+  }
+  if (command.state !== "prepared") throw new Error(`cannot dispatch ${command.state} effect command`);
+  if (!Number.isInteger(input.operationEpoch) || input.operationEpoch < 1 || !Number.isInteger(input.attempt) || input.attempt < 1) {
+    throw new Error("invalid effect dispatch fence");
+  }
+  return {
+    ...command, state: "dispatched", operationId: input.operationId,
+    operationEpoch: input.operationEpoch, dispatchAttempt: input.attempt,
+    dispatchedAt: input.now, updatedAt: input.now,
+  };
+}
+
+export function markEffectObserved(
+  command: EffectCommand,
+  input: EffectFence & { outcome: EffectObservedOutcome; artifact?: unknown; detail: Record<string, unknown>; now: string },
+): EffectCommand {
+  if (command.state !== "dispatched") throw new Error(`cannot observe ${command.state} effect command`);
+  assertEffectFence(command, input);
+  const observation = {
+    outcome: input.outcome,
+    ...(input.artifact === undefined ? {} : { artifact: structuredClone(input.artifact) }),
+    detail: structuredClone(input.detail),
+  };
+  return {
+    ...command, state: "observed", observedAt: input.now,
+    observedOutcome: input.outcome,
+    observationDigest: createHash("sha256").update(canonicalJson(observation)).digest("hex"),
+    observation, updatedAt: input.now,
+  };
+}
+
+export function markEffectUnknown(
+  command: EffectCommand,
+  input: EffectFence & { reason: string; now: string },
+): EffectCommand {
+  if (command.state !== "dispatched") throw new Error(`cannot mark ${command.state} effect command unknown`);
+  assertEffectFence(command, input);
+  if (!input.reason.trim()) throw new Error("unknown effect requires a reason");
+  return { ...command, state: "unknown", unknownReason: input.reason, updatedAt: input.now };
+}
+
+export function restoreEffectPrepared(
+  command: EffectCommand,
+  input: EffectFence & { proof: "provider_not_started"; now: string },
+): EffectCommand {
+  if (input.proof !== "provider_not_started") throw new Error("effect retry requires provider_not_started proof");
+  if (command.state !== "dispatched") throw new Error(`cannot restore ${command.state} effect command`);
+  assertEffectFence(command, input);
+  const next = { ...command, state: "prepared" as const, updatedAt: input.now };
+  delete next.operationId;
+  delete next.operationEpoch;
+  delete next.dispatchedAt;
+  delete next.observedAt;
+  delete next.observedOutcome;
+  delete next.observationDigest;
+  delete next.observation;
+  delete next.unknownReason;
+  return next;
+}
+
 export function decideTerminalOutcome(commands: Array<Pick<EffectCommand, "state">>): "succeeded" | "partial" | "failed" | "unresolved" {
-  if (commands.length === 0 || commands.some((command) => command.state === "uncertain" || command.state === "pending" || command.state === "claimed")) {
+  if (commands.length === 0 || commands.some((command) => ["prepared", "dispatched", "observed", "unknown"].includes(command.state))) {
     return "unresolved";
   }
   const applied = commands.some((command) => command.state === "applied");

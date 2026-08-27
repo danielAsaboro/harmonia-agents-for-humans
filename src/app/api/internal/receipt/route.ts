@@ -5,11 +5,12 @@ import {
   getJob,
   transitionStageWithOutbox,
 } from "@/lib/firestore";
-import { internalRoute } from "@/lib/internalHandler";
+import { internalRoute, readOperationFenceHeaders } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";
 import { newId } from "@/lib/idempotency";
 import { finalizeCommandReceipt } from "@/lib/effectCommandStore";
+import { currentTenant } from "@/lib/tenancy";
 
 export async function POST(req: Request) {
   if (!isInternalAuthorized(req)) return unauthorized();
@@ -35,8 +36,21 @@ export async function POST(req: Request) {
       operationId: body.operationId,
       traceId: body.traceId,
     };
+    let commandFence;
+    if (body.commandId) {
+      try {
+        const header = readOperationFenceHeaders(req);
+        if (header.operationId !== body.operationId) {
+          return Response.json({ error: "receipt operation fence mismatch" }, { status: 409 });
+        }
+        const tenant = currentTenant();
+        commandFence = { ...header, workspaceId: tenant.workspaceId, brandId: tenant.brandId, now: receipt.performedAt };
+      } catch (error) {
+        return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+      }
+    }
     const finalized = body.commandId
-      ? await finalizeCommandReceipt(body.commandId, receipt, body.claimToken)
+      ? await finalizeCommandReceipt(body.commandId, receipt, body.claimToken, commandFence!)
       : await finalizeEffectReceipt(receipt, body.claimToken);
     if (finalized.duplicate) {
       return Response.json({ ok: true, duplicateSuppressed: true, receiptId: finalized.receipt.id });

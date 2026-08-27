@@ -64,6 +64,7 @@ from .team_runtime import AgentEngineProtocolError, AgentEngineProviderError
 from .telemetry import current_trace_id, inject_context, safe_attributes, tracer
 from .usage import InvocationContext, media_usage_record
 from .effect_executor import execute_effect_command, production_adapters
+from .operation_context import operation_scope
 from .web_client import (
     EffectClaimInProgress,
     EffectClaimUncertain,
@@ -84,6 +85,7 @@ from .web_client import (
     reserve_budget,
     resolve_budget_reservation,
     save_media_operation,
+    transition_effect_command,
 )
 
 logger = logging.getLogger("harmonia.stages")
@@ -646,7 +648,7 @@ async def run_publish(job_id: str) -> None:
     job = get_job(job_id)
     commands = [
         command for command in get_effect_commands(job_id)
-        if command.get("state") in ("pending", "claimed")
+        if command.get("state") == "prepared"
     ]
     done_keys = {
         r["idempotencyKey"] for r in _receipts_for_job(job_id)
@@ -672,7 +674,7 @@ async def run_publish(job_id: str) -> None:
                 raise EffectClaimUncertain("a prior effect attempt has no final receipt")
             continue
         trace_id = current_trace_id()
-        operation_id = f"{job_id}:publish:{action['id']}:{trace_id}"
+        operation_id = f"job:{job_id}:effect:{command['id']}"
         claim_token = uuid.uuid4().hex
         claim_result = claim_effect({
             "commandId": command["id"],
@@ -686,6 +688,27 @@ async def run_publish(job_id: str) -> None:
             raise EffectClaimInProgress("another worker currently owns this effect")
         if claim_result["outcome"] == "uncertain":
             raise EffectClaimUncertain("a prior effect attempt has no final receipt")
+        operation_epoch = int(claim_result.get("operationEpoch") or 0)
+        if operation_epoch < 1:
+            raise RuntimeError("effect claim is missing its operation epoch")
+        effect_identity = {
+            "commandId": command["id"], "jobId": job_id,
+            "actionId": action["id"], "actionType": action["type"],
+            "idempotencyKey": key, "operationId": operation_id,
+            "operationEpoch": operation_epoch,
+            "traceId": trace_id, "claimToken": claim_token,
+        }
+        effect_receipt_identity = {
+            key_name: value for key_name, value in effect_identity.items()
+            if key_name != "operationEpoch"
+        }
+        with operation_scope(
+            operation_id, operation_epoch,
+            goal_digest=claim_result.get("goalDigest"),
+        ):
+            transition_effect_command("dispatched", {
+                **effect_identity, "attempt": int(claim_result.get("attempt") or 1),
+            })
         detail: dict[str, Any] = {"idempotencyKey": key}
         outcome, artifact = "failed", None
         budget_operation_id: str | None = None
@@ -789,14 +812,15 @@ async def run_publish(job_id: str) -> None:
                             "providerOperation": recorded["operationName"],
                             "note": "persisted provider operation and asset already exist",
                         })
-                        web_post("/api/internal/receipt", {
-                            "commandId": command["id"],
-                            "jobId": job_id, "actionId": action["id"],
-                            "actionType": action["type"], "idempotencyKey": key,
-                            "operationId": operation_id,
-                            "traceId": trace_id, "claimToken": claim_token,
-                            "outcome": outcome, "artifact": artifact, "detail": detail,
-                        })
+                        with operation_scope(operation_id, operation_epoch):
+                            transition_effect_command("observed", {
+                                **effect_identity, "outcome": outcome,
+                                "artifact": artifact, "detail": detail,
+                            })
+                            web_post("/api/internal/receipt", {
+                                **effect_receipt_identity, "outcome": outcome,
+                                "artifact": artifact, "detail": detail,
+                            })
                         continue
                     transport = GoogleMediaTransport(
                         project=cfg.gcp_project, location=cfg.vertex_media_location,
@@ -909,7 +933,7 @@ async def run_publish(job_id: str) -> None:
                     })
         except (x_client.XError, content.ImageGenError, ClipRenderError) as exc:
             outcome, detail["error"] = "failed", str(exc)
-        except Exception:
+        except Exception as exc:
             if budget_operation_id is not None:
                 try:
                     resolve_budget_reservation({
@@ -925,16 +949,22 @@ async def run_publish(job_id: str) -> None:
                     logger.exception(
                         "budget resolution failed for operation %s", budget_operation_id,
                     )
+            with operation_scope(operation_id, operation_epoch):
+                transition_effect_command("unknown", {
+                    **effect_identity,
+                    "reason": f"{type(exc).__name__}: {exc}",
+                })
             raise
 
-        web_post("/api/internal/receipt", {
-            "commandId": command["id"],
-            "jobId": job_id, "actionId": action["id"], "actionType": action["type"],
-            "idempotencyKey": key,
-            "operationId": operation_id,
-            "traceId": trace_id, "claimToken": claim_token, "outcome": outcome,
-            "artifact": artifact, "detail": detail,
-        })
+        with operation_scope(operation_id, operation_epoch):
+            transition_effect_command("observed", {
+                **effect_identity, "outcome": outcome,
+                "artifact": artifact, "detail": detail,
+            })
+            web_post("/api/internal/receipt", {
+                **effect_receipt_identity, "outcome": outcome,
+                "artifact": artifact, "detail": detail,
+            })
 
     refreshed = get_job(job_id)
     if refreshed["stage"] == "publish":

@@ -291,6 +291,17 @@ def claim_effect(payload: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def transition_effect_command(phase: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if phase not in {"dispatched", "provider_not_started", "observed", "unknown"}:
+        raise ValueError(f"invalid effect transition: {phase}")
+    command_id = str(payload.get("commandId") or "")
+    if not command_id:
+        raise ValueError("effect transition requires commandId")
+    return post(f"/api/internal/effect-command/{command_id}/dispatch", {
+        **payload, "phase": phase,
+    })
+
+
 def claim_stage_execution(payload: dict[str, Any]) -> dict[str, Any]:
     result = post("/api/internal/stage-execution/claim", payload)
     if result.get("outcome") not in {

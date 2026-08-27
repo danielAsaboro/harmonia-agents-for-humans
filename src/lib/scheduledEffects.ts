@@ -95,7 +95,7 @@ export async function applyScheduledContentMutation(
       next = { ...next, effectCommandId: undefined };
     }
     if (existingCommand && planned.command?.state === "cancelled" && commandRef) tx.set(commandRef, planned.command);
-    if (nextCommand?.state === "pending" && nextCommand.id !== existingCommand?.id) {
+    if (nextCommand?.state === "prepared" && nextCommand.id !== existingCommand?.id) {
       tx.create(db().collection(tenantCollectionPath(context, "effect_commands")).doc(nextCommand.id), nextCommand);
     }
     const stored = Object.fromEntries(Object.entries(next).map(([key, value]) => [

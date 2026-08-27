@@ -38,6 +38,7 @@ export function decideEffectClaim(
   if (existing.state === "failed") {
     return { outcome: "execute", claim: nextClaim(input, existing.attempt + 1, now) };
   }
+  if (existing.state === "unknown") return { outcome: "uncertain", claim: existing };
   if (Date.parse(existing.leaseExpiresAt) <= now.getTime()) {
     return { outcome: "uncertain", claim: existing };
   }
@@ -64,8 +65,41 @@ export function effectClaimResponse(result: EffectClaimOutcome, input: EffectCla
     idempotencyKey: input.idempotencyKey,
     operationId: input.operationId,
     traceId: input.traceId,
+    ...(result.claim.operationEpoch ? { operationEpoch: result.claim.operationEpoch } : {}),
+    ...(result.claim.goalDigest ? { goalDigest: result.claim.goalDigest } : {}),
     ...(result.outcome === "already_applied" ? { receiptId: result.receiptId } : {}),
   };
+}
+
+function assertClaimOwner(claim: EffectClaim, claimToken: string): void {
+  if (claim.claimToken !== claimToken) throw new Error("effect claim owner mismatch");
+}
+
+export function markEffectClaimDispatched(
+  claim: EffectClaim,
+  input: { claimToken: string; operationEpoch: number; goalDigest: string; now: string },
+): EffectClaim {
+  assertClaimOwner(claim, input.claimToken);
+  if (claim.state !== "claimed") throw new Error(`effect claim cannot dispatch from state '${claim.state}'`);
+  return { ...claim, state: "dispatched", operationEpoch: input.operationEpoch, goalDigest: input.goalDigest, dispatchedAt: input.now };
+}
+
+export function markEffectClaimObserved(claim: EffectClaim, claimToken: string, now: string): EffectClaim {
+  assertClaimOwner(claim, claimToken);
+  if (claim.state !== "dispatched") throw new Error(`effect claim cannot observe from state '${claim.state}'`);
+  return { ...claim, state: "observed", observedAt: now };
+}
+
+export function markEffectClaimUnknown(claim: EffectClaim, claimToken: string, reason: string): EffectClaim {
+  assertClaimOwner(claim, claimToken);
+  if (claim.state !== "dispatched") throw new Error(`effect claim cannot become unknown from state '${claim.state}'`);
+  return { ...claim, state: "unknown", unknownReason: reason };
+}
+
+export function restoreEffectClaimForRetry(claim: EffectClaim, claimToken: string, now: string): EffectClaim {
+  assertClaimOwner(claim, claimToken);
+  if (claim.state !== "dispatched") throw new Error(`effect claim cannot restore from state '${claim.state}'`);
+  return { ...claim, state: "failed", finalizedAt: now };
 }
 
 export function decideEffectFinalization(
@@ -79,7 +113,7 @@ export function decideEffectFinalization(
     if (!claim.receiptId) throw new Error("applied effect claim is missing its receipt");
     return { duplicate: true, claim, receiptId: claim.receiptId };
   }
-  if (claim.state !== "claimed") throw new Error(`effect claim cannot finalize from state '${claim.state}'`);
+  if (claim.state !== "claimed" && claim.state !== "observed") throw new Error(`effect claim cannot finalize from state '${claim.state}'`);
   if (claim.claimToken !== claimToken) throw new Error("effect claim owner mismatch");
   const finalized: EffectClaim = {
     ...claim,

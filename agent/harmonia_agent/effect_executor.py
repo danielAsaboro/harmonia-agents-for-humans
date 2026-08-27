@@ -9,6 +9,7 @@ import uuid
 from typing import Any, Callable, Mapping
 
 from .telemetry import current_trace_id
+from .operation_context import operation_scope
 
 Adapter = Callable[[dict[str, Any]], dict[str, Any]]
 
@@ -17,6 +18,10 @@ Adapter = Callable[[dict[str, Any]], dict[str, Any]]
 class ExecutionResult:
     outcome: str
     receipt_id: str | None = None
+
+
+class ProviderEffectNotStarted(RuntimeError):
+    """Adapter proof that control never entered the external provider."""
 
 
 def x_publish_adapter(payload: dict[str, Any], bearer_token: str | None = None) -> dict[str, Any]:
@@ -46,17 +51,19 @@ def execute_effect_command(
     *,
     adapters: Mapping[str, Adapter],
     claim: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    transition: Callable[[str, dict[str, Any]], Any] | None = None,
     finalize: Callable[[dict[str, Any]], Any] | None = None,
     trace_id: str | None = None,
     claim_token: str | None = None,
 ) -> ExecutionResult:
-    from .web_client import claim_effect, post
+    from .web_client import claim_effect, post, transition_effect_command
 
     claim = claim or claim_effect
+    transition = transition or transition_effect_command
     finalize = finalize or (lambda payload: post("/api/internal/receipt", payload))
     trace_id = trace_id or current_trace_id()
     claim_token = claim_token or uuid.uuid4().hex
-    operation_id = f"{command['jobId']}:effect:{command['id']}:{trace_id}"
+    operation_id = f"job:{command['jobId']}:effect:{command['id']}"
     identity = {
         "commandId": command["id"],
         "jobId": command["jobId"],
@@ -77,14 +84,33 @@ def execute_effect_command(
     adapter = adapters.get(str(command["actionType"]))
     if adapter is None:
         raise RuntimeError(f"no adapter for effect command type '{command['actionType']}'")
-    try:
-        adapter_result = adapter(dict(command["payload"]))
+    epoch = int(claimed.get("operationEpoch") or 0)
+    if epoch < 1:
+        raise RuntimeError("effect claim is missing its operation epoch")
+    goal_digest = claimed.get("goalDigest")
+    fenced = {**identity, "operationEpoch": epoch}
+    with operation_scope(
+        operation_id, epoch,
+        goal_digest=str(goal_digest) if goal_digest else None,
+    ):
+        transition("dispatched", {**fenced, "attempt": int(claimed.get("attempt") or 1)})
+        try:
+            adapter_result = adapter(dict(command["payload"]))
+        except ProviderEffectNotStarted:
+            transition("provider_not_started", fenced)
+            raise
+        except Exception as exc:
+            transition("unknown", {**fenced, "reason": f"{type(exc).__name__}: {exc}"})
+            return ExecutionResult("unknown")
+
         outcome = str(adapter_result.get("outcome"))
         if outcome not in {"applied", "already_applied", "rejected", "failed"}:
-            raise RuntimeError(f"invalid adapter outcome: {outcome}")
+            transition("unknown", {**fenced, "reason": f"invalid adapter outcome: {outcome}"})
+            return ExecutionResult("unknown")
         artifact = adapter_result.get("artifact")
         detail = dict(adapter_result.get("detail") or {})
-    except Exception as exc:  # provider failure must become a durable failed receipt
-        outcome, artifact, detail = "failed", None, {"error": f"{type(exc).__name__}: {exc}"}
-    finalize({**identity, "outcome": outcome, "artifact": artifact, "detail": detail})
-    return ExecutionResult(outcome)
+        transition("observed", {
+            **fenced, "outcome": outcome, "artifact": artifact, "detail": detail,
+        })
+        finalize({**identity, "outcome": outcome, "artifact": artifact, "detail": detail})
+        return ExecutionResult(outcome)

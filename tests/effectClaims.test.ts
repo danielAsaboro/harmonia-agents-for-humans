@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { decideEffectClaim } from "@/lib/effectClaims";
+import {
+  decideEffectClaim, markEffectClaimDispatched, markEffectClaimObserved,
+  markEffectClaimUnknown, restoreEffectClaimForRetry,
+} from "@/lib/effectClaims";
 import type { EffectClaim, EffectClaimInput } from "@/lib/types";
 
 const now = new Date("2026-08-25T01:00:00.000Z");
@@ -52,5 +55,21 @@ describe("effect claim state machine", () => {
   it("rejects key reuse for a different action or action type", () => {
     expect(() => decideEffectClaim(claim(), { ...input, actionId: "action-2" }, now)).toThrow("identity mismatch");
     expect(() => decideEffectClaim(claim(), { ...input, actionType: "publish_x_post" }, now)).toThrow("identity mismatch");
+  });
+
+  it("fences dispatch, observation, ambiguity, and safe pre-provider reset", () => {
+    const dispatched = markEffectClaimDispatched(claim(), {
+      claimToken: input.claimToken, operationEpoch: 3, goalDigest: "c".repeat(64),
+      now: "2026-08-25T01:00:01.000Z",
+    });
+    expect(dispatched).toMatchObject({ state: "dispatched", operationEpoch: 3 });
+    expect(markEffectClaimObserved(dispatched, input.claimToken, "2026-08-25T01:00:02.000Z").state)
+      .toBe("observed");
+    expect(markEffectClaimUnknown(dispatched, input.claimToken, "response lost"))
+      .toMatchObject({ state: "unknown", unknownReason: "response lost" });
+    expect(restoreEffectClaimForRetry(dispatched, input.claimToken, "2026-08-25T01:00:02.000Z"))
+      .toMatchObject({ state: "failed" });
+    expect(() => markEffectClaimObserved(dispatched, "wrong-owner", "2026-08-25T01:00:02.000Z"))
+      .toThrow("owner mismatch");
   });
 });

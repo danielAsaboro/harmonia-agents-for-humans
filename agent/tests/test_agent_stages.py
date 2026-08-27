@@ -42,7 +42,7 @@ def _effect_command(action: dict) -> dict:
         "actionType": action["type"],
         "payload": action["payload"],
         "payloadDigest": "b" * 64,
-        "state": "pending",
+        "state": "prepared",
     }
 
 
@@ -238,7 +238,8 @@ def test_content_pack_receipt_carries_the_applied_artifact_digest(monkeypatch):
     monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(job["actions"][0])])
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
     monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
-    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1})
+    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
+    monkeypatch.setattr(stages, "transition_effect_command", lambda _phase, _payload: {})
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
 
     asyncio.run(stages.run_publish("job-1"))
@@ -297,7 +298,8 @@ def test_publish_uses_immutable_command_payload_not_mutable_job_action(monkeypat
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
     monkeypatch.setattr(stages, "get_connection", lambda _platform: {"accessToken": "fresh"})
     monkeypatch.setattr(stages, "production_adapters", lambda _token: {"publish_x_post": lambda payload: posted.append(payload["text"]) or {"outcome": "applied", "detail": {"id": "post-1"}}})
-    monkeypatch.setattr("harmonia_agent.web_client.claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1})
+    monkeypatch.setattr("harmonia_agent.web_client.claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
+    monkeypatch.setattr("harmonia_agent.web_client.transition_effect_command", lambda _phase, _payload: {})
     monkeypatch.setattr("harmonia_agent.web_client.post", lambda path, payload: receipts.append((path, payload)))
     monkeypatch.setattr(stages, "web_post", lambda _path, _payload: None)
     monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
@@ -321,7 +323,8 @@ def test_x_connection_is_refreshed_before_the_effect_claim(monkeypatch):
     monkeypatch.setattr(stages, "production_adapters", lambda token: {
         "publish_x_post": lambda _payload: order.append(f"provider:{token}") or {"outcome": "applied", "detail": {"id": "post-1"}},
     })
-    monkeypatch.setattr("harmonia_agent.web_client.claim_effect", lambda _payload: order.append("claim") or {"outcome": "execute", "attempt": 1})
+    monkeypatch.setattr("harmonia_agent.web_client.claim_effect", lambda _payload: order.append("claim") or {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
+    monkeypatch.setattr("harmonia_agent.web_client.transition_effect_command", lambda _phase, _payload: None)
     monkeypatch.setattr("harmonia_agent.web_client.post", lambda _path, _payload: None)
     monkeypatch.setattr(stages, "web_post", lambda _path, _payload: None)
     monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
@@ -374,7 +377,8 @@ def test_paid_media_releases_budget_when_state_lookup_fails_before_dispatch(monk
     monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
     monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(action)])
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
-    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1})
+    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
+    monkeypatch.setattr(stages, "transition_effect_command", lambda _phase, _payload: {})
     monkeypatch.setattr(stages, "reserve_budget", lambda _payload: None)
     monkeypatch.setattr(stages, "get_media_operation", lambda *_args: (_ for _ in ()).throw(RuntimeError("store down")))
     monkeypatch.setattr(stages, "resolve_budget_reservation", resolutions.append)
@@ -398,7 +402,8 @@ def test_paid_media_quarantines_budget_when_provider_times_out(monkeypatch):
     monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
     monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(action)])
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
-    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1})
+    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
+    monkeypatch.setattr(stages, "transition_effect_command", lambda _phase, _payload: {})
     monkeypatch.setattr(stages, "reserve_budget", lambda _payload: None)
     monkeypatch.setattr(stages, "get_media_operation", lambda *_args: None)
     monkeypatch.setattr(stages, "get_asset", lambda *_args: None)

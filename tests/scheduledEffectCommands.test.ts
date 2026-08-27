@@ -33,7 +33,7 @@ describe("scheduled effect authorization", () => {
   it("does not invalidate a command for non-material metadata updates", () => {
     const command = buildScheduledEffectCommand(item, context);
     const result = planScheduledMutation(item, command, {}, "2026-08-26T01:00:00.000Z");
-    expect(result.command?.state).toBe("pending");
+    expect(result.command?.state).toBe("prepared");
   });
 
   it("never exposes raw scheduled payloads through the worker wake-up feed", () => {

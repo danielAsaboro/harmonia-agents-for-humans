@@ -477,12 +477,17 @@ export interface EffectClaimInput {
 
 export interface EffectClaim extends EffectClaimInput {
   id: string;
-  state: "claimed" | "applied" | "failed";
+  state: "claimed" | "dispatched" | "observed" | "applied" | "failed" | "unknown";
   attempt: number;
   claimedAt: string;
   leaseExpiresAt: string;
   finalizedAt?: string;
   receiptId?: string;
+  operationEpoch?: number;
+  goalDigest?: string;
+  dispatchedAt?: string;
+  observedAt?: string;
+  unknownReason?: string;
 }
 
 export type EffectClaimSummary = Pick<EffectClaim,

@@ -41,4 +41,19 @@ describe("assemblePacket", () => {
     });
     expect(packet.unresolved).toHaveLength(0);
   });
+
+  it("requires one receipt and one verification for every executed action", () => {
+    const withoutReceipt = assemblePacket({
+      jobId: "j", config, drafts: [draft], actions: [publishAction], receipts: [],
+      verifications: [verification("tweet-1", true)],
+    });
+    expect(withoutReceipt.unresolved).toContain("executed action has no receipt: post to x");
+
+    const withoutVerification = assemblePacket({
+      jobId: "j", config, drafts: [draft], actions: [publishAction],
+      receipts: [{ id: "r", jobId: "j", actionId: "a1", idempotencyKey: "k".repeat(64), actionType: "publish_x_post", performedAt: new Date().toISOString(), outcome: "applied", operationId: "j:publish:a1", traceId: "a".repeat(32), detail: {} }],
+      verifications: [],
+    });
+    expect(withoutVerification.unresolved).toContain("executed action has no verification: post to x");
+  });
 });

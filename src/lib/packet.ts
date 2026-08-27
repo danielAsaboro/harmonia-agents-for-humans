@@ -33,6 +33,12 @@ export function assemblePacket(inputs: PacketInputs): EvidencePacket {
     if (action.state === "failed") {
       unresolved.push(`action failed: ${action.title}`);
     }
+    if (action.state === "executed") {
+      const receipt = inputs.receipts.find((candidate) => candidate.actionId === action.id);
+      if (!receipt) unresolved.push(`executed action has no receipt: ${action.title}`);
+      const verification = inputs.verifications.find((candidate) => candidate.actionId === action.id);
+      if (!verification) unresolved.push(`executed action has no verification: ${action.title}`);
+    }
   }
 
   for (const v of inputs.verifications) {
@@ -43,7 +49,7 @@ export function assemblePacket(inputs: PacketInputs): EvidencePacket {
     if (!d.valid) unresolved.push(`draft rejected by platform limits (${d.platform}): ${d.validationNote}`);
   }
 
-  if (inputs.receipts.length === 0 && inputs.actions.length > 0) {
+  if (inputs.receipts.length === 0 && inputs.actions.length > 0 && !inputs.actions.some((action) => action.state === "executed")) {
     unresolved.push("no publish receipts recorded");
   }
 

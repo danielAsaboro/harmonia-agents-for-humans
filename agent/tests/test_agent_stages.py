@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from pathlib import Path
 import pytest
 
 from harmonia_agent import stages
 from harmonia_agent.agent_models import SourceAnalysis
 from harmonia_agent.agents import AnalysisRunResult
+from harmonia_agent.effect_executor import ExecutionResult
 from harmonia_agent.web_client import EffectClaimInProgress, EffectClaimUncertain
 from tests.test_ryan_strategy import strategy as _content_strategy
 from tests.test_temi_editorial_plan import plan as _editorial_plan
@@ -224,6 +226,34 @@ def test_verify_posts_observed_receipt_and_trace_lineage(monkeypatch):
     assert result["method"] == "artifact_digest_reread"
 
 
+@pytest.mark.parametrize(("observed_text", "verified"), [
+    ("Approved copy", True),
+    ("Edited after approval", False),
+])
+def test_x_verification_binds_readback_to_receipted_content(monkeypatch, observed_text, verified):
+    posts = []
+    approved_text = "Approved copy"
+    approved_digest = hashlib.sha256(approved_text.encode()).hexdigest()
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: {
+        "actions": [{"id": "a1", "type": "publish_x_post", "state": "executed"}],
+    })
+    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [{
+        "id": "r1", "actionId": "a1", "detail": {"id": "post-1", "url": "https://x.com/i/web/status/post-1"},
+        "artifact": {"kind": "x_api", "digest": approved_digest},
+    }])
+    monkeypatch.setattr(stages, "get_connection", lambda _platform: {"accessToken": "token"})
+    monkeypatch.setattr(stages.x_client, "get_post", lambda _post_id, _token: {"id": "post-1", "text": observed_text})
+    monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
+    monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
+
+    asyncio.run(stages.run_verify("job-1"))
+
+    result = posts[0][1]["results"][0]
+    assert result["verified"] is verified
+    assert result["evidence"]["digest"] == hashlib.sha256(observed_text.encode()).hexdigest()
+    assert ("matches" in result["note"]) is verified
+
+
 def test_content_pack_receipt_carries_the_applied_artifact_digest(monkeypatch):
     posts = []
     captured = {}
@@ -362,6 +392,20 @@ def test_x_connection_is_refreshed_before_the_effect_claim(monkeypatch):
     asyncio.run(stages.run_publish("job-1"))
 
     assert order[:3] == ["connection", "claim", "provider:fresh"]
+
+
+def test_x_unknown_outcome_enters_the_existing_uncertain_control_path(monkeypatch):
+    job = {"stage": "publish", "actions": []}
+    command = _effect_command({"id": "a1", "type": "publish_x_post", "payload": {"text": "Approved copy"}})
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [command])
+    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
+    monkeypatch.setattr(stages, "get_connection", lambda _platform: {"accessToken": "fresh"})
+    monkeypatch.setattr(stages, "production_adapters", lambda _token: {})
+    monkeypatch.setattr(stages, "execute_effect_command", lambda *_args, **_kwargs: ExecutionResult("unknown"))
+
+    with pytest.raises(EffectClaimUncertain, match="no final receipt"):
+        asyncio.run(stages.run_publish("job-1"))
 
 def test_uploaded_media_is_materialized_for_clip_rendering(monkeypatch, tmp_path):
     monkeypatch.setattr(stages, "get_chat_attachment", lambda _id: (b"video", "video/mp4", "demo.mp4"))

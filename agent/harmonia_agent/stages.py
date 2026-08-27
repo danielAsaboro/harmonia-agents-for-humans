@@ -693,7 +693,7 @@ async def run_publish(job_id: str) -> None:
             )
             if result.outcome == "in_progress":
                 raise EffectClaimInProgress("another worker currently owns this effect")
-            if result.outcome == "uncertain":
+            if result.outcome in {"uncertain", "unknown"}:
                 raise EffectClaimUncertain("a prior effect attempt has no final receipt")
             continue
         trace_id = current_trace_id()
@@ -1017,12 +1017,20 @@ async def run_verify(job_id: str) -> None:
             connection = get_connection("x")
             post = x_client.get_post(str(detail["id"]), connection.get("accessToken"))
             observed_digest = hashlib.sha256(str(post.get("text", "")).encode()).hexdigest() if post else None
+            expected_digest = (receipt.get("artifact") or {}).get("digest")
+            content_matches = bool(post and expected_digest and observed_digest == expected_digest)
             results.append({
                 "target": f"x:{detail['id']}", "actionId": action["id"],
-                "verified": bool(post),
+                "verified": content_matches,
                 "method": "official_api_readback", **lineage,
                 "evidence": {"kind": "x_api", "url": detail.get("url", ""), "fetchedAt": _now(), "digest": observed_digest},
-                "note": "re-fetched from X API" if post else "tweet not found on refetch",
+                "note": (
+                    "X readback content digest matches the receipted approved content"
+                    if content_matches else
+                    "tweet not found on refetch"
+                    if not post else
+                    "X readback content digest does not match the receipted approved content"
+                ),
             })
         elif action["type"] == "export_content_pack" and job.get("contentPack"):
             expected, actual = detail.get("digest", ""), job["contentPack"]["digest"]

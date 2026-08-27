@@ -2,6 +2,9 @@
 
 Harmonia treats a long-running agent as a durable state machine, not as an indefinitely growing chat transcript. Firestore is the system of record; Pub/Sub and external webhooks are at-least-once wake signals; Cloud Run workers are disposable compute. A worker may stop after any durable boundary and another worker may resume from the persisted operation epoch.
 
+The public documentation presents the full context- and memory-rot strategy under
+[Context and memory continuity](/optimization/context-memory-continuity).
+
 ## The execution contract
 
 Every event is normalized into a versioned envelope with a stable source event ID and payload digest. Inbox acceptance and operation creation are atomic. A worker claims a bounded lease and receives a monotonically increasing operation epoch. Every subsequent write carries that operation ID and epoch, so a paused or restarted worker cannot overwrite newer state.

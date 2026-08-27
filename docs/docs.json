@@ -186,6 +186,16 @@
         ]
       },
       {
+        "tab": "Optimisation",
+        "icon": "gauge-high",
+        "groups": [
+          {
+            "group": "Long-running agents",
+            "pages": ["optimization/context-memory-continuity"]
+          }
+        ]
+      },
+      {
         "tab": "Reference",
         "icon": "book",
         "groups": [

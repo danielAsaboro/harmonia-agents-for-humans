@@ -63,3 +63,7 @@ allowing session state to authorize, replay, or advance the Firestore workflow. 
 still decide whether a crashed operation may continue or must be quarantined as uncertain.
 
 See the exhaustive [state ownership and retention matrix](/state-ownership).
+
+For the complete optimisation strategy—deterministic projections, prune + spill, artifact retrieval,
+operation fencing, and crash-boundary measurements—see
+[Context and memory continuity](/optimization/context-memory-continuity).

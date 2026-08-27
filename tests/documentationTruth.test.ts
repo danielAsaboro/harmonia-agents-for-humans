@@ -8,6 +8,7 @@ describe("public documentation truth boundaries", () => {
   const quickstart = readFileSync("docs/quickstart.mdx", "utf8");
   const deployment = readFileSync("docs/deployment.mdx", "utf8");
   const durableRuntime = readFileSync("docs/durable-runtime.md", "utf8");
+  const continuity = readFileSync("docs/optimization/context-memory-continuity.mdx", "utf8");
 
   it("shows the recoverable stage outbox instead of direct transition publication", () => {
     expect(readme).toContain("one transaction --> OUTBOX");
@@ -35,5 +36,14 @@ describe("public documentation truth boundaries", () => {
       "prune + spill", "intent before effect", "unknown is not failed", "operator resolution",
       "Firestore emulator", "does not prove multi-week uptime",
     ]) expect(durableRuntime).toContain(required);
+  });
+
+  it("explains the implemented context and memory rot controls without treating memory as authority", () => {
+    for (const required of [
+      "Context rot", "Memory rot", "prune + spill", "Authority comes first",
+      "intent before effect", "attempt generation", "10/10", "does not prove multi-week uptime",
+    ]) expect(continuity).toContain(required);
+    expect(continuity).toContain("Memory Bank is advisory");
+    expect(continuity).not.toContain("exactly-once external effects");
   });
 });

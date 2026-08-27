@@ -11,13 +11,14 @@ const config = JSON.parse(readFileSync(join(root, "docs/docs.json"), "utf8")) as
 };
 
 describe("site-wide documentation navigation", () => {
-  it("separates the site into six reader-goal tabs without missing or duplicate pages", () => {
+  it("separates the site into seven reader-goal tabs without missing or duplicate pages", () => {
     expect(config.navigation.tabs.map((tab) => tab.tab)).toEqual([
       "Product",
       "Guides",
       "Agents",
       "Platform",
       "Operations",
+      "Optimisation",
       "Reference",
     ]);
 
@@ -28,7 +29,8 @@ describe("site-wide documentation navigation", () => {
     expect(pages.some((page) => page.startsWith("superpowers/"))).toBe(false);
     expect(pages).toEqual(expect.arrayContaining([
       "product/overview", "guides/overview", "agents/overview", "platform/overview",
-      "operations/overview", "reference/overview", "evaluation", "glossary",
+      "operations/overview", "optimization/context-memory-continuity",
+      "reference/overview", "evaluation", "glossary",
       "reference/api-routes", "reference/job-state-machine", "reference/agent-contracts",
       "reference/effect-contracts", "reference/error-taxonomy", "reference/firestore-data",
       "reference/authority-matrix", "reference/environment", "reference/upload-media",

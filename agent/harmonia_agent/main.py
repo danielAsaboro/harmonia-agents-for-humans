@@ -11,6 +11,9 @@ import asyncio
 import base64
 import json
 import logging
+import os
+import secrets
+import threading
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -24,6 +27,8 @@ from .stages import HANDLERS, dispatch
 from .telemetry import configure_telemetry, extract_context
 from .tenant_context import tenant_scope
 from .durable_tick import run_durable_tick
+from .operation_context import operation_scope
+from .web_client import claim_event_inbox, claim_operation, complete_event_inbox
 
 configure_telemetry()
 
@@ -111,39 +116,122 @@ class PushEnvelope(dict):
     pass
 
 
+def _stage_delivery(
+    data: dict[str, Any], carrier: dict[str, str]
+) -> tuple[str, str, str, str, int]:
+    if int(data.get("schemaVersion", 0)) != 1:
+        raise ValueError("unsupported stage event schema")
+    if str(data.get("source")) != "stage_outbox":
+        raise ValueError("unsupported stage event source")
+    if str(data.get("eventType")) != "stage.requested":
+        raise ValueError("unsupported stage event type")
+    workspace_id = str(data["workspaceId"])
+    brand_id = str(data["brandId"])
+    job_id = str(data["jobId"])
+    operation_id = str(data["operationId"])
+    source_event_id = str(data["sourceEventId"])
+    payload = data.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError("stage event payload is missing")
+    stage = str(payload["stage"])
+    attempt = int(data.get("attempt", 0))
+    if attempt < 0:
+        raise ValueError("stage event attempt is invalid")
+    expected = {
+        "workspaceId": workspace_id,
+        "brandId": brand_id,
+        "sourceEventId": source_event_id,
+        "operationId": operation_id,
+    }
+    if any(carrier.get(key) != value for key, value in expected.items()):
+        raise ValueError("stage event attributes do not match payload")
+    return workspace_id, brand_id, job_id, stage, attempt
+
+
+async def _process_stage_event(
+    data: dict[str, Any],
+    carrier: dict[str, str],
+    message_id: str,
+    delivery_attempt: int,
+) -> tuple[bool, dict[str, Any]]:
+    workspace_id, brand_id, job_id, stage, source_attempt = _stage_delivery(data, carrier)
+    attempt = max(source_attempt, delivery_attempt)
+    operation_id = str(data["operationId"])
+    event_token = secrets.token_urlsafe(32)
+    with tenant_scope(workspace_id, brand_id):
+        event_claim = await asyncio.to_thread(claim_event_inbox, {
+            "envelope": data,
+            "pubsubMessageId": message_id,
+            "claimToken": event_token,
+        })
+        if event_claim["outcome"] != "execute":
+            return True, {
+                "ack": True,
+                "retryable": False,
+                "duplicate": True,
+                "eventOutcome": event_claim["outcome"],
+                "attempt": attempt,
+            }
+
+        operation_token = secrets.token_urlsafe(32)
+        operation_claim = await asyncio.to_thread(claim_operation, {
+            "operationId": operation_id,
+            "ownerId": f"worker:{os.getpid()}",
+            "claimToken": operation_token,
+        })
+        if operation_claim["outcome"] != "execute":
+            return True, {
+                "ack": True,
+                "retryable": False,
+                "duplicate": True,
+                "operationOutcome": operation_claim["outcome"],
+                "attempt": attempt,
+            }
+
+        epoch = int(operation_claim["operation"]["epoch"])
+        with operation_scope(operation_id, epoch):
+            acknowledge = await dispatch(job_id, stage, attempt=attempt)
+            if not acknowledge:
+                return False, {"ack": False, "retryable": True, "attempt": attempt}
+            await asyncio.to_thread(complete_event_inbox, {
+                "source": str(data["source"]),
+                "sourceEventId": str(data["sourceEventId"]),
+                "claimToken": event_token,
+                "outcome": "completed",
+                "operationEpoch": epoch,
+                "operationState": "succeeded",
+            })
+        return True, {"ack": True, "retryable": False, "attempt": attempt}
+
+
 @app.post("/pubsub/push")
 async def pubsub_push(request: Request) -> JSONResponse:
     envelope = await request.json()
     try:
         message = envelope["message"]
         data = json.loads(base64.b64decode(message["data"]))
-        job_id = str(data["jobId"])
-        workspace_id = str(data["workspaceId"])
-        brand_id = str(data["brandId"])
-        stage = str(data["stage"])
         delivery_attempt = max(int(envelope.get("deliveryAttempt", 1)) - 1, 0)
-        attempt = max(int(data.get("attempt", 0)), delivery_attempt)
         carrier = {str(k): str(v) for k, v in (message.get("attributes") or {}).items()}
-        if carrier.get("workspaceId") != workspace_id or carrier.get("brandId") != brand_id:
-            raise ValueError("tenant attributes do not match stage payload")
+        _stage_delivery(data, carrier)
+        message_id = str(message["messageId"])
     except Exception as exc:  # noqa: BLE001 - malformed delivery: ack to stop poison redelivery
         logger.error("malformed push envelope: %s", exc)
         return JSONResponse({"ack": True, "error": "malformed envelope"})
 
     token = otel_context.attach(extract_context(carrier))
     try:
-        with tenant_scope(workspace_id, brand_id):
-            acknowledge = await dispatch(job_id, stage, attempt=attempt)
+        try:
+            acknowledge, result = await _process_stage_event(
+                data, carrier, message_id, delivery_attempt
+            )
+        except Exception:  # noqa: BLE001 - leave durable claims for bounded recovery
+            logger.exception("durable stage event processing failed")
+            return JSONResponse({"ack": False, "retryable": True}, status_code=503)
     finally:
         otel_context.detach(token)
-    # 200 acknowledges regardless once reported; transient failures raise below
-    # only when they were NOT yet reported as permanent.
     if not acknowledge:
-        return JSONResponse(
-            {"ack": False, "retryable": True, "attempt": attempt},
-            status_code=503,
-        )
-    return JSONResponse({"ack": True, "retryable": False, "attempt": attempt})
+        return JSONResponse(result, status_code=503)
+    return JSONResponse(result)
 
 
 def _run_pull_loop() -> None:
@@ -180,22 +268,20 @@ def _run_pull_loop() -> None:
         for msg in response.received_messages:
             try:
                 data = json.loads(msg.message.data.decode("utf-8"))
-                job_id = str(data["jobId"])
-                workspace_id = str(data["workspaceId"])
-                brand_id = str(data["brandId"])
-                stage = str(data["stage"])
                 delivery_attempt = max(int(getattr(msg, "delivery_attempt", 1) or 1) - 1, 0)
-                attempt = max(int(data.get("attempt", 0)), delivery_attempt)
                 carrier = {str(k): str(v) for k, v in msg.message.attributes.items()}
-                if carrier.get("workspaceId") != workspace_id or carrier.get("brandId") != brand_id:
-                    raise ValueError("tenant attributes do not match stage payload")
+                _stage_delivery(data, carrier)
                 token = otel_context.attach(extract_context(carrier))
                 try:
-                    with tenant_scope(workspace_id, brand_id):
-                        permanent = asyncio.run(dispatch(job_id, stage, attempt=attempt))
+                    acknowledge, _result = asyncio.run(_process_stage_event(
+                        data,
+                        carrier,
+                        str(msg.message.message_id),
+                        delivery_attempt,
+                    ))
                 finally:
                     otel_context.detach(token)
-                if permanent:
+                if acknowledge:
                     subscriber.acknowledge(subscription=subscription_path, ack_ids=[msg.ack_id])
                 else:
                     subscriber.modify_ack_deadline(

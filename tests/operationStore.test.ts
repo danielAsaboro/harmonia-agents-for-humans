@@ -120,6 +120,22 @@ describe("operation repository", () => {
     expect(done.state).toBe("succeeded");
   });
 
+  it("rejects finalization after lease expiry even before another owner reclaims", async () => {
+    const store = new OperationStore(new MemoryPersistence());
+    const created = await runWithTenant(scope, () => store.create(input()));
+    await runWithTenant(scope, () => store.claim(created.operation.id, {
+      ownerId: "worker-a",
+      ownerTokenDigest: "b".repeat(64),
+      now: "2026-08-28T12:00:00.000Z",
+      leaseExpiresAt: "2026-08-28T12:01:00.000Z",
+    }));
+    await expect(runWithTenant(scope, () => store.finalize(created.operation.id, {
+      epoch: 1,
+      state: "succeeded",
+      now: "2026-08-28T12:02:00.000Z",
+    }))).rejects.toThrow("operation lease expired");
+  });
+
   it("refuses records outside the current tenant", async () => {
     const store = new OperationStore(new MemoryPersistence());
     await expect(runWithTenant(scope, () => store.create({

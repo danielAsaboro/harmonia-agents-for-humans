@@ -126,6 +126,14 @@ export class OperationStore {
       const existing = await tx.get(path);
       if (!existing) throw new Error("operation not found");
       assertCurrentTenant(existing);
+      const tenant = currentTenant();
+      assertOperationFence(existing, {
+        operationId,
+        workspaceId: tenant.workspaceId,
+        brandId: tenant.brandId,
+        epoch: input.epoch,
+        now: input.now,
+      });
       const finalized = finalizeOperation(existing, input);
       tx.set(path, finalized);
       return finalized;

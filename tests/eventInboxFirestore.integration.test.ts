@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { servicePrincipal } from "@/lib/authority";
 import {
   claimDurableEvent,
+  claimDurableOperation,
   completeDurableEvent,
   db,
   getDurableEvent,
@@ -66,10 +67,20 @@ describe.skipIf(!emulator)("event inbox Firestore transaction", () => {
     expect(outcomes.map((result) => result.outcome).sort()).toEqual(["execute", "in_progress"]);
     expect(await runWithTenant(scope, () => getDurableOperation(operationId))).not.toBeNull();
 
+    await runWithTenant(scope, () => claimDurableOperation(operationId, {
+      ownerId: "worker-1",
+      ownerTokenDigest: "c".repeat(64),
+      now: "2026-08-28T12:02:00.000Z",
+      leaseExpiresAt: "2026-08-28T12:07:00.000Z",
+    }));
+
     await runWithTenant(scope, () => completeDurableEvent(envelope.source, envelope.sourceEventId, {
       ownerTokenDigest: "a".repeat(64),
       outcome: "completed",
       now: "2026-08-28T12:03:00.000Z",
+      operationId,
+      operationEpoch: 1,
+      operationState: "succeeded",
     }));
     expect(await runWithTenant(scope, () => getDurableEvent(envelope.source, envelope.sourceEventId)))
       .toMatchObject({ state: "completed" });

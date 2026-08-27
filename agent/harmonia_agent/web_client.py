@@ -15,6 +15,7 @@ from .config import settings
 from .telemetry import inject_context
 from .tenant_context import current_tenant
 from .activity_models import AgentActivityRecord
+from .operation_context import operation_headers
 
 
 class WebApiError(RuntimeError):
@@ -46,6 +47,7 @@ def _client(*, tenant_required: bool = True) -> httpx.Client:
             "x-workspace-id": tenant.workspace_id,
             "x-brand-id": tenant.brand_id,
         })
+    headers.update(operation_headers())
     inject_context(headers)
     return httpx.Client(
         base_url=settings().web_internal_url,
@@ -295,6 +297,28 @@ def claim_stage_execution(payload: dict[str, Any]) -> dict[str, Any]:
     }:
         raise WebApiError("stage execution claim returned an invalid outcome")
     return result
+
+
+def claim_event_inbox(payload: dict[str, Any]) -> dict[str, Any]:
+    result = post("/api/internal/event-inbox/claim", payload)
+    if result.get("outcome") not in {
+        "execute", "in_progress", "already_completed", "rejected",
+    }:
+        raise WebApiError("event inbox claim returned an invalid outcome")
+    return result
+
+
+def claim_operation(payload: dict[str, Any]) -> dict[str, Any]:
+    result = post("/api/internal/operation/claim", payload)
+    if result.get("outcome") not in {
+        "execute", "in_progress", "unknown", "succeeded", "failed", "cancelled",
+    }:
+        raise WebApiError("operation claim returned an invalid outcome")
+    return result
+
+
+def complete_event_inbox(payload: dict[str, Any]) -> None:
+    post("/api/internal/event-inbox/finalize", payload)
 
 
 def finalize_stage_execution(payload: dict[str, Any]) -> None:

@@ -1,0 +1,91 @@
+from __future__ import annotations
+
+import base64
+import json
+
+from fastapi.testclient import TestClient
+
+from harmonia_agent import main
+from harmonia_agent.operation_context import current_operation
+
+
+def envelope() -> dict:
+    data = {
+        "schemaVersion": 1,
+        "source": "stage_outbox",
+        "sourceEventId": "stage-outbox:outbox-1",
+        "workspaceId": "workspace-1",
+        "brandId": "brand-1",
+        "jobId": "job-1",
+        "eventType": "stage.requested",
+        "operationId": "job:job-1:stage:draft",
+        "correlationId": "job:job-1",
+        "attempt": 0,
+        "trust": "system",
+        "occurredAt": "2026-08-28T12:00:00.000Z",
+        "payload": {"stage": "draft"},
+        "payloadDigest": "a" * 64,
+    }
+    return {
+        "message": {
+            "messageId": "delivery-1",
+            "data": base64.b64encode(json.dumps(data).encode()).decode(),
+            "attributes": {
+                "workspaceId": "workspace-1",
+                "brandId": "brand-1",
+                "sourceEventId": "stage-outbox:outbox-1",
+                "operationId": "job:job-1:stage:draft",
+            },
+        }
+    }
+
+
+def test_push_deduplicates_before_stage_dispatch(monkeypatch) -> None:
+    entered = []
+    monkeypatch.setattr(main, "claim_event_inbox", lambda _payload: {"outcome": "in_progress"})
+    monkeypatch.setattr(main, "dispatch", lambda *_args, **_kwargs: entered.append(True))
+
+    response = TestClient(main.app).post("/pubsub/push", json=envelope())
+
+    assert response.status_code == 200
+    assert response.json()["duplicate"] is True
+    assert entered == []
+
+
+def test_push_scopes_fenced_stage_calls_and_finalizes(monkeypatch) -> None:
+    finalized = []
+    seen = []
+    monkeypatch.setattr(main, "claim_event_inbox", lambda _payload: {"outcome": "execute"})
+    monkeypatch.setattr(main, "claim_operation", lambda _payload: {
+        "outcome": "execute", "operation": {"epoch": 4},
+    })
+    monkeypatch.setattr(main, "complete_event_inbox", finalized.append)
+
+    async def dispatch(_job_id, _stage, *, attempt=0):
+        seen.append((current_operation().operation_id, current_operation().epoch, attempt))
+        return True
+
+    monkeypatch.setattr(main, "dispatch", dispatch)
+    response = TestClient(main.app).post("/pubsub/push", json=envelope())
+
+    assert response.status_code == 200
+    assert seen == [("job:job-1:stage:draft", 4, 0)]
+    assert finalized[0]["operationEpoch"] == 4
+    assert finalized[0]["operationState"] == "succeeded"
+    assert current_operation() is None
+
+
+def test_push_leaves_claims_for_recovery_on_transient_crash(monkeypatch) -> None:
+    monkeypatch.setattr(main, "claim_event_inbox", lambda _payload: {"outcome": "execute"})
+    monkeypatch.setattr(main, "claim_operation", lambda _payload: {
+        "outcome": "execute", "operation": {"epoch": 1},
+    })
+    monkeypatch.setattr(main, "complete_event_inbox", lambda _payload: (_ for _ in ()).throw(AssertionError("must not finalize")))
+
+    async def crash(*_args, **_kwargs):
+        raise RuntimeError("worker crashed")
+
+    monkeypatch.setattr(main, "dispatch", crash)
+    response = TestClient(main.app, raise_server_exceptions=False).post("/pubsub/push", json=envelope())
+    assert response.status_code == 503
+    assert response.json()["retryable"] is True

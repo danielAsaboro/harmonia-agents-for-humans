@@ -8,7 +8,13 @@ import {
   type EventInboxClaimResult,
   type EventInboxRecord,
 } from "./eventInbox";
-import { createOperation, type CreateOperationInput, type OperationRecord } from "./operations";
+import {
+  assertOperationFence,
+  createOperation,
+  finalizeOperation,
+  type CreateOperationInput,
+  type OperationRecord,
+} from "./operations";
 import { currentTenant, tenantCollectionPath } from "./tenancy";
 
 const EVENT_INBOX = "event_inbox";
@@ -102,6 +108,10 @@ export class EventInboxStore {
       outcome: "completed" | "rejected";
       now: string;
       rejectionReason?: string;
+      operationId: string;
+      operationEpoch: number;
+      operationState: "unknown" | "succeeded" | "failed" | "cancelled";
+      operationReason?: string;
     },
   ): Promise<EventInboxRecord> {
     const ref = this.database.doc(this.inboxPath(source, sourceEventId));
@@ -110,8 +120,29 @@ export class EventInboxStore {
       if (!snapshot.exists) throw new Error("event inbox record not found");
       const current = snapshot.data() as EventInboxRecord;
       assertTenant(current);
+      if (current.operationId !== input.operationId) throw new Error("event operation id mismatch");
+      const operationRef = this.database.doc(this.operationPath(current.operationId));
+      const operationSnapshot = await transaction.get(operationRef);
+      if (!operationSnapshot.exists) throw new Error("event operation not found");
+      const operation = operationSnapshot.data() as OperationRecord;
+      assertTenant(operation);
+      const tenant = currentTenant();
+      assertOperationFence(operation, {
+        operationId: input.operationId,
+        workspaceId: tenant.workspaceId,
+        brandId: tenant.brandId,
+        epoch: input.operationEpoch,
+        now: input.now,
+      });
       const completed = completeEventInbox(current, input.ownerTokenDigest, input);
+      const finalizedOperation = finalizeOperation(operation, {
+        epoch: input.operationEpoch,
+        state: input.operationState,
+        now: input.now,
+        ...(input.operationReason ? { unresolvedReason: input.operationReason } : {}),
+      });
       transaction.set(ref, completed);
+      transaction.set(operationRef, finalizedOperation);
       return completed;
     });
   }

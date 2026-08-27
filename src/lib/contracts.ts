@@ -48,6 +48,66 @@ export const stageExecutionFinalizeSchema = z.object({
   failureReason: z.string().min(1).max(500).optional(),
 }).strict();
 
+export const durableEventEnvelopeSchema = z.object({
+  schemaVersion: z.literal(1),
+  source: z.string().min(1).max(100),
+  sourceEventId: z.string().min(1).max(512),
+  workspaceId: z.string().min(1).max(128),
+  brandId: z.string().min(1).max(128),
+  jobId: z.string().min(1).max(256),
+  eventType: z.string().min(1).max(100),
+  operationId: z.string().regex(/^[A-Za-z0-9:_-]{1,512}$/),
+  correlationId: z.string().min(1).max(512),
+  causationId: z.string().min(1).max(512).optional(),
+  attempt: z.number().int().nonnegative().max(100),
+  trust: z.enum(["system", "operator", "provider", "external_untrusted", "model_inference"]),
+  occurredAt: z.string().datetime({ offset: true }),
+  payload: z.record(z.string(), z.unknown()),
+  payloadDigest: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();
+
+export const durableEventClaimSchema = z.object({
+  envelope: durableEventEnvelopeSchema,
+  pubsubMessageId: z.string().min(1).max(512),
+  claimToken: z.string().min(32).max(256),
+}).strict();
+
+export const durableEventFinalizeSchema = z.object({
+  source: z.string().min(1).max(100),
+  sourceEventId: z.string().min(1).max(512),
+  claimToken: z.string().min(32).max(256),
+  outcome: z.enum(["completed", "rejected"]),
+  rejectionReason: z.string().min(1).max(500).optional(),
+  operationEpoch: z.number().int().positive(),
+  operationState: z.enum(["unknown", "succeeded", "failed", "cancelled"]),
+  operationReason: z.string().min(1).max(500).optional(),
+}).strict().superRefine((value, context) => {
+  if (value.outcome === "rejected" && !value.rejectionReason) {
+    context.addIssue({ code: "custom", path: ["rejectionReason"], message: "rejection reason required" });
+  }
+  if (value.operationState === "unknown" && !value.operationReason) {
+    context.addIssue({ code: "custom", path: ["operationReason"], message: "operation reason required" });
+  }
+});
+
+export const durableOperationClaimSchema = z.object({
+  operationId: z.string().regex(/^[A-Za-z0-9:_-]{1,512}$/),
+  ownerId: z.string().min(1).max(200),
+  claimToken: z.string().min(32).max(256),
+}).strict();
+
+export const durableOperationFinalizeSchema = z.object({
+  operationId: z.string().regex(/^[A-Za-z0-9:_-]{1,512}$/),
+  epoch: z.number().int().positive(),
+  state: z.enum(["waiting", "unknown", "succeeded", "failed", "cancelled"]),
+  unresolvedReason: z.string().min(1).max(500).optional(),
+  latestProjectionId: z.string().min(1).max(512).optional(),
+}).strict().superRefine((value, context) => {
+  if (value.state === "unknown" && !value.unresolvedReason) {
+    context.addIssue({ code: "custom", path: ["unresolvedReason"], message: "unresolved reason required" });
+  }
+});
+
 export const usageRecordSchema = z.object({
   id: z.string().min(1),
   jobId: z.string().min(1),

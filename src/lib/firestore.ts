@@ -104,6 +104,10 @@ export function completeDurableEvent(
     outcome: "completed" | "rejected";
     now: string;
     rejectionReason?: string;
+    operationId: string;
+    operationEpoch: number;
+    operationState: "unknown" | "succeeded" | "failed" | "cancelled";
+    operationReason?: string;
   },
 ): Promise<EventInboxRecord> {
   return durableEvents().complete(source, sourceEventId, input);

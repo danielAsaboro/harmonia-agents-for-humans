@@ -139,6 +139,14 @@ const generatedNode = {
   children: z.array(id).max(30).default([]),
   emphasis: z.enum(["primary", "secondary", "compact"]).default("primary"),
   agentFraming: z.boolean().default(false),
+  tone: z.enum(["paper", "ink", "acid", "blue", "coral", "violet"]).default("paper"),
+  role: z.enum(["hero", "feature", "support", "strip", "inline"]).default("support"),
+  density: z.enum(["airy", "balanced", "compact"]).default("balanced"),
+  motion: z.enum(["none", "reveal", "pulse", "trace"]).default("none"),
+  surfaceRhythm: z.enum(["editorial", "operational", "cinematic", "evidence"]).default("editorial"),
+  surfaceComposition: z.enum(["stack", "split", "mosaic", "rail"]).default("stack"),
+  surfaceEnergy: z.enum(["quiet", "active", "resolved"]).default("quiet"),
+  revision: z.number().int().positive().default(1),
 } as const;
 
 const campaignBriefSchema = baseComponent.extend({

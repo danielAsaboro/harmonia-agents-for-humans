@@ -70,6 +70,14 @@ const generatedNode = {
   children: z.array(z.string().min(1)).max(30).default([]),
   emphasis: z.enum(["primary", "secondary", "compact"]).default("primary"),
   agentFraming: z.boolean().default(false),
+  tone: z.enum(["paper", "ink", "acid", "blue", "coral", "violet"]).default("paper"),
+  role: z.enum(["hero", "feature", "support", "strip", "inline"]).default("support"),
+  density: z.enum(["airy", "balanced", "compact"]).default("balanced"),
+  motion: z.enum(["none", "reveal", "pulse", "trace"]).default("none"),
+  surfaceRhythm: z.enum(["editorial", "operational", "cinematic", "evidence"]).default("editorial"),
+  surfaceComposition: z.enum(["stack", "split", "mosaic", "rail"]).default("stack"),
+  surfaceEnergy: z.enum(["quiet", "active", "resolved"]).default("quiet"),
+  revision: z.number().int().positive().default(1),
 };
 const hydratedDraft = z.object({ id: z.string().min(1), platform: z.string().min(1), text: z.string(), valid: z.boolean(), validationNote: z.string().optional(), momentId: z.string().min(1).optional(), angleId: z.string().min(1).optional(), selected: z.boolean(), sourceCount: z.number().int().nonnegative() }).strict();
 const CampaignBriefApi: ComponentApi = { name: "CampaignBrief", schema: z.object({ jobId: z.string().min(1), title: z.string().min(1), brief: z.string(), sourceKind: z.enum(["written", "video", "audio", "mixed"]), platforms: z.array(z.string()).max(10), angles: z.array(z.object({ id: z.string().min(1), kind: z.enum(["trend", "meme"]), title: z.string(), rationale: z.string() }).strict()).max(20), ...generatedNode }).strict() };

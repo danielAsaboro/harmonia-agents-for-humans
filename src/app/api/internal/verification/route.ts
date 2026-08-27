@@ -43,7 +43,7 @@ export async function POST(req: Request) {
       verifications: results,
     });
     await savePacket(body.jobId, packet);
-    await appendEvent(body.jobId, "packet", `evidence packet assembled: ${verifiedCount} verified, ${packet.unresolved.length} unresolved gap(s)`, "system");
+    await appendEvent(body.jobId, "verify", `evidence packet assembled: ${verifiedCount} verified, ${packet.unresolved.length} unresolved gap(s)`, "system");
 
     // Reaction learning happens after verification; its handler completes the job.
     const outboxId = await transitionStageWithOutbox(body.jobId, "verify", "learn", "verification complete; reaction learning dispatched");

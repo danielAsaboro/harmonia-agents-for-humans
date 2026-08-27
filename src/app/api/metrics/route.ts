@@ -118,7 +118,7 @@ async function get(_req: Request) {
     }
   }
   const stageStats: StageStat[] = STAGES.filter(
-    (st) => st !== "queued" && st !== "packet" && st !== "complete" && st !== "failed",
+    (st) => st !== "queued" && st !== "complete" && st !== "failed",
   ).map((stage) => {
     const reached = reachedByStage.get(stage)?.size ?? 0;
     const failed = jobs.filter((j) => j.failure?.stage === stage).length;

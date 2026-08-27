@@ -19,7 +19,7 @@ type PlannedSurface = SurfacePlan["surfaces"][number];
 type PlannedNode = PlannedSurface["nodes"][number];
 type CatalogRecord = Record<string, unknown> & { id: string; component: string };
 
-const STAGES = ["queued", "ingest", "transcribe", "understand", "strategize", "awaiting_strategy_approval", "plan", "draft", "awaiting_approval", "publish", "verify", "learn", "packet", "complete"];
+const STAGES = ["queued", "ingest", "transcribe", "understand", "strategize", "awaiting_strategy_approval", "plan", "draft", "awaiting_approval", "publish", "verify", "learn", "complete"];
 
 function isHttpUrl(value: string | undefined): value is string {
   if (!value) return false;

@@ -31,7 +31,6 @@ export function isKnownStage(stage: string): stage is Stage {
     "publish",
     "verify",
     "learn",
-    "packet",
     "complete",
     "failed",
   ].includes(stage);

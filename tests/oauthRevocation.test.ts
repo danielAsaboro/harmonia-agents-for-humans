@@ -5,7 +5,7 @@ describe("OAuth token revocation", () => {
   afterEach(() => vi.unstubAllEnvs());
 
   it("revokes Google grants with the refresh token", async () => {
-    const request = vi.fn(async () => new Response(null, { status: 200 }));
+    const request = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>(async () => new Response(null, { status: 200 }));
     await revokeAccess(getPlatform("google-calendar")!, {
       accessToken: "access-token",
       refreshToken: "refresh-token",
@@ -21,7 +21,7 @@ describe("OAuth token revocation", () => {
   it("revokes X grants using confidential-client authentication", async () => {
     vi.stubEnv("X_CLIENT_ID", "client-id");
     vi.stubEnv("X_CLIENT_SECRET", "client-secret");
-    const request = vi.fn(async () => new Response(null, { status: 200 }));
+    const request = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>(async () => new Response(null, { status: 200 }));
     await revokeAccess(getPlatform("x")!, { accessToken: "access-token" }, request);
 
     const [url, init] = request.mock.calls[0];
@@ -33,7 +33,7 @@ describe("OAuth token revocation", () => {
   });
 
   it("keeps local credentials available for retry when revocation fails", async () => {
-    const request = vi.fn(async () => new Response("invalid token", { status: 400 }));
+    const request = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>(async () => new Response("invalid token", { status: 400 }));
     await expect(revokeAccess(
       getPlatform("google-calendar")!,
       { accessToken: "access-token" },

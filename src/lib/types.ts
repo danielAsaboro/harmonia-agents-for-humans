@@ -11,7 +11,6 @@ export const STAGES = [
   "publish",
   "verify",
   "learn",
-  "packet",
   "complete",
   "failed",
 ] as const;

@@ -32,6 +32,7 @@ describe("stage pipeline", () => {
 
   it("validates known stages", () => {
     expect(isKnownStage("draft")).toBe(true);
+    expect(isKnownStage("packet")).toBe(false);
     expect(isKnownStage("bogus")).toBe(false);
   });
 });

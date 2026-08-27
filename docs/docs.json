@@ -82,7 +82,7 @@
           },
           {
             "group": "Agent runtime",
-            "pages": ["session-memory", "models-cost-evaluation", "tool-contracts"]
+            "pages": ["reference/agent-runtime-inventory", "session-memory", "models-cost-evaluation", "tool-contracts"]
           }
         ]
       },

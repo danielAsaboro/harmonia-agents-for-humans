@@ -8,6 +8,8 @@ description: "Dara's seven-dimension review and bounded revision contract."
 Dara reviews one exact Noni draft against the immutable production input. Dara either accepts the
 candidate or returns bounded correction issues; Dara does not rewrite it.
 
+## Contract
+
 | Property | Value |
 |---|---|
 | ADK name | `dara_editor` |
@@ -16,6 +18,16 @@ candidate or returns bounded correction issues; Dara does not rewrite it.
 | Output | `EditorialAssessment` |
 | Runtime skill | `dara-editing-skills` |
 | Tools | ADK filesystem skill and resource loaders only |
+
+## Skills
+
+`dara-editing-skills` contains seven allow-listed methods for triage, grounding, structure, fit,
+platform/CTA usability, safety, and feedback. Dara loads it once and only relevant references.
+
+## Tools and research
+
+Dara receives only filesystem skill loaders. It has no search, Memory Bank, performance, calendar,
+publishing, or workflow tool.
 
 ## Prompt method
 
@@ -27,11 +39,21 @@ constraints, safety, and clarity. Each check has a pass/fail result, rationale, 
 evidence or constraint references. Revision issues identify a permitted draft field and precise
 correction instruction without supplying replacement wording.
 
+## Evidence and provenance
+
+Checks may cite only evidence and constraint IDs supplied in the immutable review input. Skill
+resources are editing method, not evidence. Invented references or review metadata fail closed.
+
 ## Authority boundary
 
 Dara cannot rewrite copy, invent review metadata or evidence, request a third automatic pass,
 approve publication, schedule, publish, execute, create receipts, access credentials, verify, or
 mutate workflow state.
+
+## Handoff
+
+An `accept` assessment releases the exact draft to deterministic final-approval preparation. A
+`revise` assessment returns issues to Noni; a second revise outcome stops for operator attention.
 
 ## Runtime enforcement
 
@@ -41,7 +63,7 @@ missing, duplicate, out-of-order, or unapproved resource load. Skill guidance is
 cannot satisfy an evidence or constraint reference. A second revise outcome stops for operator
 attention.
 
-## Source references
+## Implementation references
 
 - Prompt: `agent/harmonia_agent/dara_prompt.py`
 - Skill runtime: `agent/harmonia_agent/dara_skills.py`

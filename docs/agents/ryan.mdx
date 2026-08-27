@@ -8,6 +8,8 @@ description: "Ryan's strategy, content-brief, provenance, and approval-boundary 
 Ryan converts Nimi analysis and bounded startup context into a coherent four-week strategy proposal
 and source-grounded content briefs for Temi.
 
+## Contract
+
 | Property | Value |
 |---|---|
 | ADK name | `ryan_strategist` |
@@ -16,6 +18,19 @@ and source-grounded content briefs for Temi.
 | Output | `StrategistResult` containing `ContentStrategy` |
 | Runtime skill | `ryan-strategy-skills` |
 | Tools | `load_skill`, `load_skill_resource`, and isolated `ryan_google_search_agent` |
+
+## Skills
+
+`ryan-strategy-skills` contains seven allow-listed methods for diagnosis, thesis and positioning,
+campaign architecture, channel and format decisions, funnel/CTA/measurement, brief construction,
+and evidence-informed revision. Ryan loads it once and selects only relevant references.
+
+## Tools and research
+
+Ryan principally synthesizes typed Nimi analysis, operator context, verified performance, and eligible
+memory. When an exact `researchRequest` requires current external facts, the isolated
+`ryan_google_search_agent` returns typed native-grounded evidence. Ryan never receives
+`google_search` beside its skill tools.
 
 ## Prompt method
 
@@ -38,11 +53,22 @@ confidence.
 Skill guidance changes Ryan's method, not the typed contract, and can never be cited as evidence.
 The source-coverage ledger is development documentation and is excluded from the runtime allow-list.
 
+## Evidence and provenance
+
+The catalog is closed-world: operator context IDs, Nimi moment/angle IDs, verified performance IDs,
+eligible Memory Bank fact IDs, and validated search IDs retain their exact kind and provenance. Every
+brief cites a Nimi moment or angle. Weak support becomes a bounded assumption with reduced confidence.
+
 ## Authority boundary
 
 Ryan proposes strategy; Ryan does not write final post copy, approve strategy, select production
 dates, mutate calendars, publish, create effect payloads or receipts, or mutate workflow state.
 Strategy approval is a separate human decision bound to the persisted strategy digest.
+
+## Handoff
+
+The complete proposal, evidence lineage, version, and digest are persisted before human strategy
+approval. Only an authenticated approval matching that digest passes the unchanged strategy to Temi.
 
 ## Runtime enforcement
 
@@ -55,7 +81,7 @@ search agent runs native Google Search and returns a request-bound typed result.
 requires matching chunks, supports, queries, titles, URLs, and search-entry-point metadata before
 its `search-*` IDs can ground the strategy. Without that request, any search call fails closed.
 
-## Source references
+## Implementation references
 
 - Prompt: `agent/harmonia_agent/ryan_prompt.py`
 - Skill runtime: `agent/harmonia_agent/ryan_skills.py`

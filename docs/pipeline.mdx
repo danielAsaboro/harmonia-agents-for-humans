@@ -22,21 +22,40 @@ Gemini 3.5 Flash returns `{language, segments:[{id,startSec,endSec,text}]}` from
 
 ## understand
 
-For video jobs, Harmonia gives Nimi (`nimi_analyst`) a typed source ID/digest, individually identified transcript segments, bounded media/frame evidence, verified performance observations, and eligible Memory Bank facts with Firestore provenance. Nimi returns exact-quote moments and qualified source, trend, meme, performance, or memory angles. Each item declares evidence references, assumptions, and confidence. Deterministic validation enforces digest identity, quote and time bounds, frame provenance, evidence-kind separation, and Nimi's analysis-only authority before persisting the complete `SourceAnalysis` plus canonical SHA-256 digest. Ryan receives that exact persisted object. Brief-only concepts still pass through Nimi as an identified zero-time source segment.
+Nimi receives the typed source package and returns `SourceAnalysis`. Deterministic validation checks
+source identity, evidence bounds, provenance, confidence, and analysis-only authority before persisting
+the complete object and canonical digest. Ryan receives that exact persisted analysis. See
+[Nimi](/agents/nimi) for its method and [agent contracts](/reference/agent-contracts) for the handoff.
 
-The durable stage order is `understand → strategize → awaiting_strategy_approval → plan → draft`. Before Ryan runs, the exact typed evidence catalog—including eligible Memory Bank IDs and Firestore provenance—is persisted and later revalidated in the same transaction that accepts the proposal. Strategy approval is bound to the canonical SHA-256 digest. One rejection with operator feedback permits strategy version 2; a second rejection ends the job. Temi cannot run without an approval record matching the current digest.
+## strategize
+
+Ryan turns the persisted analysis and bounded operator, performance, and eligible Memory Bank context
+into one four-week `ContentStrategy` with grounded briefs. Application code validates its evidence
+lineage and authority, then persists the proposal, version, and canonical digest. See
+[Ryan](/agents/ryan) for the strategy method.
+
+## awaiting_strategy_approval
+
+An authenticated human decision must match the current strategy digest. One rejection with required
+operator feedback permits strategy version 2; a second rejection terminates the job. Temi cannot run
+for a missing, rejected, expired, or mismatched approval. Dashboard, chat, and allow-listed Telegram
+decisions use the same tenant-scoped transaction.
 
 ## plan
 
-Before Temi runs, deterministic code creates and persists one canonical Firestore planning snapshot containing the horizon, supported capabilities, tenant-scoped commitments, explicit capacity and cadence policy, verified posting-window observations, asset/dependency records, and downstream calendar projection state. Temi (`temi_editorial_planner`) receives that exact digest-bound snapshot, the approved Ryan strategy, and typed Nimi analysis. It loads one planning-method skill and may use only six request-bound read views over that immutable snapshot. Temi agentically proposes the complete four-week editorial operationalization: sequencing, cadence, channels, formats, publication windows, production deadlines, dependencies, priorities, required assets, assumptions, and confidence. It cannot search the web, write final copy, approve anything, mutate an external calendar, schedule in an external system, or execute an effect.
-
-Deterministic code validates the plan against the approved strategy digest and closed-world evidence, rejects unsupported channels/formats and authority claims, computes the canonical SHA-256 digest, and persists the complete plan plus evidence lineage in Firestore. It then selects exactly one highest-scoring eligible item and records its lifecycle. Memory and approved strategy context inform planning but never authorize selection, scheduling, approval, or effects.
-
-Dashboard and chat confirmations call the same tenant-scoped decision transaction. Telegram receives expiring digest-bound nonces via the official Bot API; a rejection callback must be completed with an authenticated reply containing operator notes before it can request Ryan's single revision.
+Application code persists one immutable planning snapshot containing capabilities, commitments,
+capacity, cadence policy, posting-window observations, assets, dependencies, and calendar projection.
+Temi receives its exact ID and digest alongside the unchanged approved strategy and Nimi analysis.
+After validating and persisting Temi's plan, deterministic code selects one eligible item for
+production. Temi never mutates an external calendar. See [Temi](/agents/temi).
 
 ## draft
 
-The production workflow passes only the selected editorial item, its exact Ryan brief, and the referenced Nimi moments/angles to Noni (`noni_copywriter`). Dara (`dara_editor`) then receives the exact immutable input and draft and returns a seven-dimension `EditorialAssessment`, not workflow metadata or replacement copy. Deterministic code validates every check and issue, assigns review identity/lineage/time, runs one original plus at most one issue-bound revision, requires the second assessment to resolve every prior issue and accept, and persists the canonical-digested production trace. The rest of the plan is not exposed as drafting authority. Stage code derives `publish_x_post` proposals from the exact accepted text and adds the content pack, meme image generations, captioned vertical clips, and stitched highlight reel.
+Noni receives only the selected editorial item, exact Ryan brief, and referenced Nimi evidence. Dara
+reviews the exact draft against immutable input. Deterministic code permits at most one issue-bound
+Noni revision, validates the complete trace, and prepares effect proposals from accepted content. See
+[Noni](/agents/noni) and [Dara](/agents/dara); the full skills and tools inventory is
+[here](/reference/agent-runtime-inventory).
 
 Every action lands with `requiresApproval`, risk level, and its own idempotency key material.
 

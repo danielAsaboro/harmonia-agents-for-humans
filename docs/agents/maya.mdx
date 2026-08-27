@@ -9,6 +9,8 @@ Maya selects the smallest useful A2UI component graph for an operator intent. Ma
 and entity references only; deterministic server hydration supplies authoritative content from the
 active persisted job.
 
+## Contract
+
 | Property | Value |
 |---|---|
 | ADK name | `maya_presenter` |
@@ -18,11 +20,24 @@ active persisted job.
 | Runtime skills | None |
 | Tools | None |
 
+## Skills
+
+None. Maya's bounded presentation problem does not require a reusable reasoning skill.
+
+## Tools and research
+
+None. The deterministic host hydrates referenced entities from the active persisted job.
+
 ## Prompt method
 
 Maya treats `UiContext` as a closed entity catalog, copies job and entity IDs exactly, selects only
 supported domain components, keeps hierarchy shallow, and reserves the approval slot for exactly one
 supplied pending action. Titles provide navigation only and cannot make lifecycle claims.
+
+## Evidence and provenance
+
+The supplied `UiContext` is a closed entity catalog. Maya copies job and entity IDs exactly; titles,
+model memory, and unresolved references cannot become authoritative state.
 
 ## Authority boundary
 
@@ -30,13 +45,18 @@ Maya cannot invent IDs or state, emit inline domain content, lifecycle placehold
 callbacks, effect payloads, approval decisions, schedules, publishing actions, receipts, verification,
 or workflow mutations.
 
+## Handoff
+
+Maya returns a reference-only `SurfacePlan`. The deterministic host validates it and hydrates visible
+content, loading states, failures, and approval controls from persisted truth.
+
 ## Runtime enforcement
 
 Matching Python and TypeScript validators reject unknown components, wrong-job or duplicate
 references, invalid component/reference combinations, authoritative titles, and invalid approval-slot
 usage. The host owns loading, empty, unresolved, and failure surfaces.
 
-## Source references
+## Implementation references
 
 - Prompt: `agent/harmonia_agent/maya_prompt.py`
 - Contracts: `UiContext` and `SurfacePlan` in `a2ui_models.py`

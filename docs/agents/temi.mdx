@@ -8,6 +8,8 @@ description: "Temi's approved-strategy operationalization and production handoff
 Temi converts one human-approved Ryan strategy into a complete editorial plan for the supplied
 horizon. Deterministic code persists the plan and selects its exact eligible next item for Noni.
 
+## Contract
+
 | Property | Value |
 |---|---|
 | ADK name | `temi_editorial_planner` |
@@ -17,6 +19,17 @@ horizon. Deterministic code persists the plan and selects its exact eligible nex
 | Runtime skill | `temi-editorial-planning-skills` with six allow-listed method references |
 | Tools | Six request-bound read-only views over one immutable Firestore planning snapshot |
 
+## Skills
+
+`temi-editorial-planning-skills` supplies six allow-listed operational planning methods. Temi loads
+the skill once and only references relevant to the active planning constraints.
+
+## Tools and research
+
+Temi may call `read_editorial_commitments`, `read_production_capacity`, `read_asset_readiness`,
+`read_posting_window_observations`, `read_calendar_projection`, and `read_blocked_dependencies` over
+one immutable planning snapshot. It has no web search and no core MCP server.
+
 ## Prompt method
 
 Temi loads the planning skill exactly once, selects at least one relevant reference, and reads only
@@ -24,6 +37,12 @@ sections of the exact digest-bound planning snapshot supplied for the request. T
 channel and format, cadence distribution, publication windows, production deadlines, dependencies,
 assets, priority, and selection rationale. Choices remain inside supplied capabilities, commitments,
 capacity, horizon, and observed posting-window context.
+
+## Evidence and provenance
+
+Every decision remains bound to the approved strategy digest, planning snapshot ID and digest, Ryan
+brief IDs, Nimi evidence IDs, and returned snapshot-section identity. Temi cannot invent research,
+availability, capacity, dependencies, or supported channels.
 
 ## Authority boundary
 
@@ -46,6 +65,11 @@ Relevant platform references: [Google Calendar events list](https://developers.g
 [Calendar authorization scopes](https://developers.google.com/workspace/calendar/api/auth), and
 [ADK MCP tools](https://google.github.io/adk-docs/tools-custom/mcp-tools/).
 
+## Handoff
+
+Deterministic code persists and digests the validated plan, then selects exactly one eligible item.
+Noni receives that item, its exact Ryan brief, and only the referenced Nimi evidence.
+
 ## Runtime enforcement
 
 Deterministic code creates and persists the snapshot before invocation from tenant-scoped Firestore
@@ -56,7 +80,7 @@ both the approved strategy digest and planning snapshot digest, rejects unsuppor
 collisions, capacity or cadence violations, invalid deadlines, dependency cycles, invented evidence,
 and authority overreach. Only deterministic code advances item lifecycle state.
 
-## Source references
+## Implementation references
 
 - Prompt: `agent/harmonia_agent/temi_prompt.py`
 - Skill runtime: `agent/harmonia_agent/temi_skills.py`

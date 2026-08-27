@@ -9,6 +9,8 @@ Nova answers operator questions about current signals, measured engagement, post
 tenant-scoped job state. Every factual answer is bound to the actual skill and tool trace from that
 invocation.
 
+## Contract
+
 | Property | Value |
 |---|---|
 | ADK name | `nova_liaison` |
@@ -18,7 +20,12 @@ invocation.
 | Runtime skills | Five filesystem ADK skills |
 | Tools | Six bounded read-only tools |
 
-## Skills and tools
+## Skills
+
+Nova selects exactly one of five routing skills before reading data: `trend-scan`, `signal-watch`,
+`engagement-insights`, `posting-schedule`, or `job-status`.
+
+## Tools and research
 
 | Skill | Purpose | Allowed tools |
 |---|---|---|
@@ -35,11 +42,22 @@ binds every factual claim to exact returned `evidenceId` values, displays those 
 interpretation into uncertainty. Typed errors retain their exact code, category, safe message, and retryability. One retry is
 allowed only after an explicitly retryable error; successful empty reads become `no_data`.
 
+## Evidence and provenance
+
+Every factual statement cites an `evidenceId` returned successfully in the current invocation.
+Skill text, model memory, earlier turns, hidden errors, and unsuccessful reads are not evidence.
+Typed errors and successful empty results remain explicit.
+
 ## Authority boundary
 
 Nova cannot approve, reject, retry jobs, schedule, publish, execute, verify, create receipts, change
 credentials or budgets, or mutate Firestore. Skill text, model memory, and earlier turns are not
 evidence.
+
+## Handoff
+
+Nova returns a read-only `LiaisonAnswer` to the operator interface. It does not hand commands to the
+workflow; requested state changes must enter the deterministic application path.
 
 ## Runtime enforcement
 
@@ -51,7 +69,7 @@ Monitoring receives only safe tool metadata: tool and skill names, status, durat
 stable error fields, operation, and trace. Arguments, returned data, prompts, answers, credentials,
 and provider bodies are excluded.
 
-## Source references
+## Implementation references
 
 - Prompt: `agent/harmonia_agent/nova_prompt.py`
 - Skills: `agent/harmonia_agent/skills/*/SKILL.md`

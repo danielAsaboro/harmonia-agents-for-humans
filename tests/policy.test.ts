@@ -2,6 +2,18 @@ import { describe, expect, it } from "vitest";
 import { applyPolicy, approvedPendingExecution, evaluateActionPolicy, validateDraftText } from "@/lib/policy";
 
 describe("evaluateActionPolicy", () => {
+  it.each([
+    ["publish_linkedin_post", "LinkedIn"],
+    ["publish_instagram_post", "Instagram"],
+    ["publish_youtube_video", "YouTube"],
+  ] as const)("requires approval for %s", (type, provider) => {
+    expect(evaluateActionPolicy(type, {})).toEqual({
+      risk: "high",
+      requiresApproval: true,
+      reason: `posts live content to ${provider}`,
+    });
+  });
+
   it("always gates X publishing behind approval", () => {
     const d = evaluateActionPolicy("publish_x_post", { text: "hello" });
     expect(d.requiresApproval).toBe(true);

@@ -398,6 +398,9 @@ export type RiskLevel = "low" | "medium" | "high";
 export type ActionType =
   | "export_content_pack"
   | "publish_x_post"
+  | "publish_linkedin_post"
+  | "publish_instagram_post"
+  | "publish_youtube_video"
   | "generate_image"
   | "generate_veo_broll"
   | "generate_lyria_soundtrack"

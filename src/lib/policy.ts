@@ -38,6 +38,24 @@ export function evaluateActionPolicy(
           : `blocked: draft invalid for X — ${check.note}`,
       };
     }
+    case "publish_linkedin_post":
+      return {
+        risk: "high",
+        requiresApproval: true,
+        reason: "posts live content to LinkedIn",
+      };
+    case "publish_instagram_post":
+      return {
+        risk: "high",
+        requiresApproval: true,
+        reason: "posts live content to Instagram",
+      };
+    case "publish_youtube_video":
+      return {
+        risk: "high",
+        requiresApproval: true,
+        reason: "posts live content to YouTube",
+      };
     case "export_content_pack":
       return {
         risk: "low",

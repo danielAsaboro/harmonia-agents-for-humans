@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 from datetime import datetime, timedelta, timezone
+import base64
 import hashlib
 import secrets
 from urllib.parse import unquote
@@ -319,6 +320,69 @@ def claim_operation(payload: dict[str, Any]) -> dict[str, Any]:
 
 def complete_event_inbox(payload: dict[str, Any]) -> None:
     post("/api/internal/event-inbox/finalize", payload)
+
+
+def create_artifact(
+    *,
+    job_id: str,
+    operation_id: str,
+    content: bytes,
+    content_type: str,
+    trust: str,
+    producer: dict[str, str],
+    retention_class: str,
+    source_event_id: str | None = None,
+    expires_at: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "jobId": job_id,
+        "operationId": operation_id,
+        "dataBase64": base64.b64encode(content).decode("ascii"),
+        "contentType": content_type,
+        "trust": trust,
+        "producer": producer,
+        "retentionClass": retention_class,
+    }
+    if source_event_id:
+        payload["sourceEventId"] = source_event_id
+    if expires_at:
+        payload["expiresAt"] = expires_at
+    with _client() as c:
+        res = c.post("/api/internal/artifacts", json=payload)
+    if res.status_code != 201:
+        raise WebApiError(
+            f"artifact creation failed: {res.status_code} {res.text}", res.status_code
+        )
+    return dict(res.json()["artifact"])
+
+
+def read_artifact(
+    artifact_id: str,
+    *,
+    offset: int | None = None,
+    length: int | None = None,
+    line_start: int | None = None,
+    line_count: int | None = None,
+) -> dict[str, Any]:
+    byte_mode = offset is not None or length is not None
+    line_mode = line_start is not None or line_count is not None
+    if byte_mode == line_mode:
+        raise ValueError("provide exactly one artifact byte or line window")
+    if byte_mode:
+        if offset is None or length is None:
+            raise ValueError("artifact byte window is incomplete")
+        params = {"offset": offset, "length": length}
+    else:
+        if line_start is None or line_count is None:
+            raise ValueError("artifact line window is incomplete")
+        params = {"lineStart": line_start, "lineCount": line_count}
+    with _client() as c:
+        res = c.get(f"/api/internal/artifacts/{artifact_id}", params=params)
+    if res.status_code != 200:
+        raise WebApiError(
+            f"artifact read failed: {res.status_code} {res.text}", res.status_code
+        )
+    return dict(res.json())
 
 
 def finalize_stage_execution(payload: dict[str, Any]) -> None:

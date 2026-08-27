@@ -8,7 +8,7 @@ import { currentTenant } from "./tenancy";
 class OperationFenceHeaderError extends Error {}
 class OperationFenceConflict extends Error {}
 
-function isOperationFenceConflict(error: unknown): boolean {
+export function isOperationFenceConflict(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   return [
     "operation not found",

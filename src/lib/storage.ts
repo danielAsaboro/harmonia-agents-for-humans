@@ -18,6 +18,62 @@ function localPath(key: string): string {
   return path.join(LOCAL_ROOT, currentTenant().workspaceId, currentTenant().brandId, safe);
 }
 
+function durableLocalPath(objectKey: string): string {
+  const allowedPrefix = `durable-artifacts/${currentTenant().workspaceId}/${currentTenant().brandId}/`;
+  if (!objectKey.startsWith(allowedPrefix) || objectKey.includes("..") || objectKey.includes("\\")) {
+    throw new Error("durable artifact key is outside the current tenant storage scope");
+  }
+  return path.join(process.cwd(), ".data", ...objectKey.split("/"));
+}
+
+function assertDurableObjectKey(objectKey: string): void {
+  durableLocalPath(objectKey);
+}
+
+export function durableArtifactUri(objectKey: string): string {
+  assertDurableObjectKey(objectKey);
+  const bucket = process.env.GCS_BUCKET;
+  return bucket ? `gs://${bucket}/${objectKey}` : `file://${objectKey}`;
+}
+
+export async function putDurableArtifactObject(
+  objectKey: string,
+  bytes: Uint8Array,
+  mime: string,
+): Promise<void> {
+  assertDurableObjectKey(objectKey);
+  const bucket = process.env.GCS_BUCKET;
+  if (bucket) {
+    const { Storage } = await import("@google-cloud/storage");
+    await new Storage({ projectId: getConfig().GOOGLE_CLOUD_PROJECT })
+      .bucket(bucket).file(objectKey).save(bytes, { contentType: mime, resumable: false });
+    return;
+  }
+  const target = durableLocalPath(objectKey);
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, bytes);
+}
+
+export async function getDurableArtifactObject(objectKey: string): Promise<Buffer | null> {
+  assertDurableObjectKey(objectKey);
+  const bucket = process.env.GCS_BUCKET;
+  if (bucket) {
+    const { Storage } = await import("@google-cloud/storage");
+    const file = new Storage({ projectId: getConfig().GOOGLE_CLOUD_PROJECT })
+      .bucket(bucket).file(objectKey);
+    try {
+      const [exists] = await file.exists();
+      if (!exists) return null;
+      const [contents] = await file.download();
+      return contents;
+    } catch {
+      return null;
+    }
+  }
+  const target = durableLocalPath(objectKey);
+  return existsSync(target) ? readFileSync(target) : null;
+}
+
 export async function putArtifact(key: string, bytes: Uint8Array, mime: string): Promise<string> {
   const bucket = process.env.GCS_BUCKET;
   if (bucket) {
@@ -28,8 +84,9 @@ export async function putArtifact(key: string, bytes: Uint8Array, mime: string):
     await file.save(bytes, { contentType: mime, resumable: false });
     return `gs://${bucket}/${objectName}`;
   }
-  mkdirSync(LOCAL_ROOT, { recursive: true });
-  writeFileSync(localPath(key), bytes);
+  const target = localPath(key);
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, bytes);
   return `file://artifacts/${key}`;
 }
 

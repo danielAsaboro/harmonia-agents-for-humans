@@ -7,6 +7,7 @@ describe("public documentation truth boundaries", () => {
   const overview = readFileSync("docs/index.mdx", "utf8");
   const quickstart = readFileSync("docs/quickstart.mdx", "utf8");
   const deployment = readFileSync("docs/deployment.mdx", "utf8");
+  const durableRuntime = readFileSync("docs/durable-runtime.md", "utf8");
 
   it("shows the recoverable stage outbox instead of direct transition publication", () => {
     expect(readme).toContain("one transaction --> OUTBOX");
@@ -27,5 +28,12 @@ describe("public documentation truth boundaries", () => {
   it("documents Agent Engine as mandatory in the managed worker", () => {
     expect(deployment).toContain("mandatory in the managed worker");
     expect(deployment).not.toContain("optional explicit production mode");
+  });
+
+  it("documents durable context, crash ambiguity, and honest verification limits", () => {
+    for (const required of [
+      "prune + spill", "intent before effect", "unknown is not failed", "operator resolution",
+      "Firestore emulator", "does not prove multi-week uptime",
+    ]) expect(durableRuntime).toContain(required);
   });
 });

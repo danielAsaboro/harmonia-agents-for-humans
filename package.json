@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:agent": "cd agent && ./.venv/bin/python -m pytest tests -q",
     "verify:evidence": "tsx scripts/verify-vertical-slice-evidence.ts",
+    "verify:durable-runtime": "tsx scripts/verify-durable-runtime.ts",
     "replay:record": "tsx scripts/record-authenticated-run.ts",
     "security:sbom": "npm sbom --sbom-format cyclonedx --package-lock-only --omit=dev",
     "seed": "node scripts/seed-demo.mjs"

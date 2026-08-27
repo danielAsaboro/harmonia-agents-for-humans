@@ -591,6 +591,10 @@ export interface ConnectionDoc {
   refreshToken?: string;
   expiresAt?: string;
   connectedAt: string;
+  credentialRevision?: number;
+  health?: "active" | "reconnect_required" | "revocation_pending";
+  destinations?: import("./publishing/contracts").PublishDestination[];
+  defaultDestinationId?: string;
   calendarId?: string;
   calendarTitle?: string;
   calendarProvisionedAt?: string;

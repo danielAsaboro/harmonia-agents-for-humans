@@ -1,6 +1,7 @@
 import { getConnection } from "@/lib/firestore";
 import { PLATFORMS, platformStatus } from "@/lib/platforms";
 import { tenantHandler } from "@/lib/auth";
+import { sanitizeSocialConnection } from "@/lib/publishing/connections";
 
 /**
  * Live connection status per platform. A connection is "connected" only when
@@ -14,6 +15,7 @@ async function get(_req: Request) {
         const conn = await getConnection(def.id);
         const expired = conn?.expiresAt ? Date.parse(conn.expiresAt) < Date.now() : false;
         if (conn && !expired) {
+          const safe = sanitizeSocialConnection(conn);
           return {
             id: def.id,
             label: def.label,
@@ -22,10 +24,14 @@ async function get(_req: Request) {
             note: def.note,
             docsUrl: def.docsUrl,
             status: "connected" as const,
-            mode: conn.mode,
-            handle: conn.handle,
-            connectedAt: conn.connectedAt,
-            expiresAt: conn.expiresAt,
+            mode: safe.mode,
+            handle: safe.handle,
+            connectedAt: safe.connectedAt,
+            expiresAt: safe.expiresAt,
+            credentialRevision: safe.credentialRevision,
+            health: safe.health,
+            destinations: safe.destinations,
+            defaultDestinationId: safe.defaultDestinationId,
             missingActive: [],
             missingRequired: [],
           };

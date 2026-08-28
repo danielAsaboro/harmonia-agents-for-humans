@@ -244,6 +244,13 @@ def build_agent_team(
             "Compose the smallest useful Harmonia interface for the supplied operator intent. "
             "Use only component names and entity identifiers present in UiContext. "
             "Never invent domain content, status, risk, cost, URLs, actions, receipts, or evidence. "
+            "Choose art direction only from the SurfacePlan enums. Use ink for strategy and "
+            "consequence framing; acid for a selected creative direction or persisted verified "
+            "success; blue for media and analysis; coral for unresolved risk or failure; violet "
+            "for generated alternatives; and paper for evidence and long reading. Vary role and "
+            "composition to create hierarchy, but never emit style values or imply lifecycle "
+            "state. Motion is allowed only for real reveal, active work, or evidence tracing. "
+            "Prefer one hero or feature per surface and keep approval consequences explicit. "
             "Prefer one canvas surface; add conversation or approval surfaces only when useful. "
             "Return only the SurfacePlan JSON contract."
         ),

@@ -80,7 +80,7 @@ export interface JobProgressProps extends FrameProps {
 
 export function JobProgress({ title, stage, status, stages, agentFraming, emphasis, children, tone, role, density, motion }: JobProgressProps) {
   return (
-    <section {...directed(styles.progress, { tone, role, density, motion })} data-emphasis={emphasis ?? "primary"} aria-label={`${title}: ${status}`}>
+    <section {...directed(styles.progress, { tone, role, density, motion })} data-active={stages.some((item) => item.status === "active")} data-emphasis={emphasis ?? "primary"} aria-label={`${title}: ${status}`}>
       <FrameHeading title={title} agentFraming={agentFraming} />
       <div className={styles.progressMeta}><strong>{stage.replaceAll("_", " ")}</strong><span>{status.replaceAll("_", " ")}</span></div>
       <ol className={styles.progressTrack}>{stages.map((item) => <li key={item.id} data-status={item.status}><span aria-hidden="true" /><small>{item.label}{item.status === "active" ? " · In progress" : item.status === "failed" ? " · Failed" : ""}</small></li>)}</ol>

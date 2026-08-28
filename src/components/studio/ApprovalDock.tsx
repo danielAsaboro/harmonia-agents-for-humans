@@ -33,7 +33,7 @@ function generatedApprovalActionIds(operations: unknown[]): string[] {
   return ids;
 }
 
-export function ApprovalDock({ jobId, actions, verifications, receipts, busy, onDecide, operations = [], onOperationDecision }: {
+export function ApprovalDock({ jobId, actions, verifications, receipts, busy, onDecide, operations = [], operationsLive = false, onOperationDecision }: {
   jobId: string;
   actions: PlannedAction[];
   verifications: Verification[];
@@ -41,6 +41,7 @@ export function ApprovalDock({ jobId, actions, verifications, receipts, busy, on
   busy: boolean;
   onDecide: (jobId: string, actionId: string, decision: "approved" | "rejected") => Promise<void> | void;
   operations?: unknown[];
+  operationsLive?: boolean;
   onOperationDecision?: (operationId: string, decision: "approved" | "rejected") => Promise<void> | void;
 }) {
   const [actionError, setActionError] = useState<string | null>(null);
@@ -72,7 +73,7 @@ export function ApprovalDock({ jobId, actions, verifications, receipts, busy, on
         <div className="max-h-[48vh] overflow-y-auto border-t border-black/10 bg-[#fffdf7] p-3 shadow-[0_-14px_34px_rgba(22,21,18,0.08)]">
         {protocolError ? <StudioFailure message={`A2UI protocol error: ${protocolError}`} permanent /> : null}
         {actionError ? <StudioFailure message={`A2UI action blocked: ${actionError}`} permanent /> : null}
-        {approvalOperations.length ? <HarmoniaA2uiHost operations={approvalOperations} onAction={(action) => {
+        {approvalOperations.length ? <HarmoniaA2uiHost operations={approvalOperations} live={operationsLive} onAction={(action) => {
         if (action.name === "decide_operation" && onOperationDecision) {
           const operationId = String(action.context.operationId ?? "");
           const decision = action.context.decision;

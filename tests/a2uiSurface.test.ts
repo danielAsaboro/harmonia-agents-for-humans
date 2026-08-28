@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { MessageProcessor } from "@a2ui/web_core/v0_9";
-import { harmoniaCatalog, parseHarmoniaA2uiOperation, surfaceFrameMetadata } from "../src/components/a2ui/HarmoniaCatalog";
+import { harmoniaCatalog, parseHarmoniaA2uiOperation, surfaceFrameMetadata, surfaceMotionState } from "../src/components/a2ui/HarmoniaCatalog";
 import { generateResponseSurfaces } from "../src/lib/a2ui/responseSurface";
 import type { JobFull } from "../src/components/jobTypes";
 
@@ -12,6 +12,21 @@ const job: JobFull = {
 };
 
 describe("Harmonia A2UI surfaces", () => {
+  test("animates only live operation growth and live revision advances", () => {
+    expect(surfaceMotionState({ live: false, operationsGrew: true, previousRevision: 1, revision: 2 })).toEqual({
+      liveUpdate: false,
+      revisionChanged: false,
+    });
+    expect(surfaceMotionState({ live: true, operationsGrew: true, previousRevision: 1, revision: 2 })).toEqual({
+      liveUpdate: true,
+      revisionChanged: true,
+    });
+    expect(surfaceMotionState({ live: true, operationsGrew: false, previousRevision: 2, revision: 2 })).toEqual({
+      liveUpdate: false,
+      revisionChanged: false,
+    });
+  });
+
   test("passes bounded context to the planner and materializes its hydrated surface", async () => {
     const planner = vi.fn().mockResolvedValue({
       version: "harmonia.ui/v1",

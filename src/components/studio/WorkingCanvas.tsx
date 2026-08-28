@@ -27,13 +27,14 @@ interface WorkingCanvasProps {
   onRetry?: () => void;
   supplemental?: React.ReactNode;
   operations?: unknown[];
+  operationsLive?: boolean;
   approvalBusy?: boolean;
   onDecide?: (jobId: string, actionId: string, decision: "approved" | "rejected") => Promise<void> | void;
   onOperationDecision?: (operationId: string, decision: "approved" | "rejected") => Promise<void> | void;
   onRequestSurfaceRevision?: (message: string) => Promise<void> | void;
 }
 
-export function WorkingCanvas({ job, events, receipts, loading, error, selectedArtifactId, onSelectedArtifactChange, onRetry, supplemental, operations = [], approvalBusy = false, onDecide, onOperationDecision, onRequestSurfaceRevision }: WorkingCanvasProps) {
+export function WorkingCanvas({ job, events, receipts, loading, error, selectedArtifactId, onSelectedArtifactChange, onRetry, supplemental, operations = [], operationsLive = false, approvalBusy = false, onDecide, onOperationDecision, onRequestSurfaceRevision }: WorkingCanvasProps) {
   const [view, setView] = useState<CanvasView>("board");
   const [a2uiActionError, setA2uiActionError] = useState<string | null>(null);
   const model = job ? buildStudioWorkspace(job, receipts) : null;
@@ -87,7 +88,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
           <div className="mb-4 flex items-end gap-4"><div><p className="font-mono text-[7px] uppercase tracking-[0.12em] text-[#817d74]">Current working set</p><h1 className="mt-1 text-[31px] font-extrabold leading-none tracking-[-0.05em]">One conversation,<br /><em className="font-serif text-[#5165ff]">{model.written.length + model.visual.length + model.motion.length + model.audio.length} living artifacts.</em></h1></div><div className="ml-auto text-right font-mono text-[8px] text-[#77736b]">{job.stage}<br />updated from persisted state</div></div>
           <nav className="mb-[14px] flex gap-1 overflow-x-auto" aria-label="Canvas views">{tabs.map((tab) => <button key={tab.key} type="button" onClick={() => { setView(tab.key); onSelectedArtifactChange(null); }} aria-current={visibleView === tab.key ? "page" : undefined} className={`shrink-0 rounded-full px-2.5 py-1.5 font-mono text-[8px] ${visibleView === tab.key ? "bg-[#11110f] text-white" : "bg-[#e3ded4] text-[#77736b]"}`}><b className={visibleView === tab.key ? "text-[#d8ff3e]" : ""}>{tab.label}</b>{tab.count !== undefined ? ` ${tab.count}` : ""}</button>)}</nav>
           {a2uiError ? <div className="mb-5"><StudioFailure message={`A2UI protocol error: ${a2uiError}`} permanent /></div> : null}
-          {canvasOperations.length ? <HarmoniaA2uiHost operations={canvasOperations} className="mb-5 flex w-full flex-col gap-3" onAction={(action) => {
+          {canvasOperations.length ? <HarmoniaA2uiHost operations={canvasOperations} live={operationsLive} className="mb-5 flex w-full flex-col gap-3" onAction={(action) => {
             if (action.name !== "request_surface_revision") {
               setA2uiActionError(`Unknown A2UI action: ${action.name}`);
               return;
@@ -112,7 +113,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
           {events.length ? <details className="mt-6 border-t border-black/15 pt-3"><summary className="cursor-pointer text-[10px] font-black uppercase tracking-[0.14em] text-black/40">Execution timeline · {events.length} events</summary><ol className="mt-3 space-y-2">{[...events].reverse().map((event, index) => <li key={`${event.at}-${index}`} className="grid grid-cols-[5rem_1fr] gap-3 text-xs"><span className="font-mono text-black/35">{event.at ? new Date(event.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}</span><span>{event.message}</span></li>)}</ol></details> : null}
         </> : null}
       </div>
-      {job && onDecide ? <ApprovalDock jobId={job.id} actions={job.actions} verifications={job.verifications ?? []} receipts={receipts} busy={approvalBusy} onDecide={onDecide} operations={operations} onOperationDecision={onOperationDecision} /> : null}
+      {job && onDecide ? <ApprovalDock jobId={job.id} actions={job.actions} verifications={job.verifications ?? []} receipts={receipts} busy={approvalBusy} onDecide={onDecide} operations={operations} operationsLive={operationsLive} onOperationDecision={onOperationDecision} /> : null}
     </section>
   );
 }

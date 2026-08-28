@@ -89,6 +89,7 @@ describe("Harmonia generated workspace elements", () => {
     }));
 
     expect(html).toContain("draft · In progress");
+    expect(html).toContain('data-active="true"');
   });
 
   test("renders a source-grounded draft comparison", () => {

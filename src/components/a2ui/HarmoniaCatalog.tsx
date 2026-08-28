@@ -195,7 +195,24 @@ export function surfaceFrameMetadata(surface: SurfaceModel<ReactComponentImpleme
   return DEFAULT_SURFACE_FRAME;
 }
 
-export function HarmoniaA2uiHost({ operations, onAction, onProtocolError, className }: { operations: unknown[]; onAction?: (action: A2uiClientAction) => void | Promise<void>; onProtocolError?: (error: Error) => void; className?: string }) {
+export function surfaceMotionState({
+  live,
+  operationsGrew,
+  previousRevision,
+  revision,
+}: {
+  live: boolean;
+  operationsGrew: boolean;
+  previousRevision?: number;
+  revision: number;
+}) {
+  return {
+    liveUpdate: live && operationsGrew,
+    revisionChanged: live && previousRevision !== undefined && revision > previousRevision,
+  };
+}
+
+export function HarmoniaA2uiHost({ operations, onAction, onProtocolError, className, live = false }: { operations: unknown[]; onAction?: (action: A2uiClientAction) => void | Promise<void>; onProtocolError?: (error: Error) => void; className?: string; live?: boolean }) {
   const processor = useMemo(() => new MessageProcessor<ReactComponentImplementation>(
     [harmoniaCatalog],
     (action) => onAction?.(action),
@@ -227,10 +244,16 @@ export function HarmoniaA2uiHost({ operations, onAction, onProtocolError, classN
       setProtocolError(failure.message);
       onProtocolError?.(failure);
     }
-  }, [onProtocolError, operations, processor]);
+  }, [live, onProtocolError, operations, processor]);
 
   return <div className={className ?? "flex flex-col gap-2"}>{protocolError && <p className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">A2UI protocol error: {protocolError}</p>}{surfaces.map((surface) => {
     const frame = surfaceFrameMetadata(surface);
+    const motion = surfaceMotionState({
+      live,
+      operationsGrew: live,
+      previousRevision: frame.revision > 1 ? frame.revision - 1 : undefined,
+      revision: frame.revision,
+    });
     return <div
       key={surface.id}
       className={styles.surfaceFrame}
@@ -238,6 +261,8 @@ export function HarmoniaA2uiHost({ operations, onAction, onProtocolError, classN
       data-rhythm={frame.rhythm}
       data-energy={frame.energy}
       data-revision={frame.revision}
+      data-live-update={motion.liveUpdate}
+      data-revision-changed={motion.revisionChanged}
     ><A2uiSurface surface={surface} /></div>;
   })}</div>;
 }

@@ -14,6 +14,7 @@ interface ConversationTurnProps {
   onActivateArtifact?: (artifactId: string) => void;
   onActivateJob?: (jobId: string) => void;
   onRequestSurfaceRevision?: (message: string) => Promise<void> | void;
+  live?: boolean;
 }
 
 function formatTime(value?: string | null) {
@@ -21,7 +22,7 @@ function formatTime(value?: string | null) {
   return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export function ConversationTurn({ message, onActivateArtifact, onActivateJob, onRequestSurfaceRevision }: ConversationTurnProps) {
+export function ConversationTurn({ message, onActivateArtifact, onActivateJob, onRequestSurfaceRevision, live = false }: ConversationTurnProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const user = message.role === "user";
   const jobs = [message.data?.job, ...(message.data?.jobs ?? [])].filter(Boolean) as NonNullable<typeof message.data>["job"][];
@@ -51,7 +52,7 @@ export function ConversationTurn({ message, onActivateArtifact, onActivateJob, o
       >
         <MessageContent text={message.text} />
       </div>
-      {conversationOperations.length ? <HarmoniaA2uiHost operations={conversationOperations} className="mt-2 flex w-full flex-col gap-2" onAction={(action) => {
+      {conversationOperations.length ? <HarmoniaA2uiHost operations={conversationOperations} live={live} className="mt-2 flex w-full flex-col gap-2" onAction={(action) => {
         if (action.name !== "request_surface_revision") {
           setActionError(`Unknown A2UI action: ${action.name}`);
           return;

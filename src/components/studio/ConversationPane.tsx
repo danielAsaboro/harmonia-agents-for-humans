@@ -94,7 +94,7 @@ export function ConversationPane(props: ConversationPaneProps) {
               </section>
             );
           })}
-          {liveMessage ? <ConversationTurn message={liveMessage} onActivateArtifact={props.onActivateArtifact} onActivateJob={props.onActivateJob} onRequestSurfaceRevision={props.onSend} /> : null}
+          {liveMessage ? <ConversationTurn message={liveMessage} live onActivateArtifact={props.onActivateArtifact} onActivateJob={props.onActivateJob} onRequestSurfaceRevision={props.onSend} /> : null}
         </div>
         {awayFromLatest ? <button type="button" onClick={() => scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" })} className="sticky bottom-3 left-1/2 mt-4 -translate-x-1/2 rounded-full bg-[#3157ff] px-4 py-2 text-xs font-bold text-white shadow-xl">↓ Return to latest</button> : null}
       </div>

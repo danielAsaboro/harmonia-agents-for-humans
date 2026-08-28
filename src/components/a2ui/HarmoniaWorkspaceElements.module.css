@@ -271,6 +271,31 @@
 .surfaceFrame[data-rhythm="operational"] { --surface-gap:.625rem; }
 .surfaceFrame[data-rhythm="cinematic"] { --surface-gap:1rem; }
 
+@keyframes artifact-reveal {
+  from { opacity:0; transform:translateY(12px) scale(.992); }
+  to { opacity:1; transform:none; }
+}
+
+@keyframes active-pulse {
+  50% { box-shadow:0 0 0 6px color-mix(in srgb, var(--artifact-accent) 22%, transparent); }
+}
+
+@keyframes evidence-trace {
+  from { background-position:100% 0; }
+  to { background-position:0 0; }
+}
+
+.surfaceFrame[data-live-update="true"] .artifact[data-motion="reveal"] {
+  animation:artifact-reveal 360ms cubic-bezier(.2,.8,.2,1) both;
+}
+.surfaceFrame[data-live-update="true"] .artifact[data-motion="trace"] .timeline {
+  background-image:linear-gradient(90deg,transparent 0 42%,color-mix(in srgb,var(--artifact-accent) 70%,transparent) 50%,transparent 58%);
+  background-size:220% 100%;
+  animation:evidence-trace 720ms ease-out both;
+}
+.artifact[data-motion="pulse"][data-active="true"] { animation:active-pulse 1.8s ease-in-out infinite; }
+.surfaceFrame[data-revision-changed="true"] .artifact[data-role="feature"] { outline:3px solid var(--artifact-accent); outline-offset:3px; }
+
 @media (max-width:900px) {
   .artifact[data-role="feature"],.artifact[data-role="support"],.artifact[data-role="inline"] { grid-column:1 / -1; }
   .progress.artifact[data-role="strip"] { grid-template-columns:1fr; }

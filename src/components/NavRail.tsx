@@ -142,7 +142,7 @@ export default function NavRail() {
         aria-label="Open navigation"
         aria-controls="dashboard-navigation-rail"
         aria-expanded={open}
-        className="fixed inset-y-0 left-0 z-50 w-3 border-0 bg-transparent p-0 outline-none focus-visible:bg-[#d8ff3e]/40"
+        className={styles.trigger}
         onPointerEnter={() => registerPresence("pointer-enter")}
         onPointerLeave={() => registerPresence("pointer-leave")}
         onFocus={() => registerPresence("focus-enter")}
@@ -153,22 +153,22 @@ export default function NavRail() {
         aria-label="Primary"
         aria-hidden={!open}
         inert={!open}
-        className={`${styles.rail} ${open ? styles.railOpen : ""} fixed left-3 top-1/2 z-40 sm:left-4`}
+        className={`${styles.rail} ${open ? styles.railOpen : ""}`}
         onPointerEnter={() => registerPresence("pointer-enter")}
         onPointerLeave={() => registerPresence("pointer-leave")}
         onFocusCapture={() => registerPresence("focus-enter")}
         onBlurCapture={(event) => leaveFocusRegion(event, "rail")}
       >
-        <div className="flex flex-col items-center gap-1 rounded-full border border-[#292927] bg-[#454544] px-2 py-4 text-[#b9bab8] shadow-2xl shadow-black/20">
+        <div className={styles.island}>
           <Link
             href="/"
             title="Harmonia"
             aria-label="Harmonia home"
-            className="mb-2 flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-[#080b08] shadow-sm ring-1 ring-[#d8ff3e]/30"
+            className={styles.logo}
           >
             <BrandMark className="h-full w-full object-contain" decorative />
           </Link>
-          <div role="separator" aria-hidden className="mb-1 h-px w-6 bg-white/20" />
+          <div role="separator" aria-hidden className={styles.separator} />
           {RAIL.map(({ href, label, Icon }) => {
             const active = isRailItemActive(pathname, href);
             const notificationLabel = label === "Notifications" && unread ? `${label} (${unread} unread)` : label;
@@ -179,30 +179,26 @@ export default function NavRail() {
                 title={notificationLabel}
                 aria-label={notificationLabel}
                 aria-current={active ? "page" : undefined}
-                className={`relative flex h-10 w-10 items-center justify-center rounded-full transition-colors ${
-                  active
-                    ? "bg-[#f7f7f4] text-[#171715] shadow-md"
-                    : label === "Notifications" && unread > 0
-                      ? "text-white ring-2 ring-[#d8ff3e] hover:bg-white/10"
-                      : "text-[#b9bab8] hover:bg-white/10 hover:text-white"
-                }`}
+                data-tooltip={label}
+                data-nav-destination={href}
+                className={`${styles.item} ${active ? styles.active : ""} ${label === "Notifications" && unread > 0 ? styles.unread : ""}`}
               >
                 <Icon />
                 {label === "Notifications" && unread > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#d8ff3e] px-1 text-[9px] font-bold text-[#171715]">
+                  <span className={styles.badge}>
                     {unread > 99 ? "99+" : unread}
                   </span>
                 )}
               </Link>
             );
           })}
-          <div role="separator" aria-hidden className="my-1 h-px w-6 bg-white/20" />
+          <div role="separator" aria-hidden className={styles.separator} />
           <button
             type="button"
             onClick={signOut}
             title="Sign out"
             aria-label="Sign out"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-[#b9bab8] transition-colors hover:bg-white/10 hover:text-white"
+            className={`${styles.item} ${styles.logout}`}
           >
             <LogoutIcon />
           </button>

@@ -102,4 +102,25 @@ describe("dashboard navigation rail", () => {
     expect(html).toContain('aria-label="Open navigation"');
     expect(html).toContain("Studio");
   });
+
+  it("scopes non-studio pages to the dashboard application canvas", () => {
+    pathname = "/dashboard/settings";
+    const html = renderToStaticMarkup(
+      createElement(DashboardFrame, null, createElement("div", null, "Settings")),
+    );
+
+    expect(html).toContain('class="dashboard-app dashboard-shell"');
+    expect(html).toContain('data-dashboard-mode="page"');
+  });
+
+  it("keeps exactly five named destinations with visible tooltip copy", () => {
+    const html = renderToStaticMarkup(createElement(NavRail));
+    const labels = ["Console", "Calendar", "Monitoring", "Notifications", "Settings"];
+
+    for (const label of labels) {
+      expect(html).toContain(`aria-label="${label}`);
+      expect(html).toContain(`data-tooltip="${label}"`);
+    }
+    expect(html.match(/data-nav-destination=/g)).toHaveLength(5);
+  });
 });

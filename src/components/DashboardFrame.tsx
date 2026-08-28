@@ -10,7 +10,10 @@ export default function DashboardFrame({ children }: { children: React.ReactNode
   return (
     <>
       <NavRail />
-      <main className={isStudio ? "h-dvh w-full overflow-hidden" : "min-h-screen"}>
+      <main
+        className={isStudio ? "dashboard-app dash-studio h-dvh w-full overflow-hidden" : "dashboard-app dashboard-shell"}
+        data-dashboard-mode={isStudio ? "studio" : "page"}
+      >
         <div className={isStudio ? "h-full" : "mx-auto w-full max-w-6xl"}>{children}</div>
       </main>
       {!isStudio ? <ChatDrawer /> : null}

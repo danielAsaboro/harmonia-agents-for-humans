@@ -164,8 +164,33 @@ def test_ffmpeg_finalization_and_qa_enforce_delivery_shape(tmp_path: Path):
     assert inspection["video"] == {"codec": "h264", "width": 270, "height": 480, "frameRate": 30.0}
     assert inspection["audio"]["sampleRate"] == 48000
     assert inspection["audio"]["channels"] == 2
+    assert inspection["audioAnalysis"]["integratedLufs"] == pytest.approx(-16, abs=1.0)
+    assert inspection["audioAnalysis"]["truePeakDbfs"] <= -1.0
+    assert inspection["audioAnalysis"]["silenceRatio"] == pytest.approx(0, abs=0.01)
     qa = evaluate_media_quality(inspection, {
         "durationSec": 1, "width": 270, "height": 480, "frameRate": 30,
     })
     assert qa["passed"] is True
     assert qa["issues"] == []
+
+
+def test_qa_rejects_unmeasured_or_unsafe_audio():
+    target = {"durationSec": 4, "width": 1080, "height": 1920, "frameRate": 30}
+    base = {
+        "sha256": "a" * 64,
+        "bytes": 100,
+        "durationSec": 4,
+        "video": {"codec": "h264", "width": 1080, "height": 1920, "frameRate": 30},
+        "audio": {"codec": "aac", "sampleRate": 48000, "channels": 2},
+    }
+    missing = evaluate_media_quality(base, target)
+    unsafe = evaluate_media_quality({
+        **base,
+        "audioAnalysis": {"integratedLufs": -8.0, "truePeakDbfs": 0.0, "silenceRatio": 0.75},
+    }, target)
+
+    assert missing["passed"] is False
+    assert "audio_analysis_missing" in missing["issues"]
+    assert set(unsafe["issues"]) >= {
+        "integrated_loudness_out_of_range", "true_peak_too_high", "excessive_silence",
+    }

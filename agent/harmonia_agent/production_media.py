@@ -6,6 +6,7 @@ import hashlib
 import html
 import io
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -200,6 +201,37 @@ def _rate(value: str) -> float:
     return float(numerator) / float(denominator or 1)
 
 
+def _audio_quality(path: Path, duration: float) -> dict[str, float]:
+    """Measure delivery loudness, true peak, and silence from decoded samples."""
+    commands = [
+        ["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-filter_complex", "ebur128=peak=true", "-f", "null", "-"],
+        ["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-af", "silencedetect=noise=-50dB:d=0.1", "-f", "null", "-"],
+    ]
+    try:
+        loudness = subprocess.run(commands[0], check=True, capture_output=True, text=True, timeout=120).stderr
+        silence = subprocess.run(commands[1], check=True, capture_output=True, text=True, timeout=120).stderr
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise MediaInspectionError("ffmpeg could not analyze audio quality") from exc
+    integrated_match = re.search(r"Integrated loudness:\s+I:\s+(-?(?:\d+(?:\.\d+)?|inf))\s+LUFS", loudness)
+    peak_match = re.search(r"True peak:\s+Peak:\s+(-?(?:\d+(?:\.\d+)?|inf))\s+dBFS", loudness)
+    if not integrated_match or not peak_match:
+        raise MediaInspectionError("ffmpeg audio quality summary is incomplete")
+
+    def measured(value: str) -> float:
+        return -120.0 if value == "-inf" else float(value)
+
+    silence_duration = sum(float(value) for value in re.findall(r"silence_duration:\s*([0-9.]+)", silence))
+    starts = re.findall(r"silence_start:\s*([0-9.]+)", silence)
+    ends = re.findall(r"silence_end:\s*([0-9.]+)", silence)
+    if len(starts) > len(ends) and duration > 0:
+        silence_duration += max(0.0, duration - float(starts[-1]))
+    return {
+        "integratedLufs": measured(integrated_match.group(1)),
+        "truePeakDbfs": measured(peak_match.group(1)),
+        "silenceRatio": min(1.0, max(0.0, silence_duration / duration)) if duration > 0 else 1.0,
+    }
+
+
 def inspect_media(path: Path) -> dict[str, Any]:
     if not path.is_file() or path.stat().st_size == 0:
         raise MediaInspectionError("media artifact is missing or empty")
@@ -227,13 +259,15 @@ def inspect_media(path: Path) -> dict[str, Any]:
         "sampleRate": int(item.get("sample_rate") or 0),
         "channels": int(item.get("channels") or 0),
     } for item in audio_streams]
+    duration = float((raw.get("format") or {}).get("duration") or 0)
     return {
         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "bytes": path.stat().st_size,
-        "durationSec": float((raw.get("format") or {}).get("duration") or 0),
+        "durationSec": duration,
         "format": (raw.get("format") or {}).get("format_name"),
         "video": video,
         "audio": audio[0] if len(audio) == 1 else audio,
+        "audioAnalysis": _audio_quality(path, duration) if audio else None,
     }
 
 
@@ -383,6 +417,9 @@ def evaluate_media_quality(inspection: dict[str, Any], target: dict[str, Any]) -
     issues: list[str] = []
     video = inspection.get("video")
     audio = inspection.get("audio")
+    audio_analysis = inspection.get("audioAnalysis")
+    if not inspection.get("sha256") or not inspection.get("bytes"):
+        issues.append("integrity_check_failed")
     if not isinstance(video, dict):
         issues.append("missing_video_stream")
     else:
@@ -405,6 +442,15 @@ def evaluate_media_quality(inspection: dict[str, Any], target: dict[str, Any]) -
                 issues.append("audio_sample_rate_mismatch")
             if streams[0].get("channels") != 2:
                 issues.append("audio_channel_count_mismatch")
+        if not isinstance(audio_analysis, dict):
+            issues.append("audio_analysis_missing")
+        else:
+            if not -18.0 <= float(audio_analysis.get("integratedLufs", -120)) <= -14.0:
+                issues.append("integrated_loudness_out_of_range")
+            if float(audio_analysis.get("truePeakDbfs", 0)) > -1.0:
+                issues.append("true_peak_too_high")
+            if float(audio_analysis.get("silenceRatio", 1)) > 0.5:
+                issues.append("excessive_silence")
     return {
         "schemaVersion": 1,
         "passed": not issues,
@@ -414,5 +460,6 @@ def evaluate_media_quality(inspection: dict[str, Any], target: dict[str, Any]) -
             "duration": duration,
             "video": video,
             "audio": audio,
+            "audioAnalysis": audio_analysis,
         },
     }

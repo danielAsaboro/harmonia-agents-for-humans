@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"),
   title: "Harmonia — from source to signal to proof",
   description:
-    "Autonomous content engine for startups: ingests video, transcribes, finds moments and trends, drafts platform-native posts behind human approval, publishes with audit receipts.",
+    "Autonomous content engine for startups: turns video, audio, documents, webpages, and text into platform-native content with human approval and verified publishing.",
   openGraph: {
     title: "Harmonia — from source to signal to proof",
     description:

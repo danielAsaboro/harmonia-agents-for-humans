@@ -38,17 +38,18 @@ export default function LandingPage() {
             <span>A living system of content.</span>
           </h1>
           <p>
-            Harmonia finds the signal inside your long-form video, shapes it for every platform,
-            waits for your approval, then publishes and proves what happened.
+            Harmonia finds the signal across your source material, shapes it into platform-native
+            content, waits for your approval, then publishes and proves what happened.
           </p>
           <div className="hero-actions">
             <Link href="/dashboard" className="primary-button">
-              Start with a video <span>↗</span>
+              Start a content run <span>↗</span>
             </Link>
             <a href="#workflow" className="ghost-button">
               Watch it transform <span>↓</span>
             </a>
           </div>
+          <span className="hero-source-types">Video · audio · documents · webpages · text</span>
         </div>
 
         <div className="source-card glass-card">

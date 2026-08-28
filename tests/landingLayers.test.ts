@@ -22,4 +22,14 @@ describe("landing page layers", () => {
     expect(markup).toContain('aria-label="Interactive signal globe"');
     expect(markup).toContain("The receipt becomes the next seed.");
   });
+
+  it("presents broad source support while keeping the video-led demonstration", () => {
+    const markup = renderToStaticMarkup(createElement(LandingPage));
+
+    expect(markup).toContain("Start a content run");
+    expect(markup).toContain("Video · audio · documents · webpages · text");
+    expect(markup).toContain("Founder story.mp4");
+    expect(markup).not.toContain("Start with a video");
+    expect(markup).not.toContain("inside your long-form video");
+  });
 });

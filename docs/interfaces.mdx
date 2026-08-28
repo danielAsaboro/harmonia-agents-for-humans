@@ -18,13 +18,15 @@ Harmonia exposes the same job submission, status, drafting, and approval surface
 
 The full Console uses `POST /api/chat/stream` for durable, replayable NDJSON events and A2UI surfaces. `POST /api/chat` remains the JSON compatibility contract used by Telegram and contextual Drawer requests.
 
-The Console supports direct resumable uploads for images, video, audio, and documents. A ready uploaded video or audio file can become the source for a new job when the accompanying prompt requests job creation. The interface shows upload progress, agent activity, tool status, task plans, queues, safe reasoning summaries, generated assets, and explicit confirmation cards. It never renders raw chain-of-thought.
+The Console supports direct resumable uploads for images, video, audio, and documents. Jobs can begin from an authorized YouTube or public web URL, a ready uploaded file, pasted factual context, or an operator brief. The interface shows upload progress, agent activity, tool status, task plans, queues, safe reasoning summaries, generated assets, and explicit confirmation cards. It never renders raw chain-of-thought.
 
 Natural-language control:
 
 | Say | Intent |
 |---|---|
 | "turn \<youtube url\> into clips" | `create_job` from video |
+| "turn this report into a launch thread" + upload | `create_job` from a document |
+| "create posts from \<public url\>" | `create_job` from a webpage |
 | "make posts about our billing launch" (≥20 chars) | `create_job` from topic brief |
 | "status" / "status of job \<id\>" | `status` |
 | "show artifacts for \<id\>" | `list_artifacts` |

@@ -357,7 +357,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
         intent: intent.intent,
         reply: jobs.length
           ? `${jobs.length} recent job(s), newest first:`
-          : "No jobs yet. Send me a YouTube URL to create one.",
+          : "No jobs yet. Share a URL, upload a file, paste source material, or describe a content brief to create one.",
         jobs: jobs.slice(0, 5).map(toCard),
       } satisfies ChatResponse };
     }
@@ -452,7 +452,9 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
         intent: "unknown",
         reply:
           "I can run your Harmonia content pipeline. Try:\n" +
-          "- \"make a job from https://youtu.be/<id>\"\n" +
+          "- \"share a public URL and turn it into platform-native posts\"\n" +
+          "- \"upload a file and build a content campaign from it\"\n" +
+          "- \"paste source material or describe a content brief\"\n" +
           "- \"status of job <id>\" or \"status\"\n" +
           "- \"show artifacts for <id>\"\n" +
           "- \"approve job <id>\" (strategy and publication effects have separate explicit approvals)",

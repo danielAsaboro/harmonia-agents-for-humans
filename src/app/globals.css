@@ -234,6 +234,17 @@ body {
   margin-top: 30px;
 }
 
+.hero-source-types {
+  display: block;
+  margin-top: 15px;
+  color: rgba(239, 243, 234, 0.48);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 .primary-button,
 .ghost-button {
   border-radius: 999px;

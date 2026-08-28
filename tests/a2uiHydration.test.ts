@@ -209,9 +209,10 @@ describe("A2UI trusted hydration", () => {
           slot: "canvas",
           revision: 3,
           rootId: "brief",
+          artDirection: { rhythm: "editorial", composition: "stack", energy: "quiet" },
           nodes: [
-            { id: "brief", component: "CampaignBrief", emphasis: "primary", refs: { jobId: "job-1", draftIds: [], momentIds: [], sourceIds: [], assetActionIds: [], actionIds: [], receiptIds: [] }, children: ["drafts"] },
-            { id: "drafts", component: "DraftComparison", emphasis: "secondary", refs: { jobId: "job-1", draftIds: ["draft-1"], momentIds: [], sourceIds: [], assetActionIds: [], actionIds: [], receiptIds: [] }, children: [] },
+            { id: "brief", component: "CampaignBrief", emphasis: "primary", refs: { jobId: "job-1", draftIds: [], momentIds: [], sourceIds: [], assetActionIds: [], actionIds: [], receiptIds: [] }, artDirection: { tone: "paper", role: "support", density: "balanced", motion: "none" }, children: ["drafts"] },
+            { id: "drafts", component: "DraftComparison", emphasis: "secondary", refs: { jobId: "job-1", draftIds: ["draft-1"], momentIds: [], sourceIds: [], assetActionIds: [], actionIds: [], receiptIds: [] }, artDirection: { tone: "paper", role: "support", density: "balanced", motion: "none" }, children: [] },
           ],
         }],
       },

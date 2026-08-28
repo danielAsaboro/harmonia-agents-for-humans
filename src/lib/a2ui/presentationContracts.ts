@@ -118,12 +118,12 @@ const surfacePlanNodeSchema = z.object({
   })),
   title: z.string().max(160).optional(),
   emphasis: z.enum(["primary", "secondary", "compact"]).default("primary"),
-  artDirection: nodeArtDirectionSchema.default(() => ({
+  artDirection: nodeArtDirectionSchema.default({
     tone: "paper",
     role: "support",
     density: "balanced",
     motion: "none",
-  })),
+  }),
   children: boundedList(id, 30).default([]),
 }).strict();
 
@@ -131,11 +131,11 @@ const plannedSurfaceSchema = z.object({
   slot: z.enum(surfaceSlots),
   revision: z.number().int().positive(),
   rootId: id,
-  artDirection: surfaceArtDirectionSchema.default(() => ({
+  artDirection: surfaceArtDirectionSchema.default({
     rhythm: "editorial",
     composition: "stack",
     energy: "quiet",
-  })),
+  }),
   nodes: z.array(surfacePlanNodeSchema).min(1).max(40),
 }).strict().superRefine((surface, context) => {
   const ids = surface.nodes.map((node) => node.id);

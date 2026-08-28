@@ -87,7 +87,7 @@ export async function revokeAccess(
   };
   const body = new URLSearchParams({ token });
 
-  if (def.id === "google-calendar" || def.id === "youtube") {
+  if (def.id === "google-calendar" || def.id === "google-drive" || def.id === "youtube") {
     url = "https://oauth2.googleapis.com/revoke";
   } else if (def.id === "x") {
     url = "https://api.x.com/2/oauth2/revoke";

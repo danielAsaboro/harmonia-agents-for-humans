@@ -10,6 +10,7 @@ import { SectionHeader } from "@/components/dashboard/DashboardPage";
 import { StatusBadge } from "@/components/dashboard/StatusBadge";
 import { Surface } from "@/components/dashboard/Surface";
 import { AlertBanner, ErrorState, LoadingState } from "@/components/dashboard/SystemState";
+import { BrandLibrariesSettings } from "@/components/settings/BrandLibrariesSettings";
 
 interface HealthInfo {
   ok: boolean;
@@ -419,6 +420,7 @@ export default function SettingsView() {
     <div className="settings-grid">
       <GoalsSection />
       <ConnectionsSection />
+      <BrandLibrariesSettings />
       <TelegramSection />
 
       <Surface as="section" className="settings-section">

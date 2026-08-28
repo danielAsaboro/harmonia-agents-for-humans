@@ -175,6 +175,15 @@ npm run build                # production Next.js build
 npm run test:agent           # Python: source extraction, Telegram callbacks, failure classification
 ```
 
+Re-anchor persisted Firestore history while preserving event order and elapsed gaps:
+
+```bash
+npm run history:reanchor -- --dry-run
+npm run history:reanchor
+```
+
+The default origin is `2026-08-27T00:00:00.000Z`. Pass `--target <ISO timestamp>` to select another origin. The command traverses root collections and every nested subcollection, preserves native Firestore `Timestamp` and JavaScript `Date` values, and closes non-terminal worker-facing records before they can be reclaimed. It does not change the host clock.
+
 Agent evaluation foundations live under `agent/evals/`: ADK-native public contract fixtures,
 deterministic grounding/authority checks, and a quality-cost-latency comparison report. Live model
 evaluation requires `HARMONIA_REAL_EVAL=1`, refuses mock mode, and must write authorized source

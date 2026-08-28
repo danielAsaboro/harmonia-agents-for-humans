@@ -1,4 +1,7 @@
+import { installServerClock } from "@/lib/serverClock";
+
 export async function register(): Promise<void> {
+  installServerClock();
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   if (!/^(1|true|yes|on)$/i.test(process.env.HARMONIA_TELEMETRY_ENABLED ?? "")) return;
 

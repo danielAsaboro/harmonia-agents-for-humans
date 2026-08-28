@@ -24,7 +24,7 @@ def _analysis() -> dict:
         "moments": [{
             "id": "m1", "title": "Activation", "startSec": 0, "endSec": 0,
             "hook": "Cut the delay", "quote": "Nine days became forty hours.",
-            "transcriptSegmentRefs": ["brief-1"], "visualEvidenceIds": [],
+            "sourceSegmentRefs": ["brief-1"], "visualEvidenceIds": [],
             "assumptions": [], "confidence": "high",
         }],
         "angles": [{
@@ -48,7 +48,7 @@ def _effect_command(action: dict) -> dict:
     }
 
 
-def test_understand_brief_routes_through_nimi_without_strategy(monkeypatch):
+def test_understand_written_source_routes_through_nimi_without_fake_timestamps(monkeypatch):
     requests = []
     posts = []
 
@@ -56,20 +56,18 @@ def test_understand_brief_routes_through_nimi_without_strategy(monkeypatch):
         requests.append((request, invocation))
         result = _analysis()
         result["sourceDigest"] = request.sourceDigest
-        result["moments"][0].update(
-            quote=request.transcriptSegments[0].text,
-            transcriptSegmentRefs=[request.transcriptSegments[0].id],
-        )
+        result["moments"] = []
+        result["angles"][0]["evidenceRefs"] = [request.sourceSegments[0].id]
         return AnalysisRunResult(
             analysis=SourceAnalysis.model_validate(result),
             searchEvidence={}, groundingMetadata=None,
         )
 
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
-        "config": {"brief": "Explain our activation win"},
+        "id": "job-1", "config": {"sourceManifestId": "manifest-1"},
         "workspaceId": "workspace-test", "brandId": "brand-test", "createdByUserId": "user-test",
-        "transcriptSegments": [],
     })
+    monkeypatch.setattr(stages, "get_source_manifest", lambda _job_id: {"normalizedSources": [{"sourceId": "source-1", "sourceKind": "document", "title": "Activation brief", "mimeType": "application/pdf", "contentDigest": "a" * 64, "segments": [{"id": "page-1", "text": "Explain our activation win", "digest": "b" * 64, "locator": {"kind": "page_range", "startPage": 1, "endPage": 1}}]}]})
     monkeypatch.setattr(stages, "get_insights", lambda: {})
     monkeypatch.setattr(stages, "analyze_with_team", fake_analyze)
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
@@ -77,8 +75,9 @@ def test_understand_brief_routes_through_nimi_without_strategy(monkeypatch):
     asyncio.run(stages.run_understand("job-1"))
 
     request, invocation = requests[0]
-    assert request.sourceKind == "brief"
-    assert request.transcriptSegments[0].text == "Explain our activation win"
+    assert request.sourceKind == "document"
+    assert request.sourceSegments[0].text == "Explain our activation win"
+    assert request.sourceSegments[0].locator.kind == "page_range"
     assert request.memoryFacts == []
     assert invocation.job_id == "job-1"
     assert invocation.stage == "understand"
@@ -100,8 +99,8 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
     job = {
         "workspaceId": "workspace-test", "brandId": "brand-test", "createdByUserId": "user-test",
         "config": {"brief": "Activation launch"},
-        "ingestedTitle": "Activation launch",
         "sourceAnalysis": _analysis(),
+        "campaignOutputPlan": {"outputs": [{"outputType": "x_post"}, {"outputType": "content_pack"}]},
         "strategyDigest": "a" * 64,
         "strategyApproval": {"decision": "approved", "payloadDigest": "a" * 64, "revision": 1, "decidedAt": "2026-08-27T00:00:00Z", "expiresAt": "2099-01-01T00:00:00Z"},
         "contentStrategy": _content_strategy().model_dump(mode="json"),
@@ -137,7 +136,7 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
     assert any(action["id"] == "act-content-pack" for action in payload["proposedActions"])
 
 
-def test_understand_video_passes_direct_source_media_evidence(monkeypatch):
+def test_understand_video_passes_typed_time_range_evidence(monkeypatch):
     requests = []
     posts = []
 
@@ -147,7 +146,7 @@ def test_understand_video_passes_direct_source_media_evidence(monkeypatch):
         result["sourceDigest"] = request.sourceDigest
         result["moments"][0].update(
             startSec=0, endSec=5, quote="hello",
-            transcriptSegmentRefs=["s1"],
+            sourceSegmentRefs=["source-video:s1"],
         )
         return AnalysisRunResult(
             analysis=SourceAnalysis.model_validate(result),
@@ -155,14 +154,10 @@ def test_understand_video_passes_direct_source_media_evidence(monkeypatch):
         )
 
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
-        "config": {"youtubeUrl": "https://www.youtube.com/watch?v=abc12345678"},
+        "id": "job-video", "config": {"sourceManifestId": "manifest-video"},
         "workspaceId": "workspace-test", "brandId": "brand-test", "createdByUserId": "user-test",
-        "transcriptSegments": [{"id": "s1", "startSec": 0, "endSec": 5, "text": "hello"}],
-        "ingestedTitle": "Demo video",
-        "ingestedChannel": "Harmonia",
-        "ingestedDurationSec": 60,
-        "mediaDigest": "a" * 64,
     })
+    monkeypatch.setattr(stages, "get_source_manifest", lambda _job_id: {"normalizedSources": [{"sourceId": "source-video", "sourceKind": "video", "title": "Demo video", "mimeType": "video/mp4", "contentDigest": "a" * 64, "segments": [{"id": "s1", "text": "hello", "digest": "b" * 64, "locator": {"kind": "time_range", "startMs": 0, "endMs": 5000}}]}]})
     monkeypatch.setattr(stages, "get_insights", lambda: {})
     monkeypatch.setattr(stages, "analyze_with_team", fake_analyze)
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
@@ -171,35 +166,17 @@ def test_understand_video_passes_direct_source_media_evidence(monkeypatch):
 
     request, invocation = requests[0]
     assert invocation.stage == "understand"
-    assert request.mediaEvidence.video_uri.endswith("abc12345678")
-    assert request.mediaEvidence.duration_sec == 60
-    assert request.mediaEvidence.source_digest == "a" * 64
-    assert request.transcriptSegments[0].text == "hello"
+    assert request.sourceIds == ["source-video"]
+    assert request.sourceSegments[0].locator.endMs == 5000
+    assert request.sourceSegments[0].text == "hello"
 
 
-def test_ingest_uploaded_media_uses_tenant_scoped_attachment(monkeypatch):
-    posts = []
+def test_extract_uploaded_media_uses_tenant_scoped_attachment(monkeypatch):
     media = b"uploaded-media"
-    monkeypatch.setattr(stages, "get_job", lambda _job_id: {
-        "config": {
-            "mediaAttachmentId": "attachment-1",
-            "mediaFilename": "founder-demo.mp4",
-            "mediaMime": "video/mp4",
-            "mediaStorageUri": "gs://bucket/chat-attachments/ws/brand/attachment-1.mp4",
-        },
-    })
     monkeypatch.setattr(stages, "get_chat_attachment", lambda _id: (media, "video/mp4", "founder-demo.mp4"))
-    monkeypatch.setattr(stages.youtube, "probe_audio_duration", lambda _bytes: 42)
-    monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
-
-    asyncio.run(stages.run_ingest("job-upload"))
-
-    path, payload = posts[0]
-    assert path == "/api/internal/ingest"
-    assert payload["videoId"] == "attachment-1"
-    assert payload["title"] == "founder-demo.mp4"
-    assert payload["durationSec"] == 42
-    assert payload["mediaBytes"] == len(media)
+    monkeypatch.setattr(stages, "extract_media", lambda source_id, title, body, mime, **_kwargs: (source_id, title, body, mime))
+    result = stages._extract_source({"id": "job-upload", "workspaceId": "w", "brandId": "b", "createdByUserId": "u"}, {"id": "source-upload"}, {"kind": "upload", "attachmentId": "attachment-1"})
+    assert result == ("source-upload", "founder-demo.mp4", media, "video/mp4")
 
 
 @pytest.mark.parametrize(("stored_markdown", "verified"), [
@@ -266,7 +243,7 @@ def test_content_pack_receipt_carries_the_applied_artifact_digest(monkeypatch):
     captured = {}
     analysis = _analysis()
     job = {
-        "stage": "publish", "ingestedTitle": "Launch", "config": {"brief": "Launch"},
+        "stage": "publish", "config": {"sourceManifestId": "manifest-1"},
         "sourceAnalysis": analysis, "drafts": [],
         "actions": [{
             "id": "a1", "type": "export_content_pack", "state": "planned",
@@ -301,7 +278,6 @@ def test_paid_media_actions_read_canonical_source_analysis():
     analysis["moments"][0]["visualHook"] = "Metric rises on screen"
 
     actions = stages.deterministic_generative_media_actions({
-        "ingestedTitle": "Activation launch",
         "sourceAnalysis": analysis,
     })
 
@@ -321,7 +297,7 @@ def test_meme_angles_use_the_canonical_angle_type():
 def test_publish_never_enters_effect_adapter_without_execute_claim(monkeypatch):
     calls = []
     job = {
-        "stage": "publish", "ingestedTitle": "Launch", "config": {"brief": "Launch"},
+        "stage": "publish", "config": {"sourceManifestId": "manifest-1"},
         "moments": [], "angles": [], "drafts": [],
         "actions": [{
             "id": "a1", "type": "export_content_pack", "state": "planned",
@@ -416,16 +392,14 @@ def test_x_unknown_outcome_enters_the_existing_uncertain_control_path(monkeypatc
 
 def test_uploaded_media_is_materialized_for_clip_rendering(monkeypatch, tmp_path):
     monkeypatch.setattr(stages, "get_chat_attachment", lambda _id: (b"video", "video/mp4", "demo.mp4"))
-    source = stages._materialize_source_video({
-        "config": {"mediaAttachmentId": "attachment-1", "mediaFilename": "demo.mp4"},
-    }, str(tmp_path))
+    monkeypatch.setattr(stages, "get_source", lambda _id: {"payload": {"input": {"kind": "upload", "attachmentId": "attachment-1"}}})
+    source = stages._materialize_source_video("job-1", {"sourceSegmentRefs": ["source-1:segment-1"]}, str(tmp_path))
     assert source == Path(tmp_path) / "source.mp4"
     assert source.read_bytes() == b"video"
 
 
 def test_paid_media_actions_are_deterministic_and_reference_reviewed_evidence_only():
     actions = stages.deterministic_generative_media_actions({
-        "ingestedTitle": "Activation launch",
         "sourceAnalysis": {
             "moments": [{
                 "id": "m1", "title": "Dashboard reveal", "visualHook": "Metric rises on screen",

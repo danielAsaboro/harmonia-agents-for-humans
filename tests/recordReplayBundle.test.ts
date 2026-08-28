@@ -9,7 +9,7 @@ const unsigned: UnsignedReplayBundle = {
   release: "private_candidate",
   provenance: { sourceRunId: "run-1", sourceJobId: "job-1", environment: "authenticated_cloud", sanitizerVersion: "1.0.0", sourceCaptureAuthorized: true },
   events: [
-    { sequence: 0, capturedAt: "2026-08-26T10:00:00.000Z", offsetMs: 0, kind: "stage_transition", payload: { jobId: "job-1", stage: "ingest", status: "active" } },
+    { sequence: 0, capturedAt: "2026-08-26T10:00:00.000Z", offsetMs: 0, kind: "stage_transition", payload: { jobId: "job-1", stage: "collect_sources", status: "active" } },
     { sequence: 1, capturedAt: "2026-08-26T10:00:01.000Z", offsetMs: 1000, kind: "stage_transition", payload: { jobId: "job-1", stage: "complete", status: "complete" } },
   ],
   terminalStateDigest: "a".repeat(64),

@@ -9,8 +9,8 @@ Harmonia uses **bounded agency inside a durable workflow**. Gemini/ADK handles a
 
 | Stage | Primary mode | What may vary | What cannot vary / stopping condition |
 |---|---|---|---|
-| ingest | deterministic workflow | provider metadata availability | bounded source validation; stop visibly on unsupported/unauthorized source |
-| transcribe | agentic cognition inside deterministic workflow | Gemini transcript content | typed segments, source digest, budget, timeout, and terminal failure contract |
+| collect_sources | deterministic workflow | provider availability and snapshot contents | sealed manifest, bounded source validation, and visible operator resolution for unsupported/unauthorized sources |
+| extract_sources | agentic cognition inside deterministic workflow | Gemini media segments | normalized artifact schema, exact source digest, typed locators, budget, timeout, and visible failure contract |
 | understand | agentic cognition | Nimi's grounded moments and trend/meme angles | supplied evidence bounds, schema, and role policy |
 | strategize | agentic cognition | Ryan's four-week strategy and source-grounded briefs | strict context/evidence IDs, provenance validation, and a fail-closed allow-listed strategy-skill trace |
 | awaiting_strategy_approval | deterministic authority | exact strategy decision | authenticated actor, canonical digest, expiry, and one-revision limit |

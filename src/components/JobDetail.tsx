@@ -8,6 +8,7 @@ import type { JobFull } from "@/components/jobTypes";
 import type { TimelineEvent } from "@/components/Timeline";
 import type { PlannedAction, Receipt } from "@/lib/types";
 import { isReplayableAction } from "@/lib/replayEligibility";
+import { SteeringControls } from "@/components/studio/SteeringControls";
 
 type Tab = "overview" | "drafts" | "actions" | "receipts" | "packet";
 
@@ -126,7 +127,7 @@ export default function JobDetail({
       <section className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="max-w-md truncate font-mono text-sm font-semibold" title={job.config.sourceManifestId}>
-            {job.ingestedTitle ?? `Source bundle ${job.config.sourceManifestId.slice(0, 12)}`}
+            {job.sourceAnalysis?.summary ?? `Source bundle ${job.config.sourceManifestId.slice(0, 12)}`}
           </h2>
           <div className="flex items-center gap-2">
             {job.status === "complete" && <Chip tone="green">complete</Chip>}
@@ -134,13 +135,14 @@ export default function JobDetail({
             {job.status === "waiting_for_approval" && <Chip tone="amber">awaiting approval</Chip>}
             {job.status === "running" && <Chip tone="blue">running</Chip>}
             <span className="font-mono text-xs text-zinc-400">{job.id.slice(0, 8)}</span>
-            <AskAiButton kind="job" id={job.id} label={(job.ingestedTitle ?? `Source bundle ${job.config.sourceManifestId}`).slice(0, 60)} />
+            <AskAiButton kind="job" id={job.id} label={(job.sourceAnalysis?.summary ?? `Source bundle ${job.config.sourceManifestId}`).slice(0, 60)} />
           </div>
         </div>
 
         <div className="mt-4">
           <PipelineStepper stage={job.stage} status={job.status} />
         </div>
+        <SteeringControls job={job} />
 
         {job.failure && (
           <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">

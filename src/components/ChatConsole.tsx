@@ -48,7 +48,7 @@ interface StudioConsoleViewProps {
 export function StudioConsoleView(props: StudioConsoleViewProps) {
   const chapters = useMemo(() => buildStudioChapters(props.messages), [props.messages]);
   const workspace = props.detail?.job;
-  const campaignTitle = workspace?.ingestedTitle || (workspace ? `Source bundle ${workspace.config.sourceManifestId.slice(0, 8)}` : "Untitled campaign");
+  const campaignTitle = workspace?.sourceAnalysis?.summary || (workspace ? `Source bundle ${workspace.config.sourceManifestId.slice(0, 8)}` : "Untitled campaign");
   const artifactCount = workspace ? workspace.drafts.length + (workspace.assets?.length ?? 0) : 0;
   const lastPersistedRunMessage = [...props.messages].reverse().find((message) => message.run);
   const persistedRunMatchesCanvas = Boolean(

@@ -17,12 +17,12 @@ Harmonia is agentic where the problem is ambiguous: Gemini/ADK specialists inter
 Harmonia runs as an asynchronous, event-driven workflow on Pub/Sub. A single job travels across two services with durable state in Firestore at every step:
 
 ```
-ingest → transcribe → understand → strategize → awaiting_strategy_approval → plan → draft → awaiting_approval → publish → verify
+collect_sources → extract_sources → understand → strategize → awaiting_strategy_approval → plan → draft → awaiting_approval → publish → verify
 ```
 
-- **Ingest**: YouTube metadata via oEmbed / YouTube Data API; audio pulled with yt-dlp.
-- **Transcribe**: Gemini 3.5 Flash transcribes the audio into timed segments.
-- **Understand**: Nimi receives one typed source package and returns strict source analysis with exact transcript/frame references, evidence-kind provenance, assumptions, and confidence. Deterministic code validates quotes, time bounds, references, and authority; then persists the complete analysis and canonical digest.
+- **Collect sources**: resolve the sealed job manifest, including up to ten direct inputs and one immutable snapshot from a scheduled Google Drive or Cloud Storage brand library.
+- **Extract sources**: normalize authorized video, audio, documents, web pages, and pasted text into digest-bound segments. Gemini 3.5 Flash produces timed media segments; deterministic extractors handle written sources.
+- **Understand**: Nimi receives the typed normalized source bundle and returns strict source analysis with exact segment/frame references, evidence-kind provenance, assumptions, and confidence. Deterministic code validates quotes, time bounds, references, and authority; then persists the complete analysis and canonical digest.
 - **Strategize**: Ryan uses typed company, campaign, audience, performance, and eligible Memory Bank context to propose a provenance-linked four-week strategy and complete content briefs. A human must approve the exact strategy digest before Temi runs.
 - **Plan**: deterministic code persists a tenant-scoped planning snapshot, then Temi loads `temi-editorial-planning-skills` and uses only request-bound read views over that immutable snapshot to operationalize the approved Ryan strategy. Deterministic code validates both snapshot and plan digests, persists the complete four-week plan, and selects exactly one supported, eligible item; Temi cannot search, write final copy, mutate calendars, or authorize effects.
 - **Draft**: Noni receives the selected item, exact Ryan brief, and referenced Nimi evidence; its bounded reads may add verified prior-publication links and brief-scoped public-source provenance. Dara returns seven grounded editorial checks plus a bounded accept/revise assessment; deterministic code assigns review metadata, permits at most one issue-bound revision, persists the full trace, and derives effect proposals only from the exact accepted text.
@@ -51,7 +51,7 @@ flowchart LR
     subgraph "Cloud Run — harmonia-agent (Python ADK worker)"
         PUSH["Pub/Sub push receiver"]
         TG["Telegram webhook boundary<br/>not live-verified"]
-        STAGES[ingest · transcribe · understand · strategize ·<br/>strategy approval · plan · draft · publish · verify handlers]
+        STAGES[collect sources · extract sources · understand · strategize ·<br/>strategy approval · plan · draft · publish · verify handlers]
         RUNTIME[Vertex AI Agent Engine<br/>managed runtime only]
         MAYA["Maya presentation specialist<br/>reference-only SurfacePlan"]
     end
@@ -82,7 +82,7 @@ flowchart LR
     STAGES --> RUNTIME <--> GEMC
     STAGES <--> MB
     STAGES -- approved paid-media actions --> MEDIA
-    STAGES -- ingest --> YT
+    STAGES -- authorized media extraction --> YT
     STAGES -- publish + verify --> X
     STAGES -- results --> INT --> FS
 ```
@@ -91,8 +91,8 @@ flowchart LR
 
 | Concern | Where | Interface |
 |---|---|---|
-| Ingestion | `agent/harmonia_agent/youtube.py` | metadata fetch + bounded audio download |
-| Transcription / understanding / drafting | `agent/harmonia_agent/content.py`, `agents.py`, `noni_skills.py` | Gemini transcription, multimodal Nimi, Ryan strategy, Temi planning, skill-backed Noni writing, and Dara review |
+| Collection and extraction | source registry + `agent/harmonia_agent/extraction/` | immutable manifests, scheduled library snapshots, bounded normalization, and authorized media download |
+| Understanding / drafting | `agent/harmonia_agent/content.py`, `agents.py`, `noni_skills.py` | Gemini media extraction, multimodal Nimi, Ryan strategy, Temi planning, skill-backed Noni writing, and Dara review |
 | Intent parsing (chat + Telegram) | web `src/lib/chatIntent.ts` | Gemini structured output: `{intent, youtubeUrl?, jobId?}` |
 | Generative interface composition | ADK `maya_presenter` + web `src/lib/a2ui/` | exact-context, reference-only `SurfacePlan`; deterministic validation and server hydration from authenticated Firestore records |
 | Approval gate | web `src/lib/policy.ts`, `src/lib/decisions.ts` | deterministic risk rules; single decision writer shared by REST, chat, and Telegram |
@@ -172,7 +172,7 @@ npm run test:integration     # required Firestore transaction suite; starts its 
 npm run lint                 # Next.js / React / TypeScript lint
 npx tsc --noEmit             # complete TypeScript check
 npm run build                # production Next.js build
-npm run test:agent           # Python: ingest parsing, telegram callbacks, failure classification
+npm run test:agent           # Python: source extraction, Telegram callbacks, failure classification
 ```
 
 Agent evaluation foundations live under `agent/evals/`: ADK-native public contract fixtures,

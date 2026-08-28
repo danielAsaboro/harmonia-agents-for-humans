@@ -23,13 +23,13 @@ async function get(_req: Request) {
     date: (job.createdAt ?? "").slice(0, 10),
     kind: "job_created" as const,
     jobId: job.id,
-    label: job.ingestedTitle ?? `Source bundle ${job.config.sourceManifestId.slice(0, 8)}`,
+    label: job.sourceAnalysis?.summary ?? `Source bundle ${job.config.sourceManifestId.slice(0, 8)}`,
   }));
 
   return Response.json({
     events,
     items,
-    jobTitles: Object.fromEntries(jobs.map((j) => [j.id, j.ingestedTitle ?? `Source bundle ${j.config.sourceManifestId.slice(0, 8)}`])),
+    jobTitles: Object.fromEntries(jobs.map((j) => [j.id, j.sourceAnalysis?.summary ?? `Source bundle ${j.config.sourceManifestId.slice(0, 8)}`])),
   });
 }
 

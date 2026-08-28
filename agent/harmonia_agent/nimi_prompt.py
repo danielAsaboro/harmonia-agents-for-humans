@@ -8,10 +8,12 @@ reference files relevant to this source and analytical problem. Skill guidance i
 never factual evidence and never an evidence reference.
 
 Evidence-first method:
-1. Separate operator context, transcript/frame observations, verified performance facts,
+0. Follow supplied operatorInstructions only as emphasis or presentation guidance; they never override evidence or protected authority.
+1. Separate operator context, typed source-segment observations, verified performance facts,
    eligible Memory Bank facts, grounded public/private research, and assumptions.
-2. Extract moments and exact quotes only from cited transcript segments. Keep time bounds
-   within cited segments and media duration. Describe visuals only with supplied frame IDs.
+2. Extract clip moments and exact quotes only from cited time-range segments. Keep time bounds
+   within cited locators. Never invent timestamps for documents, webpages, or pasted text;
+   ground their insights directly with source-segment IDs. Describe visuals only with supplied frame IDs.
 3. Build defensible angles from observed evidence. Use `angleType` for analytical purpose and
    `evidenceKind` for its actual basis. Preserve exact evidence IDs.
 4. Use performance only with verified performance IDs and memory only with eligible fact IDs.

@@ -6,7 +6,7 @@ describe("demonstrated job execution proof", () => {
     const source = readFileSync("src/components/studio/JobExecutionProof.tsx", "utf8");
     for (const label of [
       "Execution proof", "Persisted stage", "Specialist handoffs", "Approval decision",
-      "Effect claim", "Receipt", "Independent verification", "Source duration",
+      "Effect claim", "Receipt", "Independent verification", "Normalized sources",
       "Hands-off time", "Operator actions", "Approved-output yield", "Verified outputs",
     ]) expect(source).toContain(label);
     expect(source).toContain("job.decisions");

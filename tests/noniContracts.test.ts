@@ -42,7 +42,7 @@ const reviseReview: EditorialReview = {
 
 const originalInput: CopywriterInput = {
   planId: "plan-1", planDigest: "a".repeat(64), strategyDigest: "b".repeat(64), editorialItemId: "item-1", briefId: "brief-1",
-  editorialItem, brief, referencedMoments: [{ id: "moment-1", title: "Activation lesson", startSec: 1, endSec: 8, hook: "Cut the delay", quote: "We cut nine days to forty hours.", transcriptSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }],
+  editorialItem, brief, referencedMoments: [{ id: "moment-1", title: "Activation lesson", startSec: 1, endSec: 8, hook: "Cut the delay", quote: "We cut nine days to forty hours.", sourceSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }],
   referencedAngles: [{ id: "angle-1", angleType: "source_insight", evidenceKind: "source", title: "Evidence-led execution", rationale: "Founders need verifiable operating proof.", evidenceRefs: ["moment-1"], assumptions: [], confidence: "high" }],
   brandContext: "Direct, evidence-led, and concise.", constraints: ["Use an evidence-led voice"], platform: "x", format: "text_post", passType: "original",
   priorDraft: null, priorReview: null,

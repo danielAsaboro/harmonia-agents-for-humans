@@ -264,8 +264,7 @@ def test_draft_rejects_plan_not_bound_to_job_strategy_digest(monkeypatch):
 
 def test_derived_media_actions_use_only_selected_item_evidence(monkeypatch):
     source = drafting_job()
-    source["config"]["youtubeUrl"] = "https://www.youtube.com/watch?v=abc12345678"
-    source["sourceAnalysis"]["moments"].append({"id": "m-extra", "title": "Unselected", "startSec": 10, "endSec": 20, "hook": "h", "quote": "q", "transcriptSegmentRefs": ["segment-1"], "visualEvidenceIds": [], "assumptions": [], "confidence": "high"})
+    source["sourceAnalysis"]["moments"].append({"id": "m-extra", "title": "Unselected", "startSec": 10, "endSec": 20, "hook": "h", "quote": "q", "sourceSegmentRefs": ["segment-1"], "visualEvidenceIds": [], "assumptions": [], "confidence": "high"})
     source["sourceAnalysis"]["angles"].append({"id": "a-extra", "angleType": "source_insight", "evidenceKind": "source", "title": "Unselected angle", "rationale": "not selected", "evidenceRefs": ["m-extra"], "assumptions": [], "confidence": "high"})
     posts = []
     async def fake_draft(*_args, **_kwargs):

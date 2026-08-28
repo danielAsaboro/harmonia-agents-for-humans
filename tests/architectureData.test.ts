@@ -17,7 +17,7 @@ describe("Harmonia architecture dataset", () => {
   });
 
   it("contains the eleven stages, seven skills, and eight read-only data tools", () => {
-    for (const id of ["ingest", "transcribe", "analyze", "strategize", "strategy-approval", "plan", "draft", "await-approval", "publish-render", "verify", "learn"]) expect(byId(`stage-${id}`)).toBeTruthy();
+    for (const id of ["collect-sources", "extract-sources", "analyze", "strategize", "strategy-approval", "plan", "draft", "await-approval", "publish-render", "verify", "learn"]) expect(byId(`stage-${id}`)).toBeTruthy();
     for (const id of ["trend-scan", "signal-watch", "engagement-insights", "job-status", "posting-schedule"]) expect(byId(`skill-${id}`)).toBeTruthy();
     expect(byId("skill-noni-writing-skills")).toBeTruthy();
     expect(byId("skill-dara-editing-skills")).toBeTruthy();

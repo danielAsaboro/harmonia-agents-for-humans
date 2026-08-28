@@ -8,8 +8,8 @@ export const sourceInputSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const outputKindSchema = z.enum([
-  "x_post", "linkedin_post", "thread", "blog", "newsletter", "carousel", "image",
-  "quote_card", "diagram", "clip", "reel", "generated_media", "content_calendar", "content_pack",
+  "x_post", "x_thread", "linkedin_post", "blog_article", "newsletter", "caption", "carousel_spec", "social_image",
+  "quote_card", "diagram", "short_clip", "reel", "generated_broll", "generated_audio", "editorial_calendar", "content_pack",
 ]);
 
 export const createJobInputSchema = z.object({
@@ -219,33 +219,6 @@ export const evidenceRefSchema = z.object({
   digest: z.string().nullable().optional(),
 });
 
-export const ingestSubmissionSchema = z.object({
-  jobId: z.string().min(1),
-  stage: z.literal("ingest"),
-  videoId: z.string().min(1),
-  title: z.string().min(1),
-  channel: z.string().min(1),
-  durationSec: z.number().int().positive(),
-  mediaBytes: z.number().int().nonnegative(),
-  mediaDigest: z.string().min(16),
-  thumbnailUrl: z.string().optional(),
-});
-
-export const transcriptSegmentSchema = z.object({
-  id: z.string().min(1),
-  startSec: z.number().nonnegative(),
-  endSec: z.number().nonnegative(),
-  text: z.string().min(1),
-});
-
-export const transcriptSubmissionSchema = z.object({
-  jobId: z.string().min(1),
-  stage: z.literal("transcribe"),
-  language: z.string().default("en"),
-  segments: z.array(transcriptSegmentSchema).min(1),
-  modelUsed: z.string().min(1),
-});
-
 export const momentSchema = z.object({
   id: z.string().min(1).max(100),
   title: z.string().min(1).max(300),
@@ -253,7 +226,7 @@ export const momentSchema = z.object({
   endSec: z.number().nonnegative(),
   hook: z.string().min(1).max(500),
   quote: z.string().min(1).max(2000),
-  transcriptSegmentRefs: z.array(z.string().min(1).max(100)).min(1).max(12),
+  sourceSegmentRefs: z.array(z.string().min(1).max(100)).min(1).max(12),
   visualHook: z.string().min(1).max(500).optional(),
   cropSuitability: z.enum(["poor", "fair", "good", "excellent"]).optional(),
   captionSafeRegion: z.string().min(1).max(200).optional(),
@@ -262,7 +235,7 @@ export const momentSchema = z.object({
   confidence: z.enum(["low", "medium", "high"]),
 }).strict().superRefine((moment, context) => {
   if (moment.endSec < moment.startSec) context.addIssue({ code: "custom", message: "moment end must not precede start" });
-  if (new Set(moment.transcriptSegmentRefs).size !== moment.transcriptSegmentRefs.length) context.addIssue({ code: "custom", message: "moment transcript references must be unique" });
+  if (new Set(moment.sourceSegmentRefs).size !== moment.sourceSegmentRefs.length) context.addIssue({ code: "custom", message: "moment source references must be unique" });
   if (new Set(moment.visualEvidenceIds).size !== moment.visualEvidenceIds.length) context.addIssue({ code: "custom", message: "moment visual references must be unique" });
   if (Boolean(moment.visualHook) !== Boolean(moment.visualEvidenceIds.length)) context.addIssue({ code: "custom", message: "visual hook and evidence must appear together" });
   if (moment.confidence === "high" && moment.assumptions.length) context.addIssue({ code: "custom", message: "high-confidence moment cannot contain assumptions" });

@@ -12,10 +12,10 @@ const approvalTraceId = "c".repeat(32);
 const replayTraceId = "d".repeat(32);
 
 function validBundle() {
-  const stages = ["ingest", "transcribe", "understand", "draft", "awaiting_approval", "publish", "verify"];
+  const stages = ["collect_sources", "extract_sources", "understand", "draft", "awaiting_approval", "publish", "verify"];
   return {
     schemaVersion: "harmonia.vertical-slice-evidence.v1", runId: "run-1", capturedAt: "2026-08-24T12:20:00.000Z",
-    source: { kind: "youtube", sourceId: "video", authorizationRef: "operator-1", metadataDigest: digest },
+    source: { kind: "source_manifest", manifestId: "manifest-1", sourceIds: ["video"], manifestDigest: digest },
     environment: {
       projectId: "project", location: "us-central1", webService: "web", webRevision: "web-r1",
       agentService: "agent", agentRevision: "agent-r1",
@@ -24,7 +24,7 @@ function validBundle() {
       mockAi: false, mockEffects: false, emulator: false,
     },
     job: { workspaceId: "ws", brandId: "brand", jobId: "job", createdAt: "2026-08-24T12:00:00.000Z", completedAt: "2026-08-24T12:18:00.000Z" },
-    metrics: { sourceDurationSec: 900, elapsedSec: 1080, handsOffProcessingSec: 1020, approvalWaitSec: 60, operatorActionCount: 1, outputCount: 3, approvedOutputCount: 1, verifiedOutputCount: 1 },
+    metrics: { sourceCount: 900, elapsedSec: 1080, handsOffProcessingSec: 1020, approvalWaitSec: 60, operatorActionCount: 1, outputCount: 3, approvedOutputCount: 1, verifiedOutputCount: 1 },
     events: stages.map((stage, index) => ({ eventId: `e-${index}`, stage, status: stage === "awaiting_approval" ? "waiting" : "completed", at: new Date(Date.parse("2026-08-24T12:01:00.000Z") + index * 60_000).toISOString(), operationId: `job:${stage}:0`, pubsubMessageId: `m-${index}`, traceId: index >= 5 ? approvalTraceId : workflowTraceId })),
     cognition: [{ role: "coordinator", model: "gemini-3.5-flash", provider: "gemini", policyVersion: "v1", usageRecordId: "u-1", operationId: "job:understand:coordinator", traceId: workflowTraceId }],
     approval: { approvalId: "approval", actionId: "action", decision: "approved", actorType: "firebase_operator", decidedAt: "2026-08-24T12:10:00.000Z", traceId: approvalTraceId },

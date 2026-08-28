@@ -6,7 +6,7 @@ describe("agent image dependency contract", () => {
   const direct = readFileSync(new URL("../agent/requirements.txt", import.meta.url), "utf8");
   const lock = readFileSync(new URL("../agent/requirements.lock", import.meta.url), "utf8");
 
-  it("ships the real YouTube downloader used by ingest", () => {
+  it("ships the real YouTube downloader used by media extraction", () => {
     expect(direct).toMatch(/^yt-dlp[<=>]/m);
     expect(lock).toMatch(/^yt-dlp==/m);
   });

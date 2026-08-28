@@ -92,7 +92,7 @@ describe.skipIf(!emulator)("local content-pack action proof", () => {
         updatedAt: new Date().toISOString(),
         status: "running",
         stage: "publish",
-        config: { platforms: [], youtubeUrl: "https://www.youtube.com/watch?v=authorized-source" },
+        config: { sourceManifestId: "manifest-proof", desiredOutputs: ["content_pack"], allowedOutputs: ["content_pack"], platforms: [] },
         actions: [action],
       });
 

@@ -8,20 +8,14 @@ from harmonia_agent.agent_models import AnalystInput, SourceAnalysis
 
 def analyst_input() -> dict:
     return {
-        "sourceId": "source-1",
-        "sourceKind": "media",
+        "sourceIds": ["source-1"],
+        "sourceKind": "video",
         "sourceDigest": "a" * 64,
         "title": "Activation interview",
-        "channel": "Founder interview",
-        "transcriptSegments": [
-            {"id": "segment-1", "startSec": 2, "endSec": 8, "text": "We cut activation from nine days to forty hours."},
+        "sourceSegments": [
+            {"id": "segment-1", "sourceId": "source-1", "text": "We cut activation from nine days to forty hours.", "digest": "c" * 64, "locator": {"kind": "time_range", "startMs": 2000, "endMs": 8000}},
+            {"id": "frame-1", "sourceId": "source-1", "text": "Founder points to the activation chart.", "digest": "b" * 64, "locator": {"kind": "frame", "timestampMs": 4000, "frameArtifactId": "frame-artifact-1"}},
         ],
-        "mediaEvidence": {
-            "video_uri": "https://example.com/source.mp4",
-            "duration_sec": 60,
-            "source_digest": "a" * 64,
-            "frames": [{"id": "frame-1", "uri": "gs://bucket/frame.jpg", "timestamp_sec": 4, "digest": "b" * 64}],
-        },
         "performanceObservations": [{
             "id": "performance-1", "summary": "Verified proof posts earned qualified replies.",
             "firestoreEvidenceRef": "engagement/post-1",
@@ -42,7 +36,7 @@ def source_analysis() -> dict:
             "id": "moment-1", "title": "Activation compression", "startSec": 2,
             "endSec": 8, "hook": "Nine days became forty hours",
             "quote": "We cut activation from nine days to forty hours.",
-            "transcriptSegmentRefs": ["segment-1"],
+            "sourceSegmentRefs": ["segment-1"],
             "visualHook": "Founder points to the activation chart.",
             "cropSuitability": "good", "captionSafeRegion": "lower third",
             "visualEvidenceIds": ["frame-1"], "assumptions": [], "confidence": "high",
@@ -57,11 +51,11 @@ def source_analysis() -> dict:
 
 
 def test_accepts_complete_typed_input_and_analysis():
-    assert AnalystInput.model_validate(analyst_input()).sourceId == "source-1"
+    assert AnalystInput.model_validate(analyst_input()).sourceIds == ["source-1"]
     assert SourceAnalysis.model_validate(source_analysis()).angles[0].evidenceRefs == ["moment-1", "segment-1"]
 
 
-@pytest.mark.parametrize("field", ["sourceId", "sourceKind", "sourceDigest", "title", "channel", "transcriptSegments", "performanceObservations", "memoryFacts"])
+@pytest.mark.parametrize("field", ["sourceIds", "sourceKind", "sourceDigest", "title", "sourceSegments", "performanceObservations", "memoryFacts"])
 def test_input_requires_every_typed_field(field):
     value = analyst_input()
     del value[field]
@@ -79,7 +73,7 @@ def test_analysis_requires_every_output_field(field):
 
 def test_rejects_duplicate_segment_moment_and_angle_ids():
     value = analyst_input()
-    value["transcriptSegments"].append(dict(value["transcriptSegments"][0]))
+    value["sourceSegments"].append(dict(value["sourceSegments"][0]))
     with pytest.raises(ValidationError, match="segment ids must be unique"):
         AnalystInput.model_validate(value)
     output = source_analysis()
@@ -94,12 +88,12 @@ def test_rejects_duplicate_segment_moment_and_angle_ids():
 
 def test_rejects_invalid_ranges_digest_mismatch_and_visual_shape():
     value = analyst_input()
-    value["transcriptSegments"][0]["endSec"] = 1
-    with pytest.raises(ValidationError, match="segment end"):
+    value["sourceSegments"][0]["locator"]["endMs"] = 1000
+    with pytest.raises(ValidationError, match="range end"):
         AnalystInput.model_validate(value)
     value = analyst_input()
-    value["mediaEvidence"]["source_digest"] = "c" * 64
-    with pytest.raises(ValidationError, match="source digest"):
+    value["sourceSegments"][0]["sourceId"] = "invented"
+    with pytest.raises(ValidationError, match="outside the manifest"):
         AnalystInput.model_validate(value)
     output = source_analysis()
     output["moments"][0]["visualHook"] = None

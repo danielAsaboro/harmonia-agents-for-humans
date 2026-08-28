@@ -62,3 +62,5 @@ export async function failLibrarySync(connectionId: string, expectedRevision: nu
   if (!current.exists || current.get("revision") !== expectedRevision) throw new Error("stale library connection");
   await ref.update({ lastSyncStatus: "failed", revision: expectedRevision + 1, updatedAt: new Date().toISOString() });
 }
+
+export async function finalizeLibrarySyncOperation(connectionId: string, operationId: string, status: "healthy" | "failed", failure?: { code: string; publicMessage: string }): Promise<void> { const now = new Date().toISOString(); await root().doc(connectionId).collection("sync_operations").doc(operationId).update({ status, completedAt: now, ...(failure ? { failure } : {}) }); }

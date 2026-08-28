@@ -23,7 +23,6 @@ from harmonia_agent.agent_models import (
     EditorialPlannerInput,
     EditorialReview,
     LiaisonInput,
-    MediaEvidence,
     StrategistInput,
     StrategistResult,
 )
@@ -62,9 +61,9 @@ def _planner_input():
 
 def _analyst_input(**updates) -> AnalystInput:
     value = {
-        "sourceId": "source-1", "sourceKind": "brief", "sourceDigest": "a" * 64,
-        "title": "Demo", "channel": "Harmonia",
-        "transcriptSegments": [{"id": "segment-1", "startSec": 0, "endSec": 30, "text": "hello proof We cut nine days to forty hours."}],
+        "sourceIds": ["source-1"], "sourceKind": "video", "sourceDigest": "a" * 64,
+        "title": "Demo",
+        "sourceSegments": [{"id": "segment-1", "sourceId": "source-1", "text": "hello proof We cut nine days to forty hours.", "digest": "b" * 64, "locator": {"kind": "time_range", "startMs": 0, "endMs": 30_000}}],
         "performanceObservations": [], "memoryFacts": [],
     }
     value.update(updates)
@@ -95,7 +94,7 @@ class ScriptedDelegationModel(BaseLlm):
                 if part.file_data is not None
             )
             yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text=(
-                '{"sourceDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","summary":"Delegated analysis","moments":[{"id":"m1","title":"Proof","startSec":0,"endSec":30,"hook":"hello","quote":"hello","transcriptSegmentRefs":["segment-1"],"visualEvidenceIds":[],"assumptions":[],"confidence":"high"}],"angles":[{"id":"a1","angleType":"source_insight","evidenceKind":"source","title":"Source proof","rationale":"The source contains proof.","evidenceRefs":["m1"],"assumptions":[],"confidence":"high"}],"assumptions":[],"confidence":"high"}'
+                '{"sourceDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","summary":"Delegated analysis","moments":[{"id":"m1","title":"Proof","startSec":0,"endSec":30,"hook":"hello","quote":"hello","sourceSegmentRefs":["segment-1"],"visualEvidenceIds":[],"assumptions":[],"confidence":"high"}],"angles":[{"id":"a1","angleType":"source_insight","evidenceKind":"source","title":"Source proof","rationale":"The source contains proof.","evidenceRefs":["m1"],"assumptions":[],"confidence":"high"}],"assumptions":[],"confidence":"high"}'
             ))]))
             return
         if llm_request.tools_dict and not function_responses:
@@ -104,9 +103,9 @@ class ScriptedDelegationModel(BaseLlm):
                 function_call=types.FunctionCall(
                     name="nimi_analyst",
                     args={
-                        "sourceId": "source-1", "sourceKind": "brief",
-                        "sourceDigest": "a" * 64, "title": "Demo", "channel": "Harmonia",
-                        "transcriptSegments": [{"id": "segment-1", "startSec": 0, "endSec": 30, "text": "hello proof We cut nine days to forty hours."}],
+                        "sourceIds": ["source-1"], "sourceKind": "video",
+                        "sourceDigest": "a" * 64, "title": "Demo",
+                        "sourceSegments": [{"id": "segment-1", "sourceId": "source-1", "text": "hello proof We cut nine days to forty hours.", "digest": "b" * 64, "locator": {"kind": "time_range", "startMs": 0, "endMs": 30000}}],
                         "performanceObservations": [], "memoryFacts": [],
                     },
                 ),
@@ -168,7 +167,7 @@ def _analysis() -> SourceAnalysis:
         "moments": [{
             "id": "m1", "title": "Activation", "startSec": 1,
             "endSec": 8, "hook": "Cut the delay", "quote": "We cut nine days to forty hours.",
-            "transcriptSegmentRefs": ["segment-1"], "visualEvidenceIds": [],
+            "sourceSegmentRefs": ["segment-1"], "visualEvidenceIds": [],
             "assumptions": [], "confidence": "high",
         }],
         "angles": [{
@@ -440,7 +439,7 @@ def test_agent_reservations_record_exact_model_policy():
         "safetyProfile": "harmonia-standard",
         "maxOutputTokens": 2048,
         "timeoutSeconds": 120,
-        "eligibleTasks": ["analyze_media", "analyze_transcript"],
+        "eligibleTasks": ["analyze_media", "analyze_sources"],
         "minimumPassRate": "0.95",
     }
 
@@ -461,26 +460,17 @@ def test_coordinator_really_delegates_and_forwards_specialist_state():
     assert runtime.calls[0]["user_id"] == "workspace-test:system:proactive"
 
 
-def test_analyst_receives_source_video_as_a_real_multimodal_part():
+def test_analyst_receives_source_video_as_typed_time_range_evidence():
     runtime = ManagedRuntime()
-    source = "https://www.youtube.com/watch?v=abc12345678"
-
     with tenant_scope("workspace-test", "brand-test"):
         asyncio.run(_run_coordinator(
             "nimi_analyst",
-            _analyst_input(
-                sourceKind="media",
-                mediaEvidence=MediaEvidence(
-                    video_uri=source,
-                    duration_sec=60,
-                    source_digest="a" * 64,
-                ),
-            ),
+            _analyst_input(),
             model="gemini-test",
             team_runtime=runtime,
         ))
 
-    assert runtime.calls[0]["payload"]["mediaEvidence"]["video_uri"] == source
+    assert runtime.calls[0]["payload"]["sourceSegments"][0]["locator"] == {"kind": "time_range", "startMs": 0, "endMs": 30_000}
 
 
 def test_temi_runs_as_a_distinct_skill_backed_typed_specialist():

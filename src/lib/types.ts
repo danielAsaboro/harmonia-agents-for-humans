@@ -117,9 +117,12 @@ export interface JobSourceManifest {
 }
 
 export type OutputKind =
-  | "x_post" | "linkedin_post" | "thread" | "blog" | "newsletter"
-  | "carousel" | "image" | "quote_card" | "diagram"
-  | "clip" | "reel" | "generated_media" | "content_calendar" | "content_pack";
+  | "x_post" | "x_thread" | "linkedin_post" | "blog_article" | "newsletter" | "caption"
+  | "carousel_spec" | "social_image" | "quote_card" | "diagram"
+  | "short_clip" | "reel" | "generated_broll" | "generated_audio" | "editorial_calendar" | "content_pack";
+
+export interface ProposedOutput { id: string; outputType: OutputKind; quantity: number; destinations: string[]; evidenceRefs: string[]; costClass: "local" | "provider_metered"; approvalClass: "strategy" | "effect" }
+export interface CampaignOutputPlan { id: string; desiredOutputs: OutputKind[]; allowedOutputs: OutputKind[]; outputs: ProposedOutput[]; digest: string }
 
 export interface JobConfig {
   sourceManifestId: string;
@@ -379,10 +382,10 @@ export interface Job {
   retentionHold?: boolean;
   stage: Stage;
   config: JobConfig;
-  ingestedTitle?: string;
-  ingestedChannel?: string;
-  ingestedDurationSec?: number;
-  mediaDigest?: string;
+  controlEpoch?: number;
+  controlState?: "running" | "paused" | "cancelled";
+  steeringInstructions?: Array<{ nudgeId: string; scope: "current_stage" | "remaining_job" | "content_item"; contentItemId?: string; instruction: string; appliedAt: string; controlEpoch: number }>;
+  campaignOutputPlan?: CampaignOutputPlan;
   sourceAnalysis?: SourceAnalysis;
   analysisDigest?: string;
   analysisResearchRequest?: AnalysisResearchRequest | null;
@@ -411,7 +414,6 @@ export interface Job {
   productionTrace?: DraftWorkflowResult;
   productionTraceDigest?: string;
   editorialPlanHistory?: Record<string, { plan: EditorialPlan; digest: string; revision: number; strategyId: string; strategyDigest: string; evidenceLineage: string[]; selectedNextItemId: string; acceptedAt: string }>;
-  videoId?: string;
   budget?: JobBudget;
   failure?: {
     stage: Stage;
@@ -639,7 +641,7 @@ export interface Moment {
   endSec: number;
   hook: string;
   quote: string;
-  transcriptSegmentRefs: string[];
+  sourceSegmentRefs: string[];
   visualHook?: string;
   cropSuitability?: "poor" | "fair" | "good" | "excellent";
   captionSafeRegion?: string;

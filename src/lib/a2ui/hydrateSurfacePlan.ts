@@ -43,7 +43,7 @@ function selected<T extends { id: string }>(values: T[], ids: string[], limit: n
 
 function sourceCount(job: JobFull, momentId?: string, angleId?: string): number {
   const moment = momentId ? job.sourceAnalysis?.moments.find((candidate) => candidate.id === momentId) : undefined;
-  return (moment?.transcriptSegmentRefs.length ?? 0)
+  return (moment?.sourceSegmentRefs.length ?? 0)
     + (angleId && job.sourceAnalysis?.angles.some((angle) => angle.id === angleId) ? 1 : 0);
 }
 
@@ -149,7 +149,7 @@ function hydrateNode(surface: PlannedSurface, node: PlannedNode, job: JobFull | 
       return parseCatalogComponent({
         ...base,
         component: node.component,
-        ...framing(surface, node, job.ingestedTitle || "Campaign direction"),
+        ...framing(surface, node, job.sourceAnalysis?.summary || "Campaign direction"),
         brief: `Build ${job.config.desiredOutputs.join(", ")} from manifest ${job.config.sourceManifestId}.`,
         sourceKind: new Set((job.normalizedSources ?? []).map((source) => source.sourceKind)).size === 1
           ? ((job.normalizedSources ?? [])[0]?.sourceKind ?? "mixed") : "mixed",
@@ -180,7 +180,7 @@ function hydrateNode(surface: PlannedSurface, node: PlannedNode, job: JobFull | 
     case "MomentExplorer": {
       const moments = selected(job.sourceAnalysis?.moments ?? [], node.refs.momentIds, 20);
       const selectedIds = new Set(moments.map((moment) => moment.id));
-      const segmentIds = new Set(moments.flatMap((moment) => moment.transcriptSegmentRefs));
+      const segmentIds = new Set(moments.flatMap((moment) => moment.sourceSegmentRefs));
       const mediaSource = (job.normalizedSources ?? []).find((candidate) => candidate.sourceKind === "video" || candidate.sourceKind === "audio");
       const transcript = (mediaSource?.segments ?? []).filter((segment) => segment.locator.kind === "time_range" && (moments.length === 0 || segmentIds.has(segment.id))).slice(0, 200).map((segment) => ({ id: segment.id, startSec: segment.locator.kind === "time_range" ? segment.locator.startMs / 1000 : 0, endSec: segment.locator.kind === "time_range" ? segment.locator.endMs / 1000 : 0, text: segment.text }));
       const source = mediaSource ? { id: mediaSource.sourceId, label: mediaSource.title, kind: mediaSource.sourceKind } : undefined;

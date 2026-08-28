@@ -38,7 +38,7 @@ export function AttachmentComposer({ attachments, onChange, disabled }: { attach
   async function addFiles(files: FileList | null) {
     if (!files) return;
     setError(null);
-    for (const file of Array.from(files).slice(0, Math.max(0, 20 - attachments.length))) {
+    for (const file of Array.from(files).slice(0, Math.max(0, 10 - attachments.length))) {
       try {
         const sessionResponse = await apiFetch("/api/chat/attachments/session", {
           method: "POST",
@@ -78,7 +78,7 @@ export function AttachmentComposer({ attachments, onChange, disabled }: { attach
     <div>
       {attachments.length > 0 && <div className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-2">{attachments.map((attachment) => <div key={attachment.attachmentId}><AttachmentCard attachment={attachment} onRemove={() => onChange((current) => current.filter((item) => item.attachmentId !== attachment.attachmentId))} />{attachment.state === "uploading" && <div className="mt-1 h-1 overflow-hidden rounded bg-zinc-100 dark:bg-zinc-900"><div className="h-full bg-sky-500" style={{ width: `${attachment.progress}%` }} /></div>}</div>)}</div>}
       <input ref={inputRef} type="file" multiple accept="image/*,video/mp4,video/webm,video/quicktime,audio/*,application/pdf,text/plain,text/markdown,text/csv" className="hidden" onChange={(event) => void addFiles(event.target.files)} />
-      <button type="button" disabled={disabled || attachments.length >= 20} onClick={() => inputRef.current?.click()} className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 hover:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300">＋ Attach</button>
+      <button type="button" disabled={disabled || attachments.length >= 10} onClick={() => inputRef.current?.click()} className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 hover:border-zinc-500 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300">＋ Attach</button>
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
     </div>
   );

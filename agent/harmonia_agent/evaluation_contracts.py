@@ -406,10 +406,10 @@ def _public_copywriter_input() -> CopywriterInput:
 
 def _public_analyst_input() -> AnalystInput:
     return AnalystInput.model_validate({
-        "sourceId": "public-source", "sourceKind": "brief", "sourceDigest": "a" * 64,
-        "title": "synthetic demo", "channel": "public channel",
-        "transcriptSegments": [{"id": "segment-1", "startSec": 0, "endSec": 2,
-                                "text": "public synthetic source bounded proof"}],
+        "sourceIds": ["public-source"], "sourceKind": "video", "sourceDigest": "a" * 64,
+        "title": "synthetic demo",
+        "sourceSegments": [{"id": "segment-1", "sourceId": "public-source", "text": "public synthetic source bounded proof", "digest": "b" * 64,
+                            "locator": {"kind": "time_range", "startMs": 0, "endMs": 2000}}],
         "performanceObservations": [], "memoryFacts": [],
     })
 

@@ -30,13 +30,13 @@ const nodes: ArchitectureNode[] = [
   node({ id: "api-chat", name: "Chat + A2UI", kind: "route", layer: "apis", parentId: "group-apis", summary: "Chat, transport streaming, replay, attachments, and registered-operation decisions.", authorities: ["read", "write"], dataScope: "workspace", representativeRoutes: ["/api/chat", "/api/chat/stream", "/api/chat/runs/{id}/events", "/api/chat/attachments/*", "/api/chat/operations/{id}/decision"] }),
   node({ id: "api-content", name: "Content + monitoring", kind: "route", layer: "apis", parentId: "group-apis", summary: "Content items, proposals, assets, events, receipts, metrics, and notifications.", authorities: ["read", "write"], dataScope: "workspace", representativeRoutes: ["/api/content-items", "/api/proposals", "/api/assets", "/api/events", "/api/receipts", "/api/metrics", "/api/notifications"] }),
   node({ id: "api-calendar", name: "Calendar + OAuth", kind: "route", layer: "apis", parentId: "group-apis", summary: "Operator-only Calendar sync and official OAuth connections.", statuses: ["implemented", "approval-gated"], authorities: ["read", "write"], dataScope: "workspace", representativeRoutes: ["/api/calendar", "/api/calendar/google", "/api/oauth/{platform}/*"] }),
-  node({ id: "api-internal", name: "Internal worker boundary", kind: "route", layer: "apis", parentId: "group-apis", summary: "Service-authenticated worker callbacks; never browser-selected tenant scope.", authorities: ["read", "write"], dataScope: "tenant", representativeRoutes: ["/api/internal/ingest", "/api/internal/transcript", "/api/internal/analysis", "/api/internal/drafts", "/api/internal/effect-claim", "/api/internal/receipt", "/api/internal/verification", "/api/internal/usage", "/api/internal/agent-state"], sourceFiles: ["src/lib/internalHandler.ts"] }),
+  node({ id: "api-internal", name: "Internal worker boundary", kind: "route", layer: "apis", parentId: "group-apis", summary: "Service-authenticated worker callbacks; never browser-selected tenant scope.", authorities: ["read", "write"], dataScope: "tenant", representativeRoutes: ["/api/internal/source-manifest", "/api/internal/sources/{id}", "/api/internal/analysis", "/api/internal/drafts", "/api/internal/effect-claim", "/api/internal/receipt", "/api/internal/verification", "/api/internal/usage", "/api/internal/agent-state"], sourceFiles: ["src/lib/internalHandler.ts"] }),
 
   group("group-workflow", "Durable workflow", "workflow", "Firestore-persisted, Pub/Sub-triggered resumable content pipeline.", true),
   ...[
-    ["ingest", "1 · Ingest", "Resolve an authorized YouTube source or uploaded media."],
-    ["transcribe", "2 · Transcribe", "Gemini transcription with timed segments."],
-    ["analyze", "3 · Analyze", "Ground clip moments in transcript and video evidence."],
+    ["collect-sources", "1 · Collect sources", "Validate every direct and pinned library source independently."],
+    ["extract-sources", "2 · Extract sources", "Normalize video, audio, documents, webpages, and text with typed locators."],
+    ["analyze", "3 · Analyze", "Ground insights and eligible clip moments in the normalized manifest."],
     ["strategize", "4 · Strategize", "Ryan proposes a grounded four-week strategy and content briefs."],
     ["strategy-approval", "5 · Approve strategy", "Human approval bound to the exact strategy digest."],
     ["plan", "6 · Plan", "Temi proposes a complete plan; deterministic code validates, persists, and selects one eligible item."],
@@ -122,7 +122,7 @@ const nodes: ArchitectureNode[] = [
   ...[["trace", "W3C trace propagation"], ["spans", "Native ADK logs, metrics, and traces"], ["activity", "Tenant-scoped activity projection"], ["cost", "Role/model cost accounting"], ["budgets", "Workspace + job budget guards"]].map(([id, name]) => node({ id: `observe-${id}`, name, kind: "control", layer: "observability", parentId: "group-observability", summary: `${name}; no prompts, responses, transcripts, drafts, media, or chain-of-thought.`, statuses: id === "trace" || id === "spans" ? ["offline-verified", "pending-live"] : ["offline-verified"], authorities: ["read"], dataScope: "metadata-only", stateLifetime: "durable", sourceFiles: id === "activity" ? ["src/lib/observability/repository.ts", "src/components/monitoring/AgentActivityView.tsx"] : ["agent/harmonia_agent/telemetry.py"], docs: ["observability", "models-cost-evaluation"] })),
 ];
 
-const workflowIds = ["ingest", "transcribe", "analyze", "strategize", "strategy-approval", "plan", "draft", "await-approval", "publish-render", "verify", "learn"].map((id) => `stage-${id}`);
+const workflowIds = ["collect-sources", "extract-sources", "analyze", "strategize", "strategy-approval", "plan", "draft", "await-approval", "publish-render", "verify", "learn"].map((id) => `stage-${id}`);
 const effectIds = nodes.filter((item) => item.kind === "effect").map((item) => item.id);
 const approvalEffectIds = nodes
   .filter((item) => item.kind === "effect" && item.approval === "Required")
@@ -171,7 +171,7 @@ export const architectureDefinition = validateArchitecture({
   presets: [
     { id: "overview", name: "System overview", expanded: ["group-surfaces", "group-workflow"], layers: [], statuses: [], focusNodeIds: ["group-workflow"] },
     { id: "agents", name: "Agent team", expanded: ["group-agent-engine", "group-agent-team", "workflow-writing-review", "group-skills", "group-tools"], layers: ["agents", "skills", "models", "prompts", "data"], statuses: [], focusNodeIds: ["agent-harmonia"] },
-    { id: "workflow", name: "Content workflow", expanded: ["group-workflow", "group-worker"], layers: ["workflow", "control", "effects"], statuses: [], focusNodeIds: ["stage-ingest"] },
+    { id: "workflow", name: "Content workflow", expanded: ["group-workflow", "group-worker"], layers: ["workflow", "control", "effects"], statuses: [], focusNodeIds: ["stage-collect-sources"] },
     { id: "effect-safety", name: "Approval and effect safety", expanded: ["group-effect-safety"], layers: ["effects", "external", "data"], statuses: [], focusNodeIds: ["approval-receipt"] },
     { id: "state", name: "State ownership", expanded: ["group-state", "group-agent-engine"], layers: ["data", "workflow", "agents"], statuses: [], focusNodeIds: ["firestore"] },
     { id: "apis", name: "APIs and integrations", expanded: ["group-control", "group-apis", "group-external"], layers: ["control", "apis", "external"], statuses: [], focusNodeIds: ["group-apis"] },

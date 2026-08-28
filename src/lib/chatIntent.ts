@@ -16,7 +16,7 @@ function extractJobId(message: string): string | undefined {
 
 export type ChatIntent = "create_job" | "status" | "list_drafts" | "approve" | "unknown";
 export type ChatSourceDescriptor = { kind: "youtube" | "web"; url: string } | { kind: "pasted_text"; title: string; text: string };
-export interface ParsedIntent { intent: ChatIntent; sources?: ChatSourceDescriptor[]; desiredOutputs?: OutputKind[]; jobId?: string }
+export interface ParsedIntent { intent: ChatIntent; sources?: ChatSourceDescriptor[]; desiredOutputs?: OutputKind[]; libraryName?: string; jobId?: string }
 
 function offline(message: string): ParsedIntent {
   const trimmed = message.trim();
@@ -25,12 +25,15 @@ function offline(message: string): ParsedIntent {
   if (/\bapprove\b/.test(lower)) return { intent: "approve", jobId };
   if (/\bdrafts?\b/.test(lower)) return { intent: "list_drafts", jobId };
   if (/\bstatus\b/.test(lower)) return { intent: "status", jobId };
+  const libraryName = trimmed.match(/\b(?:brand\s+)?library\s+["“]([^"”]+)["”]/i)?.[1]?.trim();
+  const desiredLine = trimmed.match(/Desired outputs:\s*([^\n.]+)/i)?.[1];
+  const desiredOutputs = desiredLine?.split(",").map((item) => item.trim() as OutputKind).filter(Boolean);
   const urls = trimmed.match(URL_RE) ?? [];
-  if (urls.length || trimmed.length >= 20) {
+  if (urls.length || libraryName || trimmed.length >= 20) {
     const sources: ChatSourceDescriptor[] = urls.map((url) => ({ kind: YOUTUBE_RE.test(url) ? "youtube" : "web", url }));
-    const remaining = trimmed.replace(URL_RE, "").replace(/^(please\s+)?(make|create|start|run|generate|write)\s+(content|posts?)?\s*(from|about)?\s*/i, "").trim();
-    if (remaining.length >= 20) sources.push({ kind: "pasted_text", title: "Operator context", text: remaining });
-    return { intent: "create_job", sources, desiredOutputs: ["x_post"] };
+    const remaining = trimmed.replace(URL_RE, "").replace(/\n?Use brand library ["“][^"”]+["”]\.??/gi, "").replace(/\n?Desired outputs:[^\n]+/gi, "").replace(/^(please\s+)?(make|create|start|run|generate|write)\s+(content|posts?)?\s*(from|about)?\s*/i, "").trim();
+    if (remaining.length >= 20 && !/^content from the selected brand library\.?$/i.test(remaining)) sources.push({ kind: "pasted_text", title: "Operator context", text: remaining });
+    return { intent: "create_job", sources, desiredOutputs: desiredOutputs?.length ? desiredOutputs : ["x_post"], libraryName };
   }
   return { intent: "unknown" };
 }
@@ -38,10 +41,10 @@ function offline(message: string): ParsedIntent {
 const schema = { type: "object", properties: {
   intent: { type: "string", enum: ["create_job", "status", "list_drafts", "approve", "unknown"] },
   sources: { type: "array", maxItems: 10, items: { type: "object", properties: { kind: { type: "string", enum: ["youtube", "web", "pasted_text"] }, url: { type: "string" }, title: { type: "string" }, text: { type: "string" } }, required: ["kind"] } },
-  desiredOutputs: { type: "array", items: { type: "string" } }, jobId: { type: "string" },
+  desiredOutputs: { type: "array", items: { type: "string" } }, libraryName: { type: "string" }, jobId: { type: "string" },
 }, required: ["intent"] } as const;
 
-const prompt = `Classify Harmonia operator requests. A create_job request may contain YouTube URLs, public web URLs, or pasted factual context. Return sources as typed descriptors and desired output types. Never invent URLs, source text, identifiers, or approval. Status, draft listing, and approval commands may include a jobId. Return JSON only.`;
+const prompt = `Classify Harmonia operator requests. A create_job request may contain YouTube URLs, public web URLs, pasted factual context, and the exact name of an existing brand library. Return sources as typed descriptors, libraryName only when explicitly named, and desired output types. Never invent URLs, source text, library names, identifiers, or approval. Status, draft listing, and approval commands may include a jobId. Return JSON only.`;
 
 export async function parseIntent(message: string): Promise<ParsedIntent> {
   if (isMockAi()) return offline(message);
@@ -54,5 +57,5 @@ export async function parseIntent(message: string): Promise<ParsedIntent> {
   if (!text) throw new Error("Gemini returned no intent payload");
   const parsed = JSON.parse(text) as ParsedIntent;
   const intents: ChatIntent[] = ["create_job", "status", "list_drafts", "approve", "unknown"];
-  return { intent: intents.includes(parsed.intent) ? parsed.intent : "unknown", sources: parsed.sources, desiredOutputs: parsed.desiredOutputs, jobId: typeof parsed.jobId === "string" ? parsed.jobId : undefined };
+  return { intent: intents.includes(parsed.intent) ? parsed.intent : "unknown", sources: parsed.sources, desiredOutputs: parsed.desiredOutputs, libraryName: typeof parsed.libraryName === "string" ? parsed.libraryName : undefined, jobId: typeof parsed.jobId === "string" ? parsed.jobId : undefined };
 }

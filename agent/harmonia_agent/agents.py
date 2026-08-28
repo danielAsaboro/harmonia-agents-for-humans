@@ -47,7 +47,6 @@ from .mock_ai import (
     mock_analyze,
     mock_ask,
 )
-from .multimodal import attach_media_evidence
 from .memory_bank import MemoryBank, MemoryScope, VertexMemoryBank
 from .memory_bank import MemoryFact as RetrievedMemoryFact
 from .agent_models import MemoryFact as StrategyMemoryFact
@@ -327,7 +326,7 @@ def _role_task(role: str, specialist: str, payload: BaseModel) -> str:
     if role == "ryan_strategist":
         return "strategize"
     if role == "nimi_analyst":
-        return "analyze_media" if getattr(payload, "mediaEvidence", None) else "analyze_transcript"
+        return "analyze_media" if getattr(payload, "sourceKind", None) in {"video", "audio", "mixed"} else "analyze_sources"
     return {
         "noni_copywriter": "draft_or_revise_x",
         "dara_editor": "review_drafts",
@@ -387,7 +386,7 @@ def build_agent_team(
         model=resolved.analyst,
         generate_content_config=generation_config(resolved.config_for("nimi_analyst")),
         name="nimi_analyst",
-        description="Finds clip-worthy moments and defensible trend or meme angles in a transcript.",
+        description="Finds grounded insights and, when timed media exists, clip-worthy moments across a source manifest.",
         instruction=NIMI_ANALYST_INSTRUCTION,
         input_schema=AnalystInput,
         output_schema=SourceAnalysis,
@@ -397,7 +396,6 @@ def build_agent_team(
         before_agent_callback=_reset_nimi_capability_traces,
         before_tool_callback=_guard_nimi_capability,
         after_tool_callback=_record_nimi_capability,
-        before_model_callback=attach_media_evidence,
     )
     presenter = Agent(
         model=resolved.presenter,
@@ -1518,11 +1516,8 @@ def validate_source_analysis(
     if analysis.sourceDigest != input.sourceDigest:
         raise AgentProtocolError("Nimi analysis source digest does not match the input")
 
-    segments = {segment.id: segment for segment in input.transcriptSegments}
-    frames = {
-        frame.id: frame
-        for frame in (input.mediaEvidence.frames if input.mediaEvidence else [])
-    }
+    segments = {segment.id: segment for segment in input.sourceSegments}
+    frames = {segment.id: segment for segment in input.sourceSegments if segment.locator.kind == "frame"}
     performance_ids = {item.id for item in input.performanceObservations}
     memory_ids = {item.id for item in input.memoryFacts}
     moment_ids = {moment.id for moment in analysis.moments}
@@ -1539,19 +1534,19 @@ def validate_source_analysis(
     all_ids = source_ids | public_ids | private_ids | performance_ids | memory_ids
 
     for moment in analysis.moments:
-        unknown_segments = set(moment.transcriptSegmentRefs) - set(segments)
+        unknown_segments = set(moment.sourceSegmentRefs) - set(segments)
         if unknown_segments:
             raise AgentProtocolError(
-                f"Nimi moment contains unknown transcript segment ids: {sorted(unknown_segments)}"
+                f"Nimi moment contains unknown source segment ids: {sorted(unknown_segments)}"
             )
-        cited = [segments[ref] for ref in moment.transcriptSegmentRefs]
+        cited = [segments[ref] for ref in moment.sourceSegmentRefs]
         cited_text = " ".join(segment.text for segment in cited)
         if moment.quote not in cited_text:
-            raise AgentProtocolError("Nimi moment exact quote is absent from cited transcript segments")
-        if moment.startSec < min(segment.startSec for segment in cited) or moment.endSec > max(segment.endSec for segment in cited):
-            raise AgentProtocolError("Nimi moment time bounds exceed cited transcript segments")
-        if input.mediaEvidence and moment.endSec > input.mediaEvidence.duration_sec:
-            raise AgentProtocolError("Nimi moment time bounds exceed media duration")
+            raise AgentProtocolError("Nimi moment exact quote is absent from cited source segments")
+        if any(segment.locator.kind != "time_range" for segment in cited):
+            raise AgentProtocolError("Nimi clip moments require time-range source evidence")
+        if moment.startSec * 1000 < min(segment.locator.startMs for segment in cited) or moment.endSec * 1000 > max(segment.locator.endMs for segment in cited):
+            raise AgentProtocolError("Nimi moment time bounds exceed cited source segments")
         unknown_visual = set(moment.visualEvidenceIds) - set(frames)
         if unknown_visual:
             raise AgentProtocolError(

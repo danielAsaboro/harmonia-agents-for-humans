@@ -21,3 +21,12 @@ export async function listDriveFolderFiles(accessToken: string, folderId: string
   const data = await driveGet(accessToken, "files", { q: `'${escaped}' in parents and trashed=false`, fields: "nextPageToken,files(id,name,mimeType,size,md5Checksum,version,driveId,modifiedTime)", pageSize: "100", supportsAllDrives: "true", includeItemsFromAllDrives: "true", ...(pageToken ? { pageToken } : {}) }, request);
   return { files: (Array.isArray(data.files) ? data.files as DriveFileVersion[] : []).filter((file) => file.mimeType !== "application/vnd.google-apps.folder"), ...(typeof data.nextPageToken === "string" ? { nextPageToken: data.nextPageToken } : {}) };
 }
+
+export async function downloadDriveFile(accessToken: string, file: DriveFileVersion, request: RequestFn = fetch): Promise<{ bytes: Buffer; mimeType: string }> {
+  const nativeExports: Record<string, string> = { "application/vnd.google-apps.document": "application/pdf", "application/vnd.google-apps.presentation": "application/pdf", "application/vnd.google-apps.spreadsheet": "text/csv" };
+  const exportMime = nativeExports[file.mimeType]; const url = new URL(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}/${exportMime ? "export" : ""}`.replace(/\/$/, ""));
+  url.searchParams.set(exportMime ? "mimeType" : "alt", exportMime ?? "media");
+  const response = await request(url.toString(), { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(60_000) });
+  if (!response.ok) throw new Error(`Google Drive download failed (${response.status})`);
+  return { bytes: Buffer.from(await response.arrayBuffer()), mimeType: exportMime ?? file.mimeType };
+}

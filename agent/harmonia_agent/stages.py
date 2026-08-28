@@ -1,4 +1,4 @@
-"""Harmonia stage handlers: ingest -> transcribe -> understand -> strategize -> draft -> publish -> verify."""
+"""Harmonia stage handlers for source collection through verified effects."""
 
 from __future__ import annotations
 
@@ -30,7 +30,6 @@ from .agent_models import (
     DraftWorkflowResult,
     EditorialPlan,
     EditorialPlannerInput,
-    MediaEvidence,
     PerformanceObservation,
     StrategistInput,
 )
@@ -64,6 +63,8 @@ from .team_runtime import AgentEngineProtocolError, AgentEngineProviderError
 from .telemetry import current_trace_id, inject_context, safe_attributes, tracer
 from .usage import InvocationContext, media_usage_record
 from .effect_executor import execute_effect_command, production_adapters
+from .extraction import extract_docx, extract_html, extract_media, extract_pdf, extract_text
+from .extraction.security import assert_public_url
 from .operation_context import operation_scope
 from .web_client import (
     EffectClaimInProgress,
@@ -79,8 +80,11 @@ from .web_client import (
     get_insights,
     get_job,
     get_media_operation,
+    get_source,
+    get_source_manifest,
     get_chat_attachment,
     post as web_post,
+    patch as web_patch,
     report_usage,
     reserve_budget,
     resolve_budget_reservation,
@@ -153,7 +157,7 @@ def _meme_angles(job: dict[str, Any]) -> list[dict[str, Any]]:
 
 def deterministic_generative_media_actions(job: dict[str, Any]) -> list[dict[str, Any]]:
     """Propose bounded paid media from validated analysis, outside the planner."""
-    title = str(job.get("ingestedTitle") or "startup launch")[:200]
+    title = str((job.get("sourceAnalysis") or {}).get("summary") or "startup launch")[:200]
     moments = [
         item for item in _source_moments(job)
         if item.get("id") and item.get("visualHook")
@@ -198,12 +202,17 @@ def deterministic_generative_media_actions(job: dict[str, Any]) -> list[dict[str
     return actions
 
 
-def _segments_in_window(job: dict[str, Any], start: float, end: float) -> list[dict[str, Any]]:
-    """Transcript segments overlapping [start,end], for caption burning."""
-    return [
-        s for s in (job.get("transcriptSegments") or [])
-        if float(s["endSec"]) > start and float(s["startSec"]) < end
-    ]
+def _segments_in_window(job_id: str, start: float, end: float) -> list[dict[str, Any]]:
+    """Timed normalized segments overlapping [start,end], for caption burning."""
+    result = []
+    for source in get_source_manifest(job_id).get("normalizedSources") or []:
+        for segment in source.get("segments") or []:
+            locator = segment.get("locator") or {}
+            if locator.get("kind") != "time_range": continue
+            start_sec, end_sec = float(locator["startMs"]) / 1000, float(locator["endMs"]) / 1000
+            if end_sec > start and start_sec < end:
+                result.append({"id": f"{source['sourceId']}:{segment['id']}", "startSec": start_sec, "endSec": end_sec, "text": segment["text"]})
+    return result
 
 
 def web_post_raw_asset(job_id: str, action_id: str, mime: str, digest: str, data: bytes) -> None:
@@ -224,21 +233,18 @@ def web_post_raw_asset(job_id: str, action_id: str, mime: str, digest: str, data
     if res.status_code >= 300:
         raise WebApiError(f"asset upload failed: {res.status_code} {res.text}", res.status_code)
 
-_AUDIO_CACHE: dict[str, bytes] = {}
-
-
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _materialize_source_video(job: dict[str, Any], directory: str) -> Path:
-    config = job["config"]
-    if config.get("youtubeUrl"):
-        return clipper.download_video(config["youtubeUrl"], directory)
-    attachment_id = config.get("mediaAttachmentId")
-    if not attachment_id:
-        raise ClipRenderError("job has no renderable media source")
-    data, _mime, filename = get_chat_attachment(attachment_id)
+def _materialize_source_video(job_id: str, moment: dict[str, Any], directory: str) -> Path:
+    refs = moment.get("sourceSegmentRefs") or []
+    source_id = str(refs[0]).split(":", 1)[0] if refs else ""
+    if not source_id: raise ClipRenderError("clip moment has no source evidence")
+    source_package = get_source(source_id); source_input = (source_package.get("payload") or {}).get("input") or {}
+    if source_input.get("kind") == "youtube": return clipper.download_video(str(source_input["url"]), directory)
+    if source_input.get("kind") != "upload": raise ClipRenderError("clip source is not materializable video")
+    data, _mime, filename = get_chat_attachment(str(source_input["attachmentId"]))
     suffix = Path(filename).suffix.lower()
     if suffix not in {".mp4", ".mov", ".webm", ".m4v"}:
         suffix = ".mp4"
@@ -247,64 +253,101 @@ def _materialize_source_video(job: dict[str, Any], directory: str) -> Path:
     return source
 
 
-async def run_ingest(job_id: str) -> None:
-    job = get_job(job_id)
-    config = job["config"]
-    attachment_id = config.get("mediaAttachmentId")
-    if attachment_id:
-        audio, mime, filename = get_chat_attachment(attachment_id)
-        digest = hashlib.sha256(audio).hexdigest()
-        meta = {
-            "videoId": attachment_id,
-            "title": filename,
-            "channel": "operator upload",
-            "durationSec": youtube.probe_audio_duration(audio),
-        }
-        config.setdefault("mediaMime", mime)
-    else:
-        video_id = youtube.extract_video_id(config["youtubeUrl"])
-        meta = youtube.fetch_metadata(video_id)
-        audio, digest = youtube.download_audio(config["youtubeUrl"])
-    if int(meta.get("durationSec") or 0) <= 0:
-        # No Data API key: measure real duration from the downloaded media.
-        meta["durationSec"] = youtube.probe_audio_duration(audio)
-    web_post("/api/internal/ingest", {
-        "jobId": job_id, "stage": "ingest", **meta,
-        "mediaBytes": len(audio), "mediaDigest": digest,
-    })
-    _AUDIO_CACHE[job_id] = audio
+def _source_failure(exc: Exception, *, category: str = "validation") -> dict[str, object]:
+    return {
+        "code": type(exc).__name__.lower(), "category": category,
+        "publicMessage": str(exc)[:240], "retryable": isinstance(exc, (httpx.TimeoutException, httpx.TransportError)),
+        "occurredAt": _now(),
+    }
 
 
-async def run_transcribe(job_id: str) -> None:
-    job = get_job(job_id)
-    config = job["config"]
-    attachment_id = config.get("mediaAttachmentId")
-    if attachment_id:
-        audio = _AUDIO_CACHE.get(job_id) or get_chat_attachment(attachment_id)[0]
-        mime = config.get("mediaMime") or "video/mp4"
-    else:
-        audio = _AUDIO_CACHE.get(job_id) or youtube.download_audio(config["youtubeUrl"])[0]
-        mime = "audio/mp4"
-    result = content.transcribe_audio(
-        audio,
-        mime,
-        invocation=InvocationContext(
-            job_id=job_id,
-            workspace_id=job["workspaceId"],
-            brand_id=job["brandId"],
-            user_id=job["createdByUserId"],
-            stage="transcribe", operation_id=f"{job_id}:transcribe:0",
-        ),
-    )
-    web_post("/api/internal/transcript", {
-        "jobId": job_id, "stage": "transcribe",
-        "language": result.get("language", "en"),
-        "segments": result["segments"], "modelUsed": content.model_used(),
-    })
+async def run_collect_sources(job_id: str) -> None:
+    package = get_source_manifest(job_id)
+    failed = False
+    for source in package.get("sources") or []:
+        source_id = str(source["id"])
+        if source.get("state") in {"queued", "extracting", "ready", "excluded"}:
+            continue
+        if source.get("state") == "failed":
+            failed = True
+            continue
+        try:
+            web_patch(f"/api/internal/sources/{source_id}", {"outcome": "transition", "expectedState": "discovered", "nextState": "validating"})
+            payload = get_source(source_id).get("payload") or {}
+            source_input = payload.get("input") or {}
+            if source_input.get("kind") in {"youtube", "web"}:
+                assert_public_url(str(source_input.get("url") or ""))
+            if not str(source_input.get("rightsAuthorizationId") or "").strip():
+                raise ValueError("source rights authorization is required")
+            web_patch(f"/api/internal/sources/{source_id}", {"outcome": "transition", "expectedState": "validating", "nextState": "queued"})
+        except Exception as exc:
+            failed = True
+            web_patch(f"/api/internal/sources/{source_id}", {"outcome": "failed", "expectedState": "validating", "failure": _source_failure(exc)})
+    web_post("/api/internal/source-manifest", {"jobId": job_id, "stage": "collect_sources", "outcome": "partial_failure" if failed else "all_ready"})
+
+
+def _fetch_public_html(url: str) -> tuple[bytes, str, str]:
+    current = assert_public_url(url)
+    with httpx.Client(timeout=30, follow_redirects=False, headers={"User-Agent": "HarmoniaSourceExtractor/1.0"}) as client:
+        for _ in range(6):
+            response = client.get(current)
+            if response.is_redirect:
+                current = assert_public_url(str(response.url.join(response.headers["location"])))
+                continue
+            response.raise_for_status()
+            body = response.content
+            if len(body) > 5 * 1024 * 1024:
+                raise ValueError("web response exceeds byte limit")
+            return body, response.headers.get("content-type", ""), current
+    raise ValueError("web source exceeded redirect limit")
+
+
+def _extract_source(job: dict[str, Any], source: dict[str, Any], source_input: dict[str, Any]):
+    source_id = str(source["id"]); receipt_id = f"extract:{source_id}:{uuid.uuid4().hex}"
+    kind = source_input.get("kind")
+    if kind == "pasted_text":
+        return extract_text(source_id, str(source_input["title"]), str(source_input["text"]), "text/plain", receipt_id=receipt_id)
+    if kind == "web":
+        body, content_type, final_url = _fetch_public_html(str(source_input["url"]))
+        return extract_html(source_id, final_url, body, content_type, receipt_id=receipt_id)
+    if kind == "youtube":
+        url = str(source_input["url"]); video_id = youtube.extract_video_id(url); meta = youtube.fetch_metadata(video_id)
+        body, _digest = youtube.download_audio(url)
+        return extract_media(source_id, str(meta.get("title") or "YouTube video"), body, "audio/mp4", invocation=InvocationContext(job_id=job["id"], workspace_id=job["workspaceId"], brand_id=job["brandId"], user_id=job["createdByUserId"], stage="extract_sources", operation_id=f"{job['id']}:extract_sources:{source_id}"), receipt_id=receipt_id).model_copy(update={"sourceKind": "video", "metadata": {"durationSec": youtube.probe_audio_duration(body), "youtubeUrl": url, "videoId": video_id}})
+    if kind == "upload":
+        body, mime, filename = get_chat_attachment(str(source_input["attachmentId"])); lowered = filename.lower()
+        if mime == "application/pdf" or lowered.endswith(".pdf"): return extract_pdf(source_id, filename, body, receipt_id=receipt_id)
+        if mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" or lowered.endswith(".docx"): return extract_docx(source_id, filename, body, receipt_id=receipt_id)
+        if mime.startswith("text/") or lowered.endswith((".txt", ".md")): return extract_text(source_id, filename, body.decode("utf-8"), "text/markdown" if lowered.endswith(".md") else "text/plain", receipt_id=receipt_id)
+        if mime.startswith(("audio/", "video/")): return extract_media(source_id, filename, body, mime, invocation=InvocationContext(job_id=job["id"], workspace_id=job["workspaceId"], brand_id=job["brandId"], user_id=job["createdByUserId"], stage="extract_sources", operation_id=f"{job['id']}:extract_sources:{source_id}"), receipt_id=receipt_id)
+        raise ValueError(f"unsupported uploaded source type: {mime}")
+    raise ValueError(f"unsupported source kind: {kind}")
+
+
+async def run_extract_sources(job_id: str) -> None:
+    job = get_job(job_id); package = get_source_manifest(job_id); failed = False
+    for source in package.get("sources") or []:
+        if source.get("state") != "queued":
+            if source.get("state") == "failed": failed = True
+            continue
+        source_id = str(source["id"])
+        try:
+            web_patch(f"/api/internal/sources/{source_id}", {"outcome": "transition", "expectedState": "queued", "nextState": "extracting"})
+            source_input = (get_source(source_id).get("payload") or {}).get("input") or {}
+            normalized = _extract_source(job, source, source_input)
+            web_patch(f"/api/internal/sources/{source_id}", {"outcome": "ready", "expectedState": "extracting", "normalizedSource": normalized.model_dump(mode="json")})
+        except Exception as exc:
+            failed = True
+            web_patch(f"/api/internal/sources/{source_id}", {"outcome": "failed", "expectedState": "extracting", "failure": _source_failure(exc, category="provider_transient" if isinstance(exc, (httpx.TimeoutException, httpx.TransportError)) else "validation")})
+    web_post("/api/internal/source-manifest", {"jobId": job_id, "stage": "extract_sources", "outcome": "partial_failure" if failed else "all_ready"})
 
 
 async def run_understand(job_id: str) -> None:
     job = get_job(job_id)
+    source_package = get_source_manifest(job_id)
+    normalized_sources = source_package.get("normalizedSources") or []
+    if not normalized_sources:
+        raise RuntimeError("job has no normalized sources")
     invocation = InvocationContext(
         job_id=job_id,
         workspace_id=job["workspaceId"],
@@ -329,33 +372,31 @@ async def run_understand(job_id: str) -> None:
             ))
     except WebApiError:
         logger.info("no prior engagement insights yet")
-    brief = str((job.get("config") or {}).get("brief") or "").strip()
-    transcript_segments = job.get("transcriptSegments") or []
-    if not transcript_segments and brief:
-        transcript_segments = [{
-            "id": "brief-1", "startSec": 0, "endSec": 0, "text": brief,
-        }]
-    if not transcript_segments:
-        raise RuntimeError("job has neither transcript nor operator brief")
-    media_evidence: MediaEvidence | None = None
-    source_url = (job.get("config") or {}).get("youtubeUrl") or (job.get("config") or {}).get("mediaStorageUri")
-    source_digest = job.get("mediaDigest")
-    duration = job.get("ingestedDurationSec")
-    if source_url and source_digest and duration:
-        media_evidence = MediaEvidence(
-            video_uri=source_url, duration_sec=duration, source_digest=source_digest, frames=[],
-        )
-    source_kind = "media" if media_evidence else "brief"
-    if not source_digest:
-        source_digest = hashlib.sha256(brief.encode("utf-8")).hexdigest()
+    source_ids = [str(source["sourceId"]) for source in normalized_sources]
+    kinds = {str(source["sourceKind"]) for source in normalized_sources}
+    source_kind = next(iter(kinds)) if len(kinds) == 1 else "mixed"
+    source_segments = []
+    for source in normalized_sources:
+        for segment in source.get("segments") or []:
+            source_segments.append({
+                **segment,
+                "id": f"{source['sourceId']}:{segment['id']}",
+                "sourceId": source["sourceId"],
+            })
+    if not source_segments:
+        raise RuntimeError("normalized source manifest has no evidence segments")
+    source_digest = hashlib.sha256(_canonical_typed_bytes([
+        {"sourceId": source["sourceId"], "contentDigest": source["contentDigest"]}
+        for source in normalized_sources
+    ]).encode("utf-8")).hexdigest()
+    title = " + ".join(str(source.get("title") or source["sourceId"]) for source in normalized_sources)[:300]
     analyst_input = AnalystInput(
-        sourceId=str(job.get("videoId") or f"brief:{job_id}"),
+        sourceIds=source_ids,
         sourceKind=source_kind,
         sourceDigest=source_digest,
-        title=job.get("ingestedTitle") or brief[:200],
-        channel=job.get("ingestedChannel") or "operator brief",
-        transcriptSegments=transcript_segments,
-        mediaEvidence=media_evidence,
+        title=title,
+        operatorInstructions=[str(item.get("instruction"))[:300] for item in (job.get("steeringInstructions") or []) if item.get("instruction")],
+        sourceSegments=source_segments[:500],
         performanceObservations=performance,
         memoryFacts=[],
         researchRequest=(job.get("config") or {}).get("analysisResearchRequest"),
@@ -403,7 +444,7 @@ def _strategy_input(job: dict[str, Any], insights: dict[str, Any]) -> Strategist
             ))
     revision = int(job.get("strategyRevision") or 1)
     return StrategistInput(
-        source_title=job.get("ingestedTitle") or str((job.get("config") or {}).get("brief") or "")[:300],
+        source_title=str((job.get("sourceAnalysis") or {}).get("summary") or f"Source bundle {(job.get('config') or {}).get('sourceManifestId', '')[:12]}")[:300],
         company=CompanyContext(
             evidenceId="context:company",
             **{key: context[key] for key in ("company", "product", "positioning", "differentiators", "brandVoice", "exclusions", "safetyConstraints")},
@@ -415,7 +456,7 @@ def _strategy_input(job: dict[str, Any], insights: dict[str, Any]) -> Strategist
         ),
         analysis=analysis, performance=performance, revision=revision,
         researchRequest=context.get("researchRequest"),
-        revisionFeedback=job.get("strategyRevisionFeedback"),
+        revisionFeedback="\n".join(filter(None, [job.get("strategyRevisionFeedback"), *[str(item.get("instruction")) for item in (job.get("steeringInstructions") or []) if item.get("instruction")]])) or None,
     )
 
 
@@ -572,7 +613,7 @@ async def run_draft(job_id: str) -> None:
         editorialItem=selected, brief=brief,
         referencedMoments=moments, referencedAngles=angles,
         brandContext=brand_context,
-        constraints=[*selected.constraints, *strategy.get("brandSafety", [])],
+        constraints=[*selected.constraints, *strategy.get("brandSafety", []), *[str(item.get("instruction"))[:300] for item in (job.get("steeringInstructions") or []) if item.get("instruction")]],
         platform="x", format="text_post", passType="original",
         priorDraft=None, priorReview=None,
     ), invocation=InvocationContext(
@@ -583,13 +624,14 @@ async def run_draft(job_id: str) -> None:
         stage="draft", operation_id=f"{job_id}:draft:0",
     ))
     accepted = package.acceptedDraft
+    planned_outputs = {str(item.get("outputType")) for item in ((job.get("campaignOutputPlan") or {}).get("outputs") or [])}
     action_id = f"act-{hashlib.sha256(accepted.text.encode()).hexdigest()[:12]}"
     actions = [{
         "id": action_id, "type": "publish_x_post", "title": accepted.text[:48],
         "description": "Publish the exact Dara-accepted X draft after operator approval.",
         "payload": {"type": "publish_x_post", "text": accepted.text},
-    }]
-    actions.append({
+    }] if "x_post" in planned_outputs else []
+    if "content_pack" in planned_outputs: actions.append({
         "id": "act-content-pack", "type": "export_content_pack",
         "title": "Assemble content pack",
         "description": "Bundle moments, angles and drafts into an exportable markdown pack.",
@@ -597,17 +639,19 @@ async def run_draft(job_id: str) -> None:
     })
 
     # Propose image assets for the top meme angles (capped to bound cost).
-    meme_angles = [a for a in angles if a.get("angleType") == "meme"]
-    for angle in meme_angles[:2]:
+    meme_angles = [a for a in angles if a.get("angleType") == "meme"] or angles
+    visual_outputs = [item for item in ("social_image", "quote_card", "diagram") if item in planned_outputs]
+    for index, angle in enumerate(meme_angles[:len(visual_outputs)]):
+        output_type = visual_outputs[index]
         prompt_text = (
             f"Social media meme image for a startup. Concept: {angle['title']}. "
-            f"Rationale: {angle['rationale']}. Context: {job['ingestedTitle']}. "
+            f"Rationale: {angle['rationale']}. Context: {(job.get('sourceAnalysis') or {}).get('summary', 'source bundle')}. "
             "Clean, shareable, platform-friendly composition, no text artifacts or watermarks."
         )
         aid = f"act-img-{hashlib.sha256(prompt_text.encode()).hexdigest()[:12]}"
         actions.append({
             "id": aid, "type": "generate_image",
-            "title": f"Generate meme image: {angle['title'][:40]}",
+            "title": f"Generate {output_type.replace('_', ' ')}: {angle['title'][:40]}",
             "description": "Generates an internal image asset with Gemini; review before any use.",
             "angleId": angle["id"],
             "payload": {"type": "generate_image", "prompt": prompt_text},
@@ -615,8 +659,9 @@ async def run_draft(job_id: str) -> None:
 
     # Propose captioned vertical clips from the strongest moments (video jobs only).
     moments = [m for m in moments if m.get("endSec", 0) > m.get("startSec", 0)]
-    if job["config"].get("youtubeUrl"):
-        for moment in moments[:2]:
+    has_video_evidence = any(moment.get("endSec", 0) > moment.get("startSec", 0) and moment.get("sourceSegmentRefs") for moment in moments)
+    if has_video_evidence and {"short_clip", "reel"}.intersection(planned_outputs):
+        for moment in moments[:2] if "short_clip" in planned_outputs else []:
             cid = f"act-clip-{hashlib.sha256(moment['id'].encode()).hexdigest()[:12]}"
             actions.append({
                 "id": cid, "type": "render_clip",
@@ -625,7 +670,7 @@ async def run_draft(job_id: str) -> None:
                 "momentId": moment["id"],
                 "payload": {"type": "render_clip", "momentId": moment["id"], "format": "vertical", "captions": True},
             })
-        if len(moments) >= 2:
+        if len(moments) >= 2 and "reel" in planned_outputs:
             actions.append({
                 "id": "act-reel-top2",
                 "type": "render_reel",
@@ -640,7 +685,8 @@ async def run_draft(job_id: str) -> None:
             })
 
     if settings().generative_media_enabled:
-        actions.extend(deterministic_generative_media_actions({**job, "moments": moments, "angles": angles}))
+        media_actions = deterministic_generative_media_actions({**job, "moments": moments, "angles": angles})
+        actions.extend(action for action in media_actions if (action["type"] == "generate_veo_broll" and "generated_broll" in planned_outputs) or (action["type"] == "generate_lyria_soundtrack" and "generated_audio" in planned_outputs))
 
     web_post("/api/internal/drafts", {
         "jobId": job_id, "stage": "draft",
@@ -679,6 +725,9 @@ async def run_publish(job_id: str) -> None:
     }
 
     for command in commands:
+        control = get_job(job_id).get("controlState", "running")
+        if control != "running":
+            raise RuntimeError(f"job control state blocks effects: {control}")
         action = {
             "id": command["actionId"],
             "type": command["actionType"],
@@ -739,8 +788,8 @@ async def run_publish(job_id: str) -> None:
         try:
             if action["type"] == "export_content_pack":
                 pack = content.build_content_pack(
-                    job.get("ingestedTitle", ""),
-                    job["config"].get("youtubeUrl") or "operator brief",
+                    str((job.get("sourceAnalysis") or {}).get("summary") or "Source bundle"),
+                    f"manifest:{job['config']['sourceManifestId']}",
                     _source_moments(job), _source_angles(job), job.get("drafts", []),
                 )
                 digest = hashlib.sha256(pack.encode()).hexdigest()
@@ -907,7 +956,6 @@ async def run_publish(job_id: str) -> None:
                     want_caps = action["payload"].get("captions", True)
                     render_notes: list[str] = []
                     with tempfile.TemporaryDirectory() as td:
-                        src = _materialize_source_video(job, td)
                         if action["type"] == "render_clip":
                             moment = next(
                                 (m for m in _source_moments(job) if m["id"] == action["payload"]["momentId"]),
@@ -915,12 +963,13 @@ async def run_publish(job_id: str) -> None:
                             )
                             if not moment:
                                 raise ClipRenderError("moment referenced by render_clip no longer exists")
+                            src = _materialize_source_video(job_id, moment, td)
                             out = Path(td) / "clip.mp4"
                             render_notes += clipper.render_clip(
                                 src, out,
                                 float(moment["startSec"]), float(moment["endSec"]),
                                 fmt=fmt,
-                                captions=_segments_in_window(job, float(moment["startSec"]), float(moment["endSec"])) if want_caps else None,
+                                captions=_segments_in_window(job_id, float(moment["startSec"]), float(moment["endSec"])) if want_caps else None,
                             )
                         else:
                             parts: list[Path] = []
@@ -928,12 +977,13 @@ async def run_publish(job_id: str) -> None:
                                 m = next((m for m in _source_moments(job) if m["id"] == mid), None)
                                 if not m:
                                     raise ClipRenderError(f"moment {mid} no longer exists")
+                                src = _materialize_source_video(job_id, m, td)
                                 part = Path(td) / f"part{i}.mp4"
                                 render_notes += clipper.render_clip(
                                     src, part,
                                     float(m["startSec"]), float(m["endSec"]),
                                     fmt=fmt,
-                                    captions=_segments_in_window(job, float(m["startSec"]), float(m["endSec"])) if want_caps else None,
+                                    captions=_segments_in_window(job_id, float(m["startSec"]), float(m["endSec"])) if want_caps else None,
                                 )
                                 parts.append(part)
                             out = Path(td) / "reel.mp4"
@@ -1131,8 +1181,8 @@ async def run_learn(job_id: str) -> None:
 
 
 HANDLERS: dict[str, Handler] = {
-    "ingest": run_ingest,
-    "transcribe": run_transcribe,
+    "collect_sources": run_collect_sources,
+    "extract_sources": run_extract_sources,
     "understand": run_understand,
     "strategize": run_strategize,
     "plan": run_plan,
@@ -1178,6 +1228,10 @@ async def dispatch(job_id: str, stage: str, *, attempt: int = 0) -> bool:
             "stage": stage,
             "attempt": attempt,
         }))
+        job_control = get_job(job_id).get("controlState", "running")
+        if job_control in {"paused", "cancelled"}:
+            span.set_attributes(safe_attributes({"job.control_state": job_control}))
+            return True
         handler = HANDLERS.get(stage)
         if handler is None:
             envelope = normalize_failure(

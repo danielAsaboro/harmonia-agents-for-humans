@@ -9,9 +9,8 @@ const job: JobFull = {
   createdAt: "2026-08-23T00:00:00.000Z",
   updatedAt: "2026-08-23T00:01:00.000Z",
   config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] },
-  ingestedTitle: "Founder launch interview",
   normalizedSources: [{ sourceId: "source-1", sourceKind: "video", title: "Interview", mimeType: "video/mp4", contentDigest: "c".repeat(64), extractorVersion: "media-v1", extractedAt: "2026-08-23T00:00:00.000Z", extractionReceiptId: "receipt-1", metadata: {}, segments: [{ id: "segment-1", text: "private transcript text", digest: "d".repeat(64), locator: { kind: "time_range", startMs: 10000, endMs: 20000 } }] }],
-  sourceAnalysis: { sourceDigest: "a".repeat(64), summary: "Outcome proof.", moments: [{ id: "moment-1", title: "Outcome proof", startSec: 10, endSec: 20, hook: "Proof", quote: "We cut setup time.", transcriptSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }], angles: [{ id: "angle-1", angleType: "source_insight", evidenceKind: "source", title: "Outcome-led launch", rationale: "Lead with proof.", evidenceRefs: ["moment-1"], assumptions: [], confidence: "high" }], assumptions: [], confidence: "high" },
+  sourceAnalysis: { sourceDigest: "a".repeat(64), summary: "Outcome proof.", moments: [{ id: "moment-1", title: "Outcome proof", startSec: 10, endSec: 20, hook: "Proof", quote: "We cut setup time.", sourceSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }], angles: [{ id: "angle-1", angleType: "source_insight", evidenceKind: "source", title: "Outcome-led launch", rationale: "Lead with proof.", evidenceRefs: ["moment-1"], assumptions: [], confidence: "high" }], assumptions: [], confidence: "high" },
   drafts: [{ id: "draft-1", platform: "x", text: "full draft text must stay server-side", valid: true, momentId: "moment-1" }],
   actions: [{
     id: "publish-1",

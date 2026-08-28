@@ -67,8 +67,8 @@ def test_job_status_summary_never_leaks_internal_fields():
     assert summary["actions"][0]["requiresApproval"] is True
     assert summary["actions"][0]["approvalState"] == "pending"
     assert summary["actions"][0]["state"] == "planned"
-    assert summary["title"] == "Mock launch video"
-    assert summary["sourceKind"] == "video"
+    assert summary["title"] == "Mock launch source bundle"
+    assert summary["sourceKind"] == "source_manifest"
 
 
 def test_job_status_reports_missing_jobs_honestly():

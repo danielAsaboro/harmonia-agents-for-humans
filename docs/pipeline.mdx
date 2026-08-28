@@ -1,24 +1,24 @@
 ---
 title: "The Pipeline"
-description: "Stage by stage: ingest, transcribe, understand, strategize, approve strategy, plan, draft, approve effects, publish, verify, learn."
+description: "Stage by stage: collect sources, extract sources, understand, strategize, approve strategy, plan, draft, approve effects, publish, verify, learn."
 ---
 
 Harmonia's pipeline is a linear stage machine. Each completed stage persists its payload and atomically records the next trigger in a Firestore outbox. Pub/Sub publication is claimed and finalized from that outbox; the durable tick recovers pending delivery after a crash.
 
 ```mermaid
 flowchart LR
-    Q[queued] > I[ingest] > T[transcribe] > U[understand] > S[strategize] > SA[awaiting_strategy_approval] > P0[plan] > D[draft] > A[awaiting_approval]
+    Q[queued] > I[collect_sources] > T[extract_sources] > U[understand] > S[strategize] > SA[awaiting_strategy_approval] > P0[plan] > D[draft] > A[awaiting_approval]
     A -- approved --> P[publish] > V[verify] > L[learn] > C[complete]
     A -- rejected/skipped --> C2[complete]
 ```
 
-## ingest
+## collect_sources
 
-Resolves the video id, fetches official metadata (YouTube oEmbed; Data API adds duration when `YOUTUBE_API_KEY` is set), downloads bestaudio via yt-dlp, and — when the Data API is unavailable — measures the real duration locally with ffprobe so downstream stages never see a zero-length timeline.
+Loads the sealed source manifest and its independent source records. Direct inputs and the exact selected brand-library snapshot remain distinguishable, and a failed source pauses at `awaiting_source_resolution` instead of being discarded.
 
-## transcribe
+## extract_sources
 
-Gemini 3.5 Flash returns `{language, segments:[{id,startSec,endSec,text}]}` from the audio inline payload.
+Normalizes every ready source behind one typed artifact contract. Gemini 3.5 Flash creates timed segments for authorized audio and video; deterministic extractors normalize documents, web pages, and pasted text. Each segment carries a source ID, digest, and typed locator. A replacement or exclusion seals a new manifest revision before execution resumes.
 
 ## understand
 

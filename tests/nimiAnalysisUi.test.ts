@@ -20,7 +20,7 @@ describe("Nimi persisted analysis UI", () => {
         assumptions: ["The result applies only to the described workflow."],
         moments: [{ id: "moment-1", title: "Activation compression", startSec: 2, endSec: 8,
           hook: "Nine days became forty hours", quote: "We cut nine days to forty hours.",
-          transcriptSegmentRefs: ["segment-1"], visualHook: "Founder shows the chart",
+          sourceSegmentRefs: ["segment-1"], visualHook: "Founder shows the chart",
           cropSuitability: "good", captionSafeRegion: "lower third", visualEvidenceIds: ["frame-1"],
           assumptions: [], confidence: "high" }],
         angles: [{ id: "angle-1", angleType: "memory_learning", evidenceKind: "memory", title: "Concise proof", rationale: "Use eligible prior learning.",

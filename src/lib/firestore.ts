@@ -167,8 +167,6 @@ export async function listWorkspaceScopes(): Promise<WorkspaceScopeDoc[]> {
 }
 
 interface JobDoc extends Omit<Job, "id"> {
-  transcriptSegments?: Array<{ id: string; startSec: number; endSec: number; text: string }>;
-  transcriptLanguage?: string;
   drafts?: PostDraft[];
   productionTrace?: DraftWorkflowResult;
   productionTraceDigest?: string;
@@ -1075,7 +1073,7 @@ export async function listRecentReceipts(limit = 200): Promise<ReceiptWithJob[]>
       const receipt = r.data() as Receipt;
       out.push({
         ...receipt,
-        jobTitle: data.ingestedTitle ?? `Source bundle ${data.config.sourceManifestId.slice(0, 8)}`,
+        jobTitle: data.sourceAnalysis?.summary ?? `Source bundle ${data.config.sourceManifestId.slice(0, 8)}`,
       });
     }
   }
@@ -1087,8 +1085,6 @@ function jobRef(jobId: string) {
 }
 
 function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
-  transcriptSegments: Array<{ id: string; startSec: number; endSec: number; text: string }>;
-  transcriptLanguage?: string;
   drafts: PostDraft[];
   contentPack?: { markdown: string; digest: string; generatedAt: string };
   actions: PlannedAction[];
@@ -1111,11 +1107,9 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
     retentionHold: data.retentionHold,
     stage: data.stage,
     config: data.config,
+    controlEpoch: data.controlEpoch ?? 0,
+    controlState: data.controlState ?? "running",
     failure: data.failure,
-    ingestedTitle: data.ingestedTitle,
-    ingestedChannel: data.ingestedChannel,
-    ingestedDurationSec: data.ingestedDurationSec,
-    mediaDigest: data.mediaDigest,
     contentStrategy: data.contentStrategy,
     strategyDigest: data.strategyDigest,
     strategyRevision: data.strategyRevision,
@@ -1137,9 +1131,6 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
     editorialPlanningSnapshot: data.editorialPlanningSnapshot,
     editorialPlanningSnapshotDigest: data.editorialPlanningSnapshotDigest,
     editorialPlanningSnapshotHistory: data.editorialPlanningSnapshotHistory,
-    videoId: data.videoId,
-    transcriptSegments: data.transcriptSegments ?? [],
-    transcriptLanguage: data.transcriptLanguage,
     sourceAnalysis: data.sourceAnalysis,
     analysisDigest: data.analysisDigest,
     analysisResearchRequest: data.analysisResearchRequest,
@@ -1309,6 +1300,8 @@ export async function createJob(
     status: "running",
     stage: initialStage,
     config: storedConfig,
+    controlEpoch: 0,
+    controlState: "running",
     budget: initialJobBudget(),
   };
   const outboxId = stageOutboxId(id, initialStage, 0);
@@ -1622,39 +1615,6 @@ export async function getMediaOperation(
   return snap.exists ? (snap.data() as MediaOperationRecord) : null;
 }
 
-export async function saveIngestMeta(
-  jobId: string,
-  meta: {
-    videoId: string;
-    title: string;
-    channel: string;
-    durationSec: number;
-    mediaDigest?: string;
-  },
-) {
-  const digest = meta.mediaDigest ? { mediaDigest: meta.mediaDigest } : {};
-  await jobRef(jobId).update({
-    videoId: meta.videoId,
-    ingestedTitle: meta.title,
-    ingestedChannel: meta.channel,
-    ingestedDurationSec: meta.durationSec,
-    ...digest,
-    updatedAt: new Date().toISOString(),
-  });
-}
-
-export async function saveTranscript(
-  jobId: string,
-  segments: Array<{ id: string; startSec: number; endSec: number; text: string }>,
-  language: string,
-) {
-  await jobRef(jobId).update({
-    transcriptSegments: segments,
-    transcriptLanguage: language,
-    updatedAt: new Date().toISOString(),
-  });
-}
-
 export async function saveAnalysis(
   jobId: string,
   sourceAnalysis: import("./types").SourceAnalysis,
@@ -1672,6 +1632,8 @@ export async function saveAnalysis(
     updatedAt: new Date().toISOString(),
   });
 }
+
+export async function saveCampaignOutputPlan(jobId: string, campaignOutputPlan: import("./types").CampaignOutputPlan): Promise<void> { await jobRef(jobId).update({ campaignOutputPlan, updatedAt: new Date().toISOString() }); }
 
 export async function acceptStrategyProposal(
   jobId: string, strategy: import("./types").ContentStrategy, digest: string, revision: number,

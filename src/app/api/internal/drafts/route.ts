@@ -61,7 +61,7 @@ export async function POST(req: Request) {
       await createNotification({
         kind: "approval_needed",
         title: "Approval needed",
-        body: `Job ${job.ingestedTitle ?? body.jobId.slice(0, 8)} has ${needsApproval.length} action(s) waiting for your decision.`,
+        body: `Job ${job.sourceAnalysis?.summary ?? body.jobId.slice(0, 8)} has ${needsApproval.length} action(s) waiting for your decision.`,
         severity: "warning",
         refType: "job",
         refId: body.jobId,

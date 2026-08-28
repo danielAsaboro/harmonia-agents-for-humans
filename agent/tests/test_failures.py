@@ -106,6 +106,7 @@ def test_dispatch_reports_typed_failure_and_quarantines_ambiguous_retry(monkeypa
         raise httpx.ReadTimeout("token=super-secret", request=httpx.Request("GET", "https://provider.example"))
 
     monkeypatch.setitem(stages.HANDLERS, "draft", fail)
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: {"controlState": "running"})
     monkeypatch.setattr(stages, "web_post", lambda path, body: reports.append((path, body)))
     monkeypatch.setattr(stages, "claim_stage_execution", lambda _payload: {"outcome": "execute"})
     monkeypatch.setattr(stages, "finalize_stage_execution", finalized.append)
@@ -130,6 +131,7 @@ def test_dispatch_does_not_enter_handler_without_stage_lease(monkeypatch):
         entered.append(job_id)
 
     monkeypatch.setitem(stages.HANDLERS, "draft", handler)
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: {"controlState": "running"})
     monkeypatch.setattr(stages, "claim_stage_execution", lambda _payload: {"outcome": "in_progress"})
 
     assert asyncio.run(stages.dispatch("job-1", "draft", attempt=0)) is True
@@ -143,6 +145,7 @@ def test_dispatch_finalizes_the_exact_stage_claim(monkeypatch):
         return None
 
     monkeypatch.setitem(stages.HANDLERS, "draft", handler)
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: {"controlState": "running"})
     monkeypatch.setattr(stages, "claim_stage_execution", lambda _payload: {"outcome": "execute"})
     monkeypatch.setattr(stages, "finalize_stage_execution", finalized.append)
 

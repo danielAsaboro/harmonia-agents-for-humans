@@ -87,7 +87,7 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
               >
                 <td className="px-3 py-2 font-mono">{j.id.slice(0, 16)}</td>
                 <td className="max-w-[220px] truncate px-3 py-2">
-                  {j.ingestedTitle ?? `Bundle ${j.config.sourceManifestId.slice(0, 12)}`}
+                  {j.sourceAnalysis?.summary ?? `Bundle ${j.config.sourceManifestId.slice(0, 12)}`}
                 </td>
                 <td className="px-3 py-2 capitalize">{j.stage.replace("_", " ")}</td>
                 <td className="px-3 py-2">

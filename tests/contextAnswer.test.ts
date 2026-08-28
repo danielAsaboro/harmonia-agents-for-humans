@@ -52,7 +52,7 @@ describe("mockContextAnswer", () => {
   });
 
   it("handles missing arrays without crashing", () => {
-    const answer = mockContextAnswer("state?", { id: "job-2", stage: "ingest", status: "running" }, "job");
+    const answer = mockContextAnswer("state?", { id: "job-2", stage: "collect_sources", status: "running" }, "job");
     expect(answer).toContain("0 drafted post(s)");
     expect(answer).toContain("0/0 verifications");
   });

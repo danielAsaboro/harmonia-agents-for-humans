@@ -63,7 +63,7 @@ function kindForMime(mime: string): StudioMediaKind | null {
 }
 
 function sourceSegmentsForMoment(job: JobFull, momentId: string): string[] {
-  return job.sourceAnalysis?.moments.find((candidate) => candidate.id === momentId)?.transcriptSegmentRefs ?? [];
+  return job.sourceAnalysis?.moments.find((candidate) => candidate.id === momentId)?.sourceSegmentRefs ?? [];
 }
 
 function traceForReference(

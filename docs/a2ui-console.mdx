@@ -41,8 +41,9 @@ Cloud uploads use a tenant-scoped resumable Cloud Storage URL. The server downlo
 
 | Upload | Current behavior |
 |---|---|
-| video/audio | may seed the existing ingest and transcription pipeline when the prompt selects `create_job` |
-| image/document | retained and rendered as context; not silently claimed as analyzed |
+| video/audio | registered as direct sources and normalized into timed evidence when the prompt selects `create_job` |
+| document | registered as a direct source and normalized into page/paragraph evidence |
+| image | retained and rendered as conversation context; standalone image analysis is not claimed |
 | upload without task intent | stores the attachment but creates no job |
 
 <Warning>Generated approval detail is presentation only. The unchanged server-protected approval dock validates persisted `jobId + actionId` and remains the sole dashboard decision control.</Warning>

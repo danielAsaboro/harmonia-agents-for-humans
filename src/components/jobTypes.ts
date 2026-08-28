@@ -1,4 +1,4 @@
-import type { AnalysisResearchRequest, AnalysisSearchEvidence, ApprovalDecision, EvidenceRef, Angle, ContentStrategy, DraftWorkflowResult, EditorialPlan, EditorialPlanningSnapshot, EffectClaimSummary, JobConfig, JobSourceManifest, Moment, NormalizedSource, PlannedAction, PostDraft, Receipt, SourceAnalysis, SourceRecord, Stage, StrategyApproval } from "@/lib/types";
+import type { AnalysisResearchRequest, AnalysisSearchEvidence, ApprovalDecision, CampaignOutputPlan, EvidenceRef, Angle, ContentStrategy, DraftWorkflowResult, EditorialPlan, EditorialPlanningSnapshot, EffectClaimSummary, JobConfig, JobSourceManifest, Moment, NormalizedSource, PlannedAction, PostDraft, Receipt, SourceAnalysis, SourceRecord, Stage, StrategyApproval } from "@/lib/types";
 
 export interface JobSummary {
   id: string;
@@ -7,13 +7,15 @@ export interface JobSummary {
   createdAt: string;
   updatedAt: string;
   config: JobConfig;
-  ingestedTitle?: string;
-  ingestedDurationSec?: number;
+  sourceAnalysis?: SourceAnalysis;
+  controlEpoch?: number;
+  controlState?: "running" | "paused" | "cancelled";
   failure?: { stage: Stage; error: string; permanent: boolean; at: string };
   learnings?: { summary: string; notes: string[] };
 }
 
 export interface JobFull extends JobSummary {
+  campaignOutputPlan?: CampaignOutputPlan;
   contentStrategy?: ContentStrategy;
   strategyDigest?: string;
   strategyRevision?: number;
@@ -34,7 +36,6 @@ export interface JobFull extends JobSummary {
   sourceManifest?: JobSourceManifest;
   sourceRecords?: SourceRecord[];
   normalizedSources?: NormalizedSource[];
-  sourceAnalysis?: SourceAnalysis;
   analysisDigest?: string;
   analysisResearchRequest?: AnalysisResearchRequest | null;
   analysisSearchEvidence?: AnalysisSearchEvidence[];

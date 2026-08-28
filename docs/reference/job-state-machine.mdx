@@ -6,12 +6,12 @@ description: "Canonical Harmonia stages, gates, terminal states, and transition 
 The canonical stage vocabulary is declared by `STAGES` in `src/lib/types.ts`.
 
 ```text
-queued → ingest → transcribe → understand → strategize
+queued → collect_sources → extract_sources → understand → strategize
 → awaiting_strategy_approval → plan → draft → awaiting_approval
 → publish → verify → learn → complete
 ```
 
-`failed` is terminal until an eligible deterministic retry creates the next authorized transition. Brief-only jobs may enter later work without media ingestion, but persisted state still identifies the actual stage.
+`awaiting_source_resolution` pauses extraction until an operator retries, removes, replaces, or reconnects a failed source and seals a new manifest revision. `failed` is terminal until an eligible deterministic retry creates the next authorized transition.
 
 | Gate | Required record | On rejection |
 |---|---|---|

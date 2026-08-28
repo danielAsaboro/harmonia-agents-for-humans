@@ -91,6 +91,26 @@ def get_job(job_id: str) -> dict[str, Any]:
     return res.json()["job"]
 
 
+def get_source_manifest(job_id: str) -> dict[str, Any]:
+    with _client() as c:
+        res = c.get("/api/internal/source-manifest", params={"jobId": job_id})
+    if res.status_code != 200:
+        raise WebApiError(f"source manifest unavailable: {res.status_code} {res.text}", res.status_code)
+    return dict(res.json())
+
+
+def get_source(source_id: str) -> dict[str, Any]:
+    with _client() as c:
+        res = c.get(f"/api/internal/sources/{source_id}")
+    if res.status_code != 200:
+        raise WebApiError(f"source unavailable: {res.status_code} {res.text}", res.status_code)
+    return dict(res.json())
+
+
+def run_library_sync_tick() -> dict[str, Any]:
+    return post("/api/internal/libraries/sync", {})
+
+
 def get_editorial_planning_snapshot(job_id: str) -> dict[str, Any]:
     """Create or re-read the immutable Firestore planning snapshot for Temi."""
     with _client() as c:
@@ -286,6 +306,14 @@ def finalize_autonomy_cycle(result: dict[str, Any]) -> None:
 def post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     with _client() as c:
         res = c.post(path, json=payload)
+    if res.status_code >= 300:
+        raise WebApiError(f"{path} failed: {res.status_code} {res.text}", res.status_code)
+    return res.json()
+
+
+def patch(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    with _client() as c:
+        res = c.patch(path, json=payload)
     if res.status_code >= 300:
         raise WebApiError(f"{path} failed: {res.status_code} {res.text}", res.status_code)
     return res.json()

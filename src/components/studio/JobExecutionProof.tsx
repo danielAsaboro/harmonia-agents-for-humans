@@ -49,7 +49,7 @@ export function JobExecutionProof({ job, events, receipts }: { job: JobFull; eve
     ["Independent verification", verification ? `${verification.verified ? "verified" : "failed"} · ${verification.method}` : "pending"],
   ];
   const metrics = [
-    ["Source duration", duration(job.ingestedDurationSec)],
+    ["Normalized sources", String(job.normalizedSources?.length ?? 0)],
     ["Hands-off time", duration(handsOff)],
     ["Operator actions", String(decisions.length)],
     ["Outputs", String(job.actions.length)],

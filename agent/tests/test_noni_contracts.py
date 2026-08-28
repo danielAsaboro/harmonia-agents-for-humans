@@ -46,7 +46,7 @@ def _evidence() -> tuple[list[dict], list[dict]]:
     return ([{
         "id": "moment-1", "title": "Activation lesson", "startSec": 1, "endSec": 8,
         "hook": "Cut the delay", "quote": "We cut nine days to forty hours.",
-        "transcriptSegmentRefs": ["segment-1"], "visualEvidenceIds": [],
+        "sourceSegmentRefs": ["segment-1"], "visualEvidenceIds": [],
         "assumptions": [], "confidence": "high",
     }], [{
         "id": "angle-1", "angleType": "source_insight", "evidenceKind": "source", "title": "Evidence-led execution",

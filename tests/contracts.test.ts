@@ -5,7 +5,6 @@ import {
   budgetReservationResolutionSchema,
   draftsSubmissionSchema,
   failureSubmissionSchema,
-  ingestSubmissionSchema,
   receiptSubmissionSchema,
   stageExecutionClaimSchema,
   stageExecutionFinalizeSchema,
@@ -35,14 +34,6 @@ const productionTrace = (() => {
 })();
 
 describe("internal contracts", () => {
-  it("accepts a valid ingest submission", () => {
-    const parsed = ingestSubmissionSchema.safeParse({
-      jobId: "j1", stage: "ingest", videoId: "dQw4w9WgXcQ", title: "t",
-      channel: "c", durationSec: 90, mediaBytes: 1024, mediaDigest: "a".repeat(32),
-    });
-    expect(parsed.success).toBe(true);
-  });
-
   it("validates drafts with proposed publish actions", () => {
     const parsed = draftsSubmissionSchema.safeParse({
       jobId: "j1", stage: "draft",
@@ -92,7 +83,7 @@ describe("internal contracts", () => {
         moments: [{
           id: "m1", title: "Dashboard reveal", startSec: 2, endSec: 9,
           hook: "Watch the state change", quote: "The workflow is now live",
-          transcriptSegmentRefs: ["segment-1"],
+          sourceSegmentRefs: ["segment-1"],
           visualHook: "Dashboard counter changes from zero to one",
           cropSuitability: "excellent", captionSafeRegion: "lower third",
           visualEvidenceIds: ["f1"], assumptions: [], confidence: "high",

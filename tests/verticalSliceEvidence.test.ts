@@ -9,19 +9,14 @@ const digest = "b".repeat(64);
 
 function validBundle() {
   const stages = [
-    "ingest", "transcribe", "understand", "draft",
+    "collect_sources", "extract_sources", "understand", "draft",
     "awaiting_approval", "publish", "verify",
   ] as const;
   return {
     schemaVersion: "harmonia.vertical-slice-evidence.v1",
     runId: "run-20260824-001",
     capturedAt: "2026-08-24T12:20:00.000Z",
-    source: {
-      kind: "youtube",
-      sourceId: "public-video-id",
-      authorizationRef: "operator-record-1",
-      metadataDigest: digest,
-    },
+    source: { kind: "source_manifest", manifestId: "manifest-1", sourceIds: ["public-video-id"], manifestDigest: digest },
     environment: {
       projectId: "harmonia-prod",
       location: "us-central1",
@@ -42,7 +37,7 @@ function validBundle() {
       completedAt: "2026-08-24T12:18:00.000Z",
     },
     metrics: {
-      sourceDurationSec: 900,
+      sourceCount: 900,
       elapsedSec: 1080,
       handsOffProcessingSec: 1020,
       approvalWaitSec: 60,

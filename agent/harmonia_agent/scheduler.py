@@ -19,7 +19,7 @@ import threading
 import time
 
 from .effect_executor import execute_effect_command, production_adapters
-from .web_client import get_due_effect_command_ids, get_effect_command, get_workspaces
+from .web_client import get_due_effect_command_ids, get_effect_command, get_workspaces, run_library_sync_tick
 from .tenant_context import tenant_scope
 
 logger = logging.getLogger("harmonia.scheduler")
@@ -28,6 +28,7 @@ POLL_SECONDS = 60
 
 
 async def _tenant_tick() -> None:
+    await asyncio.to_thread(run_library_sync_tick)
     for command_id in get_due_effect_command_ids():
         try:
             command = get_effect_command(command_id)

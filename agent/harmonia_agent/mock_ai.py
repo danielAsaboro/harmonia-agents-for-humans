@@ -58,18 +58,18 @@ def mock_transcribe(audio_len: int) -> dict:
 
 def mock_analyze(input) -> dict:
     """Development-only analysis derived solely from the typed source package."""
-    segments = input.transcriptSegments[:4]
+    segments = [segment for segment in input.sourceSegments if segment.locator.kind == "time_range"][:4]
     moments = [{
         "id": f"mock-m{i + 1}", "title": _MOMENT_TITLES[i % len(_MOMENT_TITLES)],
-        "startSec": segment.startSec, "endSec": segment.endSec,
+        "startSec": segment.locator.startMs / 1000, "endSec": segment.locator.endMs / 1000,
         "hook": segment.text, "quote": segment.text,
-        "transcriptSegmentRefs": [segment.id], "visualEvidenceIds": [],
+        "sourceSegmentRefs": [segment.id], "visualEvidenceIds": [],
         "assumptions": [], "confidence": "high",
     } for i, segment in enumerate(segments)]
     angles = [{
         "id": "mock-a1", "angleType": "source_insight", "evidenceKind": "source", "title": "Source-backed lesson",
         "rationale": f"Develop the explicit lesson in {input.title} without adding outside facts.",
-        "evidenceRefs": [moments[0]["id"]], "assumptions": [], "confidence": "high",
+        "evidenceRefs": [moments[0]["id"] if moments else input.sourceSegments[0].id], "assumptions": [], "confidence": "high",
     }]
     return {
         "sourceDigest": input.sourceDigest,

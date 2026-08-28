@@ -18,6 +18,8 @@ import { actionPayloadDigest } from "@/lib/idempotency";
 import { createPendingOperation, type PendingOperation } from "@/lib/pendingOperations";
 import { hasRightsAttestation, RIGHTS_ATTESTATION_PHRASE, sourceRightsAuthorization, sourceRightsAuthorizationId } from "@/lib/sourceRights";
 import { createSourceJob } from "@/lib/sourceManifest";
+import { latestHealthySnapshot, listLibraryConnections } from "@/lib/brandLibraries/repository";
+import { outputKindSchema } from "@/lib/contracts";
 
 const chatSchema = z.object({
   message: z.string().min(1).max(2000),
@@ -80,15 +82,15 @@ export interface ChatResponse {
 }
 
 type FullJob = Awaited<ReturnType<typeof getJob>>;
-type AnyJob = Pick<Job, "id" | "stage" | "status" | "ingestedTitle" | "failure">;
-type ApprovalJob = Pick<FullJob, "id" | "stage" | "status" | "ingestedTitle" | "failure" | "actions" | "contentStrategy" | "strategyDigest" | "strategyApprovalState">;
+type AnyJob = Pick<Job, "id" | "stage" | "status" | "sourceAnalysis" | "failure">;
+type ApprovalJob = Pick<FullJob, "id" | "stage" | "status" | "sourceAnalysis" | "failure" | "actions" | "contentStrategy" | "strategyDigest" | "strategyApprovalState">;
 
 function toCard(job: AnyJob): JobCard {
   return {
     id: job.id,
     stage: job.stage,
     status: job.status,
-    title: job.ingestedTitle,
+    title: job.sourceAnalysis?.summary,
     failure: job.failure
       ? { stage: job.failure.stage, error: job.failure.error, permanent: job.failure.permanent }
       : undefined,
@@ -310,12 +312,22 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
         if (source.kind === "pasted_text") directSources.push({ ...source, rightsAuthorizationId });
         else directSources.push({ ...source, rightsAuthorizationId });
       }
-      if (directSources.length) {
-        const desiredOutputs = intent.desiredOutputs?.length ? intent.desiredOutputs : ["x_post" as const];
-        const job = await createSourceJob({ directSources, desiredOutputs, allowedOutputs: desiredOutputs, platforms: ["x"] });
+      let librarySnapshotId: string | undefined;
+      if (intent.libraryName) {
+        const libraries = await listLibraryConnections();
+        const library = libraries.find((candidate) => candidate.name.toLocaleLowerCase() === intent.libraryName!.toLocaleLowerCase());
+        if (!library) return { payload: { intent: intent.intent, reply: `No connected brand library is named “${intent.libraryName}”. Select an existing library in Settings first.` } satisfies ChatResponse };
+        const snapshot = await latestHealthySnapshot(library.id);
+        if (!snapshot) return { payload: { intent: intent.intent, reply: `Brand library “${library.name}” has no healthy synchronized snapshot yet.` } satisfies ChatResponse };
+        librarySnapshotId = snapshot.id;
+      }
+      if (directSources.length || librarySnapshotId) {
+        const desiredOutputs = (intent.desiredOutputs ?? []).map((item) => outputKindSchema.safeParse(item)).filter((item) => item.success).map((item) => item.data);
+        if (!desiredOutputs.length) desiredOutputs.push("x_post");
+        const job = await createSourceJob({ librarySnapshotId, directSources, desiredOutputs, allowedOutputs: desiredOutputs, platforms: ["x"] });
         await appendEvent(job.id, "collect_sources", `source manifest created via ${surface} chat`, "operator");
         await queueStageTrigger(job.id, "collect_sources");
-        return { payload: { intent: intent.intent, reply: `Created job ${job.id} with ${directSources.length} source${directSources.length === 1 ? "" : "s"}. Harmonia is collecting and extracting them; any partial failure will pause for resolution before analysis.`, jobId: job.id, job: toCard(job) } satisfies ChatResponse };
+        return { payload: { intent: intent.intent, reply: `Created job ${job.id} with ${directSources.length} direct source${directSources.length === 1 ? "" : "s"}${librarySnapshotId ? " and one pinned brand-library snapshot" : ""}. Harmonia is collecting and extracting them; any partial failure will pause for resolution before analysis.`, jobId: job.id, job: toCard(job) } satisfies ChatResponse };
       }
       return { payload: {
         intent: intent.intent,
@@ -372,7 +384,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
       }
       return { payload: {
         intent: intent.intent,
-        reply: `${job.drafts.length} drafted post(s) for "${job.ingestedTitle ?? job.id}":`,
+        reply: `${job.drafts.length} drafted post(s) for "${job.sourceAnalysis?.summary ?? job.id}":`,
         jobId: job.id,
         job: toCard(job),
         drafts: job.drafts,

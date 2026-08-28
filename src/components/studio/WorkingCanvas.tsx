@@ -77,7 +77,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-r-[23px] bg-[#f3f0e8]" data-a2ui-slot="canvas">
       <header className="flex h-[72px] shrink-0 items-center gap-3 border-b border-black/10 px-[22px]">
         <strong className="text-lg font-extrabold">harmonia</strong>
-        <span className="min-w-0 truncate font-mono text-[9px] text-[#77736b]">/ {job ? (job.ingestedTitle || `Source bundle ${job.config.sourceManifestId.slice(0, 8)}`).slice(0, 44) : "No campaign"} / Working set</span>
+        <span className="min-w-0 truncate font-mono text-[9px] text-[#77736b]">/ {job ? (job.sourceAnalysis?.summary || `Source bundle ${job.config.sourceManifestId.slice(0, 8)}`).slice(0, 44) : "No campaign"} / Working set</span>
         <span className="ml-auto hidden rounded-full border border-black/10 px-2 py-1.5 font-mono text-[8px] text-[#77736b] sm:inline"><b className="text-[#33906a]">✓</b> autosaved</span>
         <button type="button" onClick={() => { const details = document.querySelector<HTMLDetailsElement>("[aria-label='Approval boundary'] > details"); if (details) details.open = true; }} className="rounded-full bg-[#11110f] px-3 py-2.5 text-[9px] font-bold text-white">Review <b className="text-[#d8ff3e]">{model?.pendingActions.length ?? 0}</b></button>
       </header>

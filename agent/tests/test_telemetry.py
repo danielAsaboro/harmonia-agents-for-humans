@@ -106,6 +106,7 @@ def test_stage_dispatch_creates_a_metadata_only_child_span(monkeypatch):
         return None
 
     monkeypatch.setitem(stages.HANDLERS, "understand", handler)
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: {"controlState": "running"})
     monkeypatch.setattr(stages, "claim_stage_execution", lambda _payload: {"outcome": "execute"})
     monkeypatch.setattr(stages, "finalize_stage_execution", lambda _payload: None)
     with tracer().start_as_current_span("parent"):

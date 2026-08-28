@@ -61,7 +61,7 @@ export function buildUiContext(input: BuildUiContextInput): UiContext {
       id: job.id,
       stage: job.stage,
       status: job.status,
-      ...(job.ingestedTitle ? { title: job.ingestedTitle.slice(0, 300) } : {}),
+      ...(job.sourceAnalysis?.summary ? { title: job.sourceAnalysis.summary.slice(0, 300) } : {}),
       sourceKind: sourceKind(job),
     } : responseJob ? {
       id: responseJob.id,

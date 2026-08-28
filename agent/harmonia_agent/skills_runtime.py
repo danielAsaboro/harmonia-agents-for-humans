@@ -142,12 +142,9 @@ _JOB_STATUS_FIELDS = (
 
 def _summarize_job(job: dict[str, Any]) -> dict[str, Any]:
     summary = {field: job.get(field) for field in _JOB_STATUS_FIELDS}
-    config = job.get("config") or {}
-    summary["title"] = job.get("ingestedTitle") or str(config.get("brief") or "")[:300] or None
-    summary["sourceKind"] = (
-        "video" if config.get("youtubeUrl") or str(config.get("mediaMime") or "").startswith("video/") else
-        "audio" if str(config.get("mediaMime") or "").startswith("audio/") else "written"
-    )
+    config = job.get("config") or {}; analysis = job.get("sourceAnalysis") or {}
+    summary["title"] = analysis.get("summary") or f"Source bundle {str(config.get('sourceManifestId') or '')[:12]}"
+    summary["sourceKind"] = "source_manifest"
     drafts = job.get("drafts") or []
     actions = job.get("actions") or []
     verifications = job.get("verifications") or []
@@ -183,8 +180,8 @@ def get_job_status(job_id: str) -> dict[str, Any]:
     if mock_ai_enabled():
         data = {"found": True, "job": _summarize_job({
             "id": job_id,
-            "ingestedTitle": "Mock launch video",
-            "config": {"youtubeUrl": "https://example.invalid/mock"},
+            "sourceAnalysis": {"summary": "Mock launch source bundle"},
+            "config": {"sourceManifestId": "mock-manifest"},
             "stage": "awaiting_approval",
             "status": "active",
             "drafts": [{"id": "d1"}],

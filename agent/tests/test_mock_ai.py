@@ -54,13 +54,13 @@ def test_content_transcribe_routes_to_mock():
 
 def test_analyze_shape_and_timestamp_bounds():
     value = analyst_input()
-    value["transcriptSegments"] = [{"id": f"s{i}", "startSec": i, "endSec": i + 1, "text": f"line {i}"} for i in range(4)]
+    value["sourceSegments"] = [{"id": f"s{i}", "sourceId": "source-1", "text": f"line {i}", "digest": f"{i + 1:064x}", "locator": {"kind": "time_range", "startMs": i * 1000, "endMs": (i + 1) * 1000}} for i in range(4)]
     result = mock_analyze(AnalystInput.model_validate(value))
     assert set(result) >= {"sourceDigest", "summary", "moments", "angles", "assumptions", "confidence"}
     assert len(result["moments"]) == 4
     bound = 4.0
     for m in result["moments"]:
-        assert set(m) == {"id", "title", "startSec", "endSec", "hook", "quote", "transcriptSegmentRefs", "visualEvidenceIds", "assumptions", "confidence"}
+        assert set(m) == {"id", "title", "startSec", "endSec", "hook", "quote", "sourceSegmentRefs", "visualEvidenceIds", "assumptions", "confidence"}
         assert 0 <= m["startSec"] < m["endSec"] <= bound
     kinds = [(a["angleType"], a["evidenceKind"]) for a in result["angles"]]
     assert kinds == [("source_insight", "source")]

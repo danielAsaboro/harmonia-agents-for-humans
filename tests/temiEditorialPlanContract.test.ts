@@ -26,7 +26,7 @@ const strategy = {
 const analysis = {
   sourceDigest: "c".repeat(64),
   summary: "Activation time fell from nine days to forty hours.",
-  moments: [{ id: "m1", title: "Activation", startSec: 2, endSec: 8, hook: "Nine days to forty hours", quote: "we cut nine days to forty hours", transcriptSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }],
+  moments: [{ id: "m1", title: "Activation", startSec: 2, endSec: 8, hook: "Nine days to forty hours", quote: "we cut nine days to forty hours", sourceSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }],
   angles: [{ id: "a1", angleType: "source_insight", evidenceKind: "source", title: "Operational speed", rationale: "The source demonstrates measurable improvement.", evidenceRefs: ["m1"], assumptions: [], confidence: "high" }],
   assumptions: [], confidence: "high",
 };
@@ -96,7 +96,7 @@ describe("Temi editorial-plan contract parity", () => {
     expect(copywriterInputSchema.safeParse(wrongBrief).success).toBe(false);
 
     const extraEvidence = structuredClone(productionInput);
-    extraEvidence.referencedMoments.push({ id: "m-extra", title: "Invented", startSec: 0, endSec: 1, hook: "h", quote: "q", transcriptSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" });
+    extraEvidence.referencedMoments.push({ id: "m-extra", title: "Invented", startSec: 0, endSec: 1, hook: "h", quote: "q", sourceSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" });
     expect(copywriterInputSchema.safeParse(extraEvidence).success).toBe(false);
   });
 

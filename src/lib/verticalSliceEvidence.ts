@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 const REQUIRED_STAGES = [
-  "ingest",
-  "transcribe",
+  "collect_sources",
+  "extract_sources",
   "understand",
   "draft",
   "awaiting_approval",
@@ -16,10 +16,10 @@ const timestamp = z.string().datetime({ offset: true });
 const usd = z.string().regex(/^\d+\.\d{6}$/);
 
 const sourceSchema = z.object({
-  kind: z.literal("youtube"),
-  sourceId: z.string().min(1),
-  authorizationRef: z.string().min(1),
-  metadataDigest: sha256,
+  kind: z.literal("source_manifest"),
+  manifestId: z.string().min(1),
+  sourceIds: z.array(z.string().min(1)).min(1),
+  manifestDigest: sha256,
 }).strict();
 
 const environmentSchema = z.object({
@@ -46,7 +46,7 @@ const jobSchema = z.object({
 }).strict();
 
 const metricsSchema = z.object({
-  sourceDurationSec: z.number().int().positive(),
+  sourceCount: z.number().int().positive(),
   elapsedSec: z.number().int().nonnegative(),
   handsOffProcessingSec: z.number().int().nonnegative(),
   approvalWaitSec: z.number().int().nonnegative(),

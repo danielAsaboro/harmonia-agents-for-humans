@@ -17,7 +17,7 @@ export interface CreateSourceJobInput {
 
 const digest = (value: string) => createHash("sha256").update(value, "utf8").digest("hex");
 
-function sourceRecord(input: SourceInput, id: string, now: string): SourceRecord {
+export function buildSourceRecord(input: SourceInput, id: string, now: string): SourceRecord {
   const tenant = currentTenant();
   const common = {
     id, workspaceId: tenant.workspaceId, brandId: tenant.brandId,
@@ -54,7 +54,7 @@ export async function createSourceJob(input: CreateSourceJobInput): Promise<Job>
     });
     transaction.create(db().doc(`workspaces/${tenant.workspaceId}/jobs/${jobId}/source_manifests/${manifestId}`), manifest);
     input.directSources.forEach((source, index) => {
-      const record = sourceRecord(source, sourceIds[index], now);
+      const record = buildSourceRecord(source, sourceIds[index], now);
       transaction.create(db().doc(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/sources/${record.id}`), record);
       transaction.create(db().doc(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/source_payloads/${record.id}`), { sourceId: record.id, input: source, createdAt: now });
     });

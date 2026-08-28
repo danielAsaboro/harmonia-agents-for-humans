@@ -27,7 +27,7 @@ See [ADK agent platform](./agent-platform) and [tool contracts](./tool-contracts
 
 ## Workflow and state ownership
 
-The workflow is ingest → transcribe → understand with Nimi → strategize with Ryan → await strategy approval → plan with Temi → persist/select deterministically → Noni/Dara draft → await effect approval → publish/export/render → verify → learn. Firestore is the durable source of truth and Pub/Sub owns asynchronous delivery and retry. Agent Engine sessions are ephemeral cognition; Memory Bank stores only exact-scope eligible facts and never authority.
+The workflow is collect_sources → extract_sources → understand with Nimi → strategize with Ryan → await strategy approval → plan with Temi → persist/select deterministically → Noni/Dara draft → await effect approval → publish/export/render → verify → learn. Firestore is the durable source of truth and Pub/Sub owns asynchronous delivery and retry. Agent Engine sessions are ephemeral cognition; Memory Bank stores only exact-scope eligible facts and never authority.
 
 See [pipeline](/pipeline), the [system architecture guide](/architecture/overview), and [state ownership](/state-ownership).
 

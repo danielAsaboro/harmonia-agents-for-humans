@@ -1,5 +1,6 @@
 import { analysisSubmissionSchema } from "@/lib/contracts";
-import { appendEvent, saveAnalysis } from "@/lib/firestore";
+import { appendEvent, getJob, saveAnalysis, saveCampaignOutputPlan } from "@/lib/firestore";
+import { proposeOutputPlan } from "@/lib/outputPlanning";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { advance } from "@/lib/advance";
@@ -17,6 +18,8 @@ export async function POST(req: Request) {
       body.jobId, body.analysis, body.analysisDigest,
       body.researchRequest, body.searchEvidence, body.groundingMetadata,
     );
+    const job = await getJob(body.jobId);
+    await saveCampaignOutputPlan(body.jobId, proposeOutputPlan(body.jobId, job.config.desiredOutputs, job.config.allowedOutputs, body.analysis));
     const message = `analysis: ${body.analysis.moments.length} grounded moment(s), ${body.analysis.angles.length} grounded angle(s), with ${body.modelUsed}`;
     await appendEvent(body.jobId, "understand", message, "agent", { activity: {
       kind: "handoff", status: "succeeded", role: "nimi_analyst",

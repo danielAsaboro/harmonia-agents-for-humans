@@ -3,7 +3,7 @@ import type { JobFull } from "@/components/jobTypes";
 import type { StudioWorkspaceModel } from "@/lib/studio/workspaceModel";
 
 function directionFor(job: JobFull): string {
-  return job.sourceAnalysis?.angles[0]?.title || job.sourceAnalysis?.moments[0]?.hook || job.drafts[0]?.text.split(/[.!?]/)[0] || job.ingestedTitle || "Content direction in progress";
+  return job.sourceAnalysis?.angles[0]?.title || job.sourceAnalysis?.moments[0]?.hook || job.drafts[0]?.text.split(/[.!?]/)[0] || job.sourceAnalysis?.summary || "Content direction in progress";
 }
 
 export function ArtifactBoard({ job, model, onSelect }: { job: JobFull; model: StudioWorkspaceModel; onSelect: (artifactId: string, view?: string) => void }) {

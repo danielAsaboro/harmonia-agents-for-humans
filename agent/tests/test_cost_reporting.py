@@ -8,7 +8,7 @@ import pytest
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from harmonia_agent import content
-from harmonia_agent.agent_models import AnalystInput, ContentDraft, EditorialReviewInput, MediaEvidence
+from harmonia_agent.agent_models import AnalystInput, ContentDraft, EditorialReviewInput
 from harmonia_agent.agents import _run_coordinator
 from harmonia_agent.agents import RoleModelInstances
 from harmonia_agent.role_models import RoleModelConfig
@@ -22,12 +22,10 @@ from tests.test_ryan_strategy import strategy as _content_strategy
 def _analyst_input(*, media: bool = False) -> AnalystInput:
     digest = "a" * 64
     return AnalystInput.model_validate({
-        "sourceId": "source-1", "sourceKind": "media" if media else "brief",
-        "sourceDigest": digest, "title": "Demo", "channel": "test",
-        "transcriptSegments": [{"id": "segment-1", "startSec": 0, "endSec": 30,
-                                "text": "proof We cut nine days to forty hours."}],
-        "mediaEvidence": ({"video_uri": "https://www.youtube.com/watch?v=abc12345678", "duration_sec": 60,
-                           "source_digest": digest, "frames": []} if media else None),
+        "sourceIds": ["source-1"], "sourceKind": "video",
+        "sourceDigest": digest, "title": "Demo",
+        "sourceSegments": [{"id": "segment-1", "sourceId": "source-1", "text": "proof We cut nine days to forty hours.", "digest": "b" * 64,
+                            "locator": {"kind": "time_range", "startMs": 0, "endMs": 30_000}}],
         "performanceObservations": [], "memoryFacts": [],
     })
 
@@ -193,7 +191,7 @@ def test_transcription_reserves_before_provider_and_reports_tokens(monkeypatch):
         b"audio", "audio/mp4",
         invocation=InvocationContext(
             workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
-            job_id="job-1", stage="transcribe", operation_id="job-1:transcribe:0",
+            job_id="job-1", stage="extract_sources", operation_id="job-1:extract_sources:0",
         ),
         budget_reserver=lambda item: (reservations.append(item), order.append("reserve")),
         usage_reporter=lambda item: (reports.append(item), order.append("usage")),
@@ -230,7 +228,7 @@ def test_large_transcription_uses_files_api_instead_of_inline_base64(monkeypatch
         b"x" * (content.MAX_INLINE_MEDIA_BYTES + 1), "audio/mp4",
         invocation=InvocationContext(
             workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
-            job_id="job-1", stage="transcribe", operation_id="job-1:transcribe:0",
+            job_id="job-1", stage="extract_sources", operation_id="job-1:extract_sources:0",
         ),
         budget_reserver=lambda _item: None,
         usage_reporter=lambda _item: None,
@@ -252,7 +250,7 @@ def test_transcription_releases_when_client_fails_before_dispatch(monkeypatch):
             b"audio", "audio/mp4",
             invocation=InvocationContext(
                 workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
-                job_id="job-1", stage="transcribe", operation_id="job-1:transcribe:0",
+                job_id="job-1", stage="extract_sources", operation_id="job-1:extract_sources:0",
             ),
             budget_reserver=lambda _item: None,
             budget_resolver=resolutions.append,
@@ -275,7 +273,7 @@ def test_transcription_quarantines_timeout_after_dispatch(monkeypatch):
             b"audio", "audio/mp4",
             invocation=InvocationContext(
                 workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
-                job_id="job-1", stage="transcribe", operation_id="job-1:transcribe:0",
+                job_id="job-1", stage="extract_sources", operation_id="job-1:extract_sources:0",
             ),
             budget_reserver=lambda _item: None,
             budget_resolver=resolutions.append,
@@ -483,7 +481,7 @@ def test_managed_runtime_finalizes_explicit_estimated_usage_for_every_reserved_r
                 "source_analysis": {
                     "sourceDigest": "a" * 64, "summary": "managed",
                     "moments": [{"id": "m1", "title": "proof", "startSec": 0, "endSec": 1,
-                                 "hook": "proof", "quote": "proof", "transcriptSegmentRefs": ["segment-1"],
+                                 "hook": "proof", "quote": "proof", "sourceSegmentRefs": ["segment-1"],
                                  "visualEvidenceIds": [], "assumptions": [], "confidence": "high"}],
                     "angles": [], "assumptions": [], "confidence": "high",
                 },

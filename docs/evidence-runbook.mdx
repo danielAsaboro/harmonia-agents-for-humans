@@ -26,7 +26,7 @@ The evidence runner path above is relative to the private parent workspace, not 
 
 ## Phase 2: capture-awaiting-approval
 
-Use Harmonia's normal dashboard or chat to ingest one authorized public YouTube URL. Do not call an internal stage or decision endpoint by hand. Wait until the persisted job reaches `awaiting_approval`, then run the read-only collector without `--require-complete`. Preserve each W3C `traceId` and its lineage across web ingress, Pub/Sub stage events, ADK cognition, usage, and the pending action. A later operator decision is a separate inbound request and may correctly begin a new trace.
+Use Harmonia's normal dashboard or chat to register one authorized public YouTube URL as a direct source. Do not call an internal stage or decision endpoint by hand. Wait until the persisted job reaches `awaiting_approval`, then run the read-only collector without `--require-complete`. Preserve each W3C `traceId` and its lineage across web ingress, Pub/Sub stage events, ADK cognition, usage, and the pending action. A later operator decision is a separate inbound request and may correctly begin a new trace.
 
 At this checkpoint, the collector must not approve, publish, retry, or manufacture a receipt. An incomplete run is expected and must not be presented as a completed vertical slice.
 

@@ -191,7 +191,7 @@ export const PLATFORMS: PlatformDef[] = [
     extraAuthorizeParams: { access_type: "offline", prompt: "consent" },
   },
     docsUrl: "https://developers.google.com/youtube/v3/guides/auth/installed-apps",
-    note: "Uploads via YouTube Data API v3 (youtube.upload scope). Also enriches ingest metadata.",
+    note: "Uploads via YouTube Data API v3 (youtube.upload scope). Also enriches source metadata.",
   },
 ];
 

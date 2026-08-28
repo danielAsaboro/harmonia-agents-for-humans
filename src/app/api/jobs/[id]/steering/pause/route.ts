@@ -1,0 +1,4 @@
+import { operatorTenantHandler } from "@/lib/auth"; import { setJobControl } from "@/lib/steering/repository"; import { z } from "zod";
+const schema = z.object({ expectedControlEpoch: z.number().int().nonnegative() }).strict();
+async function post(request: Request, { params }: { params: Promise<{ id: string }> }) { const parsed = schema.safeParse(await request.json().catch(() => null)); if (!parsed.success) return Response.json({ error: "invalid control epoch" }, { status: 400 }); try { return Response.json({ controlEpoch: await setJobControl((await params).id, parsed.data.expectedControlEpoch, "paused") }); } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "pause failed" }, { status: 409 }); } }
+export const POST = operatorTenantHandler(post);

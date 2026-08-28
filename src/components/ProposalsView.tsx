@@ -3,6 +3,11 @@
 import AskAiButton from "@/components/AskAiButton";
 
 import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/dashboard/Button";
+import { StatusBadge } from "@/components/dashboard/StatusBadge";
+import { Surface } from "@/components/dashboard/Surface";
+import { AlertBanner, EmptyState, ErrorState, LoadingState } from "@/components/dashboard/SystemState";
+import type { Tone } from "@/components/dashboard/types";
 
 interface Proposal {
   id: string;
@@ -24,11 +29,7 @@ const SOURCE_LABEL: Record<Proposal["source"], string> = {
   recycle: "Recycle winner",
 };
 
-const STATUS_STYLE: Record<Proposal["status"], string> = {
-  proposed: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
-  approved: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
-  rejected: "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
-};
+const STATUS_TONE: Record<Proposal["status"], Tone> = { proposed: "warning", approved: "success", rejected: "neutral" };
 
 export default function ProposalsView() {
   const [proposals, setProposals] = useState<Proposal[] | null>(null);
@@ -68,33 +69,28 @@ export default function ProposalsView() {
   }
 
   if (error) {
-    return <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</p>;
+    return <ErrorState title="Proposals could not be loaded" message={error} action={<Button onClick={load}>Retry proposals</Button>} />;
   }
   if (!proposals) {
-    return <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading proposals…</p>;
+    return <LoadingState title="Loading proposals" message="Reading persisted resident-agent suggestions and their approval state." />;
   }
   if (proposals.length === 0) {
-    return (
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">
-        No proposals yet. The proactive agent scans trends and your engagement on a schedule and will drop ideas here for approval.
-      </p>
-    );
+    return <EmptyState title="No proposals yet" message="When bounded resident cycles identify a useful opportunity, the proposed idea appears here for an operator decision." />;
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="ops-stack">
+      <AlertBanner tone="generated" title="Suggestions are not external actions">Approving a proposal creates a real Harmonia job. It does not publish content or bypass later strategy and final-review gates.</AlertBanner>
       {proposals.map((p) => (
-        <article
+        <Surface
+          as="article"
+          variant="raised"
           key={p.id}
-          className="flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+          className="proposal-card"
         >
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-800 dark:bg-violet-900/40 dark:text-violet-200">
-              {SOURCE_LABEL[p.source]}
-            </span>
-            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_STYLE[p.status]}`}>
-              {p.status}
-            </span>
+            <StatusBadge tone="generated">{SOURCE_LABEL[p.source]}</StatusBadge>
+            <StatusBadge tone={STATUS_TONE[p.status]}>{p.status}</StatusBadge>
             <AskAiButton kind="proposal" id={p.id} label={p.topic.slice(0, 60)} />
             <time className="ml-auto text-[11px] text-zinc-400">
               {new Date(p.createdAt).toLocaleString()}
@@ -129,20 +125,19 @@ export default function ProposalsView() {
           )}
           {p.status === "proposed" ? (
             <div className="mt-1 flex gap-2">
-              <button
+              <Button
+                variant="primary"
                 onClick={() => decide(p.id, "approved")}
                 disabled={busy === p.id}
-                className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-700 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-zinc-300"
               >
                 {busy === p.id ? "Starting…" : "Approve & create job"}
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={() => decide(p.id, "rejected")}
                 disabled={busy === p.id}
-                className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
                 Dismiss
-              </button>
+              </Button>
             </div>
           ) : (
             p.jobId && (
@@ -151,7 +146,7 @@ export default function ProposalsView() {
               </a>
             )
           )}
-        </article>
+        </Surface>
       ))}
     </div>
   );

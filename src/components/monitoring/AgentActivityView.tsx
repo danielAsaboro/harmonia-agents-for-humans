@@ -5,6 +5,12 @@ import type { AgentActivity, ObservabilityPage } from "@/lib/observability/schem
 import ActivityFilters from "./ActivityFilters";
 import ActivityMetrics from "./ActivityMetrics";
 import TraceTree from "./TraceTree";
+import { Button } from "@/components/dashboard/Button";
+import { DataShell } from "@/components/dashboard/DataShell";
+import { SectionHeader } from "@/components/dashboard/DashboardPage";
+import { StatusBadge } from "@/components/dashboard/StatusBadge";
+import { EmptyState, ErrorState, LoadingState } from "@/components/dashboard/SystemState";
+import { Tabs } from "@/components/dashboard/Tabs";
 
 type SignalType = "log" | "trace" | "metric";
 export interface ActivityFiltersState { types: SignalType[]; agent: string; stage: string; outcome: string; severity: string; model: string; tool: string; jobId: string; traceId: string; since: string; until: string; q: string; }
@@ -75,19 +81,17 @@ export default function AgentActivityView() {
   const selectMode = (type: SignalType) => changeFilters({ ...filters, types: [type] });
   const items = page?.items ?? [];
 
-  return <section className="space-y-4">
-    <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-medium">Agent activity</h2><p className="text-xs text-zinc-500">Safe operational metadata only. Prompt and response content is never stored here.</p></div>
-      <div className="flex rounded-full border border-zinc-200 p-1 text-xs dark:border-zinc-800">{modes.map((mode) => <button key={mode.type} className={`rounded-full px-3 py-1.5 ${filters.types[0] === mode.type && filters.types.length === 1 ? "bg-zinc-900 text-white dark:bg-white dark:text-black" : "text-zinc-500"}`} onClick={() => selectMode(mode.type)}>{mode.label}</button>)}</div>
-    </div>
+  return <section className="ops-stack">
+    <SectionHeader title="Agent activity" description="Safe operational metadata only. Prompt and response content is never stored here." actions={<Tabs items={modes.map((mode) => ({ key: mode.type, label: mode.label }))} selected={filters.types[0] ?? "log"} onSelect={selectMode} label="Activity signal type" />} />
     <ActivityFilters filters={filters} onChange={changeFilters} />
-    <div className="flex justify-end"><button className="text-xs text-zinc-500 underline" onClick={() => changeFilters(emptyActivityFilters())}>Reset filters</button></div>
-    {error && <div role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error} <button className="underline" onClick={() => setPagination((v) => ({ ...v }))}>Retry</button></div>}
-    {loading ? <p className="p-8 text-center text-sm text-zinc-500">Loading agent activity…</p> : filters.types[0] === "metric" && filters.types.length === 1 ? <ActivityMetrics records={items} /> : filters.types[0] === "trace" && filters.types.length === 1 ? <TraceTree records={items} /> : <ActivityTable records={items} />}
-    <div className="flex items-center justify-between text-xs"><span className="text-zinc-500">{items.length} records on this page</span><div className="flex gap-2"><button disabled={!pagination.history.length || loading} className="rounded-full border px-3 py-1.5 disabled:opacity-40 dark:border-zinc-700" onClick={() => setPagination((current) => ({ cursor: current.history.at(-1) ?? null, history: current.history.slice(0, -1) }))}>Previous</button><button disabled={!page?.hasMore || !page.nextCursor || loading} className="rounded-full border px-3 py-1.5 disabled:opacity-40 dark:border-zinc-700" onClick={() => setPagination((current) => ({ cursor: page!.nextCursor, history: [...current.history, current.cursor] }))}>Next</button></div></div>
+    <div className="activity-actions"><Button variant="quiet" onClick={() => changeFilters(emptyActivityFilters())}>Reset filters</Button></div>
+    {error && <ErrorState title="Agent activity could not be loaded" message={error} action={<Button onClick={() => setPagination((value) => ({ ...value }))}>Retry</Button>} />}
+    {loading ? <LoadingState title="Loading agent activity" /> : filters.types[0] === "metric" && filters.types.length === 1 ? <ActivityMetrics records={items} /> : filters.types[0] === "trace" && filters.types.length === 1 ? <TraceTree records={items} /> : <ActivityTable records={items} />}
+    <div className="activity-pagination"><span>{items.length} records on this page</span><div><Button disabled={!pagination.history.length || loading} onClick={() => setPagination((current) => ({ cursor: current.history.at(-1) ?? null, history: current.history.slice(0, -1) }))}>Previous</Button><Button disabled={!page?.hasMore || !page.nextCursor || loading} onClick={() => setPagination((current) => ({ cursor: page!.nextCursor, history: [...current.history, current.cursor] }))}>Next</Button></div></div>
   </section>;
 }
 
 function ActivityTable({ records }: { records: AgentActivity[] }) {
-  if (!records.length) return <p className="rounded-xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700">No activity matches these filters.</p>;
-  return <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800"><table className="w-full text-left text-xs"><thead className="bg-zinc-50 text-zinc-500 dark:bg-zinc-900"><tr>{["Time", "Signal", "Agent / stage", "Event", "Outcome", "Duration", "Details"].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr></thead><tbody>{records.map((item) => <tr key={item.id} className="border-t border-zinc-200 align-top dark:border-zinc-800"><td className="whitespace-nowrap px-3 py-2">{new Date(item.occurredAt).toLocaleString()}</td><td className="px-3 py-2">{item.signalType}</td><td className="px-3 py-2"><span className="font-mono">{item.agent}</span><br/><span className="text-zinc-500">{item.stage}</span></td><td className="px-3 py-2">{item.eventName}</td><td className={item.outcome === "error" ? "px-3 py-2 text-red-600" : "px-3 py-2 text-emerald-600"}>{item.outcome}</td><td className="px-3 py-2">{item.durationMs} ms</td><td className="px-3 py-2"><details><summary className="cursor-pointer">Inspect</summary><pre className="mt-2 max-w-sm whitespace-pre-wrap break-all text-[10px] text-zinc-500">{JSON.stringify(item, null, 2)}</pre></details></td></tr>)}</tbody></table></div>;
+  if (!records.length) return <EmptyState title="No activity matches these filters" message="Change or reset the filters to widen the operational query." />;
+  return <DataShell><table className="ops-table"><thead><tr>{["Time", "Signal", "Agent / stage", "Event", "Outcome", "Duration", "Details"].map((heading) => <th key={heading}>{heading}</th>)}</tr></thead><tbody>{records.map((item) => <tr key={item.id}><td>{new Date(item.occurredAt).toLocaleString()}</td><td>{item.signalType}</td><td><span className="font-mono">{item.agent}</span><br/><span>{item.stage}</span></td><td>{item.eventName}</td><td><StatusBadge tone={item.outcome === "error" ? "danger" : "success"}>{item.outcome}</StatusBadge></td><td>{item.durationMs} ms</td><td><details><summary>Inspect</summary><pre>{JSON.stringify(item, null, 2)}</pre></details></td></tr>)}</tbody></table></DataShell>;
 }

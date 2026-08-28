@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AgentActivity } from "@/lib/contracts";
 import type { DurableRuntimeSnapshot } from "@/lib/observability/schema";
+import { Button } from "@/components/dashboard/Button";
+import { Select, TextInput } from "@/components/dashboard/Controls";
+import { FormField } from "@/components/dashboard/FormField";
+import { SectionHeader } from "@/components/dashboard/DashboardPage";
+import { StatusBadge } from "@/components/dashboard/StatusBadge";
+import { Surface } from "@/components/dashboard/Surface";
+import { EmptyState, ErrorState, LoadingState } from "@/components/dashboard/SystemState";
 
 interface ActivityEvent {
   id: string;
@@ -15,11 +22,7 @@ interface ActivityEvent {
 }
 
 const ROLES = ["nimi_analyst", "ryan_strategist", "temi_editorial_planner", "noni_copywriter", "dara_editor", "maya_trend_researcher", "nova_liaison"];
-const STATUS_STYLE = {
-  succeeded: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
-  retrying: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-  failed: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
-};
+const STATUS_TONE = { succeeded: "success", retrying: "warning", failed: "danger" } as const;
 
 export default function WorkflowActivityView() {
   const [events, setEvents] = useState<ActivityEvent[] | null>(null);
@@ -79,10 +82,11 @@ export default function WorkflowActivityView() {
   }, [load]);
 
   return (
-    <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]" aria-label="Agent activity">
-      <div className="space-y-3">
-        {runtime && <div className="space-y-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800" aria-label="Durable runtime health">
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+    <section className="workflow-activity" aria-label="Agent activity">
+      <div className="ops-stack">
+        {runtime && <Surface className="workflow-runtime" aria-label="Durable runtime health">
+          <SectionHeader title="Durable runtime" description="Lease, queue, recovery, and effect-integrity signals from the current tenant." />
+          <div className="workflow-metrics">
             <RuntimeMetric label="Stale leases" value={String(runtime.staleLeases.operations + runtime.staleLeases.inbox + runtime.staleLeases.outbox)} />
             <RuntimeMetric label="Unknown effects" value={String(runtime.unknownEffects.length)} />
             <RuntimeMetric label="Inbox lag" value={`${runtime.inboxLagSeconds}s`} />
@@ -92,73 +96,73 @@ export default function WorkflowActivityView() {
             <RuntimeMetric label="Recovery work" value={`${runtime.recovery.pending} pending`} />
             <RuntimeMetric label="Observed effects" value={String(runtime.observedEffects)} />
           </div>
-          {runtime.unknownEffects.length > 0 && <div className="space-y-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-            <h2 className="text-sm font-semibold">Resolve unknown effects</h2>
-            <div className="grid gap-2 sm:grid-cols-3">
-              <label className="text-xs text-zinc-500">Reason<input aria-label="Resolution reason" value={resolution.reason} onChange={(event) => setResolution((current) => ({ ...current, reason: event.target.value }))} className="mt-1 w-full rounded border border-zinc-300 bg-transparent px-2 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-100" /></label>
-              <label className="text-xs text-zinc-500">Evidence artifact ID<input aria-label="Evidence artifact ID" value={resolution.artifactId} onChange={(event) => setResolution((current) => ({ ...current, artifactId: event.target.value }))} className="mt-1 w-full rounded border border-zinc-300 bg-transparent px-2 py-1.5 font-mono text-zinc-900 dark:border-zinc-700 dark:text-zinc-100" /></label>
-              <label className="text-xs text-zinc-500">Evidence digest<input aria-label="Evidence digest" value={resolution.digest} onChange={(event) => setResolution((current) => ({ ...current, digest: event.target.value }))} className="mt-1 w-full rounded border border-zinc-300 bg-transparent px-2 py-1.5 font-mono text-zinc-900 dark:border-zinc-700 dark:text-zinc-100" /></label>
+          {runtime.unknownEffects.length > 0 && <div className="unknown-effects">
+            <SectionHeader title="Resolve unknown effects" description="A resolution requires an operator reason and immutable evidence coordinates." />
+            <div className="unknown-effects__fields">
+              <FormField id="effect-reason" label="Reason"><TextInput value={resolution.reason} onChange={(event) => setResolution((current) => ({ ...current, reason: event.target.value }))} /></FormField>
+              <FormField id="effect-artifact" label="Evidence artifact ID"><TextInput value={resolution.artifactId} onChange={(event) => setResolution((current) => ({ ...current, artifactId: event.target.value }))} /></FormField>
+              <FormField id="effect-digest" label="Evidence digest"><TextInput value={resolution.digest} onChange={(event) => setResolution((current) => ({ ...current, digest: event.target.value }))} /></FormField>
             </div>
-            {runtime.unknownEffects.map((effect) => <article key={effect.operationId} className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-900 dark:bg-amber-950/30">
-              <p className="font-semibold">{effect.commandId}</p>
-              <p className="mt-1 break-all font-mono text-[10px] text-zinc-500">{effect.operationId}@{effect.epoch}</p>
-              <p className="mt-1 text-zinc-600 dark:text-zinc-300">{effect.reason}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
+            {runtime.unknownEffects.map((effect) => <Surface as="article" variant="danger" className="unknown-effect" key={effect.operationId}>
+              <strong>{effect.commandId}</strong>
+              <p className="font-mono">{effect.operationId}@{effect.epoch}</p>
+              <p>{effect.reason}</p>
+              <div className="unknown-effect__actions">
                 {([
                   ["confirm_applied", "Confirm applied"], ["confirm_not_applied", "Confirm not applied"],
                   ["compensate", "Compensate"], ["cancel", "Cancel"],
-                ] as const).map(([choice, label]) => <button key={choice} disabled={!resolutionReady} onClick={() => void resolveEffect(effect, choice)} className="rounded-full border border-zinc-300 px-2.5 py-1 font-medium disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700">{label}</button>)}
+                ] as const).map(([choice, label]) => <Button key={choice} disabled={!resolutionReady} onClick={() => void resolveEffect(effect, choice)}>{label}</Button>)}
               </div>
-            </article>)}
-            {resolutionStatus && <p role="status" className="text-xs text-zinc-500">{resolutionStatus}</p>}
+            </Surface>)}
+            {resolutionStatus && <p role="status" className="monitor-status-copy">{resolutionStatus}</p>}
           </div>}
-        </div>}
-        <div className="flex flex-wrap gap-2">
-          <select aria-label="Filter by agent" value={role} onChange={(event) => setRole(event.target.value)} className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950">
+        </Surface>}
+        <Surface className="monitor-filter-bar">
+          <Select aria-label="Filter by agent" value={role} onChange={(event) => setRole(event.target.value)}>
             <option value="">all agents</option>
             {ROLES.map((item) => <option key={item} value={item}>{item.replaceAll("_", " ")}</option>)}
-          </select>
-          <select aria-label="Filter by status" value={status} onChange={(event) => setStatus(event.target.value)} className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950">
+          </Select>
+          <Select aria-label="Filter by status" value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="">all states</option><option value="succeeded">succeeded</option><option value="retrying">retrying</option><option value="failed">failed</option>
-          </select>
-          <button onClick={() => void load()} className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-700">Refresh</button>
-        </div>
-        {error ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950">{error}</p> : events === null ? (
-          <p className="rounded-xl border border-zinc-200 p-6 text-center text-sm text-zinc-400 dark:border-zinc-800">Loading agent activity…</p>
+          </Select>
+          <Button onClick={() => void load()}>Refresh</Button>
+        </Surface>
+        {error ? <ErrorState title="Agent activity could not be loaded" message={error} action={<Button onClick={() => void load()}>Retry</Button>} /> : events === null ? (
+          <LoadingState title="Loading agent activity" />
         ) : events.length === 0 ? (
-          <p className="rounded-xl border border-zinc-200 p-6 text-center text-sm text-zinc-400 dark:border-zinc-800">No structured agent activity matches these filters.</p>
+          <EmptyState title="No structured agent activity matches these filters." />
         ) : (
-          <ol className="divide-y divide-zinc-100 overflow-hidden rounded-xl border border-zinc-200 dark:divide-zinc-900 dark:border-zinc-800">
+          <ol className="workflow-events">
             {events.map((event) => {
               const item = event.activity!;
-              return <li key={event.id}><button onClick={() => setSelected(event)} className="grid w-full gap-2 p-3 text-left hover:bg-zinc-50 dark:hover:bg-zinc-900 sm:grid-cols-[8rem_1fr_auto]">
-                <span className="font-mono text-[10px] text-zinc-400">{event.at ? new Date(event.at).toLocaleString() : "pending"}</span>
-                <span><span className="block text-xs font-semibold">{item.kind === "handoff" ? `${item.fromRole} → ${item.toRole}` : `${item.role} · ${item.toolName ?? item.kind}`}</span><span className="mt-1 block text-xs text-zinc-500">{item.publicMessage}</span></span>
-                <span className={`h-fit rounded-full px-2 py-1 text-[10px] font-semibold uppercase ${STATUS_STYLE[item.status]}`}>{item.status}</span>
+              return <li key={event.id}><button onClick={() => setSelected(event)}>
+                <time>{event.at ? new Date(event.at).toLocaleString() : "pending"}</time>
+                <span><strong>{item.kind === "handoff" ? `${item.fromRole} → ${item.toRole}` : `${item.role} · ${item.toolName ?? item.kind}`}</strong><span>{item.publicMessage}</span></span>
+                <StatusBadge tone={STATUS_TONE[item.status]}>{item.status}</StatusBadge>
               </button></li>;
             })}
           </ol>
         )}
       </div>
-      <aside className="h-fit rounded-xl border border-zinc-200 p-4 text-xs dark:border-zinc-800">
-        <h2 className="font-semibold">Activity details</h2>
-        {!selected?.activity ? <p className="mt-3 text-zinc-400">Select an event to inspect its safe structured metadata.</p> : (
-          <dl className="mt-3 grid grid-cols-[6rem_1fr] gap-x-2 gap-y-2 break-all">
-            <dt className="text-zinc-400">Role</dt><dd>{selected.activity.role}</dd>
-            <dt className="text-zinc-400">Kind</dt><dd>{selected.activity.kind}</dd>
-            <dt className="text-zinc-400">Code</dt><dd>{selected.activity.code ?? "—"}</dd>
-            <dt className="text-zinc-400">Category</dt><dd>{selected.activity.category ?? "—"}</dd>
-            <dt className="text-zinc-400">Path</dt><dd>{selected.activity.path ?? "—"}</dd>
-            <dt className="text-zinc-400">Attempt</dt><dd>{selected.activity.attempt === undefined ? "—" : `${selected.activity.attempt}/${selected.activity.maxAttempts ?? "—"}`}</dd>
-            <dt className="text-zinc-400">Operation</dt><dd className="font-mono">{selected.operationId}</dd>
-            <dt className="text-zinc-400">Trace</dt><dd className="font-mono">{selected.traceId}</dd>
+      <Surface as="aside" className="workflow-details">
+        <SectionHeader title="Activity details" description="Safe structured metadata only." />
+        {!selected?.activity ? <p>Select an event to inspect its metadata.</p> : (
+          <dl>
+            <dt>Role</dt><dd>{selected.activity.role}</dd>
+            <dt>Kind</dt><dd>{selected.activity.kind}</dd>
+            <dt>Code</dt><dd>{selected.activity.code ?? "—"}</dd>
+            <dt>Category</dt><dd>{selected.activity.category ?? "—"}</dd>
+            <dt>Path</dt><dd>{selected.activity.path ?? "—"}</dd>
+            <dt>Attempt</dt><dd>{selected.activity.attempt === undefined ? "—" : `${selected.activity.attempt}/${selected.activity.maxAttempts ?? "—"}`}</dd>
+            <dt>Operation</dt><dd className="font-mono">{selected.operationId}</dd>
+            <dt>Trace</dt><dd className="font-mono">{selected.traceId}</dd>
           </dl>
         )}
-      </aside>
+      </Surface>
     </section>
   );
 }
 
 function RuntimeMetric({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-lg bg-zinc-50 p-2 dark:bg-zinc-900"><p className="text-[10px] uppercase tracking-wide text-zinc-400">{label}</p><p className="mt-1 truncate text-xs font-semibold" title={value}>{value}</p></div>;
+  return <Surface variant="inset" className="workflow-metric"><span>{label}</span><strong title={value}>{value}</strong></Surface>;
 }

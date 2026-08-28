@@ -1,6 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/dashboard/Button";
+import { Select, TextInput } from "@/components/dashboard/Controls";
+import { DataShell } from "@/components/dashboard/DataShell";
+import { StatusBadge } from "@/components/dashboard/StatusBadge";
+import { EmptyState, ErrorState, LoadingState } from "@/components/dashboard/SystemState";
 
 interface LogEntry {
   id: string;
@@ -18,15 +23,8 @@ const STAGES = [
 const ACTORS = ["system", "agent", "operator"];
 
 function StageChip({ stage }: { stage: string }) {
-  const color =
-    stage === "failed"
-      ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400"
-      : stage === "awaiting_approval" || stage === "awaiting_strategy_approval"
-        ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400"
-        : stage === "learn" || stage === "verify"
-          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
-          : "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-400";
-  return <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${color}`}>{stage}</span>;
+  const tone = stage === "failed" ? "danger" : stage.includes("awaiting") ? "warning" : stage === "learn" || stage === "verify" ? "success" : "info";
+  return <StatusBadge tone={tone}>{stage.replaceAll("_", " ")}</StatusBadge>;
 }
 
 export default function LogsView() {
@@ -36,6 +34,7 @@ export default function LogsView() {
   const [stages, setStages] = useState<string[]>([]);
   const [actor, setActor] = useState("");
   const [jobId, setJobId] = useState("");
+  const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     const params = new URLSearchParams();
@@ -43,11 +42,15 @@ export default function LogsView() {
     for (const s of stages) params.append("stage", s);
     if (actor) params.set("actor", actor);
     if (jobId) params.set("jobId", jobId);
-    const res = await fetch(`/api/events?${params.toString()}`, { cache: "no-store" });
-    if (res.ok) {
+    try {
+      const res = await fetch(`/api/events?${params.toString()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(`Event request failed (${res.status})`);
       const d = await res.json();
       setEntries(d.events);
       setTotal(d.total);
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Event request failed");
     }
   }, [q, stages, actor, jobId]);
 
@@ -61,83 +64,72 @@ export default function LogsView() {
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <input
+    <div className="ops-stack">
+      <div className="ops-filter-row">
+        <TextInput
+          aria-label="Search events"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search messages or job ids…"
-          className="w-full max-w-xs rounded-full border border-zinc-300 bg-white px-4 py-1.5 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950"
         />
-        <select
+        <Select aria-label="Filter by actor"
           value={actor}
           onChange={(e) => setActor(e.target.value)}
-          className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
         >
           <option value="">all actors</option>
           {ACTORS.map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
-        <input
+        </Select>
+        <TextInput aria-label="Filter by job ID"
           value={jobId}
           onChange={(e) => setJobId(e.target.value)}
           placeholder="filter by job id"
-          className="w-40 rounded-full border border-zinc-300 bg-white px-3 py-1.5 font-mono text-xs outline-none dark:border-zinc-700 dark:bg-zinc-950"
         />
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5">
-        <button
+      <div className="ops-chip-row">
+        <Button variant={stages.length === 0 ? "primary" : "quiet"}
           onClick={() => setStages([])}
-          className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-            stages.length === 0 ? "bg-zinc-900 text-white dark:bg-white dark:text-black" : "border border-zinc-300 text-zinc-500 dark:border-zinc-700"
-          }`}
         >
           all stages
-        </button>
+        </Button>
         {STAGES.map((s) => (
-          <button
+          <Button variant={stages.includes(s) ? "primary" : "quiet"}
             key={s}
             onClick={() => toggleStage(s)}
-            className={`rounded-full px-2.5 py-1 text-[11px] font-medium capitalize ${
-              stages.includes(s)
-                ? "bg-zinc-900 text-white dark:bg-white dark:text-black"
-                : "border border-zinc-300 text-zinc-500 hover:border-zinc-400 dark:border-zinc-700"
-            }`}
           >
             {s.replace("_", " ")}
-          </button>
+          </Button>
         ))}
-        <span className="ml-auto text-[11px] text-zinc-400">{total} matching event(s)</span>
+        <span className="monitor-result-count">{total} matching event(s)</span>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
+      {error ? <ErrorState title="Event log could not be loaded" message={error} action={<Button onClick={() => void load()}>Retry</Button>} /> : <DataShell>
         {entries === null ? (
-          <p className="p-6 text-center text-xs text-zinc-400">Loading…</p>
+          <LoadingState title="Loading event log" />
         ) : entries.length === 0 ? (
-          <p className="p-6 text-center text-xs text-zinc-400">No events match these filters.</p>
+          <EmptyState title="No events match these filters" message="Change the filters to widen the event query." />
         ) : (
-          <ul className="max-h-[60vh] divide-y divide-zinc-100 overflow-y-auto dark:divide-zinc-900">
+          <ul className="event-log-list">
             {entries.map((e) => (
-              <li key={e.id} className="flex items-start gap-3 px-3 py-2 text-xs">
-                <span className="w-24 shrink-0 font-mono text-[10px] text-zinc-400">
+              <li key={e.id}>
+                <span className="event-log-list__time">
                   {e.at ? new Date(e.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
                 </span>
                 <StageChip stage={e.stage} />
-                <span className="min-w-0 flex-1 break-words leading-5 text-zinc-700 dark:text-zinc-300">
-                  <span className="text-zinc-400">[{e.actor}]</span> {e.message}
+                <span className="event-log-list__message">
+                  <span className="event-log-list__actor">[{e.actor}]</span> {e.message}
                 </span>
-                <button
+                <Button variant="quiet"
                   onClick={() => setJobId(e.jobId === jobId ? "" : e.jobId)}
                   title="Filter by this job"
-                  className="shrink-0 font-mono text-[10px] text-blue-600 underline dark:text-blue-400"
                 >
                   {e.jobId.slice(0, 12)}
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
         )}
-      </div>
+      </DataShell>}
     </div>
   );
 }

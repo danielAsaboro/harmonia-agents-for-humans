@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../components/dashboard/dashboard.css";
 
 :root {
   --background: #f1f0e7;

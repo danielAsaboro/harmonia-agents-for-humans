@@ -6,6 +6,11 @@ import { useEffect, useMemo, useState } from "react";
 import type { ContentItem } from "@/lib/types";
 import { PlatformIcon } from "@/components/socialIcons";
 import { calendarSyncActionLabel } from "@/lib/calendarSyncState";
+import { Button, IconButton } from "@/components/dashboard/Button";
+import { Select, Textarea, TextInput } from "@/components/dashboard/Controls";
+import { StatusBadge } from "@/components/dashboard/StatusBadge";
+import { AlertBanner } from "@/components/dashboard/SystemState";
+import { calendarStatus } from "@/lib/dashboard/calendarPresentation";
 
 interface ConnectionInfo {
   id: string;
@@ -19,16 +24,6 @@ interface JobBundle {
   receipts?: Array<{ actionId: string; outcome: string }>;
   engagement?: Array<{ postId: string; likes: number; reposts: number; url?: string }>;
 }
-
-const STATUS_STYLE: Record<string, string> = {
-  draft: "bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400",
-  scheduled: "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-400",
-  awaiting_final_review: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400",
-  publishing: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400",
-  published: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400",
-  failed: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400",
-  cancelled: "bg-zinc-100 text-zinc-400 dark:bg-zinc-900 dark:text-zinc-500",
-};
 
 function toLocalInput(iso?: string): string {
   if (!iso) return "";
@@ -137,25 +132,20 @@ export default function ItemDrawer({
   );
 
   const publishedEngagement = jobData?.engagement;
+  const status = calendarStatus(item.status);
 
   return (
-    <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col overflow-y-auto border-l border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950">
-      <header className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/95">
+    <aside className="calendar-drawer" aria-label="Calendar item details">
+      <header className="calendar-drawer__header">
         <div className="flex items-center gap-2">
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${STATUS_STYLE[item.status] ?? ""}`}>
-            {item.status.replace(/_/g, " ")}
-          </span>
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-            item.publishMode === "auto" ? "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-400" : "border border-zinc-300 text-zinc-500 dark:border-zinc-700"
-          }`}>
-            {item.publishMode === "auto" ? "auto-publish" : "human review"}
-          </span>
+          <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+          <StatusBadge tone={item.publishMode === "auto" ? "info" : "warning"}>{item.publishMode === "auto" ? "Auto-publish" : "Human review"}</StatusBadge>
           <AskAiButton kind="content_item" id={item.id} label={item.text.slice(0, 60)} />
         </div>
-        <button onClick={onClose} aria-label="Close" className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">✕</button>
+        <IconButton onClick={onClose} label="Close calendar item">✕</IconButton>
       </header>
 
-      <div className="flex flex-1 flex-col gap-5 p-4">
+      <div className="calendar-drawer__body">
         {/* Media attached to this post */}
         {item.assetActionIds && item.assetActionIds.length > 0 && (
           <section>
@@ -197,33 +187,32 @@ export default function ItemDrawer({
           </div>
           {editing ? (
             <>
-              <textarea
+              <Textarea
                 value={draftText}
                 onChange={(e) => setDraftText(e.target.value)}
                 rows={4}
-                className="w-full rounded-lg border border-zinc-300 bg-white p-3 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950"
               />
               <div className="mt-2 flex items-center gap-2">
                 <span className={`text-[11px] ${draftText.length > 280 ? "text-red-500" : "text-zinc-400"}`}>{draftText.length}/280</span>
-                <button
+                <Button
+                  variant="primary"
                   onClick={async () => {
                     await patch({ text: draftText });
                     setEditing(false);
                   }}
                   disabled={busy}
-                  className="ml-auto rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white dark:bg-white dark:text-black"
                 >
                   Save
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="quiet"
                   onClick={() => {
                     setDraftText(item.text);
                     setEditing(false);
                   }}
-                  className="text-xs text-zinc-500 underline"
                 >
                   Cancel
-                </button>
+                </Button>
               </div>
             </>
           ) : (
@@ -263,22 +252,21 @@ export default function ItemDrawer({
           <section>
             <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">Schedule</h3>
             <div className="flex items-center gap-2">
-              <input
+              <TextInput
                 type="datetime-local"
                 value={scheduleValue}
                 onChange={(e) => setScheduleValue(e.target.value)}
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950"
               />
-              <select
+              <Select
                 value={item.publishMode}
                 onChange={(e) => patch({ publishMode: e.target.value })}
                 disabled={busy}
-                className="shrink-0 rounded-lg border border-zinc-300 bg-white px-2 py-2 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                className="shrink-0"
                 title="Auto publishes when due; approval pauses for your review"
               >
                 <option value="approval">review first</option>
                 <option value="auto">auto-publish</option>
-              </select>
+              </Select>
             </div>
             <div className="mt-2 flex gap-2">
               <button
@@ -427,20 +415,17 @@ export default function ItemDrawer({
           )}
         </section>
 
-        {error && (
-          <p className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-            {error}
-          </p>
-        )}
+        {error && <AlertBanner tone="danger" title="Calendar action failed">{error}</AlertBanner>}
       </div>
 
-      <footer className="sticky bottom-0 border-t border-zinc-200 bg-white/95 p-3 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/95">
-        <button
+      <footer className="calendar-drawer__footer">
+        <Button
+          variant="primary"
           onClick={() => onOpenInChat(item)}
-          className="w-full rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-white dark:text-black dark:hover:bg-zinc-300"
+          className="w-full"
         >
           Open in chat for further processing →
-        </button>
+        </Button>
       </footer>
     </aside>
   );

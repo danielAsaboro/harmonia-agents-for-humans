@@ -17,6 +17,15 @@ describe("monitoring navigation", () => {
     expect(html).toContain(">Proposals</button>");
   });
 
+  it("renders one labelled overflow-safe tablist with every operational panel", () => {
+    const html = renderToStaticMarkup(createElement(MonitoringPage));
+
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('aria-label="Monitoring sections"');
+    expect(html.match(/role="tab"/g)).toHaveLength(9);
+    expect(html).toContain("dash-tabs--overflow");
+  });
+
   it("removes the obsolete standalone routes and links notifications to monitoring", () => {
     expect(existsSync("src/app/dashboard/proposals/page.tsx")).toBe(false);
     expect(existsSync("src/app/dashboard/autonomy/page.tsx")).toBe(false);

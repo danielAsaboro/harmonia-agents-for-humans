@@ -5,6 +5,7 @@ const envSchema = z.object({
   GOOGLE_CLOUD_LOCATION: z.string().default("us-central1"),
   FIRESTORE_JOB_COLLECTION: z.string().default("jobs"),
   PUBSUB_STAGE_TOPIC: z.string().default("harmonia-stages"),
+  PUBSUB_DATA_TOPIC: z.string().default("harmonia-data-work"),
   INTERNAL_API_TOKEN: z.string().min(1),
   AGENT_SERVICE_URL: z.string().url(),
   GEMINI_API_KEY: z.string().min(1).optional(),

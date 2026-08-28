@@ -11,6 +11,8 @@ const job = {
   createdByUserId: "user-1",
   stage: "awaiting_approval",
   status: "running",
+  desiredState: "run",
+  controlVersion: 0,
   createdAt: "2026-08-26T00:00:00.000Z",
   updatedAt: "2026-08-26T00:00:00.000Z",
   config: { platforms: ["x"] },

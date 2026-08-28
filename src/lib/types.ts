@@ -282,6 +282,8 @@ export interface Job {
   createdAt: string;
   updatedAt: string;
   status: JobStatus;
+  desiredState: "run" | "pause_requested" | "cancel_requested";
+  controlVersion: number;
   terminalOutcome?: "succeeded" | "partial" | "failed" | "unresolved" | "rejected";
   retentionDeleteAfter?: string;
   retentionHold?: boolean;
@@ -500,7 +502,8 @@ export type EffectClaimOutcome =
   | { outcome: "execute"; claim: EffectClaim }
   | { outcome: "in_progress"; claim: EffectClaim }
   | { outcome: "uncertain"; claim: EffectClaim }
-  | { outcome: "already_applied"; claim: EffectClaim; receiptId: string };
+  | { outcome: "already_applied"; claim: EffectClaim; receiptId: string }
+  | { outcome: "paused" | "cancelled" };
 
 export interface VerificationResult {
   id: string;

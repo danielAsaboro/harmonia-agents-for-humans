@@ -7,6 +7,14 @@ import { Select, TextInput } from "@/components/dashboard/Controls";
 import { DataShell } from "@/components/dashboard/DataShell";
 import { StatusBadge } from "@/components/dashboard/StatusBadge";
 import { EmptyState, ErrorState, LoadingState } from "@/components/dashboard/SystemState";
+import type { AttentionItem } from "@/lib/operations/attention";
+import type { JobShell } from "@/lib/operations/jobShell";
+
+interface OperationalSnapshot {
+  snapshotSequence: number;
+  jobs: Record<string, JobShell>;
+  attention: Record<string, AttentionItem>;
+}
 
 export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) => void }) {
   const [jobs, setJobs] = useState<JobSummary[] | null>(null);
@@ -15,6 +23,9 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
   const [q, setQ] = useState("");
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
+  const [operations, setOperations] = useState<OperationalSnapshot | null>(null);
+  const [controlError, setControlError] = useState("");
+  const [busyJob, setBusyJob] = useState("");
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -25,6 +36,49 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
     }, 0);
     return () => clearTimeout(t);
   }, [reload]);
+
+  useEffect(() => {
+    let stopped = false;
+    let cursor = -1;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = async () => {
+      try {
+        const response = await fetch(`/api/operations/shell?after=${cursor}`, { cache: "no-store" });
+        if (!response.ok) throw new Error(`Operational feed HTTP ${response.status}`);
+        const data = await response.json() as { snapshot: OperationalSnapshot };
+        if (!stopped) {
+          setOperations(data.snapshot);
+          cursor = data.snapshot.snapshotSequence;
+          timer = setTimeout(refresh, 5_000);
+        }
+      } catch (cause) {
+        if (!stopped) {
+          setError(cause instanceof Error ? cause.message : "Operational feed failed");
+          timer = setTimeout(refresh, 10_000);
+        }
+      }
+    };
+    void refresh();
+    return () => { stopped = true; if (timer) clearTimeout(timer); };
+  }, [reload]);
+
+  const control = async (shell: JobShell, action: "pause" | "resume" | "cancel") => {
+    setBusyJob(shell.jobId);
+    setControlError("");
+    try {
+      const response = await fetch(`/api/jobs/${encodeURIComponent(shell.jobId)}/control`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ commandId: crypto.randomUUID(), action, expectedControlVersion: shell.controlVersion }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.receipt?.error ?? data.error ?? `Control HTTP ${response.status}`);
+      setReload((value) => value + 1);
+    } catch (cause) {
+      setControlError(cause instanceof Error ? cause.message : "Job control failed");
+    } finally {
+      setBusyJob("");
+    }
+  };
 
   const rows = useMemo(() => {
     let out = jobs ?? [];
@@ -47,6 +101,16 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
 
   return (
     <div className="ops-stack">
+      <DataShell title="Needs you" description="One inbox for approvals, policy decisions, credentials, missing assets, budget gates, and uncertain external effects.">
+        {!operations ? <LoadingState title="Loading operator inbox" /> : Object.values(operations.attention).length === 0 ? <EmptyState title="Nothing needs attention" message="Background work can continue without an operator decision." /> : <div className="ops-stack">
+          {Object.values(operations.attention).map((item) => (
+            <a className="dash-alert" data-tone={item.priority >= 90 ? "danger" : "warning"} href={item.actionHref} key={item.id}>
+              <strong>{item.title}</strong> — {item.reason}
+            </a>
+          ))}
+        </div>}
+      </DataShell>
+      {controlError && <ErrorState title="Job control was rejected" message={controlError} />}
       <div className="ops-filter-row">
         <TextInput aria-label="Search jobs"
           value={q}
@@ -75,11 +139,14 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
         <table className="ops-table">
           <thead>
             <tr>
-              <th>Job</th><th>Source</th><th>Stage</th><th>Status</th><th>Created</th><th>Failure</th>
+              <th>Job</th><th>Source</th><th>Stage</th><th>Lifecycle</th><th>Progress</th><th>Control</th><th>Created</th><th>Failure</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((j) => (
+              (() => {
+              const shell = operations?.jobs[j.id];
+              return (
               <tr
                 key={j.id}
                 onClick={() => onOpenJob?.(j.id)}
@@ -91,9 +158,16 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
                 </td>
                 <td className="px-3 py-2 capitalize">{j.stage.replace("_", " ")}</td>
                 <td className="px-3 py-2">
-                  <StatusBadge tone={j.status === "complete" ? "success" : j.status === "failed" ? "danger" : j.status === "waiting_for_approval" ? "warning" : "info"}>
-                    {j.status.replace("_", " ")}
+                  <StatusBadge tone={shell?.lifecycle === "settled" ? "success" : shell?.lifecycle === "failed" || shell?.lifecycle === "uncertain" ? "danger" : shell?.needsAttention || shell?.lifecycle === "paused" ? "warning" : "info"}>
+                    {(shell?.lifecycle ?? j.status).replaceAll("_", " ")}
                   </StatusBadge>
+                </td>
+                <td className="ops-table__muted">{shell ? `${shell.progress.completedSteps}/${shell.progress.totalSteps}` : "—"}</td>
+                <td onClick={(event) => event.stopPropagation()}>
+                  {shell && shell.lifecycle !== "settled" ? shell.desiredState === "cancel_requested" ? <StatusBadge tone="warning">Cancel requested</StatusBadge> : <div className="ops-filter-row">
+                    <Button variant="quiet" busy={busyJob === j.id} onClick={() => void control(shell, shell.desiredState === "pause_requested" ? "resume" : "pause")}>{shell.desiredState === "pause_requested" ? "Resume" : "Pause"}</Button>
+                    <Button variant="danger" busy={busyJob === j.id} onClick={() => void control(shell, "cancel")}>Cancel</Button>
+                  </div> : "—"}
                 </td>
                 <td className="ops-table__muted">
                   {new Date(j.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
@@ -102,6 +176,8 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
                   {j.failure ? `${j.failure.stage}: ${j.failure.error.slice(0, 60)}` : "—"}
                 </td>
               </tr>
+              );
+              })()
             ))}
           </tbody>
         </table>

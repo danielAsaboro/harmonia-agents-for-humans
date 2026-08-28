@@ -69,6 +69,7 @@ import {
   type OperationFence,
   type OperationRecord,
 } from "./operations";
+import { decideWorkAdmission } from "./operations/workAdmission";
 import { EventInboxStore, type DurableEventClaimInput } from "./eventInboxStore";
 import type { EventInboxClaimResult, EventInboxRecord } from "./eventInbox";
 
@@ -773,6 +774,14 @@ export async function listConnections(): Promise<ConnectionDoc[]> {
   });
 }
 
+export async function listConnectionMetadata(): Promise<Array<Pick<ConnectionDoc, "platform" | "health" | "connectedAt">>> {
+  const snaps = await tenantCollection(CONNECTIONS).get();
+  return snaps.docs.map((doc) => {
+    const stored = doc.data() as StoredConnectionDoc;
+    return { platform: stored.platform, health: stored.health, connectedAt: stored.connectedAt };
+  });
+}
+
 // ---------- operator chat history ----------
 
 const CHATS = "chat_messages";
@@ -1106,6 +1115,8 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,
     status: data.status,
+    desiredState: data.desiredState,
+    controlVersion: data.controlVersion,
     terminalOutcome: data.terminalOutcome,
     retentionDeleteAfter: data.retentionDeleteAfter,
     retentionHold: data.retentionHold,
@@ -1301,6 +1312,8 @@ export async function createJob(
     createdAt: now,
     updatedAt: now,
     status: "running",
+    desiredState: "run",
+    controlVersion: 0,
     stage: initialStage,
     config: storedConfig,
     budget: initialJobBudget(),
@@ -1383,6 +1396,10 @@ export async function claimJobStageExecution(input: {
     const job = requireJobDoc(jobSnap);
     const existing = executionSnap.exists ? executionSnap.data() as StageExecution : null;
     if (!existing && job.stage !== input.stage) throw new Error(`job stage is '${job.stage}', not '${input.stage}'`);
+    if (!existing) {
+      const admission = decideWorkAdmission(job.desiredState);
+      if (admission.outcome !== "execute") return admission;
+    }
     const now = new Date();
     const result = decideStageClaim(existing, {
       jobId: input.jobId,
@@ -2147,6 +2164,8 @@ export async function claimEffect(input: EffectClaimInput): Promise<EffectClaimO
     const existing = claimSnap.exists ? claimSnap.data() as EffectClaim : null;
     const decision = decideEffectClaim(existing, input);
     if (decision.outcome !== "execute") return decision;
+    const admission = decideWorkAdmission(job.desiredState);
+    if (admission.outcome !== "execute") return admission;
     if (action.state !== "planned") {
       throw new Error(`action ${input.actionId} is not executable from state '${action.state}'`);
     }

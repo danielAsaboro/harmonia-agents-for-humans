@@ -12,7 +12,7 @@ def _command():
 
 
 def test_non_execute_claim_never_enters_provider():
-    for outcome in ("in_progress", "already_applied", "uncertain"):
+    for outcome in ("in_progress", "already_applied", "uncertain", "paused", "cancelled"):
         calls = []
         result = execute_effect_command(
             _command(), adapters={"publish_x_post": lambda _payload: calls.append("provider")},

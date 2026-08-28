@@ -20,15 +20,19 @@ export interface StageClaimInput {
   leaseExpiresAt: string;
 }
 
-export type StageClaimResult = {
+export type ActiveStageClaimResult = {
   outcome: "execute" | "in_progress" | "already_applied" | "failed" | "uncertain";
   execution: StageExecution;
 };
 
+export type StageClaimResult =
+  | ActiveStageClaimResult
+  | { outcome: "paused" | "cancelled" };
+
 export function claimStageExecution(
   existing: StageExecution | null,
   input: StageClaimInput & { jobId?: string; stage?: string },
-): StageClaimResult {
+): ActiveStageClaimResult {
   if (!existing) {
     if (!input.jobId || !input.stage) throw new Error("new stage claim requires job and stage");
     const execution: StageExecution = {

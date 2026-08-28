@@ -294,7 +294,7 @@ def post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
 def claim_effect(payload: dict[str, Any]) -> dict[str, Any]:
     result = post("/api/internal/effect-claim", payload)
     outcome = result.get("outcome")
-    if outcome not in {"execute", "in_progress", "already_applied", "uncertain"}:
+    if outcome not in {"execute", "in_progress", "already_applied", "uncertain", "paused", "cancelled"}:
         raise WebApiError("effect claim returned an invalid outcome")
     return result
 
@@ -313,7 +313,7 @@ def transition_effect_command(phase: str, payload: dict[str, Any]) -> dict[str, 
 def claim_stage_execution(payload: dict[str, Any]) -> dict[str, Any]:
     result = post("/api/internal/stage-execution/claim", payload)
     if result.get("outcome") not in {
-        "execute", "in_progress", "already_applied", "failed", "uncertain",
+        "execute", "in_progress", "already_applied", "failed", "uncertain", "paused", "cancelled",
     }:
         raise WebApiError("stage execution claim returned an invalid outcome")
     return result

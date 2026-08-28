@@ -59,10 +59,11 @@ Retries reuse stable operation and idempotency identities. They do not manufactu
 | `in_progress` | another delivery owns the claim | no |
 | `already_applied` | original receipt exists | no; return original receipt identity |
 | `uncertain` | lease expired without final proof | no; operator reconciliation required |
+| `paused` | job desired state blocks new work | no; resume with a versioned operator command |
+| `cancelled` | job cancellation blocks new work | no; cancellation is irreversible for that job |
 
 Only the explicit **Prove duplicate suppression** control creates replay evidence. Ordinary duplicate delivery suppresses the provider call without creating a new replay record.
 
 <Warning>A visible failure is a valid terminal outcome. Harmonia never converts an unavailable provider, missing credential, unverifiable effect, or exhausted retry into simulated success.</Warning>
 
 See [Approvals & Audit](/approval-and-audit) for claim-before-effect ordering and [Authenticated vertical-slice evidence](/evidence-runbook) for proof requirements.
-

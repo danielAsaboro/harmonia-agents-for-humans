@@ -21,3 +21,17 @@ queued → ingest → transcribe → understand → strategize
 Only application transactions advance the stage. Agents, Pub/Sub messages, logs, and external providers cannot do so directly. See [Production flow](/diagrams/production-flow) and [State ownership](/state-ownership).
 
 The evidence packet is assembled and persisted during verification. It is an artifact and audit event, not a job stage.
+
+## Operational desired state
+
+`desiredState` is independent of `status` and `stage`:
+
+| Value | Admission behavior |
+|---|---|
+| `run` | New eligible stage and effect claims may execute. |
+| `pause_requested` | New work returns `paused`; an already-owned claim may finish its safe unit. |
+| `cancel_requested` | New work returns `cancelled`; the request cannot be resumed. |
+
+`controlVersion` starts at `0` and increments for each accepted pause, resume, or cancellation command. Commands must present the current version. This prevents a stale browser or duplicate operator action from overwriting a newer decision.
+
+Pause and cancellation do not rewrite an already-dispatched external effect. Such an effect still requires observation, verification, or uncertain-outcome reconciliation.

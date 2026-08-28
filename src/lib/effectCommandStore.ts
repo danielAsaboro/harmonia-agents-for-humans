@@ -14,6 +14,7 @@ import {
   assertOperationFence, claimOperation, createOperation, finalizeOperation,
   operationIdForEffect, type OperationFence, type OperationRecord,
 } from "./operations";
+import { decideWorkAdmission } from "./operations/workAdmission";
 import { canonicalJson } from "./recordReplay/integrity";
 import { currentTenant, tenantCollectionPath } from "./tenancy";
 import type { EffectClaim, EffectClaimInput, EffectClaimOutcome, Job, PlannedAction, Receipt } from "./types";
@@ -117,8 +118,9 @@ export async function claimCommandEffect(
     const operationId = operationIdForEffect(command.jobId, commandId);
     if (owner.operationId !== operationId) throw new Error("effect command operation id mismatch");
     const operationRef = db().collection(tenantCollectionPath(tenant, OPERATIONS)).doc(operationId);
-    const [claimSnap, operationSnap] = await Promise.all([
-      tx.get(claimRef), tx.get(operationRef),
+    const jobRef = db().collection(tenantCollectionPath(tenant, JOBS)).doc(command.jobId);
+    const [claimSnap, operationSnap, jobSnap] = await Promise.all([
+      tx.get(claimRef), tx.get(operationRef), tx.get(jobRef),
     ]);
     assertStoredCommand(command);
     assertCommandTenant(command);
@@ -138,6 +140,11 @@ export async function claimCommandEffect(
     }
     let result = decideEffectClaim(existingClaim, input);
     if (result.outcome === "execute") {
+      if (!jobSnap.exists) throw new Error("effect command job not found");
+      const job = jobSnap.data() as Job;
+      if (job.workspaceId !== tenant.workspaceId || job.brandId !== tenant.brandId) throw new Error("effect command job tenant mismatch");
+      const admission = decideWorkAdmission(job.desiredState);
+      if (admission.outcome !== "execute") return admission;
       const now = result.claim.claimedAt;
       let operation = operationSnap.exists
         ? operationSnap.data() as OperationRecord

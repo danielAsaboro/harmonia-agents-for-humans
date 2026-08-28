@@ -247,7 +247,7 @@
           {
             "group": "Workflow reliability",
             "root": "operations/overview", "directory": "card",
-            "pages": ["operational-model", "failure-recovery", "state-ownership", "record-replay"]
+            "pages": ["operational-model", "operational-control-plane", "failure-recovery", "state-ownership", "record-replay"]
           },
           {
             "group": "Authority and safety",

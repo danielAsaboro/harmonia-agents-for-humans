@@ -6,7 +6,7 @@ import type { Job, PlannedAction, Receipt } from "./types";
 
 type JobWithActions = Job & { actions: PlannedAction[] };
 type ReplayClaimResult =
-  | { outcome: "execute" | "in_progress" | "uncertain" }
+  | { outcome: "execute" | "in_progress" | "uncertain" | "paused" | "cancelled" }
   | { outcome: "already_applied"; receiptId: string };
 
 export function replayEligibleReceipt(

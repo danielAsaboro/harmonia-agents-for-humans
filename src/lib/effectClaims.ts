@@ -1,5 +1,7 @@
 import type { EffectClaim, EffectClaimInput, EffectClaimOutcome, EffectClaimSummary } from "./types";
 
+type EffectClaimDecision = Exclude<EffectClaimOutcome, { outcome: "paused" | "cancelled" }>;
+
 const CLAIM_LEASE_MS = 5 * 60 * 1000;
 
 function nextClaim(input: EffectClaimInput, attempt: number, now: Date): EffectClaim {
@@ -28,7 +30,7 @@ export function decideEffectClaim(
   existing: EffectClaim | null,
   input: EffectClaimInput,
   now = new Date(),
-): EffectClaimOutcome {
+): EffectClaimDecision {
   if (!existing) return { outcome: "execute", claim: nextClaim(input, 1, now) };
   assertSameIdentity(existing, input);
   if (existing.state === "applied") {
@@ -62,6 +64,14 @@ export function redactEffectClaim(claim: EffectClaim): EffectClaimSummary {
 }
 
 export function effectClaimResponse(result: EffectClaimOutcome, input: EffectClaimInput) {
+  if (!("claim" in result)) {
+    return {
+      outcome: result.outcome,
+      idempotencyKey: input.idempotencyKey,
+      operationId: input.operationId,
+      traceId: input.traceId,
+    };
+  }
   return {
     outcome: result.outcome,
     attempt: result.claim.attempt,

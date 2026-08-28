@@ -6,6 +6,8 @@ export interface JobSummary {
   stage: Stage;
   createdAt: string;
   updatedAt: string;
+  desiredState?: "run" | "pause_requested" | "cancel_requested";
+  controlVersion?: number;
   config: {
     youtubeUrl?: string;
     mediaAttachmentId?: string;

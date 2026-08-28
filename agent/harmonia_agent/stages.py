@@ -695,6 +695,8 @@ async def run_publish(job_id: str) -> None:
                 raise EffectClaimInProgress("another worker currently owns this effect")
             if result.outcome in {"uncertain", "unknown"}:
                 raise EffectClaimUncertain("a prior effect attempt has no final receipt")
+            if result.outcome in {"paused", "cancelled"}:
+                return
             continue
         trace_id = current_trace_id()
         operation_id = f"job:{job_id}:effect:{command['id']}"
@@ -711,6 +713,8 @@ async def run_publish(job_id: str) -> None:
             raise EffectClaimInProgress("another worker currently owns this effect")
         if claim_result["outcome"] == "uncertain":
             raise EffectClaimUncertain("a prior effect attempt has no final receipt")
+        if claim_result["outcome"] in {"paused", "cancelled"}:
+            return
         operation_epoch = int(claim_result.get("operationEpoch") or 0)
         if operation_epoch < 1:
             raise RuntimeError("effect claim is missing its operation epoch")

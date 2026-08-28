@@ -25,6 +25,8 @@ async function get(_req: Request) {
       stage: j.stage,
       createdAt: j.createdAt,
       updatedAt: j.updatedAt,
+      desiredState: j.desiredState,
+      controlVersion: j.controlVersion,
       config: j.config,
       failure: j.failure,
     })),

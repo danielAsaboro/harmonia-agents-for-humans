@@ -80,7 +80,8 @@ fi
 echo "-- Pub/Sub topics"
 gcloud pubsub topics create harmonia-stages --project "${PROJECT_ID}" 2>/dev/null || echo "topic exists"
 gcloud pubsub topics create harmonia-stages-dlq --project "${PROJECT_ID}" 2>/dev/null || echo "dlq topic exists"
-for topic in harmonia-stages harmonia-stages-dlq; do
+gcloud pubsub topics create harmonia-data-work --project "${PROJECT_ID}" 2>/dev/null || echo "data work topic exists"
+for topic in harmonia-stages harmonia-stages-dlq harmonia-data-work; do
   gcloud pubsub topics update "${topic}" --project "${PROJECT_ID}" \
     --message-storage-policy-allowed-regions="${REGION}" \
     --message-storage-policy-enforce-in-transit

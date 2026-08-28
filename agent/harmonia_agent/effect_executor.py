@@ -77,7 +77,7 @@ def execute_effect_command(
     claimed = claim(identity)
     claim_outcome = claimed.get("outcome")
     if claim_outcome != "execute":
-        if claim_outcome not in {"in_progress", "already_applied", "uncertain"}:
+        if claim_outcome not in {"in_progress", "already_applied", "uncertain", "paused", "cancelled"}:
             raise RuntimeError(f"invalid effect claim outcome: {claim_outcome}")
         return ExecutionResult(str(claim_outcome), claimed.get("receiptId"))
 

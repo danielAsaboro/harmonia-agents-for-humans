@@ -9,7 +9,9 @@ import {
 } from "../src/components/a2ui/HarmoniaElements";
 import {
   ApprovalReview,
+  CampaignBrief,
   DraftComparison,
+  JobProgress,
   MomentExplorer,
   VerificationReceipt,
 } from "../src/components/a2ui/HarmoniaWorkspaceElements";
@@ -56,6 +58,39 @@ describe("Harmonia A2UI elements", () => {
 });
 
 describe("Harmonia generated workspace elements", () => {
+  test("renders bounded art direction as semantic data attributes", () => {
+    const html = renderToStaticMarkup(createElement(CampaignBrief, {
+      title: "Campaign direction",
+      brief: "Lead with the customer outcome.",
+      sourceKind: "written",
+      platforms: ["x"],
+      angles: [],
+      tone: "ink",
+      role: "hero",
+      density: "airy",
+      motion: "reveal",
+    }));
+
+    expect(html).toContain('data-tone="ink"');
+    expect(html).toContain('data-role="hero"');
+    expect(html).toContain('data-density="airy"');
+    expect(html).toContain('data-motion="reveal"');
+  });
+
+  test("labels the active workflow stage without relying on color", () => {
+    const html = renderToStaticMarkup(createElement(JobProgress, {
+      title: "Content workflow",
+      stage: "draft",
+      status: "running",
+      stages: [
+        { id: "understand", label: "understand", status: "complete" },
+        { id: "draft", label: "draft", status: "active" },
+      ],
+    }));
+
+    expect(html).toContain("draft · In progress");
+  });
+
   test("renders a source-grounded draft comparison", () => {
     const html = renderToStaticMarkup(createElement(DraftComparison, {
       title: "Choose the launch voice",
@@ -81,6 +116,7 @@ describe("Harmonia generated workspace elements", () => {
     expect(html).toContain("00:04");
     expect(html).toContain("We cut setup time by half.");
     expect(html).toContain('target="_blank"');
+    expect(html).toContain('aria-pressed="true"');
   });
 
   test("never renders approval controls from generated review detail", () => {
@@ -116,5 +152,24 @@ describe("Harmonia generated workspace elements", () => {
     expect(html).toContain("Verified");
     expect(html).toContain("official API lookup");
     expect(html).not.toContain("idempotencyKey");
+  });
+
+  test("labels an unverified receipt as verification pending", () => {
+    const html = renderToStaticMarkup(createElement(VerificationReceipt, {
+      receiptId: "receipt-2",
+      actionId: "publish-2",
+      actionType: "publish_x_post",
+      title: "External effect receipt",
+      performedAt: "2026-08-23T00:02:00.000Z",
+      outcome: "applied",
+      verified: false,
+      tone: "paper",
+      role: "feature",
+      density: "balanced",
+      motion: "none",
+    }));
+
+    expect(html).toContain("Verification pending");
+    expect(html).toContain('data-tone="paper"');
   });
 });

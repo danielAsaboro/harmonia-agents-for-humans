@@ -1,5 +1,6 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let pathname = "/dashboard";
@@ -44,22 +45,15 @@ describe("dashboard navigation rail", () => {
     expect(html).not.toContain('aria-label="Architecture"');
   });
 
-  it("requires confirmation before performing sign out", async () => {
-    const confirmThenSignOut = (navRailModule as unknown as {
-      confirmThenSignOut?: (
-        confirm: (message: string) => boolean,
-        performSignOut: () => Promise<void>,
-      ) => Promise<boolean>;
-    }).confirmThenSignOut;
-    expect(confirmThenSignOut).toBeTypeOf("function");
-    if (!confirmThenSignOut) return;
-
-    const performSignOut = vi.fn(async () => undefined);
-    expect(await confirmThenSignOut(() => false, performSignOut)).toBe(false);
-    expect(performSignOut).not.toHaveBeenCalled();
-
-    expect(await confirmThenSignOut(() => true, performSignOut)).toBe(true);
-    expect(performSignOut).toHaveBeenCalledOnce();
+  it("uses the branded confirmation dialog instead of a browser prompt", () => {
+    const source = readFileSync("src/components/NavRail.tsx", "utf8");
+    expect(source).toContain("<ConfirmationDialog");
+    expect(source).not.toContain("window.confirm");
+    expect(navRailModule.SIGN_OUT_DIALOG).toEqual({
+      title: "Sign out of Harmonia?",
+      description: "Your local session will close. Published content and workspace data remain unchanged.",
+      confirmLabel: "Sign out",
+    });
   });
 
   it("marks only the exact dashboard destination as current", () => {

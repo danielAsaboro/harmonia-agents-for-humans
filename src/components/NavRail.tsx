@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FocusEvent } from "react";
 import { signOut as firebaseSignOut } from "firebase/auth";
 import { BrandMark } from "@/components/BrandMark";
+import { ConfirmationDialog } from "@/components/dashboard/ConfirmationDialog";
 import { ChatIcon, CalendarIcon, ChartIcon, SettingsIcon } from "@/components/icons";
 import { clientAuth } from "@/lib/firebaseClient";
 import { signOutPersistedSession } from "@/lib/sessionPersistence";
@@ -19,6 +20,12 @@ const RAIL = [
 ];
 
 const HIDE_DELAY_MS = 220;
+
+export const SIGN_OUT_DIALOG = {
+  title: "Sign out of Harmonia?",
+  description: "Your local session will close. Published content and workspace data remain unchanged.",
+  confirmLabel: "Sign out",
+} as const;
 
 interface RailPresence {
   pointerInside: boolean;
@@ -39,15 +46,6 @@ export function reduceRailPresence(state: RailPresence, event: RailPresenceEvent
 export function isRailItemActive(pathname: string, href: string): boolean {
   if (href === "/dashboard") return pathname === href || pathname === `${href}/`;
   return pathname === href || pathname.startsWith(`${href}/`);
-}
-
-export async function confirmThenSignOut(
-  confirm: (message: string) => boolean,
-  performSignOut: () => Promise<void>,
-): Promise<boolean> {
-  if (!confirm("Are you sure you want to log out?")) return false;
-  await performSignOut();
-  return true;
 }
 
 function BellIcon({ className }: { className?: string }) {
@@ -75,6 +73,9 @@ export default function NavRail() {
   const router = useRouter();
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
+  const [signOutOpen, setSignOutOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const logoutRef = useRef<HTMLButtonElement>(null);
   const presence = useRef<RailPresence>({ pointerInside: false, focusInside: false });
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -100,17 +101,23 @@ export default function NavRail() {
     registerPresence("focus-leave");
   }
 
+  function cancelSignOut() {
+    setSignOutOpen(false);
+    requestAnimationFrame(() => logoutRef.current?.focus());
+  }
+
   async function signOut() {
-    const signedOut = await confirmThenSignOut(
-      window.confirm,
-      () => signOutPersistedSession(
+    setSigningOut(true);
+    try {
+      await signOutPersistedSession(
         () => firebaseSignOut(clientAuth()),
         async () => { await fetch("/api/auth/session", { method: "DELETE" }); },
-      ),
-    );
-    if (!signedOut) return;
-    router.replace("/login");
-    router.refresh();
+      );
+      router.replace("/login");
+      router.refresh();
+    } finally {
+      setSigningOut(false);
+    }
   }
 
   useEffect(() => {
@@ -135,7 +142,7 @@ export default function NavRail() {
     if (hideTimer.current) clearTimeout(hideTimer.current);
   }, []);
 
-  return (
+  return <>
     <aside className={styles.desktopOnly} aria-label="Dashboard navigation">
       <button
         type="button"
@@ -194,8 +201,9 @@ export default function NavRail() {
           })}
           <div role="separator" aria-hidden className={styles.separator} />
           <button
+            ref={logoutRef}
             type="button"
-            onClick={signOut}
+            onClick={() => setSignOutOpen(true)}
             title="Sign out"
             aria-label="Sign out"
             className={`${styles.item} ${styles.logout}`}
@@ -205,5 +213,15 @@ export default function NavRail() {
         </div>
       </nav>
     </aside>
-  );
+    <ConfirmationDialog
+      open={signOutOpen}
+      title={SIGN_OUT_DIALOG.title}
+      description={SIGN_OUT_DIALOG.description}
+      confirmLabel={SIGN_OUT_DIALOG.confirmLabel}
+      dangerous
+      busy={signingOut}
+      onCancel={cancelSignOut}
+      onConfirm={() => void signOut()}
+    />
+  </>;
 }

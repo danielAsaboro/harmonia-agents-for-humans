@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import unicodedata
 import time
 from datetime import datetime, timedelta, timezone
 from collections.abc import Callable
@@ -38,7 +39,20 @@ from .agent_models import (
     StrategistResult,
 )
 from .a2ui_models import SurfacePlan, UiContext
-from .content_artifacts import ArtifactProductionInput, ArtifactReviewBatch, ArtifactReviewInput, ProductionBatch
+from .content_artifacts import (
+    ArtifactProductionInput,
+    ArtifactReviewBatch,
+    ArtifactReviewInput,
+    ProductionBatch,
+    SemanticArtifactDraft,
+    SemanticArtifactReview,
+    SemanticArtifactWireDraft,
+    assemble_content_pack_draft,
+    materialize_semantic_artifact,
+    materialize_artifact_review,
+    parse_semantic_artifact_wire,
+    semantic_payload_contract,
+)
 from .content_production import DARA_ARTIFACT_INSTRUCTION, NONI_ARTIFACT_INSTRUCTION, ProductionResult, finalize_production
 from .agent_errors import AgentContractError
 from .config import settings
@@ -50,27 +64,29 @@ from .agent_models import MemoryFact as StrategyMemoryFact
 from .ryan_prompt import RYAN_STRATEGIST_INSTRUCTION
 from .ryan_skills import (
     RYAN_SKILL_TRACE_KEY,
-    build_ryan_strategy_skillset,
+    bootstrap_ryan_skill_trace,
+    compiled_ryan_strategy_skill_context,
     build_ryan_google_search_tool,
     guard_ryan_skill_tool,
     record_ryan_skill_tool,
-    reset_ryan_skill_trace,
     validate_ryan_skill_trace,
 )
 from .temi_prompt import TEMI_EDITORIAL_PLANNER_INSTRUCTION
 from .temi_skills import (
     TEMI_TRACE_KEY,
-    build_temi_editorial_planning_skillset,
+    bootstrap_temi_trace,
+    compiled_temi_planning_skill_context,
     guard_temi_tool,
     record_temi_tool,
-    reset_temi_trace,
     validate_temi_trace,
 )
 from .noni_prompt import NONI_COPYWRITER_INSTRUCTION
 from .noni_skills import (
     NONI_SKILL_TRACE_KEY,
+    activate_noni_artifact_skill,
     build_noni_google_search_tool,
     build_noni_writing_skillset,
+    compiled_noni_artifact_skill_context,
     record_noni_skill_tool,
     reset_noni_skill_trace,
     validate_noni_skill_trace,
@@ -78,10 +94,10 @@ from .noni_skills import (
 from .nimi_prompt import NIMI_ANALYST_INSTRUCTION
 from .nimi_skills import (
     NIMI_SKILL_TRACE_KEY,
-    build_nimi_analysis_skillset,
+    bootstrap_nimi_skill_context,
+    nimi_analysis_skill_context,
     guard_nimi_skill_tool,
     record_nimi_skill_tool,
-    reset_nimi_skill_trace,
     validate_nimi_skill_trace,
 )
 from .nimi_research import (
@@ -106,7 +122,9 @@ from .nova_liaison import (
 from .dara_prompt import DARA_EDITOR_INSTRUCTION
 from .dara_skills import (
     DARA_SKILL_TRACE_KEY,
+    activate_dara_artifact_skill,
     build_dara_editing_skillset,
+    compiled_dara_artifact_skill_context,
     guard_dara_skill_tool,
     record_dara_skill_tool,
     reset_dara_skill_trace,
@@ -115,7 +133,14 @@ from .dara_skills import (
 from .telemetry import current_trace_id, safe_attributes, tracer
 from .activity_models import AgentActivityRecord
 from .activity_projection import invocation_activity, tool_activity
-from .team_runtime import AgentEngineTeamRuntime, LocalAdkTeamRuntime, TeamRuntime
+from .team_runtime import AgentEngineProviderError, AgentEngineTeamRuntime, LocalAdkTeamRuntime, TeamRuntime
+from .handoff_protocol import (
+    MAX_HANDOFF_REPAIR_ATTEMPTS,
+    build_handoff,
+    harmonia_handoff_skill_context,
+    repair_request,
+)
+
 from .tenant_context import current_tenant
 from .role_models import RoleModelConfig, load_role_model_catalog
 from .usage import (
@@ -137,8 +162,12 @@ from .operation_context import current_operation
 from .intent_routing import (
     IntentRoute,
     IntentRoutingInput,
-    build_intent_routing_skillset,
+    compiled_intent_routing_skill_context,
+    get_social_platform_connections,
+    source_urls_from_input,
 )
+from .coordinator import HarmoniaCoordinator
+from .runtime_callbacks import record_model_error, record_tool_error
 from . import web_client
 
 logger = logging.getLogger("harmonia.agents")
@@ -146,27 +175,27 @@ logger = logging.getLogger("harmonia.agents")
 T = TypeVar("T", bound=BaseModel)
 
 _SPECIALIST_ROLES = {
-    "harmonia_intent_router": ("harmonia_coordinator", "harmonia_intent_router"),
-    "nimi_analyst": ("harmonia_coordinator", "nimi_analyst"),
-    "ryan_strategist": ("harmonia_coordinator", "ryan_strategist"),
-    "temi_editorial_planner": ("harmonia_coordinator", "temi_editorial_planner"),
-    "noni_copywriter": ("harmonia_coordinator", "noni_copywriter"),
-    "dara_editor": ("harmonia_coordinator", "dara_editor"),
-    "noni_artifact_producer": ("harmonia_coordinator", "noni_artifact_producer"),
-    "dara_artifact_editor": ("harmonia_coordinator", "dara_artifact_editor"),
-    "maya_presenter": ("harmonia_coordinator", "maya_presenter"),
-    "nova_liaison": ("harmonia_coordinator", "nova_liaison"),
+    "harmonia_intent_router": ("harmonia_intent_router",),
+    "nimi_analyst": ("nimi_analyst",),
+    "ryan_strategist": ("ryan_strategist",),
+    "temi_editorial_planner": ("temi_editorial_planner",),
+    "noni_copywriter": ("noni_copywriter",),
+    "dara_editor": ("dara_editor",),
+    "noni_artifact_producer": ("noni_artifact_producer",),
+    "dara_artifact_editor": ("dara_artifact_editor",),
+    "maya_presenter": ("maya_presenter",),
+    "nova_liaison": ("nova_liaison",),
 }
 _MAX_OUTPUT_TOKENS = {
     "harmonia_intent_router": 1024,
     "harmonia_coordinator": 1024,
-    "nimi_analyst": 2048,
-    "ryan_strategist": 4096,
+    "nimi_analyst": 8192,
+    "ryan_strategist": 8192,
     "noni_copywriter": 2048,
     "dara_editor": 2048,
     "noni_artifact_producer": 8192,
     "dara_artifact_editor": 4096,
-    "temi_editorial_planner": 1024,
+    "temi_editorial_planner": 8192,
     "maya_presenter": 2048,
     "nova_liaison": 2048,
 }
@@ -176,12 +205,77 @@ class AgentProtocolError(RuntimeError):
     """The agent team returned missing or contract-invalid structured output."""
 
 
+class _AdkJsonSafeEditorialPlan(EditorialPlan):
+    """Serialize ADK's set_model_response payload as JSON-safe primitives."""
+
+    def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        # ADK currently calls model_dump() and then stdlib json.dumps() when an
+        # output schema is combined with tools. Force JSON mode so timestamps
+        # cross that boundary as ISO strings rather than datetime instances.
+        kwargs["mode"] = "json"
+        return super().model_dump(*args, **kwargs)
+
+
+def _gemini_wire_schema(schema: type[BaseModel]) -> dict[str, Any]:
+    """Remove JSON Schema keywords the Gemini response-schema API rejects."""
+    raw = schema.model_json_schema()
+    definitions = raw.get("$defs", {})
+
+    def compatible(value: Any, resolving: tuple[str, ...] = ()) -> Any:
+        if isinstance(value, dict):
+            reference = value.get("$ref")
+            if isinstance(reference, str) and reference.startswith("#/$defs/"):
+                name = reference.removeprefix("#/$defs/")
+                if name in resolving or name not in definitions:
+                    raise ValueError(f"unsupported recursive or missing schema reference: {name}")
+                merged = {**definitions[name], **{key: item for key, item in value.items() if key != "$ref"}}
+                return compatible(merged, (*resolving, name))
+            if "anyOf" in value:
+                branches = value["anyOf"]
+                non_null = [item for item in branches if not (isinstance(item, dict) and item.get("type") == "null")]
+                if len(non_null) != 1:
+                    raise ValueError("Gemini wire schema supports only nullable anyOf unions")
+                merged = {
+                    **non_null[0],
+                    **{key: item for key, item in value.items() if key not in {"anyOf", "default", "title"}},
+                }
+                return compatible(merged, resolving)
+            result = {}
+            for key, item in value.items():
+                if key in {
+                    "$defs", "additionalProperties", "const", "default", "title",
+                    "pattern", "minLength", "maxLength", "minItems", "maxItems",
+                    "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+                }:
+                    continue
+                if key == "properties" and isinstance(item, dict):
+                    # Property names are data-contract keys. A field literally
+                    # named `title` must not be confused with JSON Schema's
+                    # optional `title` annotation.
+                    result[key] = {
+                        property_name: compatible(property_schema, resolving)
+                        for property_name, property_schema in item.items()
+                    }
+                else:
+                    result[key] = compatible(item, resolving)
+            if "const" in value:
+                result["enum"] = [compatible(value["const"], resolving)]
+            return result
+        if isinstance(value, list):
+            return [compatible(item, resolving) for item in value]
+        return value
+
+    return compatible(raw)
+
+
 def _reset_nimi_capability_traces(callback_context: Any) -> None:
-    reset_nimi_skill_trace(callback_context)
+    bootstrap_nimi_skill_context(callback_context)
     reset_nimi_research_trace(callback_context)
 
 
 def _guard_nimi_capability(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
+    if tool.name == "set_model_response":
+        return
     del tool_context
     if is_nimi_research_tool(tool):
         guard_nimi_research_tool(tool)
@@ -192,6 +286,8 @@ def _guard_nimi_capability(tool: Any, args: dict[str, Any], tool_context: Any) -
 def _record_nimi_capability(
     tool: Any, args: dict[str, Any], tool_context: Any, tool_response: dict[str, Any],
 ) -> None:
+    if tool.name == "set_model_response":
+        return
     if is_nimi_research_tool(tool):
         record_nimi_research_tool(tool, args, tool_context, tool_response)
     else:
@@ -248,7 +344,25 @@ class RoleModelInstances:
             return self.configs[role]
         if role == "harmonia_intent_router":
             base = self.config_for("harmonia_coordinator")
-            return base.model_copy(update={"role": role, "eligible_tasks": ("route_operator_intent",)})
+            return base.model_copy(update={
+                "role": role,
+                "eligible_tasks": ("route_operator_intent",),
+                "max_output_tokens": 4096,
+            })
+        if role == "noni_artifact_producer":
+            base = self.config_for("noni_copywriter")
+            return base.model_copy(update={
+                "role": role,
+                "eligible_tasks": ("produce_artifact_batch",),
+                "max_output_tokens": _MAX_OUTPUT_TOKENS[role],
+            })
+        if role == "dara_artifact_editor":
+            base = self.config_for("dara_editor")
+            return base.model_copy(update={
+                "role": role,
+                "eligible_tasks": ("review_artifact_batch",),
+                "max_output_tokens": _MAX_OUTPUT_TOKENS[role],
+            })
         return RoleModelConfig(
             role=role,
             provider="gemini",
@@ -347,6 +461,8 @@ def _role_task(role: str, specialist: str, payload: BaseModel) -> str:
     return {
         "noni_copywriter": "draft_or_revise_x",
         "dara_editor": "review_drafts",
+        "noni_artifact_producer": "produce_artifact_batch",
+        "dara_artifact_editor": "review_artifact_batch",
         "temi_editorial_planner": "propose_editorial_plan",
         "maya_presenter": "compose_surface",
         "nova_liaison": "answer_status",
@@ -366,6 +482,11 @@ def _enforce_role_eligibility(
     return max(timeouts)
 
 
+def _with_handoff_protocol(instruction: str) -> str:
+    """Inject Harmonia's communication contract into every runtime role."""
+    return f"{instruction.strip()}\n\n{harmonia_handoff_skill_context()}"
+
+
 def build_agent_team(
     model: str | BaseLlm | None = None,
     *,
@@ -378,22 +499,28 @@ def build_agent_team(
         generate_content_config=generation_config(resolved.config_for("harmonia_intent_router")),
         name="harmonia_intent_router",
         description="Routes ordinary operator language against durable workspace content context.",
-        instruction=(
-            "Load and follow the harmonia-intent-routing skill. Classify the typed message and "
+        instruction=_with_handoff_protocol(
+            f"{compiled_intent_routing_skill_context()}\n\n"
+            "Classify the typed message and "
             "workspace context. Treat recentConversation as the discovery context you already "
             "elicited; never make the operator repeat it. Infer user-level output concepts, never internal registry names. "
             "Return the strict route only; routing cannot authorize an external effect. The JSON "
             "object must contain exactly these schema keys: intent, userOutcome, sourceUrls, "
             "outputConcepts, platformRecommendations, connectionSuggestions, assumptions, "
             "needsClarification, clarifyingQuestion, requiresRightsAttestation, effectRequested, "
-            "effectAuthorized, and jobId. Platform values are lowercase registry values. Do not "
+            "effectAuthorized, jobId, and strategyContext. When enough ordinary conversation and "
+            "userOutcome must describe what the job should achieve; never claim that Harmonia has already accepted, extracted, prepared, repurposed, completed, published, executed, or verified work. "
+            "source context exists to start work, populate strategyContext with a bounded, typed "
+            "working context and expose every inference in assumptions; use null only when an "
+            "approved workspace strategy will be inherited or a blocking clarification is needed. "
+            "Platform values are lowercase registry values. Do not "
             "invent alternate keys such as route, rationale, confidence, requiredContext, "
             "suggestedWorkflow, missingFacts, or userFacingMessage."
         ),
         input_schema=IntentRoutingInput,
-        output_schema=IntentRoute,
+        output_schema=_gemini_wire_schema(IntentRoute),
         output_key="intent_route",
-        tools=[build_intent_routing_skillset()],
+        tools=[],
         mode="single_turn",
     )
     strategist = Agent(
@@ -403,23 +530,19 @@ def build_agent_team(
         description=(
             "Turns bounded startup context and Nimi evidence into a grounded strategy proposal."
         ),
-        instruction=RYAN_STRATEGIST_INSTRUCTION,
+        instruction=_with_handoff_protocol(
+            f"{RYAN_STRATEGIST_INSTRUCTION}\n\n{compiled_ryan_strategy_skill_context()}"
+        ),
         input_schema=StrategistInput,
-        output_schema=StrategistResult,
+        output_schema=_gemini_wire_schema(StrategistResult),
         output_key="strategist_result",
-        tools=[
-            build_ryan_strategy_skillset(),
-            build_ryan_google_search_tool(resolved.strategist),
-        ],
+        tools=[build_ryan_google_search_tool(resolved.strategist)],
         mode="single_turn",
-        before_agent_callback=reset_ryan_skill_trace,
+        before_agent_callback=bootstrap_ryan_skill_trace,
         before_tool_callback=guard_ryan_skill_tool,
         after_tool_callback=record_ryan_skill_tool,
     )
-    analyst_tools = [
-        build_nimi_analysis_skillset(),
-        build_nimi_google_search_tool(resolved.analyst),
-    ]
+    analyst_tools = [build_nimi_google_search_tool(resolved.analyst)]
     if nimi_data_store := os.environ.get("NIMI_AGENT_SEARCH_DATASTORE_ID", "").strip():
         analyst_tools.append(build_nimi_agent_search_tool(resolved.analyst, nimi_data_store))
     analyst = Agent(
@@ -427,9 +550,11 @@ def build_agent_team(
         generate_content_config=generation_config(resolved.config_for("nimi_analyst")),
         name="nimi_analyst",
         description="Finds grounded insights and, when timed media exists, clip-worthy moments across a source manifest.",
-        instruction=NIMI_ANALYST_INSTRUCTION,
+        instruction=_with_handoff_protocol(
+            f"{NIMI_ANALYST_INSTRUCTION}\n\n{nimi_analysis_skill_context()}"
+        ),
         input_schema=AnalystInput,
-        output_schema=SourceAnalysis,
+        output_schema=_gemini_wire_schema(SourceAnalysis),
         output_key="source_analysis",
         tools=analyst_tools,
         mode="single_turn",
@@ -444,9 +569,9 @@ def build_agent_team(
         description=(
             "Composes trustworthy Harmonia A2UI workspaces from bounded entity references."
         ),
-        instruction=MAYA_PRESENTER_INSTRUCTION,
+        instruction=_with_handoff_protocol(MAYA_PRESENTER_INSTRUCTION),
         input_schema=UiContext,
-        output_schema=SurfacePlan,
+        output_schema=_gemini_wire_schema(SurfacePlan),
         output_key="surface_plan",
         mode="single_turn",
     )
@@ -455,7 +580,7 @@ def build_agent_team(
         generate_content_config=generation_config(resolved.config_for("noni_copywriter")),
         name="noni_copywriter",
         description="Writes one platform-native X draft grounded in supplied moments and angles.",
-        instruction=NONI_COPYWRITER_INSTRUCTION,
+        instruction=_with_handoff_protocol(NONI_COPYWRITER_INSTRUCTION),
         input_schema=CopywriterInput,
         output_schema=ContentDraft,
         output_key="copywriter_draft",
@@ -472,7 +597,7 @@ def build_agent_team(
         generate_content_config=generation_config(resolved.config_for("dara_editor")),
         name="dara_editor",
         description="Returns a structured review of one exact Noni draft without rewriting it.",
-        instruction=DARA_EDITOR_INSTRUCTION,
+        instruction=_with_handoff_protocol(DARA_EDITOR_INSTRUCTION),
         input_schema=EditorialReviewInput,
         output_schema=EditorialAssessment,
         output_key="editorial_assessment",
@@ -486,43 +611,46 @@ def build_agent_team(
         model=resolved.copywriter,
         generate_content_config=generation_config(resolved.config_for("noni_artifact_producer")),
         name="noni_artifact_producer",
-        description="Produces a strict batch of requested, evidence-grounded content artifacts.",
-        instruction=NONI_ARTIFACT_INSTRUCTION,
+        description="Produces one evidence-grounded semantic artifact without authority metadata.",
+        instruction=_with_handoff_protocol(
+            f"{NONI_ARTIFACT_INSTRUCTION}\n\n{compiled_noni_artifact_skill_context()}"
+        ),
         input_schema=ArtifactProductionInput,
-        output_schema=ProductionBatch,
-        output_key="production_batch",
-        tools=[build_noni_writing_skillset(), build_noni_google_search_tool(resolved.copywriter)],
+        output_schema=_gemini_wire_schema(SemanticArtifactWireDraft),
+        output_key="semantic_artifact_draft",
+        tools=[],
         mode="single_turn",
-        before_agent_callback=reset_noni_skill_trace,
-        after_tool_callback=record_noni_skill_tool,
+        before_agent_callback=activate_noni_artifact_skill,
     )
     artifact_editor = Agent(
         model=resolved.editor,
         generate_content_config=generation_config(resolved.config_for("dara_artifact_editor")),
         name="dara_artifact_editor",
-        description="Reviews every exact Noni artifact independently without rewriting it.",
-        instruction=DARA_ARTIFACT_INSTRUCTION,
+        description="Reviews one exact host-identified artifact without rewriting it.",
+        instruction=_with_handoff_protocol(
+            f"{DARA_ARTIFACT_INSTRUCTION}\n\n{compiled_dara_artifact_skill_context()}"
+        ),
         input_schema=ArtifactReviewInput,
-        output_schema=ArtifactReviewBatch,
-        output_key="artifact_review_batch",
-        tools=[build_dara_editing_skillset()],
+        output_schema=_gemini_wire_schema(SemanticArtifactReview),
+        output_key="semantic_artifact_review",
+        tools=[],
         mode="single_turn",
-        before_agent_callback=reset_dara_skill_trace,
-        before_tool_callback=guard_dara_skill_tool,
-        after_tool_callback=record_dara_skill_tool,
+        before_agent_callback=activate_dara_artifact_skill,
     )
     planner = Agent(
         model=resolved.planner,
         generate_content_config=generation_config(resolved.config_for("temi_editorial_planner")),
         name="temi_editorial_planner",
         description="Operationalizes one approved Ryan strategy as a bounded editorial plan.",
-        instruction=TEMI_EDITORIAL_PLANNER_INSTRUCTION,
+        instruction=_with_handoff_protocol(
+            f"{TEMI_EDITORIAL_PLANNER_INSTRUCTION}\n\n{compiled_temi_planning_skill_context()}"
+        ),
         input_schema=EditorialPlannerInput,
-        output_schema=EditorialPlan,
+        output_schema=_gemini_wire_schema(EditorialPlan),
         output_key="editorial_plan",
-        tools=[build_temi_editorial_planning_skillset()],
+        tools=[],
         mode="single_turn",
-        before_agent_callback=reset_temi_trace,
+        before_agent_callback=bootstrap_temi_trace,
         before_tool_callback=guard_temi_tool,
         after_tool_callback=record_temi_tool,
     )
@@ -536,30 +664,26 @@ def build_agent_team(
             "Answers operator questions about jobs, engagement, trends, and posting "
             "windows using its loaded Harmonia skills and read-only live tools."
         ),
-        instruction=NOVA_LIAISON_INSTRUCTION,
+        instruction=_with_handoff_protocol(NOVA_LIAISON_INSTRUCTION),
         tools=[build_insight_skillset()],
         output_key="liaison_answer",
+        mode="chat",
         before_agent_callback=reset_liaison_trace,
         after_tool_callback=record_liaison_tool,
         on_tool_error_callback=record_liaison_tool_error,
     )
-    return Agent(
-        model=resolved.coordinator,
-        generate_content_config=generation_config(resolved.config_for("harmonia_coordinator")),
+    for specialist in (
+        intent_router, strategist, analyst, planner, copywriter, editor,
+        artifact_producer, artifact_editor, presenter, liaison,
+    ):
+        specialist.on_model_error_callback = record_model_error
+        if specialist.tools and specialist.on_tool_error_callback is None:
+            specialist.on_tool_error_callback = record_tool_error
+
+    return HarmoniaCoordinator(
         name="harmonia_coordinator",
         description="Routes Harmonia judgment tasks to typed specialists; never performs external effects.",
-        instruction=(
-            "Delegate exactly once to the specialist named in the user's task instruction. Use "
-            "nimi_analyst for evidence analysis, ryan_strategist for strategy and content plans, "
-            "temi_editorial_planner for approved-strategy editorial planning, noni_copywriter "
-            "for one application-bounded draft pass, dara_editor for one structured review, "
-            "noni_artifact_producer for a requested artifact batch, dara_artifact_editor for its review, maya_presenter "
-            "for a reference-only A2UI surface plan, and nova_liaison for free-form operator "
-            "questions, and harmonia_intent_router for natural-language product routing. Never answer the task yourself and never call "
-            "publishing or approval systems."
-        ),
         sub_agents=[intent_router, strategist, analyst, planner, copywriter, editor, artifact_producer, artifact_editor, presenter, liaison],
-        tools=[],
     )
 
 
@@ -574,8 +698,29 @@ def _validated_state(state: dict[str, Any], key: str, schema: type[T]) -> T:
         value = state[key]
         try:
             return schema.model_validate_json(value) if isinstance(value, str) else schema.model_validate(value)
-        except (ValidationError, ValueError, TypeError) as exc:
-            raise AgentProtocolError(f"invalid agent output for {key}: {exc}") from exc
+        except ValidationError as exc:
+            semantic_codes = {
+                "visual hook and visual evidence ids must appear together": "visual_evidence_pair_mismatch",
+                "high-confidence moment cannot contain assumptions": "confidence_assumption_conflict",
+                "high-confidence angle cannot contain assumptions": "confidence_assumption_conflict",
+                "high-confidence analysis cannot contain assumptions": "confidence_assumption_conflict",
+                "angle type requires compatible evidence kind": "angle_evidence_kind_mismatch",
+                "moment end must not precede start": "time_range_order",
+                "references must be unique": "duplicate_references",
+                "ids must be unique": "duplicate_identifiers",
+            }
+            def issue_code(item: dict[str, Any]) -> str:
+                context_error = str((item.get("ctx") or {}).get("error") or "").lower()
+                return next((code for fragment, code in semantic_codes.items() if fragment in context_error), str(item["type"]))
+            issues = ", ".join(
+                f"{'.'.join(str(part) for part in item['loc']) or '<root>'}:{issue_code(item)}"
+                for item in exc.errors(include_url=False, include_context=True, include_input=False)
+            )
+            raise AgentProtocolError(f"invalid agent output for {key}: {issues}") from exc
+        except (ValueError, TypeError) as exc:
+            raise AgentProtocolError(
+                f"invalid agent output for {key}: {type(exc).__name__}"
+            ) from exc
 
 
 _NONI_URL_PATTERN = re.compile(r"https?://[^\s\]\[(){}<>,]+", re.IGNORECASE)
@@ -1333,14 +1478,19 @@ def validate_content_draft(
 
 
 def _validate_ascii_only_boundary(value: BaseModel, label: str) -> None:
-    """Reject Unicode until every semantic guard is Unicode-aware."""
+    """Allow normal Unicode punctuation while blocking semantic-script bypasses."""
     pending: list[object] = [value.model_dump(mode="json")]
     while pending:
         item = pending.pop()
-        if isinstance(item, str) and not item.isascii():
-            raise AgentProtocolError(
-                f"{label} violates the conservative ASCII-only safety policy"
-            )
+        if isinstance(item, str):
+            for character in item:
+                if character.isascii():
+                    continue
+                if unicodedata.category(character)[0] in {"P", "S", "Z"}:
+                    continue
+                raise AgentProtocolError(
+                    f"{label} violates the conservative ASCII-only letter and digit safety policy"
+                )
         if isinstance(item, dict):
             pending.extend(item.values())
         elif isinstance(item, list):
@@ -1496,7 +1646,6 @@ def run_noni_dara_loop(
         raise AgentProtocolError(f"invalid Noni input: {exc}") from exc
     if original_input.passType != "original":
         raise AgentProtocolError("Noni-Dara loop requires an original input")
-    _validate_ascii_only_boundary(original_input, "Noni input")
 
     try:
         original = ContentDraft.model_validate(invoke_noni(original_input))
@@ -1534,7 +1683,6 @@ def run_noni_dara_loop(
     })
     try:
         revision_input = CopywriterInput.model_validate(revision_payload)
-        _validate_ascii_only_boundary(revision_input, "Noni revision input")
         revision = ContentDraft.model_validate(invoke_noni(revision_input))
     except ValidationError as exc:
         raise AgentProtocolError(f"invalid Noni draft: {exc}") from exc
@@ -1564,12 +1712,39 @@ def run_noni_dara_loop(
 
 
 _NIMI_AUTHORITY_OVERREACH = re.compile(
-    r"\b(?:approv(?:e|ed|al)|reject(?:ed|ion)?|authori[sz](?:e[sd]?|ation)|"
-    r"publish(?:ed|ing)?|schedul(?:e|ed|ing)|execut(?:e|ed|ing)|receipt|verified\s+live|"
-    r"final\s+(?:post|copy)|use\s+this\s+(?:post|copy)|call\s+to\s+action|cta|"
+    r"(?:^|[.!?]\s+)(?:please\s+)?(?:approve|reject|publish|schedule|execute|"
+    r"use\s+this\s+(?:post|copy))\b|"
+    r"\b(?:approve|reject|publish|schedule|execute)\s+"
+    r"(?:this|that|the\s+(?:post|copy|strategy|action))\b|"
+    r"\bpublish\s+the\s+final\s+post\b|"
+    r"\buse\s+this\s+(?:final\s+)?(?:post|copy)\b|"
+    r"\b(?:we|you|operator|harmonia)\s+(?:should|must|can|will)\s+"
+    r"(?:approve|reject|publish|schedule|execute)\b|"
+    r"\b(?:is|was|has\s+been)\s+(?:approved|rejected|published|scheduled|executed|verified)\b|"
+    r"\b(?:i|we|you|operator|harmonia)\s+(?:approved|rejected|published|scheduled|executed|verified)\b|"
+    r"\b(?:memory|performance|source|analysis|angle)\b.{0,80}\b"
+    r"(?:authori[sz](?:e[sd]?|ation)|grants?\s+permission)\b|"
+    r"\bthis\s+is\s+the\s+final\s+(?:post|copy)\b|"
+    r"\b(?:define|recommend|use|make)\s+(?:a\s+)?(?:call\s+to\s+action|cta|"
     r"content\s+pillar|campaign\s+objective|kpi)\b",
     re.IGNORECASE,
 )
+
+
+def _anchor_model_moment_quotes(
+    input: AnalystInput,
+    analysis: SourceAnalysis,
+) -> SourceAnalysis:
+    """Replace model paraphrases with exact text from their cited source segment."""
+    segments = {segment.id: segment for segment in input.sourceSegments}
+    moments = []
+    for moment in analysis.moments:
+        cited = [segments[ref] for ref in moment.sourceSegmentRefs if ref in segments]
+        cited_text = " ".join(segment.text for segment in cited)
+        if cited and moment.quote not in cited_text:
+            moment = moment.model_copy(update={"quote": cited[0].text[:2_000]})
+        moments.append(moment)
+    return analysis.model_copy(update={"moments": moments})
 
 
 def validate_source_analysis(
@@ -1581,7 +1756,6 @@ def validate_source_analysis(
     """Fail closed when Nimi exceeds the supplied source and advisory evidence."""
     input = AnalystInput.model_validate(input)
     analysis = SourceAnalysis.model_validate(analysis)
-    _validate_ascii_only_boundary(input, "Nimi input")
     _validate_ascii_only_boundary(analysis, "Nimi analysis")
     if analysis.sourceDigest != input.sourceDigest:
         raise AgentProtocolError("Nimi analysis source digest does not match the input")
@@ -1732,7 +1906,11 @@ def _validate_run_output_unwrapped(
         if not isinstance(trace, list):
             raise AgentProtocolError("Temi returned no actual planning skill/tool trace")
         try:
-            validate_temi_trace(trace, snapshot_id=planner_input.planningSnapshot.snapshotId)
+            validate_temi_trace(
+                trace,
+                snapshot_id=planner_input.planningSnapshot.snapshotId,
+                snapshot=planner_input.planningSnapshot.model_dump(mode="json"),
+            )
         except ValueError as exc:
             raise AgentProtocolError(f"invalid Temi planning skill/tool trace: {exc}") from exc
         plan = _validated_state(state, "editorial_plan", EditorialPlan)
@@ -1774,6 +1952,8 @@ def _validate_run_output_unwrapped(
         return
     if specialist == "noni_artifact_producer":
         writer_input = ArtifactProductionInput.model_validate(payload)
+        if len(writer_input.requests) != 1:
+            raise AgentProtocolError("Noni artifact production requires one authorized request")
         trace = state.get(NONI_SKILL_TRACE_KEY)
         if not isinstance(trace, list):
             raise AgentProtocolError("Noni returned no actual writing-skill trace")
@@ -1781,8 +1961,11 @@ def _validate_run_output_unwrapped(
             research_evidence = validate_noni_skill_trace(trace, brief_id=writer_input.outputPlanId, brief_text=json.dumps({"requests": [item.model_dump(mode="json") for item in writer_input.requests], "brandContext": writer_input.brandContext}, sort_keys=True), grounding_metadata=state.get("_adk_grounding_metadata"))
         except ValueError as exc:
             raise AgentProtocolError(f"invalid Noni writing-skill trace: {exc}") from exc
-        batch = _validated_state(state, "production_batch", ProductionBatch)
-        batch.validate_against([item.id for item in writer_input.evidence], [item.id for item in writer_input.requests])
+        wire = _validated_state(
+            state, "semantic_artifact_draft", SemanticArtifactWireDraft,
+        )
+        semantic = parse_semantic_artifact_wire(writer_input.requests[0], wire)
+        materialize_semantic_artifact(writer_input.requests[0], semantic)
         state["_noni_research_evidence"] = research_evidence
         return
     if specialist == "dara_artifact_editor":
@@ -1794,8 +1977,12 @@ def _validate_run_output_unwrapped(
         except ValueError as exc:
             raise AgentProtocolError(f"invalid Dara editing-skill trace: {exc}") from exc
         review_input = ArtifactReviewInput.model_validate(payload)
-        reviews = _validated_state(state, "artifact_review_batch", ArtifactReviewBatch)
-        reviews.accepted_ids([item.id for item in review_input.batch.artifacts])
+        if len(review_input.batch.artifacts) != 1:
+            raise AgentProtocolError("Dara artifact review requires one host-identified artifact")
+        semantic = _validated_state(
+            state, "semantic_artifact_review", SemanticArtifactReview,
+        )
+        materialize_artifact_review(review_input.batch.artifacts[0].id, semantic)
         return
     raise AgentProtocolError(f"unsupported specialist output: {specialist}")
 
@@ -1808,6 +1995,24 @@ _AGENT_DISPLAY_NAMES = {
 }
 
 
+def _safe_contract_failure(specialist: str, exc: Exception) -> tuple[str, str]:
+    """Map private validator causes to stable, non-content-bearing repair codes."""
+    message = str(exc).lower()
+    if specialist == "temi_editorial_planner" and "planning snapshot section" in message:
+        return "missing_planning_snapshot_read", "tool_trace.planning_snapshot"
+    if "unknown evidence reference" in message or "unknown evidence ids" in message:
+        return "unknown_evidence_reference", "output.evidenceRefs"
+    if any(code in message for code in (
+        "visual_evidence_pair_mismatch", "confidence_assumption_conflict",
+        "angle_evidence_kind_mismatch", "time_range_order",
+        "duplicate_references", "duplicate_identifiers",
+    )):
+        return "incoherent_semantic_fields", "output.moments_and_angles"
+    if "skill trace" in message or "skill/tool trace" in message:
+        return "invalid_skill_trace", "tool_trace"
+    return "invalid_agent_output", "output"
+
+
 def _validate_run_output(
     specialist: str, payload: BaseModel, state: dict[str, Any],
 ) -> None:
@@ -1818,11 +2023,13 @@ def _validate_run_output(
         raise
     except (AgentProtocolError, ValidationError, ValueError, KeyError) as exc:
         display = _AGENT_DISPLAY_NAMES.get(specialist, "Agent")
+        code, path = _safe_contract_failure(specialist, exc)
+        logger.warning("agent contract validation failed for %s: %s", specialist, exc)
         raise AgentContractError(
             role=specialist,
-            code="invalid_agent_output",
+            code=code,
             public_message=f"{display} returned output that did not satisfy its contract.",
-            path="output",
+            path=path,
         ) from exc
 
 
@@ -2051,6 +2258,7 @@ async def _run_coordinator(
     output_tokens_total = 0
     inference_calls = 0
     tool_calls = 0
+    accounting_invocations: list[InvocationContext] = [invocation] if invocation else []
     reporter = activity_reporter
     if reporter is None and team_runtime is None:
         reporter = record_agent_activity
@@ -2084,6 +2292,27 @@ async def _run_coordinator(
             tenant = current_tenant()
             managed_user_id = f"{tenant.workspace_id}:system:proactive"
         runtime_payload = payload.model_dump(mode="json")
+        if specialist == "noni_artifact_producer":
+            requests = runtime_payload.get("requests") or []
+            if len(requests) != 1:
+                raise AgentProtocolError("artifact production requires one exact output request")
+            runtime_payload["_harmonia_output_contract"] = semantic_payload_contract(
+                str(requests[0].get("outputType")),
+            )
+        handoff_operation_id = (
+            invocation.operation_id if invocation
+            else f"proactive:{specialist}:{hashlib.sha256(payload.model_dump_json().encode()).hexdigest()[:24]}"
+        )
+        handoff, acknowledgement = build_handoff(
+            specialist=specialist,
+            payload=runtime_payload,
+            operation_id=handoff_operation_id,
+        )
+        runtime_payload = {
+            **runtime_payload,
+            "_harmonia_handoff": handoff.model_dump(mode="json", by_alias=True),
+            "_harmonia_handoff_ack": acknowledgement.model_dump(mode="json", by_alias=True),
+        }
         durable_projection: dict[str, Any] | None = None
         if invocation is not None and current_operation() is not None:
             specialist_config = resolved.config_for(specialist)
@@ -2112,34 +2341,119 @@ async def _run_coordinator(
                 "agent": specialist,
                 "runtime": "agent_engine",
             }))
-            async with asyncio.timeout(timeout_seconds):
-                dispatched = True
-                final_state = await managed_runtime.invoke(
-                    specialist=specialist,
-                    payload=runtime_payload,
-                    user_id=managed_user_id,
-                    session_key=(
-                        f"{invocation.operation_id}:{specialist}:"
-                        f"{durable_projection['manifestDigest']}"
-                        if invocation and durable_projection
-                        else f"{invocation.operation_id}:{specialist}"
-                        if invocation else f"proactive:{specialist}"
-                    ),
-                )
+            base_session_key = (
+                f"{invocation.operation_id}:{specialist}:"
+                f"{durable_projection['manifestDigest']}"
+                if invocation and durable_projection
+                else f"{invocation.operation_id}:{specialist}"
+                if invocation else f"proactive:{specialist}"
+            )
+            async def invoke_with_timeout(
+                call_payload: dict[str, Any], session_key: str,
+            ) -> dict[str, Any]:
+                nonlocal dispatched
+                try:
+                    async with asyncio.timeout(timeout_seconds + 15):
+                        dispatched = True
+                        return await managed_runtime.invoke(
+                            specialist=specialist,
+                            payload=call_payload,
+                            user_id=managed_user_id,
+                            session_key=session_key,
+                        )
+                except TimeoutError as exc:
+                    raise AgentEngineProviderError(
+                        "agent invocation exceeded its operation timeout", status=504,
+                    ) from exc
+
+            final_state = await invoke_with_timeout(
+                runtime_payload, base_session_key,
+            )
             managed_trace_id = current_trace_id()
             span_context = invoke_span.get_span_context()
             if span_context.is_valid:
                 managed_span_id = f"{span_context.span_id:016x}"
-        _validate_run_output(specialist, payload, final_state)
+        try:
+            _validate_run_output(specialist, payload, final_state)
+            final_state["_harmonia_handoff"] = {
+                **handoff.model_dump(mode="json", by_alias=True), "status": "completed",
+            }
+        except AgentContractError as first_error:
+            latest_error = first_error
+            successful_repair: dict[str, Any] | None = None
+            for repair_attempt in range(1, MAX_HANDOFF_REPAIR_ATTEMPTS + 1):
+                repair = repair_request(
+                    latest_error,
+                    attempt=repair_attempt,
+                    original_input=runtime_payload,
+                )
+                if invocation is not None and job_scoped_accounting:
+                    repair_invocation = invocation.model_copy(update={
+                        "operation_id": f"{invocation.operation_id}:repair:{repair_attempt}",
+                    })
+                    for reservation in _reservation_payloads(
+                        specialist, payload, repair_invocation, resolved,
+                    ):
+                        budget_reserver(reservation)
+                        reserved.append(reservation)
+                    accounting_invocations.append(repair_invocation)
+                # Each correction is regenerated from the original trusted handoff. Never
+                # feed a prior invalid model response into the next specialist session.
+                repair_payload = {**runtime_payload, "_harmonia_repair": repair}
+                with tracer().start_as_current_span("harmonia.agent.repair") as repair_span:
+                    repair_span.set_attributes(safe_attributes({
+                        "agent": specialist,
+                        "handoff.id": handoff.handoff_id,
+                        "repair.attempt": repair_attempt,
+                        "repair.max_attempts": MAX_HANDOFF_REPAIR_ATTEMPTS,
+                        "error.code": latest_error.code,
+                        "error.path": latest_error.path,
+                    }))
+                    final_state = await invoke_with_timeout(
+                        repair_payload,
+                        f"{base_session_key}:repair:{repair_attempt}",
+                    )
+                    try:
+                        _validate_run_output(specialist, payload, final_state)
+                    except AgentContractError as repair_error:
+                        latest_error = repair_error
+                        repair_span.set_attribute(
+                            "repair.outcome",
+                            "retrying" if repair_attempt < MAX_HANDOFF_REPAIR_ATTEMPTS else "escalated",
+                        )
+                        continue
+                    repair_span.set_attribute("repair.outcome", "repaired")
+                    successful_repair = repair
+                    break
+            if successful_repair is None:
+                raise AgentContractError(
+                    role=specialist,
+                    code="agent_output_repair_exhausted",
+                    public_message=(
+                        f"{_AGENT_DISPLAY_NAMES.get(specialist, 'Agent')} returned output "
+                        f"that did not satisfy its contract after "
+                        f"{MAX_HANDOFF_REPAIR_ATTEMPTS} safe course-correction attempts."
+                    ),
+                    path=latest_error.path,
+                ) from latest_error
+            final_state["_harmonia_handoff"] = {
+                **handoff.model_dump(mode="json", by_alias=True), "status": "repaired",
+            }
+            final_state["_harmonia_repair"] = {
+                **successful_repair,
+                "attemptsUsed": successful_repair["attempt"],
+                "outcome": "repaired",
+            }
         if invocation is not None and job_scoped_accounting:
             serialized = payload.model_dump_json(exclude_none=True)
             trace_id = managed_trace_id
-            for role in roles:
+            for accounted_invocation in accounting_invocations:
+              for role in roles:
                 config = resolved.config_for(role)
                 model_id = _instance_model_id(resolved.model_for(role))
                 if config.provider == "vertex_endpoint":
                     record = endpoint_usage_record(
-                        invocation=invocation,
+                        invocation=accounted_invocation,
                         role=role,
                         model=model_id,
                         elapsed_seconds=0,
@@ -2153,9 +2467,9 @@ async def _run_coordinator(
                         config.max_output_tokens,
                     )
                     accumulator = UsageAccumulator(
-                        job_id=invocation.job_id,
-                        operation_id=invocation.role_operation_id(role),
-                        stage=invocation.stage,
+                        job_id=accounted_invocation.job_id,
+                        operation_id=accounted_invocation.role_operation_id(role),
+                        stage=accounted_invocation.stage,
                         role=role,
                         model=model_id,
                         model_policy=config.policy_snapshot(),
@@ -2267,9 +2581,12 @@ async def analyze_with_team(
     metadata = state.get("_adk_grounding_metadata")
     if metadata is not None and hasattr(metadata, "model_dump"):
         metadata = metadata.model_dump(mode="json", by_alias=True)
+    analysis = _anchor_model_moment_quotes(
+        input, _validated_state(state, "source_analysis", SourceAnalysis),
+    )
     return AnalysisRunResult(
         analysis=validate_source_analysis(
-            input, _validated_state(state, "source_analysis", SourceAnalysis),
+            input, analysis,
             research_evidence=research_evidence,
         ),
         searchEvidence=research_evidence,
@@ -2283,12 +2600,21 @@ def validate_strategy_grounding(
     *, research_evidence: dict[str, tuple[str, ...]] | None = None,
 ) -> ContentStrategy:
     """Fail closed when Ryan exceeds supplied evidence or authority."""
-    source_ids = {item.id for item in [*input.analysis.moments, *input.analysis.angles]}
+    source_ids = {
+        *(item.id for item in [*input.analysis.moments, *input.analysis.angles]),
+        *(reference for moment in input.analysis.moments for reference in moment.sourceSegmentRefs),
+        *(reference for angle in input.analysis.angles if angle.evidenceKind == "source" for reference in angle.evidenceRefs),
+    }
+    analysis_grounding_ids = {
+        *(reference for moment in input.analysis.moments for reference in moment.sourceSegmentRefs),
+        *(reference for angle in input.analysis.angles for reference in angle.evidenceRefs),
+    }
     audience_ids = {item.id for item in input.campaign.audiences}
     valid_ids = {
         input.company.evidenceId,
         input.campaign.evidenceId,
         *source_ids,
+        *analysis_grounding_ids,
         *(item.id for item in input.performance),
         *(item.id for item in input.memoryFacts),
         *(research_evidence or {}).keys(),
@@ -2328,7 +2654,11 @@ def validate_strategy_grounding(
         *strategy.briefs, *strategy.assumptions,
     ]
     performance_language = re.compile(
-        r"\b(performance|performing|outperform|engagement|likes?|reposts?|replies|prior winner)\b",
+        r"\b(?:high-performing|outperform(?:ed|ing)?|prior winner)\b|"
+        r"\b(?:prior|past|historical|observed|measured)\b.{0,80}"
+        r"\b(?:performance|engagement|likes?|reposts?|replies)\b|"
+        r"\b(?:earned|received|generated|drove|achieved)\b.{0,80}"
+        r"\b(?:engagement|likes?|reposts?|replies)\b",
         re.IGNORECASE,
     )
     for item in evidence_items:
@@ -2355,8 +2685,13 @@ def validate_strategy_grounding(
         raise AgentProtocolError("strategy cannot claim high confidence from low-confidence analysis")
     serialized = strategy.model_dump_json().lower()
     if re.search(
-        r"\b(memory|ryan|i|we|harmonia)\b.{0,50}\b(approve[ds]?|reject(?:ed)?|publish(?:ed)?|executed|authoriz(?:e[ds]?|ation)|permits?|allows?|verified|scheduled)\b"
-        r"|\bautomatic publishing\b|\breceipt(?:id)?\b|\beffect payload\b|\bpolicy exception\b|\bcredential(?:s)?\b",
+        r"\b(?:memory|ryan)\b.{0,50}\b(?:approv(?:e[ds]?|ed|al)|reject(?:s|ed)?|authoriz(?:e[ds]?|ed|ation)|permit(?:s|ted)?)\b"
+        r"|\b(?:i|we|harmonia)\s+(?:have\s+|has\s+|already\s+|will\s+)?(?:approved|rejected|published|executed|authorized|verified|scheduled)\b"
+        r"|\b(?:content|campaign|post|strategy|plan|effect)\s+(?:is|was|has been)\s+(?:approved|rejected|published|executed|authorized|verified|scheduled)\b"
+        r"|\bapproval\s+(?:is|was|has been)\s+(?:granted|recorded|received)\b"
+        r"|\bautomatic publishing\b|\bpublish\s+(?:it|this|now)\b"
+        r"|\breceipt(?:id)?\s*[:=#]\s*[a-z0-9]"
+        r"|\beffect payload\b|\bpolicy exception\b|\bcredential(?:s)?\b",
         serialized,
     ):
         raise AgentProtocolError("strategy authority overreach")
@@ -2742,14 +3077,53 @@ async def produce_artifacts_with_team(
     input = ArtifactProductionInput.model_validate(input)
 
     async def noni(value: ArtifactProductionInput, pass_number: int) -> ProductionBatch:
-        pass_invocation = invocation.model_copy(update={"operation_id": f"{invocation.operation_id}:noni:{pass_number}"}) if invocation else None
-        state = await _run_coordinator("noni_artifact_producer", value, invocation=pass_invocation)
-        return _validated_state(state, "production_batch", ProductionBatch)
+        generated = {}
+        for index, request in enumerate(value.requests, start=1):
+            if request.outputType == "content_pack":
+                continue
+            if request.outputType == "editorial_calendar":
+                raise AgentProtocolError("editorial calendars require host calendar assembly")
+            request_input = value.model_copy(update={"requests": [request]})
+            pass_invocation = invocation.model_copy(update={
+                "operation_id": f"{invocation.operation_id}:noni:{pass_number}:{index}"
+            }) if invocation else None
+            state = await _run_coordinator(
+                "noni_artifact_producer", request_input, invocation=pass_invocation,
+            )
+            wire = _validated_state(
+                state, "semantic_artifact_draft", SemanticArtifactWireDraft,
+            )
+            semantic = parse_semantic_artifact_wire(request, wire)
+            generated[request.id] = materialize_semantic_artifact(request, semantic)
+        ordered = []
+        children = [generated[request.id] for request in value.requests if request.id in generated]
+        for request in value.requests:
+            if request.outputType == "content_pack":
+                ordered.append(assemble_content_pack_draft(request, children))
+            else:
+                ordered.append(generated[request.id])
+        return ProductionBatch(artifacts=ordered)
 
     async def dara(value: ArtifactProductionInput, batch: ProductionBatch, pass_number: int) -> ArtifactReviewBatch:
-        pass_invocation = invocation.model_copy(update={"operation_id": f"{invocation.operation_id}:dara:{pass_number}"}) if invocation else None
-        state = await _run_coordinator("dara_artifact_editor", ArtifactReviewInput(productionInput=value, batch=batch), invocation=pass_invocation)
-        return _validated_state(state, "artifact_review_batch", ArtifactReviewBatch)
+        reviews = []
+        requests_by_id = {request.id: request for request in value.requests}
+        for index, artifact in enumerate(batch.artifacts, start=1):
+            request = requests_by_id[artifact.outputPlanItemId]
+            review_input = ArtifactReviewInput(
+                productionInput=value.model_copy(update={"requests": [request]}),
+                batch=ProductionBatch(artifacts=[artifact]),
+            )
+            pass_invocation = invocation.model_copy(update={
+                "operation_id": f"{invocation.operation_id}:dara:{pass_number}:{index}"
+            }) if invocation else None
+            state = await _run_coordinator(
+                "dara_artifact_editor", review_input, invocation=pass_invocation,
+            )
+            semantic = _validated_state(
+                state, "semantic_artifact_review", SemanticArtifactReview,
+            )
+            reviews.append(materialize_artifact_review(artifact.id, semantic))
+        return ArtifactReviewBatch(reviews=reviews)
 
     evidence_ids = [item.id for item in input.evidence]
     request_ids = [item.id for item in input.requests]
@@ -2774,6 +3148,18 @@ async def route_intent_with_team(
     )
     route = _validated_state(state, "intent_route", IntentRoute)
 
+    known_source_urls = source_urls_from_input(value)
+    routed_source_urls = [url for url in route.sourceUrls if url in known_source_urls]
+    source_assumptions = list(route.assumptions)
+    if route.sourceUrls and not routed_source_urls:
+        if not known_source_urls:
+            raise AgentProtocolError("intent router invented a source URL")
+        routed_source_urls = [known_source_urls[-1]]
+        source_assumptions = [
+            *source_assumptions,
+            "Using the most recently supplied source URL.",
+        ][:8]
+
     # Channel mentions are ordinary user language, not implementation hints. Reconcile
     # them with the live connection registry so a model cannot omit required setup
     # guidance after correctly choosing a strategy-first route.
@@ -2788,11 +3174,16 @@ async def route_intent_with_team(
         if any(marker in f" {message} " for marker in markers)
     ]
     recommendations = list(dict.fromkeys([*route.platformRecommendations, *declared_platforms]))
-    connections = await asyncio.to_thread(web_client.get_platform_connections)
+    connection_observation = await asyncio.to_thread(get_social_platform_connections)
+    if connection_observation.get("status") != "success":
+        raise AgentProtocolError("live platform connection lookup failed")
+    connections = connection_observation.get("data", {}).get("platforms", [])
     connected = {str(item.get("id")): item.get("connected") is True for item in connections}
     suggestions = [platform for platform in recommendations if not connected.get(platform, False)]
     return IntentRoute.model_validate({
         **route.model_dump(mode="json"),
+        "sourceUrls": routed_source_urls,
+        "assumptions": source_assumptions,
         "platformRecommendations": recommendations,
         "connectionSuggestions": suggestions,
     })

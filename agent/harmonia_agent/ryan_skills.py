@@ -16,6 +16,8 @@ from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.base_tool import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .authority_records import skill_activation_records, validate_skill_activation
+
 RYAN_SKILL_NAME = "ryan-strategy-skills"
 RYAN_SKILL_TRACE_KEY = "ryan_strategy_skill_trace"
 RYAN_SKILL_ROOT = Path(__file__).parent / "skills" / RYAN_SKILL_NAME
@@ -40,6 +42,23 @@ def build_ryan_strategy_skillset() -> skill_toolset.SkillToolset:
     return skill_toolset.SkillToolset(
         skills=[skill],
         tool_filter=sorted(_LOAD_TOOLS),
+    )
+
+
+def compiled_ryan_strategy_skill_context() -> str:
+    """Compile the fixed, approved strategy skill before model inference."""
+    files = [RYAN_SKILL_ROOT / "SKILL.md", *(RYAN_SKILL_ROOT / path for path in RYAN_SKILL_REFERENCES)]
+    return "\n\n".join(
+        f"## {path.relative_to(RYAN_SKILL_ROOT)}\n{path.read_text(encoding='utf-8').strip()}"
+        for path in files
+    )
+
+
+def bootstrap_ryan_skill_trace(callback_context: Context) -> None:
+    callback_context.state[RYAN_SKILL_TRACE_KEY] = skill_activation_records(
+        skill_name=RYAN_SKILL_NAME,
+        skill_root=RYAN_SKILL_ROOT,
+        references=RYAN_SKILL_REFERENCES,
     )
 
 
@@ -104,6 +123,8 @@ def guard_ryan_skill_tool(
     tool: BaseTool, args: dict[str, Any], tool_context: Context,
 ) -> None:
     """Reject disallowed loaders and paths before ADK reads the resource."""
+    if tool.name == "set_model_response":
+        return
     del tool_context
     if tool.name not in {*_LOAD_TOOLS, _SEARCH_TOOL}:
         raise ValueError(f"Ryan used a prohibited tool: {tool.name}")
@@ -122,9 +143,12 @@ def record_ryan_skill_tool(
     tool_response: dict[str, Any],
 ) -> None:
     """Record only loader identity and arguments; skill prose is not evidence."""
+    if tool.name == "set_model_response":
+        return
     trace = list(tool_context.state.get(RYAN_SKILL_TRACE_KEY) or [])
     entry = {
         "sequence": len(trace) + 1,
+        "kind": "tool_call",
         "name": tool.name,
         "args": dict(args),
     }
@@ -139,6 +163,29 @@ def validate_ryan_skill_trace(
     grounding_metadata: Any | None = None,
 ) -> dict[str, tuple[str, ...]]:
     """Fail closed unless Ryan loaded one skill and approved references only."""
+    if trace and trace[0].get("kind") == "skill_activation":
+        activation_count = next(
+            (index for index, item in enumerate(trace) if item.get("kind") == "tool_call"),
+            len(trace),
+        )
+        activations = trace[:activation_count]
+        validate_skill_activation(
+            activations, skill_name=RYAN_SKILL_NAME, skill_root=RYAN_SKILL_ROOT,
+            allowed_references=RYAN_SKILL_REFERENCES,
+        )
+        trace = [
+            {"sequence": 1, "name": "load_skill", "args": {"skill_name": RYAN_SKILL_NAME}},
+            *[
+                {"sequence": index + 2, "name": "load_skill_resource", "args": {
+                    "skill_name": RYAN_SKILL_NAME, "file_path": item["resourcePath"],
+                }}
+                for index, item in enumerate(activations[1:])
+            ],
+            *[
+                {**item, "sequence": len(activations) + index + 1}
+                for index, item in enumerate(trace[activation_count:])
+            ],
+        ]
     if (
         not trace
         or trace[0].get("name") != "load_skill"

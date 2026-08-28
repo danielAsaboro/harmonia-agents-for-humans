@@ -1,7 +1,8 @@
 import { afterAll, describe, expect, it } from "vitest";
 
 import { firebasePrincipal } from "@/lib/authority";
-import { db, getJob } from "@/lib/firestore";
+import { db, getJob, saveCampaignOutputPlan } from "@/lib/firestore";
+import { sealOutputPlan } from "@/lib/outputPlanning";
 import { createSourceJob } from "@/lib/sourceManifest";
 import { runWithTenant } from "@/lib/tenancy";
 
@@ -32,6 +33,15 @@ describe.skipIf(!emulator)("source job Firestore persistence", () => {
       allowedOutputs: ["linkedin_post"],
       platforms: ["linkedin"],
     });
+    const outputPlan = sealOutputPlan({
+      id: `output-plan-${job.id}`,
+      desiredOutputs: ["linkedin_post"], allowedOutputs: ["linkedin_post"],
+      outputs: [{ id: "output-1-linkedin_post", outputType: "linkedin_post", quantity: 1,
+        destinations: ["linkedin"], evidenceRefs: ["source-1:segment-1"],
+        costClass: "local", approvalClass: "effect" }],
+    });
+    await runWithTenant(scope, () => saveCampaignOutputPlan(job.id, outputPlan));
+    expect((await runWithTenant(scope, () => getJob(job.id))).campaignOutputPlan).toEqual(outputPlan);
   });
 
   afterAll(async () => {

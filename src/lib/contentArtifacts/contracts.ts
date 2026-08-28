@@ -31,6 +31,7 @@ export const contentArtifactSchema = z.object({
   contentDigest: z.string().regex(/^[0-9a-f]{64}$/),
 }).strict().superRefine((artifact, context) => {
   if (artifact.outputType !== artifact.payload.kind) context.addIssue({ code: "custom", path: ["payload", "kind"], message: "payload kind must match output type" });
+  if (artifact.payload.kind === "content_pack" && artifact.payload.artifacts.some((item) => item.digest === "0".repeat(64))) context.addIssue({ code: "custom", path: ["payload", "artifacts"], message: "sealed content-pack digests cannot retain host-seal markers" });
 });
 
 export type ContentArtifact = z.infer<typeof contentArtifactSchema>;

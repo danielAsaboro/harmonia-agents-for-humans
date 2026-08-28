@@ -14,6 +14,12 @@ describe("structured agent activity", () => {
       publicMessage: "The data source is temporarily unavailable.",
       retryable: true, attempt: 1, maxAttempts: 2,
     }).retryable).toBe(true);
+    expect(agentActivitySchema.parse({
+      kind: "failure", status: "failed", role: "noni_artifact_producer",
+      code: "agent_output_repair_exhausted", category: "protocol",
+      publicMessage: "Noni returned output that did not satisfy its contract.",
+      retryable: false, attempt: 2, maxAttempts: 2,
+    }).role).toBe("noni_artifact_producer");
   });
 
   it("rejects incomplete and content-bearing activity", () => {

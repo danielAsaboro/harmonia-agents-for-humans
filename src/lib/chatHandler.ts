@@ -345,7 +345,8 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
       if (directSources.length || librarySnapshotId) {
         const desiredOutputs = (intent.desiredOutputs ?? []).map((item) => outputKindSchema.safeParse(item)).filter((item) => item.success).map((item) => item.data);
         if (!desiredOutputs.length) desiredOutputs.push(intent.workspaceContext?.channels.includes("linkedin") ? "linkedin_post" : "x_post");
-        const job = await createSourceJob({ librarySnapshotId, directSources, desiredOutputs, allowedOutputs: desiredOutputs, platforms: ["x"] });
+        const platforms = Array.from(new Set(intent.strategyContext?.supportedChannels ?? intent.platformRecommendations ?? ["x"]));
+        const job = await createSourceJob({ librarySnapshotId, directSources, desiredOutputs, allowedOutputs: desiredOutputs, platforms, strategyContext: intent.strategyContext });
         await appendEvent(job.id, "collect_sources", `source manifest created via ${surface} chat`, "operator");
         await queueStageTrigger(job.id, "collect_sources");
         const inherited = intent.workspaceContext?.strategyReady ? " It is using your approved workspace strategy as context." : " Harmonia will state its assumptions before strategy approval.";

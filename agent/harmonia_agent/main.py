@@ -201,7 +201,10 @@ async def _process_stage_event(
     delivery_attempt: int,
 ) -> tuple[bool, dict[str, Any]]:
     workspace_id, brand_id, job_id, stage, source_attempt = _stage_delivery(data, carrier)
-    attempt = max(source_attempt, delivery_attempt)
+    # Pub/Sub delivery attempts are transport retries, not cognitive-stage
+    # generations. Advancing the stage retry budget on redelivery can turn a
+    # recoverable provider interruption into a false terminal failure.
+    attempt = source_attempt
     operation_id = str(data["operationId"])
     event_token = secrets.token_urlsafe(32)
     with tenant_scope(workspace_id, brand_id):
@@ -283,10 +286,16 @@ async def pubsub_push(request: Request) -> JSONResponse:
     return JSONResponse(result)
 
 
+def _pubsub_project() -> str:
+    return os.environ.get("PUBSUB_EMULATOR_PROJECT", settings().gcp_project)
+
+
 def _run_pull_loop() -> None:
     from google.cloud import pubsub_v1
 
-    project = settings().gcp_project
+    # Local Pub/Sub may intentionally use an emulator namespace while Gemini
+    # authenticates against the real Vertex AI project.
+    project = _pubsub_project()
     topic_name = os.environ.get("PUBSUB_STAGE_TOPIC", "harmonia-stages")
     subscriber = pubsub_v1.SubscriberClient()
     subscription_path = subscriber.subscription_path(project, f"{topic_name}-local-pull")

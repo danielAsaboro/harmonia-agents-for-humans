@@ -34,6 +34,12 @@ CATALOG = {
         input_usd_per_million=Decimal("0.30"),
         output_usd_per_million=Decimal("2.50"),
     ),
+    "gemini-3.6-flash": PricingEntry(
+        model="gemini-3.6-flash",
+        input_usd_per_million=Decimal("0.75"),
+        output_usd_per_million=Decimal("3.75"),
+        source="https://ai.google.dev/gemini-api/docs/pricing",
+    ),
 }
 
 MEDIA_CATALOG = {

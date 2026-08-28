@@ -1,6 +1,13 @@
 import { createHash } from "node:crypto";
 import type { ContentStrategy, JobConfig, SourceAnalysis, StrategyInvocationContext, StrategySearchEvidence } from "./types";
 
+export function strategySourceEvidenceIds(analysis: SourceAnalysis): string[] {
+  return [...new Set([
+    ...analysis.moments.flatMap((moment) => [moment.id, ...moment.sourceSegmentRefs]),
+    ...analysis.angles.flatMap((angle) => [angle.id, ...angle.evidenceRefs]),
+  ])].sort();
+}
+
 export function validateStrategySearchGrounding(
   request: StrategyInvocationContext["researchRequest"], evidence: StrategySearchEvidence[], metadata: Record<string, unknown> | null,
 ): void {
@@ -50,7 +57,7 @@ export function validatePersistedStrategy(job: { config: JobConfig; sourceAnalys
   if (!invocation || invocation.revision !== strategy.version) throw new Error("persisted strategy invocation context required");
   if (strategy.horizonWeeks !== (context.horizonWeeks ?? 4)) throw new Error("strategy horizon mismatch");
   if (!job.sourceAnalysis) throw new Error("persisted source analysis required");
-  const sourceIds = new Set([...job.sourceAnalysis.moments, ...job.sourceAnalysis.angles].map((item) => item.id));
+  const sourceIds = new Set(strategySourceEvidenceIds(job.sourceAnalysis));
   const audienceIds = new Set(context.audiences.map((item) => item.id));
   const requested = new Set(context.requestedChannels);
   const supported = new Set(context.supportedChannels);

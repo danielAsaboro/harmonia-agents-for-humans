@@ -25,8 +25,8 @@ import { markReservationFinalized, markReservationReleased, markReservationUncer
 import { parseBudgetConfig } from "./config";
 import { actionPayloadDigest, newId } from "./idempotency";
 import type { ApprovalActor } from "./decisions";
-import { applyStrategyDecision, assertStrategyProposalRevision, validatePersistedStrategy, validateStrategySearchGrounding, type StrategyDecisionInput } from "./strategyApproval";
-import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialDraftCompletionPatch, editorialPlanDigest, editorialPlanEvidenceLineage, editorialPlanningSnapshotDigest } from "./editorialPlan";
+import { applyStrategyDecision, assertStrategyProposalRevision, strategySourceEvidenceIds, validatePersistedStrategy, validateStrategySearchGrounding, type StrategyDecisionInput } from "./strategyApproval";
+import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialDraftCompletionPatch, editorialPlanDigest, editorialPlanEvidenceLineage, editorialPlanningSnapshotDigest, isMatchingActiveProduction } from "./editorialPlan";
 import { buildEditorialPlanningSnapshot } from "./editorialPlanning";
 import {
   assertResourceWorkspace,
@@ -1147,6 +1147,10 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
     config: data.config,
     controlEpoch: data.controlEpoch ?? 0,
     controlState: data.controlState ?? "running",
+    campaignOutputPlan: data.campaignOutputPlan,
+    contentArtifacts: data.contentArtifacts,
+    artifactProductionResult: data.artifactProductionResult,
+    artifactProductionDigest: data.artifactProductionDigest,
     failure: data.failure,
     contentStrategy: data.contentStrategy,
     strategyDigest: data.strategyDigest,
@@ -1359,7 +1363,7 @@ export async function createJob(
   return { id, ...doc };
 }
 
-export async function retryFailedJobWithOutbox(jobId: string, stage: Stage, attempt: number): Promise<string> {
+export async function retryFailedJobWithOutbox(jobId: string, stage: Stage): Promise<string> {
   const tenant = currentTenant();
   return db().runTransaction(async (tx) => {
     const jobSnapshot = await tx.get(jobRef(jobId));
@@ -1369,9 +1373,15 @@ export async function retryFailedJobWithOutbox(jobId: string, stage: Stage, atte
     const id = stageOutboxId(jobId, stage, generation);
     const ref = stageOutboxRef(id);
     const existing = await tx.get(ref);
-    tx.update(jobRef(jobId), { stage, status: "running", controlEpoch: generation, updatedAt: new Date().toISOString() });
+    tx.update(jobRef(jobId), {
+      stage,
+      status: "running",
+      controlEpoch: generation,
+      failure: FieldValue.delete(),
+      updatedAt: new Date().toISOString(),
+    });
     if (!existing.exists) tx.create(ref, {
-      id, workspaceId: tenant.workspaceId, brandId: tenant.brandId, jobId, stage, attempt,
+      id, workspaceId: tenant.workspaceId, brandId: tenant.brandId, jobId, stage, attempt: 0,
       ...stageOutboxDurability(id, jobId, stage, generation),
       state: "pending", createdAt: new Date().toISOString(),
     } satisfies StageOutboxRecord);
@@ -1740,7 +1750,7 @@ export async function saveStrategyInvocationContext(jobId: string, context: impo
     if (!configured) throw new Error("typed strategy context required");
     if (JSON.stringify([...context.operatorContextIds].sort()) !== JSON.stringify(["context:campaign", "context:company"])) throw new Error("strategy operator context IDs mismatch");
     if (!job.sourceAnalysis || !job.analysisDigest) throw new Error("persisted source analysis required");
-    const sourceIds = [...new Set([...job.sourceAnalysis.moments, ...job.sourceAnalysis.angles].map((item) => item.id))].sort();
+    const sourceIds = strategySourceEvidenceIds(job.sourceAnalysis);
     if (JSON.stringify([...context.sourceIds].sort()) !== JSON.stringify(sourceIds)) throw new Error("strategy source context mismatch");
     if (JSON.stringify([...context.audienceIds].sort()) !== JSON.stringify(configured.audiences.map((item) => item.id).sort())) throw new Error("strategy audience context mismatch");
     if (JSON.stringify([...context.requestedChannels].sort()) !== JSON.stringify([...configured.requestedChannels].sort())) throw new Error("strategy requested channels mismatch");
@@ -1802,6 +1812,9 @@ export async function claimSelectedEditorialItem(
     const ref = jobRef(jobId);
     const snap = await tx.get(ref);
     const job = requireJobDoc(snap);
+    if (isMatchingActiveProduction(job, authority)) {
+      return { outcome: "execute" as const, resumed: true, ...authority };
+    }
     assertSelectedProductionAuthority(job, authority, "selected");
     const updatedAt = new Date().toISOString();
     tx.update(ref, {

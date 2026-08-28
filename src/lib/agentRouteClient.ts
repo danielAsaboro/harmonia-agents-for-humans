@@ -2,6 +2,7 @@ import { GoogleAuth } from "google-auth-library";
 import { z } from "zod";
 
 import { getConfig } from "@/lib/config";
+import { strategyContextSchema } from "@/lib/contracts";
 import { currentTenant, tenantSubjectId } from "@/lib/tenancy";
 import type { WorkspaceContentContext } from "@/lib/workspaceContentContext";
 
@@ -11,6 +12,12 @@ const outputConcept = z.enum([
   "calendar", "content_package",
 ]);
 const socialPlatform = z.enum(["x", "linkedin", "linkedin-organization", "instagram", "tiktok"]);
+const routedStrategyContextSchema = strategyContextSchema.extend({
+  researchRequest: strategyContextSchema.shape.researchRequest.unwrap().nullable().optional(),
+}).transform(({ researchRequest, ...context }) => ({
+  ...context,
+  ...(researchRequest ? { researchRequest } : {}),
+}));
 const routeSchema = z.object({
   intent: z.enum(["establish_strategy", "revise_strategy", "advance_plan", "manage_calendar", "repurpose_source", "one_off_content", "status_evidence", "effect_request", "conversation"]),
   userOutcome: z.string().min(1).max(500), sourceUrls: z.array(z.string().url()).max(10),
@@ -19,15 +26,29 @@ const routeSchema = z.object({
   needsClarification: z.boolean(), clarifyingQuestion: z.string().max(300).nullable(),
   requiresRightsAttestation: z.boolean(), effectRequested: z.boolean(),
   effectAuthorized: z.literal(false), jobId: z.string().max(128).nullable(),
+  strategyContext: routedStrategyContextSchema.nullable(),
 }).superRefine((value, ctx) => {
   if (value.effectRequested !== (value.intent === "effect_request")) ctx.addIssue({ code: "custom", message: "effect request mismatch" });
   if (value.needsClarification !== Boolean(value.clarifyingQuestion)) ctx.addIssue({ code: "custom", message: "clarification mismatch" });
   if (value.connectionSuggestions.some((platform) => !value.platformRecommendations.includes(platform))) ctx.addIssue({ code: "custom", message: "connection suggestion mismatch" });
+  if (["establish_strategy", "revise_strategy"].includes(value.intent) && value.sourceUrls.length > 0 && !value.needsClarification && !value.strategyContext) ctx.addIssue({ code: "custom", message: "strategy context is required before starting a strategy job" });
 });
 
 export type IntentRoute = z.infer<typeof routeSchema>;
 export interface IntentRouteRequest { message: string; workspaceContext: WorkspaceContentContext; attachmentCount: number; recentConversation: Array<{ role: "user" | "assistant"; text: string }> }
 interface Options { baseUrl?: string; token?: string; fetchImpl?: typeof fetch; timeoutMs?: number; tenant?: { workspaceId: string; brandId: string; userId: string } }
+
+function safeValidationSummary(body: unknown): string {
+  if (!body || typeof body !== "object" || !("detail" in body) || !Array.isArray(body.detail)) return "";
+  const items = body.detail.flatMap((issue) => {
+    if (!issue || typeof issue !== "object") return [];
+    const value = issue as { loc?: unknown; type?: unknown };
+    if (!Array.isArray(value.loc) || typeof value.type !== "string") return [];
+    const location = value.loc.filter((part): part is string | number => typeof part === "string" || typeof part === "number").join(".");
+    return location ? [`${location} (${value.type})`] : [];
+  });
+  return items.length ? `: ${items.slice(0, 4).join(", ")}` : "";
+}
 
 async function authorizedFetch(url: string, init: RequestInit, custom?: typeof fetch): Promise<Response> {
   if (custom) return custom(url, init);
@@ -45,7 +66,7 @@ export async function requestIntentRoute(input: IntentRouteRequest, options: Opt
   const baseUrl = new URL(options.baseUrl ?? config?.AGENT_SERVICE_URL ?? "").toString().replace(/\/$/, "");
   const tenant = options.tenant ?? (() => { const value = currentTenant(); return { workspaceId: value.workspaceId, brandId: value.brandId, userId: tenantSubjectId(value) }; })();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 90_000);
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 180_000);
   try {
     const response = await authorizedFetch(`${baseUrl}/internal/agent/route`, {
       method: "POST", signal: controller.signal,
@@ -53,7 +74,7 @@ export async function requestIntentRoute(input: IntentRouteRequest, options: Opt
       body: JSON.stringify(input),
     }, options.fetchImpl);
     const body = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(`Harmonia intent routing failed (${response.status})`);
+    if (!response.ok) throw new Error(`Harmonia intent routing failed (${response.status})${safeValidationSummary(body)}`);
     const parsed = routeSchema.safeParse(body);
     if (!parsed.success) throw new Error(`invalid intent route: ${parsed.error.issues[0]?.message ?? "contract mismatch"}`);
     return parsed.data;

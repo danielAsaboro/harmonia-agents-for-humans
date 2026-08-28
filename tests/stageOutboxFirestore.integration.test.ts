@@ -81,10 +81,13 @@ describe.skipIf(!emulator)("stage outbox Firestore transaction", () => {
       details: {},
     }));
 
-    await runWithTenant(scope, () => retryFailedJobWithOutbox(job.id, "understand", 2));
+    await runWithTenant(scope, () => retryFailedJobWithOutbox(job.id, "understand"));
+    const retriedJob = await db().doc(`workspaces/${scope.workspaceId}/jobs/${job.id}`).get();
+    expect(retriedJob.data()).toMatchObject({ status: "running", stage: "understand" });
+    expect(retriedJob.data()).not.toHaveProperty("failure");
     const retry = (await runWithTenant(scope, () => listDispatchableStageOutbox(100)))
-      .find((record) => record.jobId === job.id && record.stage === "understand" && record.attempt === 2);
-    expect(retry).toMatchObject({ stage: "understand", state: "pending" });
+      .find((record) => record.jobId === job.id && record.stage === "understand" && record.attempt === 0);
+    expect(retry).toMatchObject({ stage: "understand", state: "pending", attempt: 0 });
   });
 
   afterAll(async () => {

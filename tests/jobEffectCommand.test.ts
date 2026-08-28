@@ -35,4 +35,16 @@ describe("job effect command materialization", () => {
     const command = buildJobActionCommand(job, safe, null);
     expect(command.authorization).toMatchObject({ kind: "mandate", mandateId: "job:job-1" });
   });
+
+  it("seals host-resolved command dependencies into the immutable command", () => {
+    const command = buildJobActionCommand(
+      job,
+      action,
+      approval,
+      "2026-08-26T01:01:00.000Z",
+      ["cmd-child-2", "cmd-child-1"],
+    );
+
+    expect(command.dependsOnCommandIds).toEqual(["cmd-child-1", "cmd-child-2"]);
+  });
 });

@@ -1,4 +1,6 @@
-from harmonia_agent.youtube import extract_video_id, iso8601_to_seconds
+from pathlib import Path
+
+from harmonia_agent.youtube import download_audio, extract_video_id, iso8601_to_seconds
 from harmonia_agent.stages import classify_failure
 import httpx
 
@@ -19,6 +21,29 @@ def test_bad_url_raises():
 def test_iso_duration():
     assert iso8601_to_seconds("PT4M13S") == 253
     assert iso8601_to_seconds("PT1H2M3S") == 3723
+
+
+def test_download_audio_uses_cookie_free_embedded_client_and_bounded_audio(monkeypatch):
+    invoked = []
+
+    class Result:
+        returncode = 0
+        stderr = ""
+
+    def run(command, **kwargs):
+        invoked.append((command, kwargs))
+        Path(command[command.index("-o") + 1]).write_bytes(b"audio")
+        return Result()
+
+    monkeypatch.setattr("harmonia_agent.youtube.subprocess.run", run)
+
+    audio, _digest = download_audio("https://www.youtube.com/watch?v=aqz-KE-bpKQ")
+
+    assert audio == b"audio"
+    command, options = invoked[0]
+    assert command[command.index("--extractor-args") + 1] == "youtube:player_client=web_embedded"
+    assert command[command.index("-f") + 1] == "bestaudio[ext=m4a][abr<=160]/bestaudio[abr<=160]/bestaudio"
+    assert options["timeout"] == 600
 
 
 def test_transport_failures_are_transient():

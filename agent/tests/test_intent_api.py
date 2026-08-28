@@ -37,6 +37,7 @@ def test_route_endpoint_returns_strict_harmonia_route(monkeypatch):
             "platformRecommendations": [], "connectionSuggestions": [],
             "needsClarification": False, "clarifyingQuestion": None,
             "requiresRightsAttestation": False, "effectRequested": False, "jobId": None,
+            "strategyContext": None,
         })
 
     monkeypatch.setattr(intent_api, "route_intent_with_team", route)

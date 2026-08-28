@@ -8,6 +8,8 @@ export interface WorkspaceContentContext {
   recentJobs: Array<{ id: string; stage: string; status: string; title?: string }>;
 }
 
+const bounded = (value: string, limit: number) => value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
+
 export function projectWorkspaceContentContext(input: { goals: OperatorGoals; jobs: Job[]; items: ContentItem[]; now?: Date }): WorkspaceContentContext {
   const now = (input.now ?? new Date()).getTime();
   const strategyJob = input.jobs.find((job) => job.strategyApprovalState === "approved" && job.contentStrategy);
@@ -31,7 +33,7 @@ export function projectWorkspaceContentContext(input: { goals: OperatorGoals; jo
     }, 0),
     goals, channels, strategySummary: strategyJob?.contentStrategy?.thesis,
     planSummary: planJob?.editorialPlan?.summary, upcomingItemCount: upcoming.length,
-    recentJobs: input.jobs.slice(0, 5).map((job) => ({ id: job.id, stage: job.stage, status: job.status, ...(job.sourceAnalysis?.summary ? { title: job.sourceAnalysis.summary } : {}) })),
+    recentJobs: input.jobs.slice(0, 5).map((job) => ({ id: job.id, stage: job.stage, status: job.status, ...(job.sourceAnalysis?.summary ? { title: bounded(job.sourceAnalysis.summary, 2_000) } : {}) })),
   };
 }
 

@@ -64,7 +64,9 @@ def download_audio(url: str, max_bytes: int = 24_000_000) -> tuple[bytes, str]:
     with tempfile.TemporaryDirectory() as td:
         out = Path(td) / "a.m4a"
         proc = subprocess.run(
-            ["yt-dlp", "-x", "--audio-format", "m4a", "--audio-quality", "9",
+            ["yt-dlp", "--extractor-args", "youtube:player_client=web_embedded",
+             "-f", "bestaudio[ext=m4a][abr<=160]/bestaudio[abr<=160]/bestaudio",
+             "-x", "--audio-format", "m4a", "--audio-quality", "9",
              "--no-playlist", "-o", str(out), url],
             capture_output=True, text=True, timeout=600,
         )

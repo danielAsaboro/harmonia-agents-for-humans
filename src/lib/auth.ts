@@ -3,6 +3,7 @@ import { adminAuth } from "./firebaseAdmin";
 import { db } from "./firestore";
 import { currentTenant, requireWorkspaceRole, runWithTenant, type TenantContext } from "./tenancy";
 import { AuthorityError, firebasePrincipal, requireWorkspaceAdministrator } from "./authority";
+import { withTraceContext } from "./telemetry";
 
 export const SESSION_COOKIE = "harmonia_session";
 // Firebase session cookies permit a maximum lifetime of 14 days. The client
@@ -139,7 +140,7 @@ export async function requireTenantContext(req: Request): Promise<TenantContext>
 
 export async function withTenant<T>(req: Request, work: (tenant: TenantContext) => T): Promise<T> {
   const tenant = await requireTenantContext(req);
-  return runWithTenant(tenant, () => work(tenant));
+  return withTraceContext(req.headers, () => runWithTenant(tenant, () => work(tenant)));
 }
 
 export class AuthError extends Error {

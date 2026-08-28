@@ -18,4 +18,15 @@ describe("workspace content context", () => {
     expect(result.strategySummary).toContain("reliable-agent");
     expect(result.goals).toContain("Audience: startup founders");
   });
+
+  it("bounds generated job titles before sending them to the intent router", () => {
+    const jobs = [{
+      id: "job-long-summary", stage: "strategize", status: "failed",
+      createdAt: "2026-09-01T00:00:00Z", updatedAt: "2026-09-01T00:00:00Z",
+      sourceAnalysis: { summary: "Evidence-backed startup content operations. ".repeat(80) },
+    }] as unknown as Job[];
+    const result = projectWorkspaceContentContext({ goals: { topics: [] }, jobs, items: [] });
+    expect(result.recentJobs[0].title).toHaveLength(2_000);
+    expect(result.recentJobs[0].title?.endsWith("…")).toBe(true);
+  });
 });

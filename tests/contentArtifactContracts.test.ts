@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { contentArtifactDigest, sealContentArtifact } from "@/lib/contentArtifacts/digest";
+import { contentArtifactDigest, resolveContentPackPayload, sealContentArtifact } from "@/lib/contentArtifacts/digest";
 import { contentArtifactSchema } from "@/lib/contentArtifacts/contracts";
+import { contentArtifactDraftSchema } from "@/lib/contentArtifacts/submission";
 import type { ContentArtifact } from "@/lib/contentArtifacts/contracts";
 
 const base = {
@@ -26,5 +27,47 @@ describe("content artifact contracts", () => {
     const duplicate = { ...base, payload: { ...base.payload, sections: [base.payload.sections[0], base.payload.sections[0]] } };
     expect(contentArtifactSchema.safeParse({ ...duplicate, contentDigest: "d".repeat(64) }).success).toBe(false);
     expect(contentArtifactSchema.safeParse({ ...base, outputType: "blog_article", contentDigest: "d".repeat(64) }).success).toBe(false);
+  });
+
+  it("allows only unresolved host markers in a draft content-pack manifest", () => {
+    const draft = {
+      id: "pack-1", outputPlanItemId: "plan-item-pack", outputType: "content_pack",
+      title: "Content pack", sourceSegmentRefs: ["source-1:seg-1"],
+      payload: { kind: "content_pack", artifacts: [{ artifactId: "artifact-1", digest: "0".repeat(64) }] },
+    };
+    expect(contentArtifactDraftSchema.safeParse(draft).success).toBe(true);
+    expect(contentArtifactDraftSchema.safeParse({
+      ...draft,
+      payload: { kind: "content_pack", artifacts: [{ artifactId: "artifact-1", digest: "f".repeat(64) }] },
+    }).success).toBe(false);
+  });
+
+  it("replaces pack markers with exact sealed child digests before sealing the pack", () => {
+    const child = sealContentArtifact(base);
+    const resolved = resolveContentPackPayload(
+      { kind: "content_pack", artifacts: [{ artifactId: child.id, digest: "0".repeat(64) }] },
+      [child],
+    );
+    expect(resolved.artifacts).toEqual([{ artifactId: child.id, digest: child.contentDigest }]);
+
+    const pack = sealContentArtifact({
+      ...base,
+      id: "pack-1",
+      outputType: "content_pack",
+      payload: resolved,
+    });
+    expect(contentArtifactSchema.safeParse(pack).success).toBe(true);
+    expect(contentArtifactSchema.safeParse({
+      ...pack,
+      payload: { kind: "content_pack", artifacts: [{ artifactId: child.id, digest: "0".repeat(64) }] },
+    }).success).toBe(false);
+  });
+
+  it("refuses a pack whose child set differs from the sealed batch", () => {
+    const child = sealContentArtifact(base);
+    expect(() => resolveContentPackPayload(
+      { kind: "content_pack", artifacts: [{ artifactId: "invented-child", digest: "0".repeat(64) }] },
+      [child],
+    )).toThrow("every other accepted artifact exactly once");
   });
 });

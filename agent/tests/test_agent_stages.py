@@ -105,9 +105,9 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
             "id": "output-plan-job-1",
             "digest": "d" * 64,
             "outputs": [{
-                "id": "output-1-x-post",
-                "outputType": "x_post",
-                "evidenceRefs": ["source-1:segment-1"],
+                "id": "output-1-linkedin-post",
+                "outputType": "linkedin_post",
+                "evidenceRefs": ["source-1:seg-1"],
             }],
         },
         "strategyDigest": "a" * 64,
@@ -121,15 +121,15 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
     }
     async def fake_produce(*_args, **_kwargs):
         artifact = {
-            "id": "artifact-x-post",
-            "outputPlanItemId": "output-1-x-post",
-            "outputType": "x_post",
+            "id": "artifact-linkedin-post",
+            "outputPlanItemId": "output-1-linkedin-post",
+            "outputType": "linkedin_post",
             "title": "Activation launch",
-            "sourceSegmentRefs": ["source-1:segment-1"],
-            "payload": {"kind": "x_post", "text": "Nine days became forty hours."},
+            "sourceSegmentRefs": ["source-1:seg-1"],
+            "payload": {"kind": "linkedin_post", "body": "Nine days became forty hours."},
         }
         review = {
-            "artifactId": "artifact-x-post",
+            "artifactId": "artifact-linkedin-post",
             "decision": "accept",
             "checks": [
                 {"kind": kind, "passed": True, "note": "Passes the bounded check."}
@@ -149,7 +149,7 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
     monkeypatch.setattr(stages, "get_source_manifest", lambda _job_id: {
         "normalizedSources": [{
             "sourceId": "source-1",
-            "segments": [{"id": "segment-1", "text": "Nine days became forty hours."}],
+            "segments": [{"id": "duplicate-provider-id", "text": "Nine days became forty hours."}],
         }],
     })
     monkeypatch.setattr(stages, "get_insights", lambda: {"goals": {"voice": "direct"}})
@@ -165,12 +165,12 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
     assert path == "/api/internal/content-artifacts"
     assert set(payload) == {"jobId", "stage", "operation", "editorialPlanId", "editorialPlanDigest", "editorialItemId", "briefId", "result"}
     assert payload["result"]["accepted"]["artifacts"] == [{
-        "id": "artifact-x-post",
-        "outputPlanItemId": "output-1-x-post",
-        "outputType": "x_post",
+        "id": "artifact-linkedin-post",
+        "outputPlanItemId": "output-1-linkedin-post",
+        "outputType": "linkedin_post",
         "title": "Activation launch",
-        "sourceSegmentRefs": ["source-1:segment-1"],
-        "payload": {"kind": "x_post", "text": "Nine days became forty hours."},
+        "sourceSegmentRefs": ["source-1:seg-1"],
+        "payload": {"kind": "linkedin_post", "body": "Nine days became forty hours."},
     }]
 
 
@@ -184,7 +184,7 @@ def test_understand_video_passes_typed_time_range_evidence(monkeypatch):
         result["sourceDigest"] = request.sourceDigest
         result["moments"][0].update(
             startSec=0, endSec=5, quote="hello",
-            sourceSegmentRefs=["source-video:s1"],
+            sourceSegmentRefs=[request.sourceSegments[0].id],
         )
         return AnalysisRunResult(
             analysis=SourceAnalysis.model_validate(result),
@@ -195,7 +195,7 @@ def test_understand_video_passes_typed_time_range_evidence(monkeypatch):
         "id": "job-video", "config": {"sourceManifestId": "manifest-video"},
         "workspaceId": "workspace-test", "brandId": "brand-test", "createdByUserId": "user-test",
     })
-    monkeypatch.setattr(stages, "get_source_manifest", lambda _job_id: {"normalizedSources": [{"sourceId": "source-video", "sourceKind": "video", "title": "Demo video", "mimeType": "video/mp4", "contentDigest": "a" * 64, "segments": [{"id": "s1", "text": "hello", "digest": "b" * 64, "locator": {"kind": "time_range", "startMs": 0, "endMs": 5000}}]}]})
+    monkeypatch.setattr(stages, "get_source_manifest", lambda _job_id: {"normalizedSources": [{"sourceId": "source-video", "sourceKind": "video", "title": "Demo video", "mimeType": "video/mp4", "contentDigest": "a" * 64, "segments": [{"id": "duplicate", "text": "hello", "digest": "b" * 64, "locator": {"kind": "time_range", "startMs": 0, "endMs": 5000}}, {"id": "duplicate", "text": "again", "digest": "c" * 64, "locator": {"kind": "time_range", "startMs": 5000, "endMs": 6000}}]}]})
     monkeypatch.setattr(stages, "get_insights", lambda: {})
     monkeypatch.setattr(stages, "analyze_with_team", fake_analyze)
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
@@ -205,6 +205,9 @@ def test_understand_video_passes_typed_time_range_evidence(monkeypatch):
     request, invocation = requests[0]
     assert invocation.stage == "understand"
     assert request.sourceIds == ["source-video"]
+    assert [segment.id for segment in request.sourceSegments] == [
+        "source-video:seg-1", "source-video:seg-2",
+    ]
     assert request.sourceSegments[0].locator.endMs == 5000
     assert request.sourceSegments[0].text == "hello"
 
@@ -230,12 +233,13 @@ def test_verify_posts_content_artifact_readback_and_trace_lineage(monkeypatch, v
         "payload": {"kind": "x_post", "text": "Approved"},
     }
     digest = hashlib.sha256(json.dumps(artifact, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    exported_digest = "d" * 64
     artifact["contentDigest"] = digest
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
         "actions": [{"id": "a1", "type": "export_content_artifact", "state": "executed", "payload": {"artifactId": "artifact-1", "artifactDigest": digest}}],
     })
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [{
-        "id": "r1", "actionId": "a1", "detail": {"artifactId": "artifact-1", "artifactRevision": 1, "artifactDigest": digest, "jsonObjectId": "object-2"},
+        "id": "r1", "actionId": "a1", "detail": {"artifactId": "artifact-1", "artifactRevision": 1, "artifactDigest": digest, "jsonObjectId": "object-2", "jsonSha256": exported_digest},
     }])
     monkeypatch.setattr(stages, "get_content_artifact", lambda *_args: artifact)
     if verified:
@@ -255,7 +259,7 @@ def test_verify_posts_content_artifact_readback_and_trace_lineage(monkeypatch, v
     assert result["traceId"] == "a" * 32
     assert result["method"] == "artifact_digest_reread"
     assert result["verified"] is verified
-    assert result["evidence"]["digest"] == (digest if verified else None)
+    assert result["evidence"]["digest"] == (exported_digest if verified else None)
 
 
 @pytest.mark.parametrize(("observed_text", "verified"), [
@@ -335,6 +339,23 @@ def test_publish_uses_immutable_command_payload_not_mutable_job_action(monkeypat
     receipt = next(payload for path, payload in receipts if path == "/api/internal/receipt")
     assert receipt["commandId"] == command["id"]
     assert receipt["idempotencyKey"] == command["payloadDigest"]
+
+
+def test_effect_commands_are_topologically_ordered_by_host_dependencies():
+    child = {**_effect_command({"id": "child", "type": "export_content_artifact", "payload": {"artifactId": "a"}}), "id": "cmd-child"}
+    pack = {**_effect_command({"id": "pack", "type": "export_content_artifact", "payload": {"artifactId": "pack"}}), "id": "cmd-pack", "dependsOnCommandIds": ["cmd-child"]}
+
+    assert [command["id"] for command in stages._ordered_effect_commands([pack, child])] == [
+        "cmd-child", "cmd-pack",
+    ]
+
+
+def test_effect_command_dependency_requires_applied_or_same_batch_prepared_state():
+    blocked = {**_effect_command({"id": "child", "type": "export_content_artifact", "payload": {}}), "id": "cmd-child", "state": "unknown"}
+    pack = {**_effect_command({"id": "pack", "type": "export_content_artifact", "payload": {}}), "id": "cmd-pack", "dependsOnCommandIds": ["cmd-child"]}
+
+    with pytest.raises(EffectClaimUncertain, match="dependency cmd-child is unknown"):
+        stages._ordered_effect_commands([pack, blocked])
 
 
 def test_x_connection_is_refreshed_before_the_effect_claim(monkeypatch):

@@ -1,6 +1,14 @@
 ---
 name: temi-editorial-planning-skills
 description: Use when Temi must operationalize one approved Ryan strategy into a capacity-aware editorial plan and select the next production item.
+metadata:
+  adk_additional_tools:
+    - read_editorial_commitments
+    - read_production_capacity
+    - read_asset_readiness
+    - read_posting_window_observations
+    - read_calendar_projection
+    - read_blocked_dependencies
 ---
 
 # Temi Editorial Planning Skills

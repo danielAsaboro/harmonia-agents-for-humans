@@ -5,14 +5,24 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from google.adk.agents import Agent
+from google.adk.models._capabilities import LlmCapabilities
+from google.adk.models.base_llm import BaseLlm
+from google.adk.models.llm_response import LlmResponse
+from google.genai import types
 
 from harmonia_agent.team_runtime import (
+    AgentEngineProviderError,
     AgentEngineProtocolError,
     AgentEngineTeamRuntime,
+    LocalAdkTeamRuntime,
+    _request_scoped_tools,
     _specialist_prompt_payload,
 )
+from harmonia_agent.agent_models import SourceAnalysis
 from harmonia_agent.agent_engine_app import build_agent_engine_app
 from harmonia_agent.agent_engine_deploy import build_deployment_config
+from harmonia_agent.coordinator import HarmoniaCoordinator
 
 
 class _RemoteAgent:
@@ -54,11 +64,78 @@ def test_local_specialist_prompt_excludes_runtime_only_projection() -> None:
         "transcript": "proof",
         "_durable_context_projection": {"manifestDigest": "a" * 64},
     }
-
     assert _specialist_prompt_payload(payload) == {
         "title": "Demo",
         "transcript": "proof",
     }
+
+
+def test_nimi_research_tool_is_absent_without_a_typed_research_request() -> None:
+    tools = [object()]
+    assert _request_scoped_tools("nimi_analyst", {"researchRequest": None}, tools) == []
+    assert _request_scoped_tools(
+        "nimi_analyst", {"researchRequest": {"mode": "public_web"}}, tools,
+    ) == tools
+
+
+class _InvalidStructuredOutputModel(BaseLlm):
+    @property
+    def capabilities(self) -> LlmCapabilities:
+        return LlmCapabilities(output_schema_and_tools=True)
+
+    async def generate_content_async(self, llm_request, stream=False):
+        yield LlmResponse(content=types.Content(role="model", parts=[types.Part(
+            text='{"groundedMoments":[],"gapsAndCritique":[]}',
+        )]))
+
+
+class _ValidStructuredOutputModel(BaseLlm):
+    @property
+    def capabilities(self) -> LlmCapabilities:
+        return LlmCapabilities(output_schema_and_tools=True)
+
+    async def generate_content_async(self, llm_request, stream=False):
+        yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text=(
+            '{"sourceDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",'
+            '"summary":"Grounded analysis","moments":[],"angles":[{"id":"angle-1",'
+            '"angleType":"source_insight","evidenceKind":"source","title":"Source proof",'
+            '"rationale":"The supplied source contains a claim.","evidenceRefs":["segment-1"],'
+            '"assumptions":[],"confidence":"medium"}],"assumptions":[],"confidence":"medium"}'
+        ))]))
+
+
+def _local_runtime(model: BaseLlm) -> LocalAdkTeamRuntime:
+    specialist = Agent(
+        name="nimi_analyst", model=model, instruction="Return SourceAnalysis JSON.",
+        output_schema=SourceAnalysis, output_key="source_analysis", mode="single_turn",
+    )
+    root = HarmoniaCoordinator(
+        name="harmonia_coordinator",
+        sub_agents=[specialist],
+    )
+    return LocalAdkTeamRuntime(root)
+
+
+def test_local_runtime_runs_valid_single_turn_specialist_under_a_workflow_root() -> None:
+    state = asyncio.run(_local_runtime(_ValidStructuredOutputModel(model="valid-output")).invoke(
+        specialist="nimi_analyst",
+        payload={"title": "Demo"},
+        user_id="workspace:user",
+        session_key="job:understand:0",
+    ))
+
+    assert state["source_analysis"]["summary"] == "Grounded analysis"
+
+
+def test_local_runtime_forwards_rejected_output_to_harmonia_contract_repair() -> None:
+    state = asyncio.run(_local_runtime(_InvalidStructuredOutputModel(model="invalid-output")).invoke(
+        specialist="nimi_analyst",
+        payload={"title": "Demo"},
+        user_id="workspace:user",
+        session_key="job:understand:0",
+    ))
+
+    assert state["source_analysis"] == {"groundedMoments": [], "gapsAndCritique": []}
 
 
 class _AgentEngines:

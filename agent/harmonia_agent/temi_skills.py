@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,15 @@ from google.adk.agents.context import Context
 from google.adk.skills import load_skill_from_dir
 from google.adk.tools import FunctionTool, ToolContext, skill_toolset
 from google.adk.tools.base_tool import BaseTool
+
+from .authority_records import (
+    authority_read_record,
+    skill_activation_records,
+    validate_authority_read,
+    validate_skill_activation,
+)
+
+logger = logging.getLogger("harmonia.temi_skills")
 
 TEMI_SKILL_NAME = "temi-editorial-planning-skills"
 TEMI_TRACE_KEY = "temi_editorial_planning_trace"
@@ -36,6 +46,11 @@ _READ_FIELDS = {
 def _read(snapshot_id: str, tool_context: ToolContext, field: str, output: str) -> dict[str, Any]:
     snapshot = tool_context.state.get("planningSnapshot")
     if not isinstance(snapshot, dict) or snapshot.get("snapshotId") != snapshot_id:
+        logger.warning(
+            "Temi snapshot read rejected binding present=%s matches=%s",
+            isinstance(snapshot, dict),
+            isinstance(snapshot, dict) and snapshot.get("snapshotId") == snapshot_id,
+        )
         raise ValueError("Temi may read only the exact planning snapshot")
     return {"snapshotId": snapshot_id, output: deepcopy(snapshot[field])}
 
@@ -86,6 +101,35 @@ def build_temi_editorial_planning_skillset() -> skill_toolset.SkillToolset:
     )
 
 
+def build_temi_planning_read_tools() -> list[FunctionTool]:
+    return [FunctionTool(tool) for tool in _READ_TOOLS]
+
+
+def compiled_temi_planning_skill_context() -> str:
+    files = [TEMI_SKILL_ROOT / "SKILL.md", *(TEMI_SKILL_ROOT / path for path in TEMI_SKILL_REFERENCES)]
+    return "\n\n".join(
+        f"## {path.relative_to(TEMI_SKILL_ROOT)}\n{path.read_text(encoding='utf-8').strip()}"
+        for path in files
+    )
+
+
+def bootstrap_temi_trace(callback_context: Context) -> None:
+    trace = skill_activation_records(
+        skill_name=TEMI_SKILL_NAME,
+        skill_root=TEMI_SKILL_ROOT,
+        references=TEMI_SKILL_REFERENCES,
+    )
+    snapshot = callback_context.state.get("planningSnapshot")
+    if isinstance(snapshot, dict) and isinstance(snapshot.get("snapshotId"), str):
+        trace.append(authority_read_record(
+            authority="planning_snapshot",
+            authority_id=snapshot["snapshotId"],
+            value=snapshot,
+            sequence=len(trace) + 1,
+        ))
+    callback_context.state[TEMI_TRACE_KEY] = trace
+
+
 def reset_temi_trace(callback_context: Context) -> None:
     callback_context.state[TEMI_TRACE_KEY] = []
 
@@ -96,21 +140,33 @@ def _skill_name(args: dict[str, Any]) -> str | None:
 
 
 def guard_temi_tool(tool: BaseTool, args: dict[str, Any], tool_context: Context) -> None:
+    if tool.name == "set_model_response":
+        return
     allowed = {*_LOAD_TOOLS, *_READ_FIELDS}
     if tool.name not in allowed:
+        logger.warning("Temi tool boundary rejected prohibited tool name=%s", tool.name)
         raise ValueError(f"Temi used a prohibited tool: {tool.name}")
     if tool.name in _LOAD_TOOLS:
         if _skill_name(args) != TEMI_SKILL_NAME:
+            logger.warning("Temi tool boundary rejected wrong skill identity")
             raise ValueError("Temi may load only temi-editorial-planning-skills")
         if tool.name == "load_skill_resource" and args.get("file_path") not in TEMI_SKILL_REFERENCES:
+            logger.warning("Temi tool boundary rejected unapproved planning reference")
             raise ValueError(f"Temi loaded an unapproved resource: {args.get('file_path')}")
         return
     snapshot = tool_context.state.get("planningSnapshot")
     if not isinstance(snapshot, dict) or args.get("snapshot_id") != snapshot.get("snapshotId"):
+        logger.warning(
+            "Temi tool boundary rejected snapshot binding present=%s matches=%s",
+            isinstance(snapshot, dict),
+            isinstance(snapshot, dict) and args.get("snapshot_id") == snapshot.get("snapshotId"),
+        )
         raise ValueError("Temi may read only the exact planning snapshot")
 
 
 def record_temi_tool(tool: BaseTool, args: dict[str, Any], tool_context: Context, tool_response: dict[str, Any]) -> None:
+    if tool.name == "set_model_response":
+        return
     trace = list(tool_context.state.get(TEMI_TRACE_KEY) or [])
     entry: dict[str, Any] = {"sequence": len(trace) + 1, "name": tool.name, "args": dict(args)}
     if tool.name in _READ_FIELDS:
@@ -119,7 +175,25 @@ def record_temi_tool(tool: BaseTool, args: dict[str, Any], tool_context: Context
     tool_context.state[TEMI_TRACE_KEY] = trace
 
 
-def validate_temi_trace(trace: list[dict[str, Any]], *, snapshot_id: str) -> None:
+def validate_temi_trace(
+    trace: list[dict[str, Any]], *, snapshot_id: str,
+    snapshot: dict[str, Any] | None = None,
+) -> None:
+    if trace and trace[0].get("kind") == "skill_activation":
+        activations = trace[:-1]
+        validate_skill_activation(
+            activations, skill_name=TEMI_SKILL_NAME, skill_root=TEMI_SKILL_ROOT,
+            allowed_references=TEMI_SKILL_REFERENCES,
+        )
+        read = trace[-1]
+        if read.get("kind") != "authority_read" or read.get("authorityId") != snapshot_id:
+            raise ValueError("Temi must bind the exact planning snapshot")
+        if snapshot is not None:
+            validate_authority_read(
+                read, authority="planning_snapshot", authority_id=snapshot_id,
+                value=snapshot,
+            )
+        return
     if not trace or trace[0].get("name") != "load_skill" or sum(item.get("name") == "load_skill" for item in trace) != 1:
         raise ValueError("Temi must load temi-editorial-planning-skills exactly once first")
     if [item.get("sequence") for item in trace] != list(range(1, len(trace) + 1)):

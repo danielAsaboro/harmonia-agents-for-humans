@@ -43,9 +43,12 @@ def test_understand_persists_nimi_analysis_without_running_ryan(monkeypatch):
         calls.append(request)
         value = job()["sourceAnalysis"]
         value["sourceDigest"] = request.sourceDigest
-        value["moments"][0].update(startSec=0, endSec=5, quote="hello", sourceSegmentRefs=["source-1:s1"])
+        value["moments"][0].update(
+            startSec=0, endSec=5, quote="hello",
+            sourceSegmentRefs=[request.sourceSegments[0].id],
+        )
         result = SourceAnalysis.model_validate(value)
-        returned.append(result.model_dump(mode="json"))
+        returned.append(result.model_dump(mode="json", exclude_none=True))
         return AnalysisRunResult(
             analysis=result, searchEvidence={}, groundingMetadata=None,
         )
@@ -63,6 +66,9 @@ def test_understand_persists_nimi_analysis_without_running_ryan(monkeypatch):
     assert posts[0][0] == "/api/internal/analysis"
     assert "strategy" not in posts[0][1]
     assert posts[0][1]["analysis"] == returned[0]
+    assert "visualHook" not in posts[0][1]["analysis"]["moments"][0]
+    assert "cropSuitability" not in posts[0][1]["analysis"]["moments"][0]
+    assert "captionSafeRegion" not in posts[0][1]["analysis"]["moments"][0]
 
 
 def test_strategize_receives_typed_analysis_context_and_performance(monkeypatch):
@@ -87,7 +93,7 @@ def test_strategize_receives_typed_analysis_context_and_performance(monkeypatch)
     assert request.performance[0].id == "performance:post-1"
     assert invocation.stage == "strategize"
     assert posts[0][0] == "/api/internal/strategy-context"
-    assert posts[0][1]["sourceIds"] == ["m1", "a1"]
+    assert posts[0][1]["sourceIds"] == ["a1", "m1", "segment-1"]
     assert posts[1][0] == "/api/internal/strategy"
     assert posts[1][1]["strategy"]["briefs"][0]["id"] == "brief-1"
 

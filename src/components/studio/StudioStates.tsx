@@ -17,7 +17,7 @@ export function StudioFailure({ message, permanent, onRetry }: { message: string
     <section role="alert" className="border-2 border-[#ff5c35] bg-[#fff1eb] p-4">
       <p className="text-xs font-black uppercase tracking-[0.18em] text-[#9f2c11]">{permanent ? "Protocol failure" : "Execution interrupted"}</p>
       <p className="mt-2 text-sm text-[#4b1a0e]">{message}</p>
-      {!permanent && onRetry ? <button type="button" onClick={onRetry} className="mt-3 bg-[#161512] px-4 py-2 text-sm font-bold text-white">Retry</button> : null}
+      {onRetry ? <button type="button" onClick={onRetry} className="mt-3 bg-[#161512] px-4 py-2 text-sm font-bold text-white">{permanent ? "Retry after fix" : "Retry"}</button> : null}
     </section>
   );
 }

@@ -36,4 +36,15 @@ def generation_config(role: RoleModelConfig) -> types.GenerateContentConfig:
         top_k=policy.top_k,
         max_output_tokens=role.max_output_tokens,
         safety_settings=safety_settings(policy.safety_profile),
+        http_options=types.HttpOptions(
+            timeout=role.timeout_seconds * 1_000,
+            retry_options=types.HttpRetryOptions(
+                attempts=2,
+                initial_delay=1,
+                max_delay=8,
+                exp_base=2,
+                jitter=0.2,
+                http_status_codes=[429, 500, 502, 503, 504],
+            ),
+        ),
     )

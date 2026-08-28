@@ -23,14 +23,16 @@ def extract_media(
         raise ValueError("media source is empty")
     transcript = content.transcribe_audio(body, mime_type, invocation=invocation)
     segments = []
-    for index, item in enumerate(transcript.get("segments") or [], 1):
+    for item in transcript.get("segments") or []:
         text = str(item.get("text") or "").strip()
         if not text:
             continue
         start_ms = max(0, round(float(item.get("startSec") or 0) * 1000))
         end_ms = max(start_ms, round(float(item.get("endSec") or 0) * 1000))
         segments.append(ContentSegment(
-            id=str(item.get("id") or f"seg-{index}"), text=text,
+            # Model-authored IDs are untrusted and may repeat. Evidence identity is
+            # assigned by the normalization boundary in accepted segment order.
+            id=f"seg-{len(segments) + 1}", text=text,
             locator=TimeRangeLocator(startMs=start_ms, endMs=end_ms),
             digest=sha256(text.encode("utf-8")).hexdigest(),
         ))

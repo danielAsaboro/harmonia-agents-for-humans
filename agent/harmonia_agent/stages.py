@@ -6,9 +6,11 @@ import hashlib
 import json
 import logging
 import os
+import re
 import uuid
 import secrets
 import struct
+from contextvars import ContextVar
 from pathlib import Path
 import asyncio
 import math
@@ -100,6 +102,17 @@ from .web_client import (
 
 logger = logging.getLogger("harmonia.stages")
 Handler = Callable[[str], Awaitable[None]]
+_ACTIVE_STAGE_OPERATION_ID: ContextVar[str | None] = ContextVar(
+    "harmonia_active_stage_operation_id", default=None,
+)
+
+
+def _invocation_operation_id(legacy_operation_id: str, active_suffix: str | None = None) -> str:
+    """Bind model accounting to the durable stage generation when dispatched."""
+    active = _ACTIVE_STAGE_OPERATION_ID.get()
+    if active is None:
+        return legacy_operation_id
+    return f"{active}:{active_suffix}" if active_suffix else active
 
 
 class ClipRenderError(RuntimeError):
@@ -319,13 +332,13 @@ def _extract_source(job: dict[str, Any], source: dict[str, Any], source_input: d
     if kind == "youtube":
         url = str(source_input["url"]); video_id = youtube.extract_video_id(url); meta = youtube.fetch_metadata(video_id)
         body, _digest = youtube.download_audio(url)
-        return extract_media(source_id, str(meta.get("title") or "YouTube video"), body, "audio/mp4", invocation=InvocationContext(job_id=job["id"], workspace_id=job["workspaceId"], brand_id=job["brandId"], user_id=job["createdByUserId"], stage="extract_sources", operation_id=f"{job['id']}:extract_sources:{source_id}"), receipt_id=receipt_id).model_copy(update={"sourceKind": "video", "metadata": {"durationSec": youtube.probe_audio_duration(body), "youtubeUrl": url, "videoId": video_id}})
+        return extract_media(source_id, str(meta.get("title") or "YouTube video"), body, "audio/mp4", invocation=InvocationContext(job_id=job["id"], workspace_id=job["workspaceId"], brand_id=job["brandId"], user_id=job["createdByUserId"], stage="extract_sources", operation_id=_invocation_operation_id(f"{job['id']}:extract_sources:{source_id}", source_id)), receipt_id=receipt_id).model_copy(update={"sourceKind": "video", "metadata": {"durationSec": youtube.probe_audio_duration(body), "youtubeUrl": url, "videoId": video_id}})
     if kind == "upload":
         body, mime, filename = get_chat_attachment(str(source_input["attachmentId"])); lowered = filename.lower()
         if mime == "application/pdf" or lowered.endswith(".pdf"): return extract_pdf(source_id, filename, body, receipt_id=receipt_id)
         if mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" or lowered.endswith(".docx"): return extract_docx(source_id, filename, body, receipt_id=receipt_id)
         if mime.startswith("text/") or lowered.endswith((".txt", ".md")): return extract_text(source_id, filename, body.decode("utf-8"), "text/markdown" if lowered.endswith(".md") else "text/plain", receipt_id=receipt_id)
-        if mime.startswith(("audio/", "video/")): return extract_media(source_id, filename, body, mime, invocation=InvocationContext(job_id=job["id"], workspace_id=job["workspaceId"], brand_id=job["brandId"], user_id=job["createdByUserId"], stage="extract_sources", operation_id=f"{job['id']}:extract_sources:{source_id}"), receipt_id=receipt_id)
+        if mime.startswith(("audio/", "video/")): return extract_media(source_id, filename, body, mime, invocation=InvocationContext(job_id=job["id"], workspace_id=job["workspaceId"], brand_id=job["brandId"], user_id=job["createdByUserId"], stage="extract_sources", operation_id=_invocation_operation_id(f"{job['id']}:extract_sources:{source_id}", source_id)), receipt_id=receipt_id)
         raise ValueError(f"unsupported uploaded source type: {mime}")
     raise ValueError(f"unsupported source kind: {kind}")
 
@@ -359,7 +372,7 @@ async def run_understand(job_id: str) -> None:
         workspace_id=job["workspaceId"],
         brand_id=job["brandId"],
         user_id=job["createdByUserId"],
-        stage="understand", operation_id=f"{job_id}:understand:0",
+        stage="understand", operation_id=_invocation_operation_id(f"{job_id}:understand:0"),
     )
     performance: list[AnalystPerformanceObservation] = []
     try:
@@ -383,10 +396,12 @@ async def run_understand(job_id: str) -> None:
     source_kind = next(iter(kinds)) if len(kinds) == 1 else "mixed"
     source_segments = []
     for source in normalized_sources:
-        for segment in source.get("segments") or []:
+        for segment_index, segment in enumerate(source.get("segments") or [], 1):
             source_segments.append({
                 **segment,
-                "id": f"{source['sourceId']}:{segment['id']}",
+                # Reassert stable evidence identity at the specialist handoff.
+                # Older persisted transcripts may contain repeated model IDs.
+                "id": f"{source['sourceId']}:seg-{segment_index}",
                 "sourceId": source["sourceId"],
             })
     if not source_segments:
@@ -410,7 +425,7 @@ async def run_understand(job_id: str) -> None:
     run_result = await analyze_with_team(analyst_input, invocation=invocation)
     result = validate_source_analysis(
         analyst_input, run_result.analysis, research_evidence=run_result.searchEvidence,
-    ).model_dump(mode="json")
+    ).model_dump(mode="json", exclude_none=True)
     digest = hashlib.sha256(
         _canonical_typed_bytes(result).encode("utf-8")
     ).hexdigest()
@@ -476,12 +491,17 @@ async def run_strategize(job_id: str) -> None:
     invocation = InvocationContext(
         job_id=job_id, workspace_id=job["workspaceId"], brand_id=job["brandId"],
         user_id=job["createdByUserId"], stage="strategize",
-        operation_id=f"{job_id}:strategize:{revision - 1}",
+        operation_id=_invocation_operation_id(f"{job_id}:strategize:{revision - 1}"),
     )
     prepared = await prepare_strategist_input(_strategy_input(job, insights), invocation=invocation)
     web_post("/api/internal/strategy-context", {
         "jobId": job_id, "stage": "strategize", "revision": revision,
-        "sourceIds": [item.id for item in [*prepared.analysis.moments, *prepared.analysis.angles]],
+        "sourceIds": sorted({
+            *[item.id for item in prepared.analysis.moments],
+            *[ref for item in prepared.analysis.moments for ref in item.sourceSegmentRefs],
+            *[item.id for item in prepared.analysis.angles],
+            *[ref for item in prepared.analysis.angles for ref in item.evidenceRefs],
+        }),
         "operatorContextIds": [prepared.company.evidenceId, prepared.campaign.evidenceId],
         "performance": [{"id": item.id, "firestoreEvidenceRef": item.firestoreEvidenceRef} for item in prepared.performance],
         "memoryFacts": [{"id": item.id, "firestoreEvidenceRef": item.firestoreEvidenceRef} for item in prepared.memoryFacts],
@@ -540,7 +560,7 @@ async def run_plan(job_id: str) -> None:
     result = await plan_with_team(planner_input, invocation=InvocationContext(
         job_id=job_id, workspace_id=job["workspaceId"], brand_id=job["brandId"],
         user_id=job["createdByUserId"], stage="plan",
-        operation_id=f"{job_id}:plan:{revision - 1}",
+        operation_id=_invocation_operation_id(f"{job_id}:plan:{revision - 1}"),
     ))
     web_post("/api/internal/editorial-plan", {
         "jobId": job_id, "stage": "plan", "revision": revision,
@@ -573,7 +593,7 @@ async def run_draft(job_id: str) -> None:
     if editorial_plan.approvedStrategyDigest != job.get("strategyDigest"):
         raise AgentProtocolError("editorial plan approved strategy digest mismatch")
     item_state = (job.get("editorialItemStates") or {}).get(selected_id) or {}
-    if item_state.get("status") != "selected":
+    if item_state.get("status") not in {"selected", "drafting"}:
         raise AgentProtocolError("selected editorial item is not eligible for drafting")
     selected = next((item for item in editorial_plan.items if item.id == selected_id), None)
     approval_revision = approval.get("revision")
@@ -600,21 +620,23 @@ async def run_draft(job_id: str) -> None:
     }
     if source_ids != expected_source_ids or not source_ids:
         raise AgentProtocolError("selected brief source evidence is missing")
-    claim = web_post("/api/internal/content-artifacts/claim", {
-        "jobId": job_id,
-        "editorialPlanId": editorial_plan.planId, "editorialPlanDigest": stored_digest,
-        "editorialItemId": selected.id, "briefId": selected.briefId,
-    })
-    if claim.get("outcome") != "execute":
-        raise AgentProtocolError("selected editorial item drafting claim was not granted")
     artifact_output_types = {"x_post", "x_thread", "linkedin_post", "blog_article", "newsletter", "caption", "carousel_spec", "quote_card", "diagram", "editorial_calendar", "content_pack"}
-    output_plan = job.get("campaignOutputPlan") or {}
+    output_plan = job.get("campaignOutputPlan")
+    if not isinstance(output_plan, dict):
+        recovered = web_post("/api/internal/output-plan/reconcile", {"jobId": job_id})
+        output_plan = recovered.get("plan")
+    if not isinstance(output_plan, dict):
+        raise AgentProtocolError("campaign output plan recovery did not return a plan")
     requested = [item for item in (output_plan.get("outputs") or []) if item.get("outputType") in artifact_output_types]
     if requested:
         source_package = get_source_manifest(job_id); evidence_by_id: dict[str, str] = {}
         for source in source_package.get("normalizedSources") or []:
-            for segment in source.get("segments") or []:
-                evidence_by_id[f"{source['sourceId']}:{segment['id']}"] = str(segment.get("text") or "")
+            for index, segment in enumerate(source.get("segments") or [], start=1):
+                # Nimi receives position-derived segment identities because provider
+                # IDs are not trustworthy or unique. Recreate that exact identity
+                # here instead of reusing persisted provider IDs.
+                evidence_id = f"{source['sourceId']}:seg-{index}"
+                evidence_by_id[evidence_id] = str(segment.get("text") or "")
         required_refs = list(dict.fromkeys(ref for item in requested for ref in (item.get("evidenceRefs") or [])))
         missing = [ref for ref in required_refs if ref not in evidence_by_id]
         if missing: raise AgentProtocolError(f"artifact output plan references unknown normalized evidence: {missing}")
@@ -626,8 +648,21 @@ async def run_draft(job_id: str) -> None:
             "constraints": [*selected.constraints, *strategy.get("brandSafety", []), *[str(item.get("instruction"))[:300] for item in (job.get("steeringInstructions") or []) if item.get("instruction")]],
             "passType": "original", "priorBatch": None, "priorReview": None,
         })
-        result = await produce_artifacts_with_team(production_input, invocation=InvocationContext(job_id=job_id, workspace_id=job["workspaceId"], brand_id=job["brandId"], user_id=job["createdByUserId"], stage="draft", operation_id=f"{job_id}:draft:artifacts:0"))
-        web_post("/api/internal/content-artifacts", {"jobId": job_id, "stage": "draft", "operation": "complete", "editorialPlanId": editorial_plan.planId, "editorialPlanDigest": stored_digest, "editorialItemId": selected.id, "briefId": selected.briefId, "result": result.model_dump(mode="json", by_alias=True)})
+        claim = web_post("/api/internal/content-artifacts/claim", {
+            "jobId": job_id,
+            "editorialPlanId": editorial_plan.planId, "editorialPlanDigest": stored_digest,
+            "editorialItemId": selected.id, "briefId": selected.briefId,
+        })
+        if claim.get("outcome") != "execute":
+            raise AgentProtocolError("selected editorial item drafting claim was not granted")
+        result = await produce_artifacts_with_team(production_input, invocation=InvocationContext(job_id=job_id, workspace_id=job["workspaceId"], brand_id=job["brandId"], user_id=job["createdByUserId"], stage="draft", operation_id=_invocation_operation_id(f"{job_id}:draft:artifacts:0", "artifacts")))
+        submission_result = result.model_dump(mode="json", by_alias=True, exclude_none=True)
+        # The TypeScript boundary requires these lifecycle slots explicitly,
+        # while optional fields inside artifact payloads must be omitted rather
+        # than serialized as JSON null.
+        submission_result.setdefault("revision", None)
+        submission_result.setdefault("finalReview", None)
+        web_post("/api/internal/content-artifacts", {"jobId": job_id, "stage": "draft", "operation": "complete", "editorialPlanId": editorial_plan.planId, "editorialPlanDigest": stored_digest, "editorialItemId": selected.id, "briefId": selected.briefId, "result": submission_result})
         return
     raise AgentProtocolError("campaign output plan contains no supported typed content artifacts")
 
@@ -647,12 +682,45 @@ def _receipts_for_job(job_id: str) -> list[dict[str, Any]]:
     return res.json().get("receipts", [])
 
 
+def _ordered_effect_commands(commands: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Topologically order prepared host commands and stop on unresolved authority dependencies."""
+    by_id = {str(command.get("id")): command for command in commands}
+    ordered: list[dict[str, Any]] = []
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(command: dict[str, Any]) -> None:
+        command_id = str(command.get("id") or "")
+        if command_id in visited:
+            return
+        if command_id in visiting:
+            raise ValueError("effect command dependency cycle")
+        if command.get("state") != "prepared":
+            return
+        visiting.add(command_id)
+        for dependency_id in command.get("dependsOnCommandIds") or []:
+            dependency = by_id.get(str(dependency_id))
+            if dependency is None:
+                raise ValueError(f"effect command dependency {dependency_id} is missing")
+            dependency_state = str(dependency.get("state") or "")
+            if dependency_state == "prepared":
+                visit(dependency)
+            elif dependency_state != "applied":
+                raise EffectClaimUncertain(
+                    f"effect command dependency {dependency_id} is {dependency_state or 'invalid'}"
+                )
+        visiting.remove(command_id)
+        visited.add(command_id)
+        ordered.append(command)
+
+    for candidate in commands:
+        visit(candidate)
+    return ordered
+
+
 async def run_publish(job_id: str) -> None:
     job = get_job(job_id)
-    commands = [
-        command for command in get_effect_commands(job_id)
-        if command.get("state") == "prepared"
-    ]
+    commands = _ordered_effect_commands(get_effect_commands(job_id))
     done_keys = {
         r["idempotencyKey"] for r in _receipts_for_job(job_id)
         if r["outcome"] in ("applied", "already_applied")
@@ -1021,7 +1089,12 @@ async def run_verify(job_id: str) -> None:
                 )
                 verified = True
                 note = "stored Markdown and canonical JSON bytes match the immutable content artifact"
-                observed_digest = verified_identity["artifactDigest"]
+                # Verification evidence binds to the independently reread provider object,
+                # while verify_content_artifact_export separately proves that object's
+                # semantic artifact identity and deterministic Markdown projection.
+                observed_digest = str(detail.get("jsonSha256") or "")
+                if not re.fullmatch(r"[a-f0-9]{64}", observed_digest):
+                    raise ArtifactVerificationError("export receipt JSON digest is missing")
             except (ArtifactVerificationError, ValidationError, WebApiError, ValueError) as exc:
                 verified = False
                 note = f"content artifact export verification failed: {exc}"
@@ -1157,7 +1230,7 @@ async def run_learn(job_id: str) -> None:
         brand_id=job["brandId"],
         user_id=job["createdByUserId"],
         stage="learn",
-        operation_id=f"{job_id}:learn:0",
+        operation_id=_invocation_operation_id(f"{job_id}:learn:0"),
     ))
     if memory is not None:
         bank, scope = memory
@@ -1246,11 +1319,30 @@ async def dispatch(job_id: str, stage: str, *, attempt: int = 0, operation_id: s
             "ownerId": f"worker:{os.getpid()}",
             "claimToken": claim_token,
         })
-        if claim["outcome"] != "execute":
-            span.set_attributes(safe_attributes({"stage.claim_outcome": claim["outcome"]}))
+        claim_outcome = claim["outcome"]
+        if claim_outcome in {"failed", "uncertain"}:
+            envelope = normalize_failure(
+                RuntimeError(f"persisted stage execution is {claim_outcome}"),
+                stage=stage,
+                operation_id=execution_operation_id,
+                trace_id=current_trace_id(),
+                attempt=attempt,
+                category=FailureCategory.DEPENDENCY,
+                code=f"stage_execution_{claim_outcome}",
+                details={"claimOutcome": claim_outcome},
+            )
+            span.set_attributes(safe_attributes({"stage.claim_outcome": claim_outcome}))
+            web_post("/api/internal/failure", _failure_payload(job_id, envelope))
+            return "failed"
+        if claim_outcome != "execute":
+            span.set_attributes(safe_attributes({"stage.claim_outcome": claim_outcome}))
             return True
         try:
-            await handler(job_id)
+            operation_token = _ACTIVE_STAGE_OPERATION_ID.set(execution_operation_id)
+            try:
+                await handler(job_id)
+            finally:
+                _ACTIVE_STAGE_OPERATION_ID.reset(operation_token)
             finalize_stage_execution({
                 "jobId": job_id,
                 "stage": stage,

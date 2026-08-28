@@ -6,6 +6,7 @@ import json
 import io
 import logging
 import os
+from math import ceil
 from collections.abc import Callable
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -18,6 +19,7 @@ from .model_catalog import PRICING_VERSION, estimate_text_cost
 from .telemetry import current_trace_id, safe_attributes, tracer
 from .usage import InvocationContext, UsageAccumulator, UsageRecord, estimate_request_tokens
 from .web_client import report_usage, reserve_budget, resolve_budget_reservation
+from . import youtube
 
 MODEL = "gemini-3.5-flash"
 IMAGE_MODEL = os.environ.get("IMAGE_MODEL_ID", "gemini-3.5-flash-image")
@@ -53,7 +55,7 @@ def _parse_json(text: str) -> Any:
 
 
 def model_used() -> str:
-    return MODEL
+    return os.environ.get("TRANSCRIBER_MODEL_ID", MODEL)
 
 
 def transcribe_audio(
@@ -68,29 +70,29 @@ def transcribe_audio(
     if invocation is None:
         raise ValueError("real transcription requires invocation context")
     role = "transcriber"
+    model = model_used()
     operation_id = invocation.role_operation_id(role)
-    estimated_input, estimated_output = estimate_request_tokens(
-        "x" * len(audio), 4096,
+    prompt = (
+        "Transcribe this audio. Return JSON: "
+        "{language, segments:[{id,startSec,endSec,text}]}. "
+        "startSec/endSec are numbers."
     )
+    prompt_input, estimated_output = estimate_request_tokens(prompt, 4096)
+    estimated_input = ceil(youtube.probe_audio_duration(audio) * 32) + prompt_input
     budget_reserver({
         "jobId": invocation.job_id,
         "operationId": operation_id,
         "stage": invocation.stage,
         "role": role,
-        "model": MODEL,
+        "model": model,
         "estimatedCostUsd": str(estimate_text_cost(
-            MODEL, estimated_input, estimated_output,
+            model, estimated_input, estimated_output,
         )),
         "pricingVersion": PRICING_VERSION,
     })
     dispatched = False
     try:
         client = _client()
-        prompt = (
-            "Transcribe this audio. Return JSON: "
-            "{language, segments:[{id,startSec,endSec,text}]}. "
-            "startSec/endSec are numbers."
-        )
         with tracer().start_as_current_span("harmonia.model.generate") as span:
             span.set_attributes(safe_attributes({
                 "job.id": invocation.job_id,
@@ -118,7 +120,7 @@ def transcribe_audio(
                 media_content = [uploaded, prompt]
             dispatched = True
             res = client.models.generate_content(
-                model=MODEL,
+                model=model,
                 contents=media_content,
             )
             result = _parse_json(res.text)
@@ -127,7 +129,7 @@ def transcribe_audio(
                 operation_id=operation_id,
                 stage=invocation.stage,
                 role=role,
-                model=MODEL,
+                model=model,
             )
             accumulator.observe_event(res)
             record = accumulator.finalize(trace_id=current_trace_id())

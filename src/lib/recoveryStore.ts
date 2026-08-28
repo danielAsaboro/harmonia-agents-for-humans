@@ -27,6 +27,20 @@ function assertTenant(value: { workspaceId: string; brandId: string }): void {
   }
 }
 
+function assertTenantResourcePath(resourcePath: string): void {
+  const tenant = currentTenant();
+  if (!resourcePath.startsWith(`workspaces/${tenant.workspaceId}/`)) {
+    throw new Error("recovery resource tenant mismatch");
+  }
+}
+
+function receiptJobPath(resourcePath: string): string {
+  assertTenantResourcePath(resourcePath);
+  const match = resourcePath.match(/^(workspaces\/[^/]+\/jobs\/[^/]+)\/receipts\/[^/]+$/);
+  if (!match) throw new Error("invalid recovery receipt path");
+  return match[1];
+}
+
 function baseCandidate(
   kind: RecoveryCandidate["kind"], id: string, value: { workspaceId: string; brandId: string; jobId: string },
   state: string, replayPolicy: RecoveryCandidate["replayPolicy"], resourcePath: string,
@@ -154,8 +168,26 @@ export async function applyRecoveryPlan(
 ): Promise<Array<RecoveryAction & { emitted: boolean }>> {
   const work = collection(database, COLLECTIONS.recovery);
   return database.runTransaction(async (tx) => {
+    actions.forEach((action) => {
+      if (action.resourcePath) assertTenantResourcePath(action.resourcePath);
+    });
     const resources = await Promise.all(actions.map((action) => action.resourcePath
       ? tx.get(database.doc(action.resourcePath)) : Promise.resolve(null)));
+    const eventOutboxes = await Promise.all(actions.map((action, index) => {
+      if (action.action !== "requeue_event" || !resources[index]?.exists) return Promise.resolve(null);
+      const sourceEventId = resources[index]!.get("sourceEventId");
+      if (typeof sourceEventId !== "string" || !sourceEventId.startsWith("stage-outbox:")) {
+        throw new Error("recovery event is missing its durable stage outbox");
+      }
+      const outboxId = sourceEventId.slice("stage-outbox:".length);
+      if (!/^[A-Za-z0-9_-]{1,256}$/.test(outboxId)) throw new Error("invalid recovery stage outbox id");
+      return tx.get(collection(database, COLLECTIONS.outbox).doc(outboxId));
+    }));
+    const receiptJobs = await Promise.all(actions.map((action) => (
+      action.candidateKind === "receipt" && action.resourcePath
+        ? tx.get(database.doc(receiptJobPath(action.resourcePath)))
+        : Promise.resolve(null)
+    )));
     const existingWork = await Promise.all(actions.map((action) => tx.get(work.doc(action.id))));
     const results: Array<RecoveryAction & { emitted: boolean }> = [];
     actions.forEach((action, index) => {
@@ -167,10 +199,16 @@ export async function applyRecoveryPlan(
       }
       if (resource?.exists) {
         const value = resource.data() as {
-          workspaceId: string; brandId: string; state?: string; replayPolicy?: string;
+          workspaceId?: string; brandId?: string; state?: string; replayPolicy?: string;
           leaseExpiresAt?: string; claimUntil?: string;
         };
-        assertTenant(value);
+        if (action.candidateKind === "receipt") {
+          const receiptJob = receiptJobs[index];
+          if (!receiptJob?.exists) throw new Error("recovery receipt parent job missing");
+          assertTenant(receiptJob.data() as { workspaceId: string; brandId: string });
+        } else {
+          assertTenant(value as { workspaceId: string; brandId: string });
+        }
         const lease = action.candidateKind === "operation" ? value.leaseExpiresAt
           : ["event_inbox", "stage_outbox"].includes(action.candidateKind) ? value.claimUntil : undefined;
         if (lease && Date.parse(lease) > Date.parse(bounds.now)) {
@@ -188,9 +226,20 @@ export async function applyRecoveryPlan(
             ownerId: FieldValue.delete(), ownerTokenDigest: FieldValue.delete(), leaseExpiresAt: FieldValue.delete(),
           });
         } else if (action.action === "requeue_event" && value.state === "processing") {
+          const sourceOutbox = eventOutboxes[index];
+          if (!sourceOutbox?.exists) throw new Error("recovery stage outbox is missing");
+          const outboxValue = sourceOutbox.data() as StageOutboxRecord;
+          assertTenant(outboxValue);
+          if (outboxValue.operationId !== action.operationId || outboxValue.sourceEventId !== resource.get("sourceEventId")) {
+            throw new Error("recovery stage outbox lineage mismatch");
+          }
           tx.update(resource.ref, {
             state: "accepted", updatedAt: bounds.now,
             ownerTokenDigest: FieldValue.delete(), claimUntil: FieldValue.delete(),
+          });
+          tx.update(sourceOutbox.ref, {
+            state: "pending", claimTokenDigest: FieldValue.delete(), claimUntil: FieldValue.delete(),
+            pubsubMessageId: FieldValue.delete(), publishedAt: FieldValue.delete(),
           });
         } else if (action.action === "requeue_outbox" && value.state === "claimed") {
           tx.update(resource.ref, {

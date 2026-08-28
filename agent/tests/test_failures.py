@@ -8,6 +8,7 @@ from harmonia_agent.failures import FailureCategory, normalize_failure
 from harmonia_agent.generative_media import MediaProviderError
 from harmonia_agent.memory_bank import MemoryProviderError
 from harmonia_agent.model_catalog import UnknownModelPrice
+from harmonia_agent.team_runtime import AgentEngineProviderError
 from harmonia_agent.web_client import EffectClaimInProgress, EffectClaimUncertain, WebApiError
 from harmonia_agent.x_client import XError
 from harmonia_agent import stages
@@ -90,6 +91,14 @@ def test_retryable_failures_stop_after_the_central_attempt_limit():
     assert exhausted.code == "provider_timeout"
 
 
+def test_agent_engine_quota_exhaustion_is_a_transient_provider_failure():
+    result = envelope(AgentEngineProviderError("quota exhausted", status=429))
+    assert result.category == FailureCategory.PROVIDER_TRANSIENT
+    assert result.code == "provider_request_failed"
+    assert result.retryable is True
+    assert result.details["status"] == 429
+
+
 def test_unknown_exception_is_safe_bounded_dependency_failure():
     result = envelope(RuntimeError("cookie=super-secret and private response body"))
     assert result.category == FailureCategory.DEPENDENCY
@@ -139,6 +148,27 @@ def test_dispatch_does_not_enter_handler_without_stage_lease(monkeypatch):
     assert entered == []
 
 
+def test_dispatch_surfaces_uncertain_stage_lease_for_fresh_generation_retry(monkeypatch):
+    reports = []
+    entered: list[str] = []
+
+    async def handler(job_id):
+        entered.append(job_id)
+
+    monkeypatch.setitem(stages.HANDLERS, "draft", handler)
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: {"controlState": "running"})
+    monkeypatch.setattr(stages, "claim_stage_execution", lambda _payload: {"outcome": "uncertain"})
+    monkeypatch.setattr(stages, "web_post", lambda path, body: reports.append((path, body)))
+
+    operation_id = "job:job-1:stage:draft:generation:2"
+    assert asyncio.run(stages.dispatch("job-1", "draft", attempt=0, operation_id=operation_id)) == "failed"
+    assert entered == []
+    assert reports[-1][0] == "/api/internal/failure"
+    assert reports[-1][1]["code"] == "stage_execution_uncertain"
+    assert reports[-1][1]["retryable"] is True
+    assert reports[-1][1]["operationId"] == operation_id
+
+
 def test_dispatch_records_generation_fenced_missing_handler(monkeypatch):
     reports = []
     operation_id = "job:job-1:stage:obsolete:generation:7"
@@ -165,3 +195,19 @@ def test_dispatch_finalizes_the_exact_stage_claim(monkeypatch):
     assert asyncio.run(stages.dispatch("job-1", "draft", attempt=0)) is True
     assert finalized[0]["outcome"] == "applied"
     assert finalized[0]["claimToken"]
+
+
+def test_dispatch_scopes_model_operations_to_the_current_stage_generation(monkeypatch):
+    seen: list[str] = []
+
+    async def handler(_job_id):
+        seen.append(stages._invocation_operation_id("legacy-operation", "source-1"))
+
+    operation_id = "job:job-1:stage:extract_sources:generation:2"
+    monkeypatch.setitem(stages.HANDLERS, "extract_sources", handler)
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: {"controlState": "running"})
+    monkeypatch.setattr(stages, "claim_stage_execution", lambda _payload: {"outcome": "execute"})
+    monkeypatch.setattr(stages, "finalize_stage_execution", lambda _payload: None)
+
+    assert asyncio.run(stages.dispatch("job-1", "extract_sources", operation_id=operation_id)) is True
+    assert seen == [f"{operation_id}:source-1"]

@@ -25,10 +25,13 @@ describe("evaluateActionPolicy", () => {
     expect(approvedPendingExecution(actions)).toHaveLength(0);
   });
 
-  it("allows content-pack export without approval", () => {
-    const d = evaluateActionPolicy("export_content_artifact", {});
-    expect(d.risk).toBe("low");
-    expect(d.requiresApproval).toBe(false);
+  it("gates operator-facing pack and calendar exports while allowing an internal draft export", () => {
+    for (const outputType of ["content_pack", "editorial_calendar"]) {
+      const decision = evaluateActionPolicy("export_content_artifact", { outputType });
+      expect(decision.risk).toBe("medium");
+      expect(decision.requiresApproval).toBe(true);
+    }
+    expect(evaluateActionPolicy("export_content_artifact", { outputType: "linkedin_post" }).requiresApproval).toBe(false);
   });
 
   it("always gates Veo and Lyria generation behind operator approval", () => {
@@ -38,6 +41,15 @@ describe("evaluateActionPolicy", () => {
       expect(decision.requiresApproval).toBe(true);
       expect(decision.reason).toContain("paid generative media");
     }
+  });
+
+  it("gates Gemini image generation because it consumes paid model capacity", () => {
+    const decision = evaluateActionPolicy("generate_image", { prompt: "launch energy" });
+    expect(decision).toEqual({
+      risk: "medium",
+      requiresApproval: true,
+      reason: "incurs paid Gemini image generation; output remains internal until separately published",
+    });
   });
 });
 

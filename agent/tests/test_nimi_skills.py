@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from harmonia_agent import nimi_skills
 from harmonia_agent.nimi_skills import (
     NIMI_SKILL_NAME,
     NIMI_SKILL_REFERENCES,
@@ -78,6 +79,16 @@ def test_nimi_exposes_only_one_filesystem_skill_and_approved_resources():
         "references/performance-and-memory-interpretation.md",
         "references/uncertainty-and-analysis-critique.md",
     )
+
+
+def test_nimi_runtime_bootstraps_the_owned_skill_and_approved_references():
+    context = SimpleNamespace(state={})
+
+    nimi_skills.bootstrap_nimi_skill_context(context)
+
+    validate_nimi_skill_trace(context.state["nimi_analysis_skill_trace"])
+    assert "evidence analyst" in context.state["nimi_analysis_skill_context"].lower()
+    assert all(reference in str(context.state["nimi_analysis_skill_trace"]) for reference in NIMI_SKILL_REFERENCES)
 
 
 def test_nimi_trace_requires_exactly_one_skill_and_one_approved_reference():

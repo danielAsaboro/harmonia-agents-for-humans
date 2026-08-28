@@ -34,7 +34,7 @@ async function post(
     );
   }
 
-  const outboxId = await retryFailedJobWithOutbox(id, failedStage, (job.failure.attempt ?? 0) + 1);
+  const outboxId = await retryFailedJobWithOutbox(id, failedStage);
   await appendEvent(
     id,
     failedStage,

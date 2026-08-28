@@ -67,7 +67,9 @@ def test_push_scopes_fenced_stage_calls_and_finalizes(monkeypatch) -> None:
         return True
 
     monkeypatch.setattr(main, "dispatch", dispatch)
-    response = TestClient(main.app).post("/pubsub/push", json=envelope())
+    redelivery = envelope()
+    redelivery["deliveryAttempt"] = 4
+    response = TestClient(main.app).post("/pubsub/push", json=redelivery)
 
     assert response.status_code == 200
     assert seen == [("job:job-1:stage:draft:generation:0", 4, 0)]
@@ -123,6 +125,11 @@ def test_health_reports_durable_runtime_capabilities_without_secrets() -> None:
         "recovery": {"limit": 20, "deadlineSeconds": 15, "maxRetries": 3},
     }
     assert "internalApiToken" not in payload
+
+
+def test_local_pubsub_project_can_be_separated_from_vertex_project(monkeypatch) -> None:
+    monkeypatch.setenv("PUBSUB_EMULATOR_PROJECT", "harmonia-local")
+    assert main._pubsub_project() == "harmonia-local"
 
 
 def test_recovery_wake_uses_bounded_config(monkeypatch) -> None:

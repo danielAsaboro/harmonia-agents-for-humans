@@ -132,6 +132,27 @@ class PackPayload(StrictModel):
 
 
 ArtifactPayload = Annotated[XPostPayload | ThreadPayload | LinkedInPayload | BlogPayload | NewsletterPayload | CaptionPayload | CarouselPayload | QuoteCardPayload | DiagramPayload | CalendarPayload | PackPayload, Field(discriminator="kind")]
+GenerativeArtifactPayload = Annotated[
+    XPostPayload | ThreadPayload | LinkedInPayload | BlogPayload | NewsletterPayload
+    | CaptionPayload | CarouselPayload | QuoteCardPayload | DiagramPayload,
+    Field(discriminator="kind"),
+]
+
+
+class SemanticArtifactDraft(StrictModel):
+    """Model-authored meaning only; identity and digests are host authority."""
+
+    title: str = Field(min_length=1, max_length=300)
+    sourceSegmentRefs: list[str] = Field(min_length=1, max_length=100)
+    payload: GenerativeArtifactPayload
+
+
+class SemanticArtifactWireDraft(StrictModel):
+    """Provider-compatible envelope; payload is parsed by the host's exact schema."""
+
+    title: str = Field(min_length=1, max_length=300)
+    sourceSegmentRefs: list[str] = Field(min_length=1, max_length=100)
+    payloadJson: str = Field(min_length=2, max_length=30_000)
 
 
 class ContentArtifactDraft(StrictModel):
@@ -146,6 +167,10 @@ class ContentArtifactDraft(StrictModel):
     def matching_kind(self):
         if self.outputType != self.payload.kind:
             raise ValueError("payload kind must match output type")
+        if isinstance(self.payload, PackPayload) and any(
+            item.digest != "0" * 64 for item in self.payload.artifacts
+        ):
+            raise ValueError("draft content-pack digests must use the host-seal marker")
         return self
 
 
@@ -224,6 +249,28 @@ class ArtifactReviewIssue(StrictModel):
     instruction: str = Field(min_length=1, max_length=600)
 
 
+class SemanticArtifactReviewIssue(StrictModel):
+    check: Literal["grounding", "brief", "brand", "format", "cta", "safety", "clarity"]
+    instruction: str = Field(min_length=1, max_length=600)
+
+
+class SemanticArtifactReview(StrictModel):
+    decision: Literal["accept", "revise"]
+    checks: list[ArtifactReviewCheck] = Field(min_length=7, max_length=7)
+    issues: list[SemanticArtifactReviewIssue] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def complete_review(self):
+        required = {"grounding", "brief", "brand", "format", "cta", "safety", "clarity"}
+        if {check.kind for check in self.checks} != required:
+            raise ValueError("each editorial check must appear exactly once")
+        if self.decision == "accept" and (self.issues or not all(check.passed for check in self.checks)):
+            raise ValueError("accepted artifact cannot retain failed checks or issues")
+        if self.decision == "revise" and not self.issues:
+            raise ValueError("revise decision requires actionable issues")
+        return self
+
+
 class ArtifactReview(StrictModel):
     artifactId: str = Field(min_length=1)
     decision: Literal["accept", "revise"]
@@ -240,6 +287,24 @@ class ArtifactReview(StrictModel):
         if self.decision == "revise" and not self.issues:
             raise ValueError("revise decision requires actionable issues")
         return self
+
+
+def materialize_artifact_review(
+    artifact_id: str, semantic: SemanticArtifactReview,
+) -> ArtifactReview:
+    return ArtifactReview(
+        artifactId=artifact_id,
+        decision=semantic.decision,
+        checks=semantic.checks,
+        issues=[
+            ArtifactReviewIssue(
+                id=f"issue-{artifact_id}-{index}",
+                check=issue.check,
+                instruction=issue.instruction,
+            )
+            for index, issue in enumerate(semantic.issues, start=1)
+        ],
+    )
 
 
 class ArtifactReviewBatch(StrictModel):
@@ -260,6 +325,79 @@ class ArtifactRequest(StrictModel):
     id: str = Field(min_length=1)
     outputType: Literal["x_post", "x_thread", "linkedin_post", "blog_article", "newsletter", "caption", "carousel_spec", "quote_card", "diagram", "editorial_calendar", "content_pack"]
     evidenceRefs: list[str] = Field(min_length=1, max_length=100)
+
+
+_GENERATIVE_PAYLOAD_MODELS = {
+    "x_post": XPostPayload,
+    "x_thread": ThreadPayload,
+    "linkedin_post": LinkedInPayload,
+    "blog_article": BlogPayload,
+    "newsletter": NewsletterPayload,
+    "caption": CaptionPayload,
+    "carousel_spec": CarouselPayload,
+    "quote_card": QuoteCardPayload,
+    "diagram": DiagramPayload,
+}
+
+
+def semantic_payload_contract(output_type: str) -> dict:
+    model = _GENERATIVE_PAYLOAD_MODELS.get(output_type)
+    if model is None:
+        raise ValueError("deterministic artifacts have no model payload contract")
+    return model.model_json_schema()
+
+
+def parse_semantic_artifact_wire(
+    request: ArtifactRequest, wire: SemanticArtifactWireDraft,
+) -> SemanticArtifactDraft:
+    model = _GENERATIVE_PAYLOAD_MODELS.get(request.outputType)
+    if model is None:
+        raise ValueError("deterministic artifacts cannot be model-authored")
+    payload = model.model_validate_json(wire.payloadJson)
+    return SemanticArtifactDraft(
+        title=wire.title,
+        sourceSegmentRefs=wire.sourceSegmentRefs,
+        payload=payload,
+    )
+
+
+def materialize_semantic_artifact(
+    request: ArtifactRequest, semantic: SemanticArtifactDraft,
+) -> ContentArtifactDraft:
+    if request.outputType in {"editorial_calendar", "content_pack"}:
+        raise ValueError("deterministic artifacts must be assembled by the host")
+    if semantic.payload.kind != request.outputType:
+        raise ValueError("semantic payload kind must match the authorized output request")
+    if any(reference not in request.evidenceRefs for reference in semantic.sourceSegmentRefs):
+        raise ValueError("semantic artifact references evidence outside its authorized request")
+    return ContentArtifactDraft(
+        id=f"artifact-{request.id}",
+        outputPlanItemId=request.id,
+        outputType=request.outputType,
+        title=semantic.title,
+        sourceSegmentRefs=semantic.sourceSegmentRefs,
+        payload=semantic.payload,
+    )
+
+
+def assemble_content_pack_draft(
+    request: ArtifactRequest, children: list[ContentArtifactDraft],
+) -> ContentArtifactDraft:
+    if request.outputType != "content_pack":
+        raise ValueError("content-pack assembly requires an authorized content-pack request")
+    if not children:
+        raise ValueError("content pack requires at least one host-materialized child")
+    return ContentArtifactDraft(
+        id=f"artifact-{request.id}",
+        outputPlanItemId=request.id,
+        outputType="content_pack",
+        title="Content pack",
+        sourceSegmentRefs=list(request.evidenceRefs),
+        payload=PackPayload(
+            kind="content_pack",
+            artifacts=[PackItem(artifactId=child.id, digest="0" * 64) for child in children],
+        ),
+    )
 
 
 class ArtifactProductionInput(StrictModel):

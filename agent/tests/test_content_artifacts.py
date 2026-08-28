@@ -1,7 +1,20 @@
 import pytest
 from pydantic import ValidationError
 
-from harmonia_agent.content_artifacts import ArtifactReviewBatch, ContentArtifactDraft, ProductionBatch
+from harmonia_agent.content_artifacts import (
+    ArtifactRequest,
+    ArtifactReviewBatch,
+    ContentArtifactDraft,
+    ProductionBatch,
+    SemanticArtifactDraft,
+    SemanticArtifactWireDraft,
+    SemanticArtifactReview,
+    assemble_content_pack_draft,
+    materialize_semantic_artifact,
+    parse_semantic_artifact_wire,
+    semantic_payload_contract,
+    materialize_artifact_review,
+)
 
 
 def newsletter():
@@ -46,7 +59,7 @@ def test_rejects_missing_or_unrequested_plan_outputs():
     ("quote_card", {"kind": "quote_card", "quote": "Proof", "attribution": "Founder", "sourceSegmentRef": "source-1:seg-1", "renderBrief": "Editorial card"}),
     ("diagram", {"kind": "diagram", "diagramType": "flow", "nodes": [{"id": "n1", "label": "Input", "sourceSegmentRefs": ["source-1:seg-1"]}], "edges": [], "renderBrief": "Simple flow"}),
     ("editorial_calendar", {"kind": "editorial_calendar", "entries": [{"id": "e1", "artifactId": "artifact-1", "channel": "x", "intendedAt": "2026-08-31T10:00:00Z", "purpose": "Launch", "dependencyArtifactIds": []}]}),
-    ("content_pack", {"kind": "content_pack", "artifacts": [{"artifactId": "artifact-1", "digest": "a" * 64}]}),
+    ("content_pack", {"kind": "content_pack", "artifacts": [{"artifactId": "artifact-1", "digest": "0" * 64}]}),
 ])
 def test_accepts_each_registered_text_artifact_shape(output_type, payload):
     value = newsletter()
@@ -70,3 +83,91 @@ def test_review_batch_binds_every_exact_artifact_and_rejects_missing_checks():
     value = reviews.model_dump(mode="json"); value["reviews"][0]["checks"][-1] = dict(value["reviews"][0]["checks"][0])
     with pytest.raises(ValidationError, match="exactly once"):
         ArtifactReviewBatch.model_validate(value)
+
+
+def test_host_assigns_artifact_identity_after_semantic_generation():
+    request = ArtifactRequest.model_validate({
+        "id": "output-1-linkedin_post",
+        "outputType": "linkedin_post",
+        "evidenceRefs": ["source-1:seg-1"],
+    })
+    semantic = SemanticArtifactDraft.model_validate({
+        "title": "Founder lesson",
+        "sourceSegmentRefs": ["source-1:seg-1"],
+        "payload": {"kind": "linkedin_post", "body": "Proof from the source."},
+    })
+
+    artifact = materialize_semantic_artifact(request, semantic)
+
+    assert artifact.id == "artifact-output-1-linkedin_post"
+    assert artifact.outputPlanItemId == request.id
+    assert artifact.outputType == request.outputType
+
+
+def test_model_cannot_supply_artifact_identifiers_or_pack_digests():
+    with pytest.raises(ValidationError, match="extra"):
+        SemanticArtifactDraft.model_validate({
+            "id": "invented",
+            "title": "Pack",
+            "sourceSegmentRefs": ["source-1:seg-1"],
+            "payload": {"kind": "content_pack", "artifacts": [{
+                "artifactId": "invented", "digest": "f" * 64,
+            }]},
+        })
+
+
+def test_host_assembles_pack_membership_with_unresolved_digest_markers():
+    child = ContentArtifactDraft.model_validate(newsletter())
+    request = ArtifactRequest.model_validate({
+        "id": "output-2-content_pack", "outputType": "content_pack",
+        "evidenceRefs": ["source-1:seg-1"],
+    })
+
+    pack = assemble_content_pack_draft(request, [child])
+
+    assert pack.id == "artifact-output-2-content_pack"
+    assert pack.payload.artifacts[0].artifactId == child.id
+    assert pack.payload.artifacts[0].digest == "0" * 64
+
+
+def test_host_parses_wire_payload_against_only_the_authorized_format():
+    request = ArtifactRequest.model_validate({
+        "id": "output-1-linkedin_post", "outputType": "linkedin_post",
+        "evidenceRefs": ["source-1:seg-1"],
+    })
+    wire = SemanticArtifactWireDraft.model_validate({
+        "title": "Founder lesson", "sourceSegmentRefs": ["source-1:seg-1"],
+        "payloadJson": '{"kind":"linkedin_post","body":"Proof."}',
+    })
+
+    assert parse_semantic_artifact_wire(request, wire).payload.kind == "linkedin_post"
+
+    wrong = wire.model_copy(update={
+        "payloadJson": '{"kind":"quote_card","quote":"Proof","attribution":"Sintel","sourceSegmentRef":"source-1:seg-1","renderBrief":"Card"}',
+    })
+    with pytest.raises(ValidationError):
+        parse_semantic_artifact_wire(request, wrong)
+
+
+def test_host_supplies_the_exact_authorized_payload_contract():
+    contract = semantic_payload_contract("linkedin_post")
+
+    assert "body" in contract["properties"]
+    assert "text" not in contract["properties"]
+    assert contract["properties"]["kind"]["const"] == "linkedin_post"
+
+
+def test_host_assigns_review_and_issue_identifiers():
+    semantic = SemanticArtifactReview.model_validate({
+        "decision": "revise",
+        "checks": [
+            {"kind": kind, "passed": kind != "clarity", "note": "Checked"}
+            for kind in ["grounding", "brief", "brand", "format", "cta", "safety", "clarity"]
+        ],
+        "issues": [{"check": "clarity", "instruction": "State the lesson directly."}],
+    })
+
+    review = materialize_artifact_review("artifact-output-1-linkedin_post", semantic)
+
+    assert review.artifactId == "artifact-output-1-linkedin_post"
+    assert review.issues[0].id == "issue-artifact-output-1-linkedin_post-1"

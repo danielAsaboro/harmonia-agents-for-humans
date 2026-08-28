@@ -1,16 +1,9 @@
-"""X (Twitter) API v2 publish + verify client.
-
-Offline dev mode: when HARMONIA_MOCK_X=1 is explicitly set (independent of
-HARMONIA_MOCK_AI), publish/verify/metrics return small deterministic payloads
-and never touch the network. With the flag unset every call is real.
-"""
+"""X API v2 publish, verification, and metrics client."""
 
 from __future__ import annotations
 
-import hashlib
-import os
-
 import httpx
+from collections.abc import Callable
 
 
 class XError(RuntimeError):
@@ -23,18 +16,6 @@ class XError(RuntimeError):
         return self.status is not None and 400 <= self.status < 500 and self.status != 429
 
 
-def _mock_x() -> bool:
-    return os.environ.get("HARMONIA_MOCK_X") == "1"
-
-
-def _log(message: str) -> None:
-    print(f"[MOCK-X] {message}", flush=True)
-
-
-def _mock_id(text: str) -> str:
-    return f"mock-{hashlib.sha256(text.encode()).hexdigest()[:12]}"
-
-
 def _bearer(token: str | None) -> str:
     if not token:
         raise XError("workspace X connection is not configured", 401)
@@ -42,10 +23,6 @@ def _bearer(token: str | None) -> str:
 
 
 def publish_post(text: str, bearer_token: str | None = None) -> dict:
-    if _mock_x():
-        pid = _mock_id(text)
-        _log(f"publish_post: returning deterministic id {pid}")
-        return {"id": pid, "url": f"https://x.com/i/web/status/{pid}"}
     with httpx.Client(timeout=30) as c:
         res = c.post(
             "https://api.x.com/2/tweets",
@@ -58,10 +35,41 @@ def publish_post(text: str, bearer_token: str | None = None) -> dict:
     return {"id": data["id"], "url": f"https://x.com/i/web/status/{data['id']}"}
 
 
+def publish_thread(
+    posts: list[dict], bearer_token: str | None,
+    *, confirmed: list[str], persist_confirmed: Callable[[list[str]], None],
+    transport=None,
+) -> dict:
+    """Publish or resume an ordered X thread, durably fencing every reply."""
+    if len(posts) < 2 or len(posts) > 25:
+        raise XError("X thread must contain 2-25 posts")
+    if len(confirmed) > len(posts):
+        raise XError("confirmed thread progress exceeds requested posts")
+    confirmed_ids = list(confirmed)
+    with httpx.Client(timeout=30, transport=transport) as client:
+        for index in range(len(confirmed_ids), len(posts)):
+            text = posts[index].get("text")
+            if not isinstance(text, str) or not text or len(text) > 280:
+                raise XError(f"X thread post {index + 1} must contain 1-280 characters")
+            payload = {"text": text}
+            if confirmed_ids:
+                payload["reply"] = {"in_reply_to_tweet_id": confirmed_ids[-1]}
+            response = client.post(
+                "https://api.x.com/2/tweets",
+                headers={"Authorization": f"Bearer {_bearer(bearer_token)}"},
+                json=payload,
+            )
+            if response.status_code not in (200, 201):
+                raise XError(f"thread post create failed: {response.status_code} {response.text[:200]}", response.status_code)
+            post_id = str((response.json().get("data") or {}).get("id") or "")
+            if not post_id:
+                raise XError("thread post response omitted id")
+            confirmed_ids.append(post_id)
+            persist_confirmed(confirmed_ids)
+    return {"postIds": confirmed_ids, "rootId": confirmed_ids[0], "url": f"https://x.com/i/web/status/{confirmed_ids[0]}"}
+
+
 def get_post(post_id: str, bearer_token: str | None = None) -> dict | None:
-    if _mock_x():
-        _log(f"get_post({post_id}): returning deterministic payload")
-        return {"id": post_id, "text": "(mock offline post)"}
     with httpx.Client(timeout=20) as c:
         res = c.get(
             f"https://api.x.com/2/tweets/{post_id}",
@@ -76,17 +84,6 @@ def get_post(post_id: str, bearer_token: str | None = None) -> dict | None:
 
 def get_post_metrics(post_id: str, bearer_token: str | None = None) -> dict | None:
     """Fetches reaction metrics for a published post (learn stage)."""
-    if _mock_x():
-        h = int(hashlib.sha256(str(post_id).encode()).hexdigest(), 16)
-        metrics = {
-            "likes": 5 + h % 40,
-            "replies": h % 7,
-            "reposts": h % 11,
-            "quotes": h % 3,
-            "impressions": 200 + h % 1800,
-        }
-        _log(f"get_post_metrics({post_id}): returning deterministic payload {metrics}")
-        return metrics
     with httpx.Client(timeout=20) as c:
         res = c.get(
             f"https://api.x.com/2/tweets/{post_id}",

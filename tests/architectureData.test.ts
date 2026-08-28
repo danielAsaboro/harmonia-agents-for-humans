@@ -17,7 +17,7 @@ describe("Harmonia architecture dataset", () => {
   });
 
   it("contains the eleven stages, seven skills, and eight read-only data tools", () => {
-    for (const id of ["ingest", "transcribe", "analyze", "strategize", "strategy-approval", "plan", "draft", "await-approval", "publish-render", "verify", "learn"]) expect(byId(`stage-${id}`)).toBeTruthy();
+    for (const id of ["collect-sources", "extract-sources", "analyze", "strategize", "strategy-approval", "plan", "draft", "await-approval", "publish-render", "verify", "learn"]) expect(byId(`stage-${id}`)).toBeTruthy();
     for (const id of ["trend-scan", "signal-watch", "engagement-insights", "job-status", "posting-schedule"]) expect(byId(`skill-${id}`)).toBeTruthy();
     expect(byId("skill-noni-writing-skills")).toBeTruthy();
     expect(byId("skill-dara-editing-skills")).toBeTruthy();
@@ -41,7 +41,7 @@ describe("Harmonia architecture dataset", () => {
     expect(byId("agent-temi").skills).toEqual(["temi-editorial-planning-skills"]);
     expect(buildArchitectureDetail(byId("agent-temi")).authorityNote).toMatch(/editorial-plan proposal.*no external calendar authority/i);
     expect(byId("agent-noni").summary).toBe(
-      "Creates one grounded platform-native draft and at most one issue-bound revision from the selected item, exact Ryan brief, referenced Nimi evidence, and provenance-bound research.",
+      "Produces the exact requested multi-format artifact batch and at most one issue-bound revision from the approved output plan and referenced evidence.",
     );
     expect(byId("agent-dara").summary).toMatch(/all seven editorial checks.*at most one revision.*complete issue resolution/i);
     expect(byId("agent-dara").skills).toEqual(["dara-editing-skills"]);
@@ -80,7 +80,7 @@ describe("Harmonia architecture dataset", () => {
       expect(byId(id).statuses).toContain("approval-gated");
       expect(byId(id).approval).toBe("Required");
     }
-    for (const id of ["effect-export-pack", "effect-generate-image", "effect-render-media"]) {
+    for (const id of ["effect-export-artifact", "effect-generate-image", "effect-render-media"]) {
       expect(byId(id).statuses).not.toContain("approval-gated");
       expect(byId(id).approval).toBe("Not required");
       expect(byId(id).summary).toMatch(/internal|artifact|local/i);

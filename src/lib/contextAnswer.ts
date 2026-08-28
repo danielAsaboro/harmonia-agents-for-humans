@@ -3,8 +3,7 @@
  *
  * The operator selects an entity (job, content item, proposal) anywhere in
  * the dashboard and asks a question; the answer is generated strictly from
- * that record's data. With HARMONIA_MOCK_AI=1 the answer is composed
- * deterministically from the same fields - no network.
+ * that record.s data.
  */
 import { getConfig } from "./config";
 import { getContentItem, getJob, getProposal } from "./firestore";
@@ -35,37 +34,6 @@ export async function fetchContextRecord(
   } catch {
     return null;
   }
-}
-
-/** Deterministic offline answers composed from the record itself. */
-export function mockContextAnswer(
-  question: string,
-  record: Record<string, unknown>,
-  kind: ChatContext["kind"],
-): string {
-  if (kind === "job") {
-    const verifications = Array.isArray(record.verifications)
-      ? (record.verifications as Array<{ verified?: boolean }>)
-      : [];
-    const verifiedCount = verifications.filter((v) => v.verified).length;
-    return (
-      `(mock) Job ${record.id}: stage '${record.stage}' (${record.status}). ` +
-      `${Array.isArray(record.drafts) ? record.drafts.length : 0} drafted post(s), ` +
-      `${Array.isArray(record.actions) ? record.actions.length : 0} proposed action(s), ` +
-      `${verifiedCount}/${verifications.length} verifications confirmed. ` +
-      `Ask me to approve it or show drafts on the Console.`
-    );
-  }
-  if (kind === "content_item") {
-    return (
-      `(mock) Content item ${record.id}: status '${record.status}', mode '${record.publishMode ?? "approval"}' for ${(record.platforms as string[])?.join(", ") ?? "x"}. ` +
-      `Scheduled: ${record.scheduledFor ?? "not scheduled yet"}${record.publishedUrl ? `, published at ${record.publishedUrl}` : ""}.`
-    );
-  }
-  return (
-    `(mock) Proposal ${record.id}: source '${record.source}', status '${record.status}'. ` +
-    `Topic: ${String(record.topic).slice(0, 120)}. Reason: ${String(record.reason).slice(0, 140)}`
-  );
 }
 
 const SYSTEM_PROMPT = `You answer an operator's question about ONE Harmonia record.

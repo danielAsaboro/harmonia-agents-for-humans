@@ -124,6 +124,11 @@ export function operationIdForStage(jobId: string, stage: string): string {
   return `job:${jobId}:stage:${stage}`;
 }
 
+export function operationIdForStageGeneration(jobId: string, stage: string, generation: number): string {
+  if (!Number.isInteger(generation) || generation < 0) throw new Error("invalid stage operation generation");
+  return `${operationIdForStage(jobId, stage)}:generation:${generation}`;
+}
+
 export function operationIdForEffect(jobId: string, commandId: string): string {
   assertIdentitySegment(jobId);
   assertIdentitySegment(commandId);

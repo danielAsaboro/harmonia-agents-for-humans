@@ -4,17 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 from pathlib import Path
 import pytest
 
 from harmonia_agent import stages
 from harmonia_agent.agent_models import SourceAnalysis
 from harmonia_agent.agents import AnalysisRunResult
+from harmonia_agent.content_production import ProductionResult
 from harmonia_agent.effect_executor import ExecutionResult
 from harmonia_agent.web_client import EffectClaimInProgress, EffectClaimUncertain
 from tests.test_ryan_strategy import strategy as _content_strategy
 from tests.test_temi_editorial_plan import plan as _editorial_plan
-from tests.test_temi_stages import accepted_package
 
 
 def _analysis() -> dict:
@@ -24,7 +25,7 @@ def _analysis() -> dict:
         "moments": [{
             "id": "m1", "title": "Activation", "startSec": 0, "endSec": 0,
             "hook": "Cut the delay", "quote": "Nine days became forty hours.",
-            "transcriptSegmentRefs": ["brief-1"], "visualEvidenceIds": [],
+            "sourceSegmentRefs": ["brief-1"], "visualEvidenceIds": [],
             "assumptions": [], "confidence": "high",
         }],
         "angles": [{
@@ -48,7 +49,7 @@ def _effect_command(action: dict) -> dict:
     }
 
 
-def test_understand_brief_routes_through_nimi_without_strategy(monkeypatch):
+def test_understand_written_source_routes_through_nimi_without_fake_timestamps(monkeypatch):
     requests = []
     posts = []
 
@@ -56,20 +57,18 @@ def test_understand_brief_routes_through_nimi_without_strategy(monkeypatch):
         requests.append((request, invocation))
         result = _analysis()
         result["sourceDigest"] = request.sourceDigest
-        result["moments"][0].update(
-            quote=request.transcriptSegments[0].text,
-            transcriptSegmentRefs=[request.transcriptSegments[0].id],
-        )
+        result["moments"] = []
+        result["angles"][0]["evidenceRefs"] = [request.sourceSegments[0].id]
         return AnalysisRunResult(
             analysis=SourceAnalysis.model_validate(result),
             searchEvidence={}, groundingMetadata=None,
         )
 
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
-        "config": {"brief": "Explain our activation win"},
+        "id": "job-1", "config": {"sourceManifestId": "manifest-1"},
         "workspaceId": "workspace-test", "brandId": "brand-test", "createdByUserId": "user-test",
-        "transcriptSegments": [],
     })
+    monkeypatch.setattr(stages, "get_source_manifest", lambda _job_id: {"normalizedSources": [{"sourceId": "source-1", "sourceKind": "document", "title": "Activation brief", "mimeType": "application/pdf", "contentDigest": "a" * 64, "segments": [{"id": "page-1", "text": "Explain our activation win", "digest": "b" * 64, "locator": {"kind": "page_range", "startPage": 1, "endPage": 1}}]}]})
     monkeypatch.setattr(stages, "get_insights", lambda: {})
     monkeypatch.setattr(stages, "analyze_with_team", fake_analyze)
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
@@ -77,8 +76,9 @@ def test_understand_brief_routes_through_nimi_without_strategy(monkeypatch):
     asyncio.run(stages.run_understand("job-1"))
 
     request, invocation = requests[0]
-    assert request.sourceKind == "brief"
-    assert request.transcriptSegments[0].text == "Explain our activation win"
+    assert request.sourceKind == "document"
+    assert request.sourceSegments[0].text == "Explain our activation win"
+    assert request.sourceSegments[0].locator.kind == "page_range"
     assert request.memoryFacts == []
     assert invocation.job_id == "job-1"
     assert invocation.stage == "understand"
@@ -100,8 +100,16 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
     job = {
         "workspaceId": "workspace-test", "brandId": "brand-test", "createdByUserId": "user-test",
         "config": {"brief": "Activation launch"},
-        "ingestedTitle": "Activation launch",
         "sourceAnalysis": _analysis(),
+        "campaignOutputPlan": {
+            "id": "output-plan-job-1",
+            "digest": "d" * 64,
+            "outputs": [{
+                "id": "output-1-x-post",
+                "outputType": "x_post",
+                "evidenceRefs": ["source-1:segment-1"],
+            }],
+        },
         "strategyDigest": "a" * 64,
         "strategyApproval": {"decision": "approved", "payloadDigest": "a" * 64, "revision": 1, "decidedAt": "2026-08-27T00:00:00Z", "expiresAt": "2099-01-01T00:00:00Z"},
         "contentStrategy": _content_strategy().model_dump(mode="json"),
@@ -111,33 +119,62 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
         "selectedNextItemId": persisted_plan["selectedNextItemId"],
         "editorialItemStates": {persisted_plan["selectedNextItemId"]: {"status": "selected"}},
     }
-    async def fake_draft(*_args, **_kwargs):
-        return accepted_package(_args[0])
+    async def fake_produce(*_args, **_kwargs):
+        artifact = {
+            "id": "artifact-x-post",
+            "outputPlanItemId": "output-1-x-post",
+            "outputType": "x_post",
+            "title": "Activation launch",
+            "sourceSegmentRefs": ["source-1:segment-1"],
+            "payload": {"kind": "x_post", "text": "Nine days became forty hours."},
+        }
+        review = {
+            "artifactId": "artifact-x-post",
+            "decision": "accept",
+            "checks": [
+                {"kind": kind, "passed": True, "note": "Passes the bounded check."}
+                for kind in ("grounding", "brief", "brand", "format", "cta", "safety", "clarity")
+            ],
+            "issues": [],
+        }
+        return ProductionResult.model_validate({
+            "original": {"artifacts": [artifact]},
+            "firstReview": {"reviews": [review]},
+            "revision": None,
+            "finalReview": None,
+            "accepted": {"artifacts": [artifact]},
+        })
 
     monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "get_source_manifest", lambda _job_id: {
+        "normalizedSources": [{
+            "sourceId": "source-1",
+            "segments": [{"id": "segment-1", "text": "Nine days became forty hours."}],
+        }],
+    })
     monkeypatch.setattr(stages, "get_insights", lambda: {"goals": {"voice": "direct"}})
-    monkeypatch.setattr(stages, "draft_with_team", fake_draft)
+    monkeypatch.setattr(stages, "produce_artifacts_with_team", fake_produce)
     def fake_post(path, payload):
         posts.append((path, payload))
-        return {"outcome": "execute"} if payload.get("operation") == "claim" else {"ok": True}
+        return {"outcome": "execute"} if path.endswith("/claim") else {"ok": True}
     monkeypatch.setattr(stages, "web_post", fake_post)
 
     asyncio.run(stages.run_draft("job-1"))
 
     path, payload = posts[-1]
-    assert path == "/api/internal/drafts"
-    assert set(payload) == {"jobId", "stage", "operation", "editorialPlanId", "editorialPlanDigest", "editorialItemId", "briefId", "productionTrace", "proposedActions"}
-    draft_text = {payload["productionTrace"]["acceptedDraft"]["text"]}
-    publish_text = {
-        action["payload"]["text"]
-        for action in payload["proposedActions"]
-        if action["type"] == "publish_x_post"
-    }
-    assert publish_text <= draft_text
-    assert any(action["id"] == "act-content-pack" for action in payload["proposedActions"])
+    assert path == "/api/internal/content-artifacts"
+    assert set(payload) == {"jobId", "stage", "operation", "editorialPlanId", "editorialPlanDigest", "editorialItemId", "briefId", "result"}
+    assert payload["result"]["accepted"]["artifacts"] == [{
+        "id": "artifact-x-post",
+        "outputPlanItemId": "output-1-x-post",
+        "outputType": "x_post",
+        "title": "Activation launch",
+        "sourceSegmentRefs": ["source-1:segment-1"],
+        "payload": {"kind": "x_post", "text": "Nine days became forty hours."},
+    }]
 
 
-def test_understand_video_passes_direct_source_media_evidence(monkeypatch):
+def test_understand_video_passes_typed_time_range_evidence(monkeypatch):
     requests = []
     posts = []
 
@@ -147,7 +184,7 @@ def test_understand_video_passes_direct_source_media_evidence(monkeypatch):
         result["sourceDigest"] = request.sourceDigest
         result["moments"][0].update(
             startSec=0, endSec=5, quote="hello",
-            transcriptSegmentRefs=["s1"],
+            sourceSegmentRefs=["source-video:s1"],
         )
         return AnalysisRunResult(
             analysis=SourceAnalysis.model_validate(result),
@@ -155,14 +192,10 @@ def test_understand_video_passes_direct_source_media_evidence(monkeypatch):
         )
 
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
-        "config": {"youtubeUrl": "https://www.youtube.com/watch?v=abc12345678"},
+        "id": "job-video", "config": {"sourceManifestId": "manifest-video"},
         "workspaceId": "workspace-test", "brandId": "brand-test", "createdByUserId": "user-test",
-        "transcriptSegments": [{"id": "s1", "startSec": 0, "endSec": 5, "text": "hello"}],
-        "ingestedTitle": "Demo video",
-        "ingestedChannel": "Harmonia",
-        "ingestedDurationSec": 60,
-        "mediaDigest": "a" * 64,
     })
+    monkeypatch.setattr(stages, "get_source_manifest", lambda _job_id: {"normalizedSources": [{"sourceId": "source-video", "sourceKind": "video", "title": "Demo video", "mimeType": "video/mp4", "contentDigest": "a" * 64, "segments": [{"id": "s1", "text": "hello", "digest": "b" * 64, "locator": {"kind": "time_range", "startMs": 0, "endMs": 5000}}]}]})
     monkeypatch.setattr(stages, "get_insights", lambda: {})
     monkeypatch.setattr(stages, "analyze_with_team", fake_analyze)
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
@@ -171,52 +204,44 @@ def test_understand_video_passes_direct_source_media_evidence(monkeypatch):
 
     request, invocation = requests[0]
     assert invocation.stage == "understand"
-    assert request.mediaEvidence.video_uri.endswith("abc12345678")
-    assert request.mediaEvidence.duration_sec == 60
-    assert request.mediaEvidence.source_digest == "a" * 64
-    assert request.transcriptSegments[0].text == "hello"
+    assert request.sourceIds == ["source-video"]
+    assert request.sourceSegments[0].locator.endMs == 5000
+    assert request.sourceSegments[0].text == "hello"
 
 
-def test_ingest_uploaded_media_uses_tenant_scoped_attachment(monkeypatch):
-    posts = []
+def test_extract_uploaded_media_uses_tenant_scoped_attachment(monkeypatch):
     media = b"uploaded-media"
-    monkeypatch.setattr(stages, "get_job", lambda _job_id: {
-        "config": {
-            "mediaAttachmentId": "attachment-1",
-            "mediaFilename": "founder-demo.mp4",
-            "mediaMime": "video/mp4",
-            "mediaStorageUri": "gs://bucket/chat-attachments/ws/brand/attachment-1.mp4",
-        },
-    })
     monkeypatch.setattr(stages, "get_chat_attachment", lambda _id: (media, "video/mp4", "founder-demo.mp4"))
-    monkeypatch.setattr(stages.youtube, "probe_audio_duration", lambda _bytes: 42)
-    monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
-
-    asyncio.run(stages.run_ingest("job-upload"))
-
-    path, payload = posts[0]
-    assert path == "/api/internal/ingest"
-    assert payload["videoId"] == "attachment-1"
-    assert payload["title"] == "founder-demo.mp4"
-    assert payload["durationSec"] == 42
-    assert payload["mediaBytes"] == len(media)
+    monkeypatch.setattr(stages, "extract_media", lambda source_id, title, body, mime, **_kwargs: (source_id, title, body, mime))
+    result = stages._extract_source({"id": "job-upload", "workspaceId": "w", "brandId": "b", "createdByUserId": "u"}, {"id": "source-upload"}, {"kind": "upload", "attachmentId": "attachment-1"})
+    assert result == ("source-upload", "founder-demo.mp4", media, "video/mp4")
 
 
-@pytest.mark.parametrize(("stored_markdown", "verified"), [
-    ("Approved content pack", True),
-    ("Tampered after receipt", False),
-])
-def test_verify_posts_observed_receipt_and_trace_lineage(monkeypatch, stored_markdown, verified):
+@pytest.mark.parametrize("verified", [True, False])
+def test_verify_posts_content_artifact_readback_and_trace_lineage(monkeypatch, verified):
     posts = []
-    approved_markdown = "Approved content pack"
-    digest = hashlib.sha256(approved_markdown.encode()).hexdigest()
+    artifact = {
+        "id": "artifact-1", "jobId": "job-1", "outputPlanId": "plan-1",
+        "outputPlanDigest": "a" * 64, "outputType": "x_post", "revision": 1,
+        "title": "Launch", "sourceSegmentRefs": ["source-1:segment-1"],
+        "producer": {"role": "noni", "model": "gemini-3.5-flash", "traceId": "b" * 32},
+        "review": {"role": "dara", "traceId": "c" * 32, "decision": "accept"},
+        "mimeType": "text/markdown", "createdAt": "2026-08-30T00:00:00.000Z",
+        "payload": {"kind": "x_post", "text": "Approved"},
+    }
+    digest = hashlib.sha256(json.dumps(artifact, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    artifact["contentDigest"] = digest
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
-        "actions": [{"id": "a1", "type": "export_content_pack", "state": "executed"}],
-        "contentPack": {"markdown": stored_markdown, "digest": digest},
+        "actions": [{"id": "a1", "type": "export_content_artifact", "state": "executed", "payload": {"artifactId": "artifact-1", "artifactDigest": digest}}],
     })
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [{
-        "id": "r1", "actionId": "a1", "detail": {"digest": digest},
+        "id": "r1", "actionId": "a1", "detail": {"artifactId": "artifact-1", "artifactRevision": 1, "artifactDigest": digest, "jsonObjectId": "object-2"},
     }])
+    monkeypatch.setattr(stages, "get_content_artifact", lambda *_args: artifact)
+    if verified:
+        monkeypatch.setattr(stages, "verify_content_artifact_export", lambda *_args, **_kwargs: {"artifactId": "artifact-1", "artifactDigest": digest})
+    else:
+        monkeypatch.setattr(stages, "verify_content_artifact_export", lambda *_args, **_kwargs: (_ for _ in ()).throw(stages.ArtifactVerificationError("mutated")))
     monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
 
@@ -230,7 +255,7 @@ def test_verify_posts_observed_receipt_and_trace_lineage(monkeypatch, stored_mar
     assert result["traceId"] == "a" * 32
     assert result["method"] == "artifact_digest_reread"
     assert result["verified"] is verified
-    assert result["evidence"]["digest"] == hashlib.sha256(stored_markdown.encode()).hexdigest()
+    assert result["evidence"]["digest"] == (digest if verified else None)
 
 
 @pytest.mark.parametrize(("observed_text", "verified"), [
@@ -261,47 +286,11 @@ def test_x_verification_binds_readback_to_receipted_content(monkeypatch, observe
     assert ("matches" in result["note"]) is verified
 
 
-def test_content_pack_receipt_carries_the_applied_artifact_digest(monkeypatch):
-    posts = []
-    captured = {}
-    analysis = _analysis()
-    job = {
-        "stage": "publish", "ingestedTitle": "Launch", "config": {"brief": "Launch"},
-        "sourceAnalysis": analysis, "drafts": [],
-        "actions": [{
-            "id": "a1", "type": "export_content_pack", "state": "planned",
-            "requiresApproval": True, "approvalState": "approved", "payload": {},
-        }],
-    }
-    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
-    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(job["actions"][0])])
-    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
-    monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
-    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
-    monkeypatch.setattr(stages, "transition_effect_command", lambda _phase, _payload: {})
-    def build_pack(title, source, moments, angles, drafts):
-        captured.update({"title": title, "source": source, "moments": moments, "angles": angles, "drafts": drafts})
-        return "pack"
-    monkeypatch.setattr(stages.content, "build_content_pack", build_pack)
-    monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
-
-    asyncio.run(stages.run_publish("job-1"))
-
-    receipt = next(payload for path, payload in posts if path == "/api/internal/receipt")
-    assert receipt["outcome"] == "applied"
-    assert receipt["artifact"]["digest"] == receipt["detail"]["digest"]
-    assert len(receipt["artifact"]["digest"]) == 64
-    assert receipt["claimToken"]
-    assert captured["moments"] == analysis["moments"]
-    assert captured["angles"] == analysis["angles"]
-
-
 def test_paid_media_actions_read_canonical_source_analysis():
     analysis = _analysis()
     analysis["moments"][0]["visualHook"] = "Metric rises on screen"
 
     actions = stages.deterministic_generative_media_actions({
-        "ingestedTitle": "Activation launch",
         "sourceAnalysis": analysis,
     })
 
@@ -316,37 +305,6 @@ def test_meme_angles_use_the_canonical_angle_type():
     analysis["angles"][0].update(angleType="meme", evidenceKind="public_context")
 
     assert stages._meme_angles({"sourceAnalysis": analysis}) == analysis["angles"]
-
-
-def test_publish_never_enters_effect_adapter_without_execute_claim(monkeypatch):
-    calls = []
-    job = {
-        "stage": "publish", "ingestedTitle": "Launch", "config": {"brief": "Launch"},
-        "moments": [], "angles": [], "drafts": [],
-        "actions": [{
-            "id": "a1", "type": "export_content_pack", "state": "planned",
-            "requiresApproval": True, "approvalState": "approved", "payload": {},
-        }],
-    }
-    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
-    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(job["actions"][0])])
-    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
-    monkeypatch.setattr(stages.content, "build_content_pack", lambda *_args: calls.append("effect") or "pack")
-    monkeypatch.setattr(stages, "web_post", lambda path, payload: calls.append(path))
-
-    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "already_applied", "attempt": 1, "receiptId": "r1"})
-    asyncio.run(stages.run_publish("job-1"))
-    assert "effect" not in calls
-
-    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "in_progress", "attempt": 1})
-    with pytest.raises(EffectClaimInProgress):
-        asyncio.run(stages.run_publish("job-1"))
-    assert "effect" not in calls
-
-    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "uncertain", "attempt": 1})
-    with pytest.raises(EffectClaimUncertain):
-        asyncio.run(stages.run_publish("job-1"))
-    assert "effect" not in calls
 
 
 def test_publish_uses_immutable_command_payload_not_mutable_job_action(monkeypatch):
@@ -364,7 +322,7 @@ def test_publish_uses_immutable_command_payload_not_mutable_job_action(monkeypat
     monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [command])
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
     monkeypatch.setattr(stages, "get_connection", lambda _platform: {"accessToken": "fresh"})
-    monkeypatch.setattr(stages, "production_adapters", lambda _token: {"publish_x_post": lambda payload: posted.append(payload["text"]) or {"outcome": "applied", "detail": {"id": "post-1"}}})
+    monkeypatch.setattr(stages, "production_adapters", lambda **_tokens: {"publish_x_post": lambda payload, _context: posted.append(payload["text"]) or {"outcome": "applied", "detail": {"id": "post-1"}}})
     monkeypatch.setattr("harmonia_agent.web_client.claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
     monkeypatch.setattr("harmonia_agent.web_client.transition_effect_command", lambda _phase, _payload: {})
     monkeypatch.setattr("harmonia_agent.web_client.post", lambda path, payload: receipts.append((path, payload)))
@@ -387,8 +345,8 @@ def test_x_connection_is_refreshed_before_the_effect_claim(monkeypatch):
     monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [command])
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
     monkeypatch.setattr(stages, "get_connection", lambda _platform: order.append("connection") or {"accessToken": "fresh"})
-    monkeypatch.setattr(stages, "production_adapters", lambda token: {
-        "publish_x_post": lambda _payload: order.append(f"provider:{token}") or {"outcome": "applied", "detail": {"id": "post-1"}},
+    monkeypatch.setattr(stages, "production_adapters", lambda **tokens: {
+        "publish_x_post": lambda _payload, _context: order.append(f"provider:{tokens['x_access_token']}") or {"outcome": "applied", "detail": {"id": "post-1"}},
     })
     monkeypatch.setattr("harmonia_agent.web_client.claim_effect", lambda _payload: order.append("claim") or {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
     monkeypatch.setattr("harmonia_agent.web_client.transition_effect_command", lambda _phase, _payload: None)
@@ -408,7 +366,7 @@ def test_x_unknown_outcome_enters_the_existing_uncertain_control_path(monkeypatc
     monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [command])
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
     monkeypatch.setattr(stages, "get_connection", lambda _platform: {"accessToken": "fresh"})
-    monkeypatch.setattr(stages, "production_adapters", lambda _token: {})
+    monkeypatch.setattr(stages, "production_adapters", lambda **_tokens: {})
     monkeypatch.setattr(stages, "execute_effect_command", lambda *_args, **_kwargs: ExecutionResult("unknown"))
 
     with pytest.raises(EffectClaimUncertain, match="no final receipt"):
@@ -416,16 +374,14 @@ def test_x_unknown_outcome_enters_the_existing_uncertain_control_path(monkeypatc
 
 def test_uploaded_media_is_materialized_for_clip_rendering(monkeypatch, tmp_path):
     monkeypatch.setattr(stages, "get_chat_attachment", lambda _id: (b"video", "video/mp4", "demo.mp4"))
-    source = stages._materialize_source_video({
-        "config": {"mediaAttachmentId": "attachment-1", "mediaFilename": "demo.mp4"},
-    }, str(tmp_path))
+    monkeypatch.setattr(stages, "get_source", lambda _id: {"payload": {"input": {"kind": "upload", "attachmentId": "attachment-1"}}})
+    source = stages._materialize_source_video("job-1", {"sourceSegmentRefs": ["source-1:segment-1"]}, str(tmp_path))
     assert source == Path(tmp_path) / "source.mp4"
     assert source.read_bytes() == b"video"
 
 
 def test_paid_media_actions_are_deterministic_and_reference_reviewed_evidence_only():
     actions = stages.deterministic_generative_media_actions({
-        "ingestedTitle": "Activation launch",
         "sourceAnalysis": {
             "moments": [{
                 "id": "m1", "title": "Dashboard reveal", "visualHook": "Metric rises on screen",

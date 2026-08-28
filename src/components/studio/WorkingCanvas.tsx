@@ -39,7 +39,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
   const [view, setView] = useState<CanvasView>("board");
   const [a2uiActionError, setA2uiActionError] = useState<string | null>(null);
   const model = job ? buildStudioWorkspace(job, receipts) : null;
-  const selectedView: CanvasView | null = selectedArtifactId?.startsWith("draft:") ? "written"
+  const selectedView: CanvasView | null = selectedArtifactId?.startsWith("artifact:") ? "written"
     : selectedArtifactId?.startsWith("visual:") ? "visual"
       : selectedArtifactId?.startsWith("motion:") ? "motion"
         : selectedArtifactId?.startsWith("audio:") ? "audio"
@@ -65,7 +65,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
     { key: "visual", label: "Visual", count: model?.visual.length },
     { key: "motion", label: "Motion", count: model?.motion.length },
     { key: "audio", label: "Audio", count: model?.audio.length },
-    { key: "sources", label: "Sources", count: model ? model.sources.transcriptSegments.length + model.sources.moments.length : undefined },
+    { key: "sources", label: "Sources", count: model ? model.sources.normalizedSources.length : undefined },
   ];
 
   function selectFromBoard(artifactId: string, nextView?: string) {
@@ -77,7 +77,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-r-[23px] bg-[#f3f0e8]" data-a2ui-slot="canvas">
       <header className="flex h-[72px] shrink-0 items-center gap-3 border-b border-black/10 px-[22px]">
         <strong className="text-lg font-extrabold">harmonia</strong>
-        <span className="min-w-0 truncate font-mono text-[9px] text-[#77736b]">/ {job ? (job.ingestedTitle || job.config.brief || job.id).slice(0, 44) : "No campaign"} / Working set</span>
+        <span className="min-w-0 truncate font-mono text-[9px] text-[#77736b]">/ {job ? (job.sourceAnalysis?.summary || `Source bundle ${job.config.sourceManifestId.slice(0, 8)}`).slice(0, 44) : "No campaign"} / Working set</span>
         <span className="ml-auto hidden rounded-full border border-black/10 px-2 py-1.5 font-mono text-[8px] text-[#77736b] sm:inline"><b className="text-[#33906a]">✓</b> autosaved</span>
         <button type="button" onClick={() => { const details = document.querySelector<HTMLDetailsElement>("[aria-label='Approval boundary'] > details"); if (details) details.open = true; }} className="rounded-full bg-[#11110f] px-3 py-2.5 text-[9px] font-bold text-white">Review <b className="text-[#d8ff3e]">{model?.pendingActions.length ?? 0}</b></button>
       </header>
@@ -96,7 +96,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
             }
             const actionJobId = String(action.context.jobId ?? "");
             const draftId = String(action.context.draftId ?? "");
-            if (!job || actionJobId !== job.id || !job.drafts.some((draft) => draft.id === draftId) || !onRequestSurfaceRevision) {
+            if (!job || actionJobId !== job.id || !(job.contentArtifacts ?? []).some((artifact) => artifact.id === draftId) || !onRequestSurfaceRevision) {
               setA2uiActionError("The generated revision request did not match the active persisted draft.");
               return;
             }

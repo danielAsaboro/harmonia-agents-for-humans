@@ -14,38 +14,39 @@ const actor = {
 const state: JobControlState = {
   jobId: "job-1",
   status: "running",
-  desiredState: "run",
-  controlVersion: 2,
+  controlState: "running",
+  controlEpoch: 2,
 };
 
-function envelope(action: "pause" | "resume" | "cancel", expectedControlVersion = 2, commandId = `command-${action}`) {
+function envelope(action: "pause" | "resume" | "cancel", expectedControlEpoch = 2, commandId = `command-${action}`) {
   return createCommandEnvelope({
     commandId,
     jobId: "job-1",
     action,
-    expectedControlVersion,
+    expectedControlEpoch,
+    ...(action === "cancel" ? { confirmation: "CANCEL job-1" } : {}),
     actor,
     receivedAt: "2026-08-31T00:00:00.000Z",
   });
 }
 
 describe("job control commands", () => {
-  it("applies pause, resume, and cancellation as versioned desired state", () => {
+  it("applies pause, resume, and cancellation through one versioned control state", () => {
     const paused = decideJobControl(state, envelope("pause"));
-    expect(paused).toMatchObject({ accepted: true, next: { desiredState: "pause_requested", controlVersion: 3 } });
+    expect(paused).toMatchObject({ accepted: true, next: { controlState: "paused", controlEpoch: 3 } });
 
     const resumed = decideJobControl(paused.next!, envelope("resume", 3));
-    expect(resumed).toMatchObject({ accepted: true, next: { desiredState: "run", controlVersion: 4 } });
+    expect(resumed).toMatchObject({ accepted: true, next: { controlState: "running", controlEpoch: 4 } });
 
     const cancelled = decideJobControl(state, envelope("cancel"));
-    expect(cancelled).toMatchObject({ accepted: true, next: { desiredState: "cancel_requested", controlVersion: 3 } });
+    expect(cancelled).toMatchObject({ accepted: true, next: { controlState: "cancelled", controlEpoch: 3 } });
   });
 
   it("rejects stale versions and invalid lifecycle transitions without mutating state", () => {
     const stale = decideJobControl(state, envelope("pause", 1));
     expect(stale).toMatchObject({
       accepted: false,
-      errorCode: "stale_control_version",
+      errorCode: "stale_control_epoch",
     });
     expect(stale).not.toHaveProperty("next");
     expect(decideJobControl({ ...state, status: "complete" }, envelope("cancel"))).toMatchObject({
@@ -58,6 +59,22 @@ describe("job control commands", () => {
     });
   });
 
+  it("requires an exact job-scoped cancellation confirmation", () => {
+    const command = createCommandEnvelope({
+      commandId: "command-cancel-unconfirmed",
+      jobId: "job-1",
+      action: "cancel",
+      expectedControlEpoch: 2,
+      confirmation: "CANCEL another-job",
+      actor,
+      receivedAt: "2026-08-31T00:00:00.000Z",
+    });
+    expect(decideJobControl(state, command)).toMatchObject({
+      accepted: false,
+      errorCode: "confirmation_required",
+    });
+  });
+
   it("binds the command digest to action, aggregate, version, and actor", () => {
     const original = envelope("pause");
     expect(original.payloadDigest).toMatch(/^[a-f0-9]{64}$/);
@@ -66,9 +83,22 @@ describe("job control commands", () => {
       commandId: original.commandId,
       jobId: "job-1",
       action: "pause",
-      expectedControlVersion: 2,
+      expectedControlEpoch: 2,
       actor: { ...actor, subjectId: "user-2" },
       receivedAt: original.receivedAt,
     }).payloadDigest).not.toBe(original.payloadDigest);
+  });
+
+  it("keeps semantic retries stable when server receipt time changes", () => {
+    const original = envelope("pause");
+    const retry = createCommandEnvelope({
+      commandId: original.commandId,
+      jobId: original.jobId,
+      action: original.action,
+      expectedControlEpoch: original.expectedControlEpoch,
+      actor: original.actor,
+      receivedAt: "2026-08-31T00:01:00.000Z",
+    });
+    expect(retry.payloadDigest).toBe(original.payloadDigest);
   });
 });

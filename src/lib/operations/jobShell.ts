@@ -13,8 +13,8 @@ export const jobLifecycleSchema = z.enum([
 ]);
 export type JobLifecycle = z.infer<typeof jobLifecycleSchema>;
 
-export const jobDesiredStateSchema = z.enum(["run", "pause_requested", "cancel_requested"]);
-export type JobDesiredState = z.infer<typeof jobDesiredStateSchema>;
+export const jobControlStateSchema = z.enum(["running", "paused", "cancelled"]);
+export type JobControlStateValue = z.infer<typeof jobControlStateSchema>;
 
 export const backgroundLivenessSchema = z.enum(["working", "monitoring"]);
 export type BackgroundLiveness = z.infer<typeof backgroundLivenessSchema>;
@@ -24,8 +24,8 @@ export interface JobShellInput {
     id: string;
     status: JobStatus;
     stage: Stage;
-    desiredState: JobDesiredState;
-    controlVersion: number;
+    controlState: JobControlStateValue;
+    controlEpoch: number;
     updatedAt: string;
   };
   pendingApprovalCount: number;
@@ -44,8 +44,8 @@ export interface JobShell {
   jobId: string;
   lifecycle: JobLifecycle;
   stage: Stage;
-  desiredState: JobDesiredState;
-  controlVersion: number;
+  controlState: JobControlStateValue;
+  controlEpoch: number;
   currentStep?: string;
   progress: { completedSteps: number; totalSteps: number };
   backgroundLiveness?: BackgroundLiveness;
@@ -62,8 +62,8 @@ export const jobShellSchema = z.object({
   jobId: z.string().min(1).max(300),
   lifecycle: jobLifecycleSchema,
   stage: z.enum(STAGES),
-  desiredState: jobDesiredStateSchema,
-  controlVersion: z.number().int().nonnegative(),
+  controlState: jobControlStateSchema,
+  controlEpoch: z.number().int().nonnegative(),
   currentStep: z.string().min(1).max(500).optional(),
   progress: z.object({ completedSteps: z.number().int().nonnegative(), totalSteps: z.number().int().positive() }).strict(),
   backgroundLiveness: backgroundLivenessSchema.optional(),
@@ -85,7 +85,7 @@ function nonNegativeInteger(value: number, field: string): void {
 function deriveLifecycle(input: JobShellInput): JobLifecycle {
   if (input.unknownEffectCount > 0) return "uncertain";
   if (input.pendingApprovalCount + input.attentionCount > 0) return "needs_you";
-  if (input.job.desiredState === "pause_requested" || input.job.desiredState === "cancel_requested") return "paused";
+  if (input.job.controlState === "paused" || input.job.controlState === "cancelled") return "paused";
   if (input.job.status === "failed") return "failed";
   if (input.scheduledFor) return "scheduled";
   if (input.job.status === "complete") return "settled";
@@ -99,7 +99,7 @@ export function deriveJobShell(input: JobShellInput): JobShell {
   if (!Number.isInteger(input.lastEventSequence) || input.lastEventSequence < -1) {
     throw new Error("last event sequence must be -1 or a non-negative integer");
   }
-  nonNegativeInteger(input.job.controlVersion, "control version");
+  nonNegativeInteger(input.job.controlEpoch, "control epoch");
   if (!Number.isFinite(Date.parse(input.job.updatedAt))) throw new Error("job updatedAt must be a timestamp");
 
   const inferredCompleted = Math.max(0, runnableStages.indexOf(input.job.stage));
@@ -118,8 +118,8 @@ export function deriveJobShell(input: JobShellInput): JobShell {
     jobId: input.job.id,
     lifecycle,
     stage: input.job.stage,
-    desiredState: input.job.desiredState,
-    controlVersion: input.job.controlVersion,
+    controlState: input.job.controlState,
+    controlEpoch: input.job.controlEpoch,
     ...(input.currentStep ? { currentStep: input.currentStep } : {}),
     progress: { completedSteps, totalSteps },
     ...(input.backgroundLiveness ?? inferredLiveness

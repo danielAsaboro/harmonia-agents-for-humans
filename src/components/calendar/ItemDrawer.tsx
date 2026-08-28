@@ -19,7 +19,7 @@ interface ConnectionInfo {
 }
 
 interface JobBundle {
-  job: { id: string; ingestedTitle?: string; moments?: Array<{ id: string; title: string }> };
+  job: { id: string; sourceAnalysis?: { summary: string }; moments?: Array<{ id: string; title: string }> };
   assets?: Array<{ actionId: string; mime: string }>;
   receipts?: Array<{ actionId: string; outcome: string }>;
   engagement?: Array<{ postId: string; likes: number; reposts: number; url?: string }>;
@@ -378,8 +378,8 @@ export default function ItemDrawer({
           <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">Provenance &amp; outcome</h3>
           <dl className="space-y-1 text-xs">
             <div className="flex gap-2"><dt className="w-20 shrink-0 text-zinc-400">Job</dt><dd className="truncate font-mono">{item.jobId}</dd></div>
-            {jobData?.job?.ingestedTitle && (
-              <div className="flex gap-2"><dt className="w-20 shrink-0 text-zinc-400">Source</dt><dd className="truncate">{jobData.job.ingestedTitle}</dd></div>
+            {jobData?.job?.sourceAnalysis?.summary && (
+              <div className="flex gap-2"><dt className="w-20 shrink-0 text-zinc-400">Source</dt><dd className="truncate">{jobData.job.sourceAnalysis.summary}</dd></div>
             )}
             {item.publishedUrl && (
               <div className="flex gap-2">

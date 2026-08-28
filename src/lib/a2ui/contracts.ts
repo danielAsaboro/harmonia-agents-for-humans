@@ -154,7 +154,7 @@ const campaignBriefSchema = baseComponent.extend({
   jobId: id,
   title: z.string().min(1).max(200),
   brief: z.string().max(4_000),
-  sourceKind: z.enum(["written", "video", "audio", "mixed"]),
+  sourceKind: z.enum(["video", "audio", "document", "web", "text", "mixed"]),
   platforms: z.array(z.string().min(1).max(50)).max(10),
   angles: z.array(z.object({
     id,
@@ -247,7 +247,7 @@ const sourceEvidenceSchema = baseComponent.extend({
   title: z.string().min(1).max(200),
   sources: z.array(z.object({
     id,
-    kind: z.enum(["video", "audio", "media", "transcript", "moment", "angle", "receipt"]),
+    kind: z.enum(["video", "audio", "document", "web", "text", "segment", "moment", "angle", "receipt"]),
     label: z.string().min(1).max(300),
     url: httpUrl.optional(),
     excerpt: z.string().max(4_000).optional(),

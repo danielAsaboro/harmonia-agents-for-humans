@@ -20,7 +20,7 @@ def test_accepts_exactly_grounded_analysis():
 
 @pytest.mark.parametrize(("mutation", "message"), [
     (lambda value: value.update(sourceDigest="c" * 64), "source digest"),
-    (lambda value: value["moments"][0].update(transcriptSegmentRefs=["invented"]), "transcript segment"),
+    (lambda value: value["moments"][0].update(sourceSegmentRefs=["invented"]), "source segment"),
     (lambda value: value["moments"][0].update(quote="This was never said."), "exact quote"),
     (lambda value: value["moments"][0].update(startSec=0), "time bounds"),
     (lambda value: value["moments"][0].update(visualEvidenceIds=["invented"]), "visual evidence"),

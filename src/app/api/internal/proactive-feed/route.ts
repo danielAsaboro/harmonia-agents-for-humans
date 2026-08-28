@@ -58,7 +58,7 @@ async function get(_req: Request) {
     })),
     failedJobs: jobs
       .filter((j) => j.status === "failed")
-      .map((j) => ({ id: j.id, stage: j.failure?.stage ?? "", error: j.failure?.error ?? "", permanent: j.failure?.permanent ?? false, at: j.updatedAt })),
+      .map((j) => ({ id: j.id, stage: j.failure?.stage ?? "", error: j.failure?.publicMessage ?? "", permanent: !(j.failure?.retryable ?? true), at: j.updatedAt })),
     stuckJobs: jobs
       .filter((j) => j.status === "running" && Date.parse(j.updatedAt) < now - STUCK_AFTER_MS)
       .map((j) => ({ id: j.id, stage: j.stage, at: j.updatedAt })),

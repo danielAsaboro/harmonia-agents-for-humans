@@ -2,10 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { browserLocalPersistence, GoogleAuthProvider, onAuthStateChanged, setPersistence, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BrandMark } from "@/components/BrandMark";
+import { Button } from "@/components/dashboard/Button";
 import { clientAuth } from "@/lib/firebaseClient";
 import { establishPersistedIdentity, restorePersistedSession, shouldRestorePersistedSession } from "@/lib/sessionPersistence";
+import styles from "./login.module.css";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -79,23 +82,63 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4">
-      <section className="w-full max-w-sm rounded-2xl border border-zinc-200 p-7 shadow-xl shadow-zinc-900/5 dark:border-zinc-800">
-        <div className="flex items-center gap-3 text-sm font-semibold"><BrandMark className="h-10 w-14 rounded-xl bg-[#080b08] object-contain" decorative />Harmonia</div>
-        <h1 className="mt-6 text-2xl font-semibold">Create or open your workspace</h1>
-        <p className="mt-2 text-sm leading-6 text-zinc-500">
-          Continue with Google. Your jobs, connections, memory, assets, and publishing approvals stay isolated in your workspace.
-        </p>
-        {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
-        <button
-          type="button"
-          onClick={signIn}
-          disabled={busy}
-          className="mt-6 flex w-full items-center justify-center gap-3 rounded-full border border-zinc-300 px-4 py-2.5 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-        >
-          <span aria-hidden className="text-base font-bold text-blue-600">G</span>
-          {busy ? "Signing in…" : "Continue with Google"}
-        </button>
+    <main className={`${styles.shell} dashboard-app`}>
+      <section className={styles.story} aria-label="About Harmonia">
+        <Link className={styles.brand} href="/" aria-label="Harmonia home">
+          <BrandMark className={styles.brandMark} decorative />
+          <span>Harmonia</span>
+        </Link>
+
+        <div className={styles.storyCopy}>
+          <p className={styles.eyebrow}>THE CONTENT OPERATING SYSTEM</p>
+          <h1>Turn one source into a week of approved, publishable content.</h1>
+          <p className={styles.intro}>
+            Harmonia coordinates research, drafting, review, publishing, and verification—while keeping every material action behind your approval.
+          </p>
+        </div>
+
+        <div className={styles.signal} aria-label="Workflow safeguards">
+          <span><i aria-hidden /> Human approval required</span>
+          <span>Auditable by design</span>
+        </div>
+      </section>
+
+      <section className={styles.auth}>
+        <div className={styles.authPanel} aria-busy={busy}>
+          <div className={styles.panelHeading}>
+            <p className={styles.eyebrow}>OPERATOR ACCESS</p>
+            <h2>Create or open your workspace</h2>
+            <p>Continue with the Google identity that owns your Harmonia workspace.</p>
+          </div>
+
+          {error && <p className={styles.error} role="alert">{error}</p>}
+
+          <Button
+            variant="primary"
+            onClick={signIn}
+            busy={busy}
+            busyLabel="Signing in…"
+            className={styles.googleButton}
+          >
+            <svg className={styles.googleLogo} viewBox="0 0 18 18" aria-hidden="true">
+              <path fill="#4285f4" d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 0 1-1.797 2.716v2.259h2.909c1.702-1.567 2.684-3.876 2.684-6.615Z" />
+              <path fill="#34a853" d="M9 18c2.43 0 4.468-.806 5.956-2.18l-2.91-2.259c-.805.54-1.835.86-3.046.86-2.344 0-4.328-1.585-5.037-3.714H.956v2.332A9 9 0 0 0 9 18Z" />
+              <path fill="#fbbc05" d="M3.963 10.707A5.41 5.41 0 0 1 3.682 9c0-.592.102-1.168.281-1.707V4.961H.956A9 9 0 0 0 0 9c0 1.452.347 2.827.956 4.039l3.007-2.332Z" />
+              <path fill="#ea4335" d="M9 3.58c1.321 0 2.507.454 3.441 1.346l2.581-2.581C13.464.892 11.43 0 9 0A9 9 0 0 0 .956 4.961l3.007 2.332C4.672 5.165 6.656 3.58 9 3.58Z" />
+            </svg>
+            Continue with Google
+          </Button>
+
+          <p className={styles.privacy}>
+            Jobs, connections, memory, assets, and publishing approvals remain isolated to your workspace.
+          </p>
+
+          <div className={styles.trustLine}>
+            <span>Secure session</span>
+            <span aria-hidden>•</span>
+            <span>30-day sign-in</span>
+          </div>
+        </div>
       </section>
     </main>
   );

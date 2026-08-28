@@ -1,6 +1,6 @@
 export type WorkflowStageId =
   | "source"
-  | "transcribe"
+  | "extract"
   | "understand"
   | "draft"
   | "approve"
@@ -21,18 +21,18 @@ export const WORKFLOW_STAGES: readonly WorkflowStage[] = [
   {
     id: "source",
     index: "01",
-    verb: "Ingest",
-    title: "One long-form source",
-    detail: "A real YouTube link or uploaded video enters the engine once.",
-    signal: "16:42 source locked",
+    verb: "Collect",
+    title: "A complete source bundle",
+    detail: "Direct inputs and one immutable brand-library snapshot are sealed together.",
+    signal: "manifest sealed",
   },
   {
-    id: "transcribe",
+    id: "extract",
     index: "02",
-    verb: "Transcribe",
-    title: "Speech becomes timed signal",
-    detail: "Gemini turns the recording into searchable, time-aware material.",
-    signal: "2,846 words aligned",
+    verb: "Extract",
+    title: "Every source becomes evidence",
+    detail: "Gemini and deterministic parsers preserve time, page, section, line, and URL locators.",
+    signal: "sources normalized",
   },
   {
     id: "understand",
@@ -93,7 +93,7 @@ export function getWorkflowStage(index: number): WorkflowStage {
 
 export type LiveWorkflowFrameId =
   | "source"
-  | "transcribe"
+  | "extract"
   | "signals"
   | "draft"
   | "approval"
@@ -119,10 +119,10 @@ export const LIVE_WORKFLOW_FRAMES: readonly LiveWorkflowFrame[] = [
     requiresClick: true,
   },
   {
-    id: "transcribe",
+    id: "extract",
     step: "02",
-    label: "Gemini listens",
-    detail: "Timed speech becomes searchable material without losing its place in the source.",
+    label: "Sources normalize",
+    detail: "Media, documents, webpages, and text become searchable without losing provenance.",
     mode: "intelligence",
     requiresClick: false,
   },

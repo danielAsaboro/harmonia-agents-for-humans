@@ -8,7 +8,7 @@ const jobSummarySchema = z.object({
   stage: z.string().min(1).max(100),
   status: z.string().min(1).max(100),
   title: z.string().max(300).optional(),
-  sourceKind: z.enum(["written", "video", "audio", "mixed"]),
+  sourceKind: z.enum(["video", "audio", "document", "web", "text", "mixed"]),
 }).strict();
 
 const draftSummarySchema = z.object({
@@ -30,7 +30,7 @@ const momentSummarySchema = z.object({
 
 const sourceSummarySchema = z.object({
   id,
-  kind: z.enum(["video", "audio", "transcript", "media", "http"]),
+  kind: z.enum(["video", "audio", "document", "web", "text", "segment"]),
   label: z.string().min(1).max(300),
 }).strict();
 

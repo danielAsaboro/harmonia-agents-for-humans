@@ -18,8 +18,9 @@ async function get(req: Request, { params }: { params: Promise<{ id: string }> }
     return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
   }
   const tenant = currentTenant();
+  let operation;
   try {
-    await assertDurableOperationFence({
+    operation = await assertDurableOperationFence({
       ...fence,
       workspaceId: tenant.workspaceId,
       brandId: tenant.brandId,
@@ -48,7 +49,9 @@ async function get(req: Request, { params }: { params: Promise<{ id: string }> }
       id,
       byteMode ? { offset: offset!, length: length! } : { lineStart: lineStart!, lineCount: lineCount! },
     );
-    if (result.record.operationId !== fence.operationId) {
+    const sameJobIndependentRead = (operation.kind === "verification" || operation.kind === "effect")
+      && operation.jobId === result.record.jobId;
+    if (result.record.operationId !== fence.operationId && !sameJobIndependentRead) {
       return Response.json({ error: "operation fence does not authorize this artifact" }, { status: 409 });
     }
     if (result.kind === "lines") {

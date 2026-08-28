@@ -8,7 +8,7 @@ import type { EffectClaim, EffectClaimInput } from "@/lib/types";
 
 const now = new Date("2026-08-25T01:00:00.000Z");
 const input: EffectClaimInput = {
-  jobId: "job-1", actionId: "action-1", actionType: "export_content_pack",
+  jobId: "job-1", actionId: "action-1", actionType: "export_content_artifact",
   idempotencyKey: "a".repeat(64), operationId: "job-1:publish:action-1",
   traceId: "b".repeat(32), claimToken: "claim-token-1",
 };

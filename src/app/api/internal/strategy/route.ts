@@ -26,12 +26,12 @@ export async function POST(req: Request) {
     } });
     await createNotification({
       kind: "approval_needed", title: "Strategy approval needed",
-      body: `${job.ingestedTitle ?? body.jobId} has a four-week strategy proposal waiting for review.`,
+      body: `${job.sourceAnalysis?.summary ?? body.jobId} has a four-week strategy proposal waiting for review.`,
       severity: "warning", refType: "job", refId: body.jobId, href: "/dashboard",
       createdAt: new Date().toISOString(),
     });
     try {
-      await sendTelegramStrategyApproval(body.jobId, job.ingestedTitle ?? body.jobId, digest, accepted.expiresAt);
+      await sendTelegramStrategyApproval(body.jobId, job.sourceAnalysis?.summary ?? body.jobId, digest, accepted.expiresAt);
     } catch (error) {
       console.error("Telegram strategy approval notification failed", { jobId: body.jobId, errorType: error instanceof Error ? error.name : "unknown" });
     }

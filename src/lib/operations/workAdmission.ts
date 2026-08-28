@@ -1,12 +1,12 @@
-import type { JobDesiredState } from "./jobShell";
+import type { JobControlStateValue } from "./jobShell";
 
 export type WorkAdmission =
   | { outcome: "execute" }
   | { outcome: "paused" }
   | { outcome: "cancelled" };
 
-export function decideWorkAdmission(desiredState: JobDesiredState): WorkAdmission {
-  if (desiredState === "pause_requested") return { outcome: "paused" };
-  if (desiredState === "cancel_requested") return { outcome: "cancelled" };
+export function decideWorkAdmission(controlState: JobControlStateValue): WorkAdmission {
+  if (controlState === "paused") return { outcome: "paused" };
+  if (controlState === "cancelled") return { outcome: "cancelled" };
   return { outcome: "execute" };
 }

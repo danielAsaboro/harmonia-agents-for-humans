@@ -23,10 +23,10 @@ from harmonia_agent.agent_models import (
     EditorialPlannerInput,
     EditorialReview,
     LiaisonInput,
-    MediaEvidence,
     StrategistInput,
     StrategistResult,
 )
+from harmonia_agent.content_artifacts import ArtifactProductionInput, ArtifactReviewBatch, ProductionBatch
 from harmonia_agent.agents import (
     AgentProtocolError,
     _reservation_payloads,
@@ -62,9 +62,9 @@ def _planner_input():
 
 def _analyst_input(**updates) -> AnalystInput:
     value = {
-        "sourceId": "source-1", "sourceKind": "brief", "sourceDigest": "a" * 64,
-        "title": "Demo", "channel": "Harmonia",
-        "transcriptSegments": [{"id": "segment-1", "startSec": 0, "endSec": 30, "text": "hello proof We cut nine days to forty hours."}],
+        "sourceIds": ["source-1"], "sourceKind": "video", "sourceDigest": "a" * 64,
+        "title": "Demo",
+        "sourceSegments": [{"id": "segment-1", "sourceId": "source-1", "text": "hello proof We cut nine days to forty hours.", "digest": "b" * 64, "locator": {"kind": "time_range", "startMs": 0, "endMs": 30_000}}],
         "performanceObservations": [], "memoryFacts": [],
     }
     value.update(updates)
@@ -95,7 +95,7 @@ class ScriptedDelegationModel(BaseLlm):
                 if part.file_data is not None
             )
             yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text=(
-                '{"sourceDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","summary":"Delegated analysis","moments":[{"id":"m1","title":"Proof","startSec":0,"endSec":30,"hook":"hello","quote":"hello","transcriptSegmentRefs":["segment-1"],"visualEvidenceIds":[],"assumptions":[],"confidence":"high"}],"angles":[{"id":"a1","angleType":"source_insight","evidenceKind":"source","title":"Source proof","rationale":"The source contains proof.","evidenceRefs":["m1"],"assumptions":[],"confidence":"high"}],"assumptions":[],"confidence":"high"}'
+                '{"sourceDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","summary":"Delegated analysis","moments":[{"id":"m1","title":"Proof","startSec":0,"endSec":30,"hook":"hello","quote":"hello","sourceSegmentRefs":["segment-1"],"visualEvidenceIds":[],"assumptions":[],"confidence":"high"}],"angles":[{"id":"a1","angleType":"source_insight","evidenceKind":"source","title":"Source proof","rationale":"The source contains proof.","evidenceRefs":["m1"],"assumptions":[],"confidence":"high"}],"assumptions":[],"confidence":"high"}'
             ))]))
             return
         if llm_request.tools_dict and not function_responses:
@@ -104,9 +104,9 @@ class ScriptedDelegationModel(BaseLlm):
                 function_call=types.FunctionCall(
                     name="nimi_analyst",
                     args={
-                        "sourceId": "source-1", "sourceKind": "brief",
-                        "sourceDigest": "a" * 64, "title": "Demo", "channel": "Harmonia",
-                        "transcriptSegments": [{"id": "segment-1", "startSec": 0, "endSec": 30, "text": "hello proof We cut nine days to forty hours."}],
+                        "sourceIds": ["source-1"], "sourceKind": "video",
+                        "sourceDigest": "a" * 64, "title": "Demo",
+                        "sourceSegments": [{"id": "segment-1", "sourceId": "source-1", "text": "hello proof We cut nine days to forty hours.", "digest": "b" * 64, "locator": {"kind": "time_range", "startMs": 0, "endMs": 30000}}],
                         "performanceObservations": [], "memoryFacts": [],
                     },
                 ),
@@ -168,7 +168,7 @@ def _analysis() -> SourceAnalysis:
         "moments": [{
             "id": "m1", "title": "Activation", "startSec": 1,
             "endSec": 8, "hook": "Cut the delay", "quote": "We cut nine days to forty hours.",
-            "transcriptSegmentRefs": ["segment-1"], "visualEvidenceIds": [],
+            "sourceSegmentRefs": ["segment-1"], "visualEvidenceIds": [],
             "assumptions": [], "confidence": "high",
         }],
         "angles": [{
@@ -272,6 +272,8 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
         ("temi_editorial_planner", "single_turn"),
         ("noni_copywriter", "single_turn"),
         ("dara_editor", "single_turn"),
+        ("noni_artifact_producer", "single_turn"),
+        ("dara_artifact_editor", "single_turn"),
         ("maya_presenter", "single_turn"),
         ("nova_liaison", "chat"),
     ]
@@ -293,57 +295,20 @@ def test_noni_is_a_focused_skill_backed_typed_specialist():
     assert noni.tools[1].name == "google_search_agent"
 
 
-def test_noni_validated_state_retains_native_grounded_research_for_revalidation():
-    from tests.test_noni_contracts import grounded_draft
-
-    supplied = _production_input()
-    draft = grounded_draft()
-    draft["text"] = (
-        "We cut nine days to forty hours. Founders need verifiable operating proof. "
-        "Ground responses with Google Search. Request a demo."
-    )
-    draft["evidenceRefs"].append("web-1")
-    draft["claims"].append({
-        "text": "Ground responses with Google Search.",
-        "evidenceRefs": ["web-1"],
-    })
+def test_multiformat_noni_validated_state_accepts_exact_batch():
+    supplied = ArtifactProductionInput.model_validate({"outputPlanId": "plan-1", "outputPlanDigest": "a" * 64, "requests": [{"id": "output-1-newsletter", "outputType": "newsletter", "evidenceRefs": ["source-1:seg-1"]}], "evidence": [{"id": "source-1:seg-1", "text": "Proof"}], "brandContext": "Concise and factual", "constraints": [], "passType": "original", "priorBatch": None, "priorReview": None})
     state = {
-        "copywriter_draft": draft,
+        "production_batch": {"artifacts": [{"id": "artifact-1", "outputPlanItemId": "output-1-newsletter", "outputType": "newsletter", "title": "Launch", "sourceSegmentRefs": ["source-1:seg-1"], "payload": {"kind": "newsletter", "subject": "Launch", "preheader": "Proof", "introduction": "Intro", "sections": [{"id": "s1", "heading": "Proof", "body": "Proof", "sourceSegmentRefs": ["source-1:seg-1"]}], "cta": "Try it"}}]},
         "noni_writing_skill_trace": [
             {"sequence": 1, "name": "load_skill", "args": {"skill_name": "noni-writing-skills"}},
             {"sequence": 2, "name": "load_skill_resource", "args": {
                 "skill_name": "noni-writing-skills", "file_path": "references/persuasion.md",
             }},
-            {"sequence": 3, "name": "google_search_agent", "args": {
-                "request": f"For brief {supplied.briefId}, research operating proof terminology.",
-            }, "response": {
-                "briefId": supplied.briefId,
-                "query": "operating proof terminology",
-                "sources": [{
-                    "evidenceId": "web-1", "title": "Google Search Grounding",
-                    "url": "https://adk.dev/grounding/google_search_grounding/",
-                    "supportedText": "Ground responses with Google Search.",
-                }],
-            }},
         ],
-        "_adk_grounding_metadata": {
-            "webSearchQueries": ["operating proof terminology"],
-            "groundingChunks": [{"web": {
-                "title": "Google Search Grounding",
-                "uri": "https://adk.dev/grounding/google_search_grounding/",
-            }}],
-            "groundingSupports": [{
-                "segment": {"text": "Ground responses with Google Search."},
-                "groundingChunkIndices": [0],
-            }],
-        },
     }
 
-    _validate_run_output("noni_copywriter", supplied, state)
-
-    assert state["_noni_research_evidence"]["web-1"][0] == (
-        "Ground responses with Google Search."
-    )
+    _validate_run_output("noni_artifact_producer", supplied, state)
+    assert state["_noni_research_evidence"] == {}
 
 
 def test_dara_is_a_focused_skill_only_review_specialist():
@@ -354,6 +319,14 @@ def test_dara_is_a_focused_skill_only_review_specialist():
     assert dara.output_key == "editorial_assessment"
     assert dara.mode == "single_turn"
     assert len(dara.tools) == 1
+
+
+def test_multiformat_specialists_use_strict_batch_contracts():
+    root = build_agent_team()
+    noni = next(agent for agent in root.sub_agents if agent.name == "noni_artifact_producer")
+    dara = next(agent for agent in root.sub_agents if agent.name == "dara_artifact_editor")
+    assert (noni.input_schema, noni.output_schema, noni.output_key) == (ArtifactProductionInput, ProductionBatch, "production_batch")
+    assert (dara.output_schema, dara.output_key) == (ArtifactReviewBatch, "artifact_review_batch")
 
 
 def test_team_assigns_the_configured_model_to_each_role():
@@ -374,7 +347,7 @@ def test_team_assigns_the_configured_model_to_each_role():
     assert root.model.model == "coordinator-fake"
     assert [agent.model.model for agent in root.sub_agents] == [
         "strategist-fake", "analyst-fake", "planner-fake", "copywriter-fake",
-        "editor-fake", "presenter-fake", "liaison-fake",
+        "editor-fake", "copywriter-fake", "editor-fake", "presenter-fake", "liaison-fake",
     ]
 
 
@@ -440,7 +413,7 @@ def test_agent_reservations_record_exact_model_policy():
         "safetyProfile": "harmonia-standard",
         "maxOutputTokens": 2048,
         "timeoutSeconds": 120,
-        "eligibleTasks": ["analyze_media", "analyze_transcript"],
+        "eligibleTasks": ["analyze_media", "analyze_sources"],
         "minimumPassRate": "0.95",
     }
 
@@ -461,26 +434,17 @@ def test_coordinator_really_delegates_and_forwards_specialist_state():
     assert runtime.calls[0]["user_id"] == "workspace-test:system:proactive"
 
 
-def test_analyst_receives_source_video_as_a_real_multimodal_part():
+def test_analyst_receives_source_video_as_typed_time_range_evidence():
     runtime = ManagedRuntime()
-    source = "https://www.youtube.com/watch?v=abc12345678"
-
     with tenant_scope("workspace-test", "brand-test"):
         asyncio.run(_run_coordinator(
             "nimi_analyst",
-            _analyst_input(
-                sourceKind="media",
-                mediaEvidence=MediaEvidence(
-                    video_uri=source,
-                    duration_sec=60,
-                    source_digest="a" * 64,
-                ),
-            ),
+            _analyst_input(),
             model="gemini-test",
             team_runtime=runtime,
         ))
 
-    assert runtime.calls[0]["payload"]["mediaEvidence"]["video_uri"] == source
+    assert runtime.calls[0]["payload"]["sourceSegments"][0]["locator"] == {"kind": "time_range", "startMs": 0, "endMs": 30_000}
 
 
 def test_temi_runs_as_a_distinct_skill_backed_typed_specialist():
@@ -543,15 +507,3 @@ def test_temi_run_output_rejects_an_unknown_brief():
         _validate_run_output(
             "temi_editorial_planner", supplied, {"editorial_plan": invalid},
         )
-
-
-def test_mock_team_routes_all_roles_and_returns_validated_shapes(monkeypatch, capsys):
-    monkeypatch.setenv("HARMONIA_MOCK_AI", "1")
-    analysis = asyncio.run(analyze_with_team(_analyst_input()))
-    assert analysis.analysis.summary
-    assert analysis.searchEvidence == {}
-    assert analysis.groundingMetadata is None
-    with pytest.raises(RuntimeError, match="no mock editorial-plan path"):
-        asyncio.run(plan_with_team(EditorialPlannerInput.model_validate(_planner_input())))
-    trace = capsys.readouterr().out
-    assert "[MOCK-AI] coordinator -> nimi_analyst" in trace

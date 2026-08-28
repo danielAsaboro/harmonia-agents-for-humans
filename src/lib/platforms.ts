@@ -36,6 +36,24 @@ export interface PlatformDef {
 
 export const PLATFORMS: PlatformDef[] = [
   {
+    id: "google-drive",
+    label: "Google Drive brand library",
+    requiredEnv: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
+    capabilities: [],
+    productAvailability: "active",
+    oauth: {
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      scopes: ["https://www.googleapis.com/auth/drive.readonly"],
+      usesPkce: true,
+      scopeSeparator: " ",
+      tokenAuth: "body",
+      extraAuthorizeParams: { access_type: "offline", prompt: "consent" },
+    },
+    docsUrl: "https://developers.google.com/drive/api/guides/about-auth",
+    note: "Reads only operator-selected brand-library folders; jobs pin immutable snapshots.",
+  },
+  {
     id: "google-calendar",
     label: "Google Calendar",
     requiredEnv: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
@@ -173,7 +191,7 @@ export const PLATFORMS: PlatformDef[] = [
     extraAuthorizeParams: { access_type: "offline", prompt: "consent" },
   },
     docsUrl: "https://developers.google.com/youtube/v3/guides/auth/installed-apps",
-    note: "Uploads via YouTube Data API v3 (youtube.upload scope). Also enriches ingest metadata.",
+    note: "Uploads via YouTube Data API v3 (youtube.upload scope). Also enriches source metadata.",
   },
 ];
 

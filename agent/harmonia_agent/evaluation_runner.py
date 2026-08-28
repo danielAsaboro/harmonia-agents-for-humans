@@ -53,7 +53,7 @@ _PUBLIC_FIXTURES: dict[str, tuple[str, frozenset[str]]] = {
             "public channel", "[0s] public synthetic source [2s] bounded proof",
             "nimi_analyst", "harmonia_coordinator", "model", "user",
             "transfer_to_agent", "agent_name", "source_analysis",
-            '{"sourceDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","summary":"Public synthetic source.","moments":[{"id":"moment-1","title":"Public proof","startSec":0,"endSec":2,"hook":"bounded proof","quote":"public synthetic source bounded proof","transcriptSegmentRefs":["segment-1"],"visualEvidenceIds":[],"assumptions":[],"confidence":"high"}],"angles":[{"id":"angle-1","angleType":"source_insight","evidenceKind":"source","title":"Bounded proof","rationale":"The source contains bounded proof.","evidenceRefs":["moment-1"],"assumptions":[],"confidence":"high"}],"assumptions":[],"confidence":"high"}',
+            '{"sourceDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","summary":"Public synthetic source.","moments":[{"id":"moment-1","title":"Public proof","startSec":0,"endSec":2,"hook":"bounded proof","quote":"public synthetic source bounded proof","sourceSegmentRefs":["segment-1"],"visualEvidenceIds":[],"assumptions":[],"confidence":"high"}],"angles":[{"id":"angle-1","angleType":"source_insight","evidenceKind":"source","title":"Bounded proof","rationale":"The source contains bounded proof.","evidenceRefs":["moment-1"],"assumptions":[],"confidence":"high"}],"assumptions":[],"confidence":"high"}',
             "harmonia_contract",
             '{"kind":"analysis"}', "moment-1", "segment-1", "angle-1", "source",
             "Public proof", "Bounded proof", "Public synthetic source.",
@@ -146,7 +146,7 @@ def validate_eval_set_privacy(value: EvalSet | dict[str, Any]) -> None:
             "intermediateResponses", "intermediate_responses",
                 "kind", "angleType", "evidenceKind", "durationSec", "reviewed", "originals", "momentId",
             "startSec", "endSec", "hook", "quote",
-            "sourceDigest", "transcriptSegmentRefs", "visualEvidenceIds", "assumptions",
+            "sourceDigest", "sourceSegmentRefs", "visualEvidenceIds", "assumptions",
             "production_input", "planId", "strategyDigest", "editorialItem",
             "brief", "briefId", "campaignTheme", "contentPillar", "objective",
             "audienceId", "funnelStage", "intendedConversion", "ctaIntent",
@@ -198,8 +198,6 @@ def _private_output_path(output_path: Path) -> Path:
 async def run_live_eval(
     *, evalset_path: Path, output_path: Path, agent_module: str, num_runs: int,
 ) -> None:
-    if os.environ.get("HARMONIA_MOCK_AI") == "1":
-        raise RuntimeError("refusing real evaluation while HARMONIA_MOCK_AI=1")
     if os.environ.get("HARMONIA_REAL_EVAL") != "1":
         raise RuntimeError("set HARMONIA_REAL_EVAL=1 to authorize a live model evaluation")
     output_path = _private_output_path(output_path)

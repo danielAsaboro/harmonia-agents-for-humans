@@ -6,12 +6,12 @@ description: "Canonical Harmonia stages, gates, terminal states, and transition 
 The canonical stage vocabulary is declared by `STAGES` in `src/lib/types.ts`.
 
 ```text
-queued → ingest → transcribe → understand → strategize
+queued → collect_sources → extract_sources → understand → strategize
 → awaiting_strategy_approval → plan → draft → awaiting_approval
 → publish → verify → learn → complete
 ```
 
-`failed` is terminal until an eligible deterministic retry creates the next authorized transition. Brief-only jobs may enter later work without media ingestion, but persisted state still identifies the actual stage.
+`awaiting_source_resolution` pauses extraction until an operator retries, removes, replaces, or reconnects a failed source and seals a new manifest revision. `failed` is terminal until an eligible deterministic retry creates the next authorized transition.
 
 | Gate | Required record | On rejection |
 |---|---|---|
@@ -22,16 +22,18 @@ Only application transactions advance the stage. Agents, Pub/Sub messages, logs,
 
 The evidence packet is assembled and persisted during verification. It is an artifact and audit event, not a job stage.
 
-## Operational desired state
+## Operational control state
 
-`desiredState` is independent of `status` and `stage`:
+`controlState` is independent of `status` and `stage`:
 
 | Value | Admission behavior |
 |---|---|
-| `run` | New eligible stage and effect claims may execute. |
-| `pause_requested` | New work returns `paused`; an already-owned claim may finish its safe unit. |
-| `cancel_requested` | New work returns `cancelled`; the request cannot be resumed. |
+| `running` | New eligible stage and effect claims may execute. |
+| `paused` | New work returns `paused`; an already-owned claim may finish its safe unit. |
+| `cancelled` | New work returns `cancelled`; unexecuted actions are rejected and the job cannot resume. |
 
-`controlVersion` starts at `0` and increments for each accepted pause, resume, or cancellation command. Commands must present the current version. This prevents a stale browser or duplicate operator action from overwriting a newer decision.
+`controlEpoch` starts at `0` and increments for every accepted control or steering mutation. Commands must present the current epoch. This prevents a stale browser, steering request, or duplicate operator action from overwriting a newer decision.
 
 Pause and cancellation do not rewrite an already-dispatched external effect. Such an effect still requires observation, verification, or uncertain-outcome reconciliation.
+
+Each stage outbox generation has a distinct operation and execution identity. A redo can therefore execute a previously completed stage without overwriting or replaying the earlier generation's durable claim.

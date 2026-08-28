@@ -106,19 +106,21 @@ def test_dispatch_reports_typed_failure_and_quarantines_ambiguous_retry(monkeypa
         raise httpx.ReadTimeout("token=super-secret", request=httpx.Request("GET", "https://provider.example"))
 
     monkeypatch.setitem(stages.HANDLERS, "draft", fail)
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: {"controlState": "running"})
     monkeypatch.setattr(stages, "web_post", lambda path, body: reports.append((path, body)))
     monkeypatch.setattr(stages, "claim_stage_execution", lambda _payload: {"outcome": "execute"})
     monkeypatch.setattr(stages, "finalize_stage_execution", finalized.append)
 
-    assert asyncio.run(stages.dispatch("job-1", "draft", attempt=0)) is True
+    operation_id = "job:job-1:stage:draft:generation:0"
+    assert asyncio.run(stages.dispatch("job-1", "draft", attempt=0, operation_id=operation_id)) == "failed"
     first = reports[-1][1]
     assert first["category"] == "provider_transient"
     assert first["retryable"] is True
-    assert first["operationId"] == "job-1:draft:0"
+    assert first["operationId"] == operation_id
     assert "super-secret" not in str(first)
     assert finalized[-1]["outcome"] == "uncertain"
 
-    assert asyncio.run(stages.dispatch("job-1", "draft", attempt=2)) is True
+    assert asyncio.run(stages.dispatch("job-1", "draft", attempt=2, operation_id=operation_id)) == "failed"
     assert reports[-1][1]["retryable"] is False
     assert finalized[-1]["outcome"] == "failed"
 
@@ -130,10 +132,23 @@ def test_dispatch_does_not_enter_handler_without_stage_lease(monkeypatch):
         entered.append(job_id)
 
     monkeypatch.setitem(stages.HANDLERS, "draft", handler)
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: {"controlState": "running"})
     monkeypatch.setattr(stages, "claim_stage_execution", lambda _payload: {"outcome": "in_progress"})
 
     assert asyncio.run(stages.dispatch("job-1", "draft", attempt=0)) is True
     assert entered == []
+
+
+def test_dispatch_records_generation_fenced_missing_handler(monkeypatch):
+    reports = []
+    operation_id = "job:job-1:stage:obsolete:generation:7"
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: {"controlState": "running"})
+    monkeypatch.setattr(stages, "web_post", lambda path, body: reports.append((path, body)))
+
+    assert asyncio.run(stages.dispatch("job-1", "obsolete", attempt=7, operation_id=operation_id)) == "failed"
+    assert reports[-1][0] == "/api/internal/failure"
+    assert reports[-1][1]["code"] == "missing_stage_handler"
+    assert reports[-1][1]["operationId"] == operation_id
 
 
 def test_dispatch_finalizes_the_exact_stage_claim(monkeypatch):
@@ -143,6 +158,7 @@ def test_dispatch_finalizes_the_exact_stage_claim(monkeypatch):
         return None
 
     monkeypatch.setitem(stages.HANDLERS, "draft", handler)
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: {"controlState": "running"})
     monkeypatch.setattr(stages, "claim_stage_execution", lambda _payload: {"outcome": "execute"})
     monkeypatch.setattr(stages, "finalize_stage_execution", finalized.append)
 

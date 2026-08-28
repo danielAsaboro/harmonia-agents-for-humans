@@ -53,7 +53,7 @@ def _analysis(**moment_overrides) -> SourceAnalysis:
         "endSec": 8,
         "hook": "A real result",
         "quote": "we cut nine days to forty hours",
-        "transcriptSegmentRefs": ["segment-1"], "visualEvidenceIds": [],
+        "sourceSegmentRefs": ["segment-1"], "visualEvidenceIds": [],
         "assumptions": [], "confidence": "high",
     }
     moment.update(moment_overrides)
@@ -114,7 +114,7 @@ def test_analysis_rejects_out_of_bounds_time_and_ungrounded_quote():
 
 
 @pytest.mark.parametrize(("mutation", "code"), [
-    (lambda value: value["moments"][0].update(transcriptSegmentRefs=["invented"]), "invented_reference"),
+    (lambda value: value["moments"][0].update(sourceSegmentRefs=["invented"]), "invented_reference"),
     (lambda value: value["angles"][0].update(evidenceRefs=["memory-1"]), "invalid_evidence_kind"),
     (lambda value: value.update(summary="I approved and published the campaign"), "authority_overreach"),
     (lambda value: value["moments"][0].pop("confidence"), "incomplete_analysis"),

@@ -8,7 +8,7 @@ const analysis = () => ({
   moments: [{
     id: "moment-1", title: "Proof", startSec: 2, endSec: 8,
     hook: "Nine days became forty hours", quote: "We cut nine days to forty hours.",
-    transcriptSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" as const,
+    sourceSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" as const,
   }],
   angles: [{
     id: "angle-1", angleType: "source_insight" as const, evidenceKind: "source" as const, title: "Time to value", rationale: "Use the measured result.",
@@ -28,7 +28,7 @@ describe("Nimi source analysis contracts", () => {
   });
 
   it("matches the Python canonical SHA-256 analysis digest", () => {
-    expect(sourceAnalysisDigest(analysis())).toBe("8d084355f09234c08410bf354c54ce89a3dec3bd057a4d56039c760b3f9cbae8");
+    expect(sourceAnalysisDigest(analysis())).toBe("e2e036f55501fa2cede56190da6bfd1e21c414a1256f15237d7c120647525350");
   });
 
   it("rejects old projections, incomplete provenance, and duplicate ids", () => {
@@ -36,7 +36,7 @@ describe("Nimi source analysis contracts", () => {
       jobId: "job-1", stage: "understand", summary: "legacy", moments: [], angles: [], modelUsed: "model",
     }).success).toBe(false);
     const missing = analysis();
-    Reflect.deleteProperty(missing.moments[0], "transcriptSegmentRefs");
+    Reflect.deleteProperty(missing.moments[0], "sourceSegmentRefs");
     expect(sourceAnalysisSchema.safeParse(missing).success).toBe(false);
     const duplicate = analysis();
     duplicate.angles[0].id = "moment-1";

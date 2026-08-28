@@ -6,6 +6,7 @@ import { HarmoniaA2uiHost } from "@/components/a2ui/HarmoniaCatalog";
 import { latestSurfaceOperations } from "@/lib/a2ui/surfaceSlots";
 import { surfaceRevisionRequest } from "@/lib/a2ui/workspaceActions";
 import type { StudioConversationMessage } from "@/lib/studio/conversationModel";
+import { contentArtifactPreview } from "@/lib/contentArtifacts/presentation";
 import { AgentRunSummary } from "./AgentRunSummary";
 import { StudioFailure } from "./StudioStates";
 
@@ -87,19 +88,19 @@ export function ConversationTurn({ message, onActivateArtifact, onActivateJob, o
         </div>
       ) : null}
 
-      {message.data?.drafts?.length ? (
+      {message.data?.artifacts?.length ? (
         <div className="mt-3 grid w-full gap-2">
-          {message.data.drafts.map((draft) => (
+          {message.data.artifacts.map((artifact) => (
             <button
-              key={draft.id}
+              key={artifact.id}
               type="button"
-              data-artifact-id={`draft:${draft.id}`}
-              onClick={() => onActivateArtifact?.(`draft:${draft.id}`)}
+              data-artifact-id={`artifact:${artifact.id}`}
+              onClick={() => onActivateArtifact?.(`artifact:${artifact.id}`)}
               className="group w-full rounded-[10px] border border-black/10 bg-[#f2eee5] p-2 text-left transition hover:border-[#ff765f]"
             >
-              <span className="mb-1 flex items-center justify-between font-mono text-[7px] text-black/45"><span>{draft.platform} draft</span><span>{draft.text.length}/280</span></span>
-              <span className="block text-[9px] leading-[1.5] text-[#25231f]">{draft.text}</span>
-              <span className={`mt-2 inline-block rounded-full px-2 py-1 font-mono text-[7px] ${draft.valid ? "bg-[#d8ff3e] text-[#283600]" : "bg-[#ff765f]/15 text-[#9f2c11]"}`}>{draft.valid ? "Reviewed" : "Needs attention"}</span>
+              <span className="mb-1 flex items-center justify-between font-mono text-[7px] text-black/45"><span>{artifact.outputType.replaceAll("_", " ")}</span><span>revision {artifact.revision}</span></span>
+              <span className="block whitespace-pre-wrap text-[9px] leading-[1.5] text-[#25231f]">{contentArtifactPreview(artifact)}</span>
+              <span className="mt-2 inline-block max-w-full truncate rounded-full bg-[#d8ff3e] px-2 py-1 font-mono text-[7px] text-[#283600]">{artifact.contentDigest}</span>
             </button>
           ))}
         </div>

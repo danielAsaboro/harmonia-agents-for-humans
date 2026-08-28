@@ -11,7 +11,7 @@ describe("studio conversation model", () => {
       { role: "user" as const, text: "What is trending?", at: "2026-08-23T08:00:00.000Z" },
       { role: "assistant" as const, text: "Two signals are relevant.", data: { intent: "status", reply: "" }, at: "2026-08-23T08:00:01.000Z" },
       { role: "user" as const, text: "Draft the founder take.", at: "2026-08-23T08:01:00.000Z" },
-      { role: "assistant" as const, text: "One reviewed draft.", data: { intent: "list_drafts", reply: "", jobId: "job-1", drafts: [] }, at: "2026-08-23T08:01:01.000Z" },
+      { role: "assistant" as const, text: "One reviewed artifact.", data: { intent: "list_artifacts", reply: "", jobId: "job-1", artifacts: [] }, at: "2026-08-23T08:01:01.000Z" },
       { role: "user" as const, text: "Approve it.", at: "2026-08-23T08:02:00.000Z" },
       { role: "assistant" as const, text: "Approval recorded.", data: { intent: "approve", reply: "", jobId: "job-1" }, at: "2026-08-23T08:02:01.000Z" },
     ];

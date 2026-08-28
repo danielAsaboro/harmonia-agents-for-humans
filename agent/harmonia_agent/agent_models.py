@@ -24,6 +24,105 @@ StrictAssumptionText = Annotated[StrictStr, Field(min_length=1, max_length=500)]
 StrictDigest = Annotated[StrictStr, Field(pattern=r"^[0-9a-f]{64}$")]
 
 
+class TimeRangeLocator(StrictModel):
+    kind: Literal["time_range"] = "time_range"
+    startMs: int = Field(ge=0)
+    endMs: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "TimeRangeLocator":
+        if self.endMs < self.startMs:
+            raise ValueError("range end must not precede start")
+        return self
+
+
+class FrameLocator(StrictModel):
+    kind: Literal["frame"] = "frame"
+    timestampMs: int = Field(ge=0)
+    frameArtifactId: str = Field(min_length=1)
+
+
+class PageRangeLocator(StrictModel):
+    kind: Literal["page_range"] = "page_range"
+    startPage: int = Field(ge=1)
+    endPage: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "PageRangeLocator":
+        if self.endPage < self.startPage:
+            raise ValueError("range end must not precede start")
+        return self
+
+
+class ParagraphRangeLocator(StrictModel):
+    kind: Literal["paragraph_range"] = "paragraph_range"
+    startParagraph: int = Field(ge=1)
+    endParagraph: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "ParagraphRangeLocator":
+        if self.endParagraph < self.startParagraph:
+            raise ValueError("range end must not precede start")
+        return self
+
+
+class LineRangeLocator(StrictModel):
+    kind: Literal["line_range"] = "line_range"
+    startLine: int = Field(ge=1)
+    endLine: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "LineRangeLocator":
+        if self.endLine < self.startLine:
+            raise ValueError("range end must not precede start")
+        return self
+
+
+class SectionLocator(StrictModel):
+    kind: Literal["section"] = "section"
+    heading: str = Field(min_length=1)
+    occurrence: int = Field(ge=1)
+
+
+class UrlFragmentLocator(StrictModel):
+    kind: Literal["url_fragment"] = "url_fragment"
+    canonicalUrl: str = Field(min_length=1)
+    fragment: str = Field(min_length=1)
+
+    @field_validator("canonicalUrl")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        if urlparse(value).scheme not in {"http", "https"}:
+            raise ValueError("canonical URL must use http or https")
+        return value
+
+
+EvidenceLocator = Annotated[
+    TimeRangeLocator | FrameLocator | PageRangeLocator | ParagraphRangeLocator | LineRangeLocator | SectionLocator | UrlFragmentLocator,
+    Field(discriminator="kind"),
+]
+
+
+class ContentSegment(StrictModel):
+    id: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+    locator: EvidenceLocator
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class NormalizedSource(StrictModel):
+    sourceId: str = Field(min_length=1)
+    sourceKind: Literal["video", "audio", "document", "web", "text"]
+    title: str = Field(min_length=1)
+    mimeType: str = Field(min_length=1)
+    contentDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    extractorVersion: str = Field(min_length=1)
+    extractedAt: datetime
+    segments: list[ContentSegment] = Field(min_length=1)
+    metadata: dict[str, str | int | float | bool]
+    extractionReceiptId: str = Field(min_length=1)
+
+
 def _require_json_list(value: object) -> object:
     if not isinstance(value, list):
         raise ValueError("JSON boundary arrays must be lists")
@@ -141,42 +240,6 @@ def _validate_copywriter_item(value: object) -> None:
             _require_json_array_items(item[field], item_validator)
 
 
-class FrameEvidence(StrictModel):
-    id: str = Field(min_length=1)
-    uri: str = Field(min_length=1)
-    timestamp_sec: float = Field(ge=0)
-    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
-
-    @model_validator(mode="after")
-    def validate_uri(self) -> "FrameEvidence":
-        parsed = urlparse(self.uri)
-        if parsed.scheme not in {"https", "gs"}:
-            raise ValueError("frame uri must use https or gs")
-        return self
-
-
-class MediaEvidence(StrictModel):
-    video_uri: str | None = None
-    audio_uri: str | None = None
-    duration_sec: float = Field(gt=0)
-    source_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
-    frames: list[FrameEvidence] = Field(default_factory=list, max_length=24)
-
-    @model_validator(mode="after")
-    def validate_evidence(self) -> "MediaEvidence":
-        if not self.video_uri and not self.audio_uri and not self.frames:
-            raise ValueError("media evidence requires video, audio, or frames")
-        for uri in (self.video_uri, self.audio_uri):
-            if uri is not None and urlparse(uri).scheme not in {"https", "gs"}:
-                raise ValueError("media uri must use https or gs")
-        frame_ids = [frame.id for frame in self.frames]
-        if len(frame_ids) != len(set(frame_ids)):
-            raise ValueError("frame ids must be unique")
-        if any(frame.timestamp_sec > self.duration_sec for frame in self.frames):
-            raise ValueError("frame timestamp exceeds media duration")
-        return self
-
-
 class Moment(StrictModel):
     id: StrictIdentifier
     title: StrictStr = Field(min_length=1, max_length=300)
@@ -184,7 +247,7 @@ class Moment(StrictModel):
     endSec: float = Field(ge=0)
     hook: StrictStr = Field(min_length=1, max_length=500)
     quote: StrictStr = Field(min_length=1, max_length=2_000)
-    transcriptSegmentRefs: list[StrictIdentifier] = Field(min_length=1, max_length=12)
+    sourceSegmentRefs: list[StrictIdentifier] = Field(min_length=1, max_length=12)
     visualHook: StrictStr | None = Field(default=None, min_length=1, max_length=500)
     cropSuitability: Literal["poor", "fair", "good", "excellent"] | None = None
     captionSafeRegion: StrictStr | None = Field(default=None, min_length=1, max_length=200)
@@ -193,15 +256,15 @@ class Moment(StrictModel):
     confidence: Literal["low", "medium", "high"]
 
     _require_lists = field_validator(
-        "transcriptSegmentRefs", "visualEvidenceIds", "assumptions", mode="before",
+        "sourceSegmentRefs", "visualEvidenceIds", "assumptions", mode="before",
     )(_require_json_list)
 
     @model_validator(mode="after")
     def validate_moment_shape(self) -> "Moment":
         if self.endSec < self.startSec:
             raise ValueError("moment end must not precede start")
-        if len(self.transcriptSegmentRefs) != len(set(self.transcriptSegmentRefs)):
-            raise ValueError("moment transcript references must be unique")
+        if len(self.sourceSegmentRefs) != len(set(self.sourceSegmentRefs)):
+            raise ValueError("moment source references must be unique")
         if len(self.visualEvidenceIds) != len(set(self.visualEvidenceIds)):
             raise ValueError("moment visual references must be unique")
         if bool(self.visualHook) != bool(self.visualEvidenceIds):
@@ -272,17 +335,12 @@ class SourceAnalysis(StrictModel):
         return self
 
 
-class TranscriptEvidenceSegment(StrictModel):
+class AnalystEvidenceSegment(StrictModel):
     id: StrictIdentifier
-    startSec: float = Field(ge=0)
-    endSec: float = Field(ge=0)
+    sourceId: StrictIdentifier
     text: StrictStr = Field(min_length=1, max_length=10_000)
-
-    @model_validator(mode="after")
-    def validate_range(self) -> "TranscriptEvidenceSegment":
-        if self.endSec < self.startSec:
-            raise ValueError("segment end must not precede start")
-        return self
+    locator: EvidenceLocator
+    digest: StrictDigest
 
 
 class AnalystPerformanceObservation(StrictModel):
@@ -306,32 +364,27 @@ class AnalystResearchRequest(StrictModel):
 
 
 class AnalystInput(StrictModel):
-    sourceId: StrictIdentifier
-    sourceKind: Literal["brief", "media"]
+    sourceIds: list[StrictIdentifier] = Field(min_length=1, max_length=10_000)
+    sourceKind: Literal["video", "audio", "document", "web", "text", "mixed"]
     sourceDigest: StrictDigest
     title: StrictStr = Field(min_length=1, max_length=300)
-    channel: StrictStr = Field(min_length=1, max_length=300)
-    transcriptSegments: list[TranscriptEvidenceSegment] = Field(min_length=1, max_length=500)
-    mediaEvidence: MediaEvidence | None = None
+    operatorInstructions: list[StrictConstraintText] = Field(default_factory=list, max_length=12)
+    sourceSegments: list[AnalystEvidenceSegment] = Field(min_length=1, max_length=500)
     performanceObservations: list[AnalystPerformanceObservation] = Field(max_length=5)
     memoryFacts: list[AnalystMemoryFact] = Field(max_length=5)
     researchRequest: AnalystResearchRequest | None = None
 
     _require_lists = field_validator(
-        "transcriptSegments", "performanceObservations", "memoryFacts", mode="before",
+        "sourceIds", "sourceSegments", "operatorInstructions", "performanceObservations", "memoryFacts", mode="before",
     )(_require_json_list)
 
     @model_validator(mode="after")
     def validate_source_package(self) -> "AnalystInput":
-        segment_ids = [segment.id for segment in self.transcriptSegments]
+        segment_ids = [segment.id for segment in self.sourceSegments]
         if len(segment_ids) != len(set(segment_ids)):
             raise ValueError("segment ids must be unique")
-        if self.mediaEvidence is not None and self.mediaEvidence.source_digest != self.sourceDigest:
-            raise ValueError("media evidence source digest must match source digest")
-        if self.sourceKind == "media" and self.mediaEvidence is None:
-            raise ValueError("media source requires media evidence")
-        if self.sourceKind == "brief" and self.mediaEvidence is not None:
-            raise ValueError("brief source cannot contain media evidence")
+        if set(segment.sourceId for segment in self.sourceSegments) - set(self.sourceIds):
+            raise ValueError("source segment references a source outside the manifest")
         for items, label in (
             (self.performanceObservations, "performance observation"),
             (self.memoryFacts, "memory fact"),

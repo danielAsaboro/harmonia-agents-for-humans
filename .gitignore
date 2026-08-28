@@ -43,7 +43,7 @@ yarn-error.log*
 next-env.d.ts
 
 # python agent
-agent/.venv/
+agent/.venv
 __pycache__/
 *.pyc
 .pytest_cache/

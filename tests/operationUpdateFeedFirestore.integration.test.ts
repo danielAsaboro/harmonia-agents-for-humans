@@ -33,7 +33,7 @@ describe.skipIf(!emulator)("operational update Firestore sequence", () => {
     const occurredAt = "2026-08-31T00:00:01.000Z";
     const first = await runWithTenant(scope, () => store.synchronize({
       occurredAt,
-      jobs: [{ jobId: "job-c", lifecycle: "active", stage: "draft", desiredState: "run", controlVersion: 0, currentStep: "draft", progress: { completedSteps: 7, totalSteps: 12 }, backgroundLiveness: "working", lastEventSequence: -1, lastProgressAt: occurredAt, approvalCount: 0, attentionCount: 0, unknownEffectCount: 0, needsAttention: false }],
+      jobs: [{ jobId: "job-c", lifecycle: "active", stage: "draft", controlState: "running", controlEpoch: 0, currentStep: "draft", progress: { completedSteps: 7, totalSteps: 12 }, backgroundLiveness: "working", lastEventSequence: -1, lastProgressAt: occurredAt, approvalCount: 0, attentionCount: 0, unknownEffectCount: 0, needsAttention: false }],
       attention: [],
     }));
     expect(first).toHaveLength(1);

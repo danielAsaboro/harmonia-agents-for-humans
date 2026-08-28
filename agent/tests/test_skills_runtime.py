@@ -2,15 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from harmonia_agent import skills_runtime
-from harmonia_agent.mock_ai import MOCK_FLAG
-
-
-@pytest.fixture(autouse=True)
-def offline(monkeypatch):
-    monkeypatch.setenv(MOCK_FLAG, "1")
 
 
 def test_all_skills_are_valid_and_discoverable():
@@ -42,11 +34,12 @@ def test_skill_tools_are_read_only():
     assert all(contract.external_effect is False for contract in contracts.values())
 
 
-def test_fetch_trend_signals_returns_mock_fixtures_offline():
+def test_fetch_trend_signals_returns_live_provenance(monkeypatch):
+    monkeypatch.setattr(skills_runtime.signals, "fetch_signals", lambda limit: [{"title": "Signal", "url": "https://news.ycombinator.com/item?id=1", "points": 1, "comments": 0}])
     result = skills_runtime.fetch_trend_signals(limit=3)
     assert result["status"] == "success"
-    assert result["data"]["count"] == 3
-    assert result["evidence"][0]["provenance"] == "mock"
+    assert result["data"]["count"] == 1
+    assert result["evidence"][0]["provenance"] == "live"
     assert all(s["title"] and s["url"].startswith("http") for s in result["data"]["signals"])
     assert {item["reference"] for item in result["evidence"][1:]} == {
         signal["url"] for signal in result["data"]["signals"]
@@ -59,7 +52,8 @@ def test_search_trend_signals_ignores_blank_queries():
     assert result["error"]["code"] == "invalid_query"
 
 
-def test_job_status_summary_never_leaks_internal_fields():
+def test_job_status_summary_never_leaks_internal_fields(monkeypatch):
+    monkeypatch.setattr(skills_runtime.web_client, "get_job", lambda job_id: {"id": job_id, "sourceAnalysis": {"summary": "Launch source bundle"}, "config": {"sourceManifestId": "manifest"}, "stage": "awaiting_approval", "status": "active", "contentArtifacts": [{"id": "a1"}], "actions": [{"id": "act1", "type": "publish_x_post", "state": "planned", "approvalState": "pending", "risk": "high", "requiresApproval": True}], "verifications": [], "receipts": []})
     result = skills_runtime.get_job_status("job-123")
     summary = result["data"]["job"]
     assert summary["stage"] == "awaiting_approval"
@@ -67,8 +61,8 @@ def test_job_status_summary_never_leaks_internal_fields():
     assert summary["actions"][0]["requiresApproval"] is True
     assert summary["actions"][0]["approvalState"] == "pending"
     assert summary["actions"][0]["state"] == "planned"
-    assert summary["title"] == "Mock launch video"
-    assert summary["sourceKind"] == "video"
+    assert summary["title"] == "Launch source bundle"
+    assert summary["sourceKind"] == "source_manifest"
 
 
 def test_job_status_reports_missing_jobs_honestly():
@@ -78,7 +72,9 @@ def test_job_status_reports_missing_jobs_honestly():
     assert result["error"]["code"] == "invalid_job_id"
 
 
-def test_posting_windows_derive_only_from_measured_history():
+def test_posting_windows_derive_only_from_measured_history(monkeypatch):
+    monkeypatch.setattr(skills_runtime.web_client, "get_insights", lambda: {"topPosts": [{"postId": "1", "likes": 100, "publishedAt": "2026-08-20T14:05:00Z"}, {"postId": "2", "likes": 90, "publishedAt": "2026-08-18T14:30:00Z"}, {"postId": "3", "likes": 20, "publishedAt": "2026-08-15T09:40:00Z"}]})
+    monkeypatch.setattr(skills_runtime.web_client, "get_feed", lambda: {"recentPublished": []})
     result = skills_runtime.suggest_posting_windows()
     assert result["status"] == "success"
     assert result["data"]["insufficientData"] is False
@@ -94,18 +90,17 @@ def test_posting_windows_derive_only_from_measured_history():
 
 
 def test_posting_windows_fail_closed_without_measured_posts(monkeypatch):
-    monkeypatch.setattr(
-        skills_runtime,
-        "_mock_insights",
-        lambda: {"topPosts": [{"postId": "1", "text": "x"}]},
-    )
+    monkeypatch.setattr(skills_runtime.web_client, "get_insights", lambda: {"topPosts": [{"postId": "1", "text": "x"}]})
+    monkeypatch.setattr(skills_runtime.web_client, "get_feed", lambda: {"recentPublished": []})
     result = skills_runtime.suggest_posting_windows()
     assert result["status"] == "error"
     assert result["error"]["code"] == "insufficient_measured_history"
     assert result["error"]["retryable"] is False
 
 
-def test_insight_reads_stay_within_workspace_tools():
+def test_insight_reads_stay_within_workspace_tools(monkeypatch):
+    monkeypatch.setattr(skills_runtime.web_client, "get_feed", lambda: {"recentPublished": []})
+    monkeypatch.setattr(skills_runtime.web_client, "get_insights", lambda: {"topPosts": [{"postId": "1", "likes": 2}, {"postId": "2", "likes": 1}]})
     feed = skills_runtime.get_operator_feed()
     insights = skills_runtime.get_engagement_insights()
     assert "recentPublished" in feed["data"]
@@ -116,7 +111,6 @@ def test_insight_reads_stay_within_workspace_tools():
 
 
 def test_tool_provider_failures_are_typed_and_do_not_leak(monkeypatch):
-    monkeypatch.delenv(MOCK_FLAG, raising=False)
     monkeypatch.setattr(skills_runtime.web_client, "get_insights", lambda: (_ for _ in ()).throw(skills_runtime.web_client.WebApiError("token=super-secret", 401)))
     result = skills_runtime.get_engagement_insights()
     assert result["status"] == "error"

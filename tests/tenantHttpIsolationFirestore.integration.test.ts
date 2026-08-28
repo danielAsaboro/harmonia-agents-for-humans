@@ -33,7 +33,7 @@ function job(workspaceId: string, brandId: string) {
     updatedAt: now,
     status: "running",
     stage: "draft",
-    config: { platforms: ["x"] },
+    config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] },
     actions: [],
   };
 }

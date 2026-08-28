@@ -9,7 +9,8 @@ import { currentTenant } from "@/lib/tenancy";
 const requestSchema = z.object({
   commandId: z.string().regex(/^[A-Za-z0-9:_-]{1,300}$/),
   action: jobControlActionSchema,
-  expectedControlVersion: z.number().int().nonnegative(),
+  expectedControlEpoch: z.number().int().nonnegative(),
+  confirmation: z.string().min(1).max(500).optional(),
 }).strict();
 
 async function post(req: Request, { params }: { params: Promise<{ id: string }> }) {

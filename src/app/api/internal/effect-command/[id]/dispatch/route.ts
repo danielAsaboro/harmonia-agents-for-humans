@@ -19,6 +19,13 @@ const identity = {
 
 const schema = z.discriminatedUnion("phase", [
   z.object({ ...identity, phase: z.literal("dispatched"), attempt: z.number().int().positive() }).strict(),
+  z.object({
+    ...identity, phase: z.literal("progress"),
+    progress: z.object({
+      kind: z.literal("x_thread"),
+      confirmedPostIds: z.array(z.string().min(1).max(100)).min(1).max(25),
+    }).strict(),
+  }).strict(),
   z.object({ ...identity, phase: z.literal("provider_not_started") }).strict(),
   z.object({
     ...identity, phase: z.literal("observed"),
@@ -42,6 +49,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const tenant = currentTenant();
     const command = await transitionCommandEffect(id, body.phase === "dispatched"
       ? { phase: body.phase, claimToken: body.claimToken, attempt: body.attempt }
+      : body.phase === "progress"
+        ? { phase: body.phase, claimToken: body.claimToken, progress: body.progress }
       : body.phase === "observed"
         ? { phase: body.phase, claimToken: body.claimToken, outcome: body.outcome, artifact: body.artifact, detail: body.detail }
         : body.phase === "unknown"

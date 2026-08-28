@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { canonicalJson } from "../recordReplay/integrity";
 import type { JobStatus } from "../types";
-import { jobDesiredStateSchema, type JobDesiredState } from "./jobShell";
+import { jobControlStateSchema, type JobControlStateValue } from "./jobShell";
 
 export const jobControlActionSchema = z.enum(["pause", "resume", "cancel"]);
 export type JobControlAction = z.infer<typeof jobControlActionSchema>;
@@ -19,7 +19,8 @@ export interface CommandEnvelope {
   commandId: string;
   jobId: string;
   action: JobControlAction;
-  expectedControlVersion: number;
+  expectedControlEpoch: number;
+  confirmation?: string;
   actor: CommandActor;
   receivedAt: string;
   payloadDigest: string;
@@ -28,19 +29,20 @@ export interface CommandEnvelope {
 export interface JobControlState {
   jobId: string;
   status: JobStatus;
-  desiredState: JobDesiredState;
-  controlVersion: number;
+  controlState: JobControlStateValue;
+  controlEpoch: number;
 }
 
 export type JobControlDecision =
   | { accepted: true; next: JobControlState }
-  | { accepted: false; errorCode: "stale_control_version" | "job_terminal" | "job_not_paused" | "job_already_paused" | "job_cancelled"; error: string; next?: undefined };
+  | { accepted: false; errorCode: "stale_control_epoch" | "job_terminal" | "job_not_paused" | "job_already_paused" | "job_cancelled" | "confirmation_required"; error: string; next?: undefined };
 
 export interface CreateCommandEnvelopeInput {
   commandId: string;
   jobId: string;
   action: JobControlAction;
-  expectedControlVersion: number;
+  expectedControlEpoch: number;
+  confirmation?: string;
   actor: CommandActor;
   receivedAt: string;
 }
@@ -50,9 +52,9 @@ function digestPayload(input: CreateCommandEnvelopeInput): string {
     commandId: input.commandId,
     jobId: input.jobId,
     action: input.action,
-    expectedControlVersion: input.expectedControlVersion,
+    expectedControlEpoch: input.expectedControlEpoch,
+    ...(input.confirmation ? { confirmation: input.confirmation } : {}),
     actor: input.actor,
-    receivedAt: input.receivedAt,
   })).digest("hex");
 }
 
@@ -61,7 +63,8 @@ export function createCommandEnvelope(input: CreateCommandEnvelopeInput): Comman
   if (!/^[A-Za-z0-9_-]{1,300}$/.test(input.jobId)) throw new Error("invalid command job id");
   jobControlActionSchema.parse(input.action);
   commandActorSchema.parse(input.actor);
-  if (!Number.isInteger(input.expectedControlVersion) || input.expectedControlVersion < 0) throw new Error("invalid expected control version");
+  if (!Number.isInteger(input.expectedControlEpoch) || input.expectedControlEpoch < 0) throw new Error("invalid expected control epoch");
+  if (input.confirmation !== undefined && (input.confirmation.length < 1 || input.confirmation.length > 500)) throw new Error("invalid command confirmation");
   if (!Number.isFinite(Date.parse(input.receivedAt))) throw new Error("invalid command receivedAt");
   return { ...input, actor: { ...input.actor }, payloadDigest: digestPayload(input) };
 }
@@ -71,22 +74,23 @@ function rejected(errorCode: Exclude<JobControlDecision, { accepted: true }>["er
 }
 
 export function decideJobControl(state: JobControlState, command: CommandEnvelope): JobControlDecision {
-  jobDesiredStateSchema.parse(state.desiredState);
+  jobControlStateSchema.parse(state.controlState);
   if (state.jobId !== command.jobId) throw new Error("job control aggregate mismatch");
-  if (state.controlVersion !== command.expectedControlVersion) {
-    return rejected("stale_control_version", `expected control version ${command.expectedControlVersion}, current version is ${state.controlVersion}`);
+  if (state.controlEpoch !== command.expectedControlEpoch) {
+    return rejected("stale_control_epoch", `expected control epoch ${command.expectedControlEpoch}, current epoch is ${state.controlEpoch}`);
   }
   if (state.status === "complete") return rejected("job_terminal", "completed jobs cannot be controlled");
-  if (state.desiredState === "cancel_requested") return rejected("job_cancelled", "job cancellation has already been requested");
-  let desiredState: JobDesiredState;
+  if (state.controlState === "cancelled") return rejected("job_cancelled", "job has already been cancelled");
+  let controlState: JobControlStateValue;
   if (command.action === "pause") {
-    if (state.desiredState === "pause_requested") return rejected("job_already_paused", "job is already paused");
-    desiredState = "pause_requested";
+    if (state.controlState === "paused") return rejected("job_already_paused", "job is already paused");
+    controlState = "paused";
   } else if (command.action === "resume") {
-    if (state.desiredState !== "pause_requested") return rejected("job_not_paused", "only paused jobs can be resumed");
-    desiredState = "run";
+    if (state.controlState !== "paused") return rejected("job_not_paused", "only paused jobs can be resumed");
+    controlState = "running";
   } else {
-    desiredState = "cancel_requested";
+    if (command.confirmation !== `CANCEL ${state.jobId}`) return rejected("confirmation_required", `type CANCEL ${state.jobId} to confirm cancellation`);
+    controlState = "cancelled";
   }
-  return { accepted: true, next: { ...state, desiredState, controlVersion: state.controlVersion + 1 } };
+  return { accepted: true, next: { ...state, controlState, controlEpoch: state.controlEpoch + 1 } };
 }

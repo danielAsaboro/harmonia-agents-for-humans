@@ -16,11 +16,10 @@ from tests.test_ryan_strategy import strategy
 def job() -> dict:
     return {
         "id": "job-1", "workspaceId": "workspace-test", "brandId": "brand-test",
-        "createdByUserId": "user-test", "ingestedTitle": "Activation interview",
-        "ingestedChannel": "Harmonia", "transcriptSegments": [],
+        "createdByUserId": "user-test",
         "sourceAnalysis": {
             "sourceDigest": "a" * 64, "summary": "Activation time fell.",
-            "moments": [{"id": "m1", "title": "Activation", "startSec": 2, "endSec": 8, "hook": "Nine days to forty hours", "quote": "we cut nine days to forty hours", "transcriptSegmentRefs": ["segment-1"], "visualEvidenceIds": [], "assumptions": [], "confidence": "high"}],
+            "moments": [{"id": "m1", "title": "Activation", "startSec": 2, "endSec": 8, "hook": "Nine days to forty hours", "quote": "we cut nine days to forty hours", "sourceSegmentRefs": ["segment-1"], "visualEvidenceIds": [], "assumptions": [], "confidence": "high"}],
             "angles": [{"id": "a1", "angleType": "source_insight", "evidenceKind": "source", "title": "Operational speed", "rationale": "The source demonstrates a measurable operational improvement.", "evidenceRefs": ["m1"], "assumptions": [], "confidence": "high"}],
             "assumptions": [], "confidence": "high",
         },
@@ -44,15 +43,15 @@ def test_understand_persists_nimi_analysis_without_running_ryan(monkeypatch):
         calls.append(request)
         value = job()["sourceAnalysis"]
         value["sourceDigest"] = request.sourceDigest
-        value["moments"][0].update(startSec=0, endSec=5, quote="hello", transcriptSegmentRefs=["s1"])
+        value["moments"][0].update(startSec=0, endSec=5, quote="hello", sourceSegmentRefs=["source-1:s1"])
         result = SourceAnalysis.model_validate(value)
         returned.append(result.model_dump(mode="json"))
         return AnalysisRunResult(
             analysis=result, searchEvidence={}, groundingMetadata=None,
         )
     source = job()
-    source["transcriptSegments"] = [{"id": "s1", "startSec": 0, "endSec": 5, "text": "hello"}]
     monkeypatch.setattr(stages, "get_job", lambda _id: source)
+    monkeypatch.setattr(stages, "get_source_manifest", lambda _id: {"normalizedSources": [{"sourceId": "source-1", "sourceKind": "video", "title": "Demo", "contentDigest": "a" * 64, "segments": [{"id": "s1", "text": "hello", "digest": "b" * 64, "locator": {"kind": "time_range", "startMs": 0, "endMs": 5000}}]}]})
     monkeypatch.setattr(stages, "get_insights", lambda: {})
     monkeypatch.setattr(stages, "analyze_with_team", fake_analyze)
     monkeypatch.setattr(stages, "strategize_with_team", lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("Ryan ran during understand")))
@@ -60,7 +59,7 @@ def test_understand_persists_nimi_analysis_without_running_ryan(monkeypatch):
 
     asyncio.run(stages.run_understand("job-1"))
 
-    assert calls[0].transcriptSegments[0].text == "hello"
+    assert calls[0].sourceSegments[0].text == "hello"
     assert posts[0][0] == "/api/internal/analysis"
     assert "strategy" not in posts[0][1]
     assert posts[0][1]["analysis"] == returned[0]

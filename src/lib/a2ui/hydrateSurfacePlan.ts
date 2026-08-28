@@ -6,6 +6,8 @@ import {
   type ArtDirectedComponentName,
   type PresentationLifecycle,
 } from "./presentationPolicy";
+import { contentArtifactPreview } from "@/lib/contentArtifacts/presentation";
+import type { ContentArtifact } from "@/lib/contentArtifacts/contracts";
 
 export interface HydratedSurfaceSet {
   canvas: Record<string, unknown>[];
@@ -24,7 +26,7 @@ type PlannedSurface = SurfacePlan["surfaces"][number];
 type PlannedNode = PlannedSurface["nodes"][number];
 type CatalogRecord = Record<string, unknown> & { id: string; component: string };
 
-const STAGES = ["queued", "ingest", "transcribe", "understand", "strategize", "awaiting_strategy_approval", "plan", "draft", "awaiting_approval", "publish", "verify", "learn", "complete"];
+const STAGES = ["queued", "collect_sources", "extract_sources", "awaiting_source_resolution", "understand", "strategize", "awaiting_strategy_approval", "plan", "draft", "awaiting_approval", "publish", "verify", "learn", "complete"];
 
 function isHttpUrl(value: string | undefined): value is string {
   if (!value) return false;
@@ -41,23 +43,15 @@ function selected<T extends { id: string }>(values: T[], ids: string[], limit: n
   return values.filter((value) => wanted.has(value.id)).slice(0, limit);
 }
 
-function sourceCount(job: JobFull, momentId?: string, angleId?: string): number {
-  const moment = momentId ? job.sourceAnalysis?.moments.find((candidate) => candidate.id === momentId) : undefined;
-  return (moment?.transcriptSegmentRefs.length ?? 0)
-    + (angleId && job.sourceAnalysis?.angles.some((angle) => angle.id === angleId) ? 1 : 0);
-}
-
-function hydratedDraft(job: JobFull, draft: JobFull["drafts"][number], selectedDraft: boolean) {
+function hydratedDraft(_job: JobFull, artifact: ContentArtifact, selectedDraft: boolean) {
   return {
-    id: draft.id,
-    platform: draft.platform,
-    text: draft.text,
-    valid: draft.valid,
-    ...(draft.validationNote ? { validationNote: draft.validationNote } : {}),
-    ...(draft.momentId ? { momentId: draft.momentId } : {}),
-    ...(draft.angleId ? { angleId: draft.angleId } : {}),
+    id: artifact.id,
+    platform: artifact.outputType,
+    text: contentArtifactPreview(artifact),
+    valid: true,
+    validationNote: `accepted revision ${artifact.revision} · ${artifact.contentDigest}`,
     selected: selectedDraft,
-    sourceCount: sourceCount(job, draft.momentId, draft.angleId),
+    sourceCount: artifact.sourceSegmentRefs.length,
   };
 }
 
@@ -71,7 +65,9 @@ function actionPreview(action: JobFull["actions"][number]): string | undefined {
 
 function actionDestination(type: JobFull["actions"][number]["type"]): string {
   if (type === "publish_x_post") return "X";
-  if (type === "export_content_pack") return "Content pack export";
+  if (type === "publish_x_thread") return "X";
+  if (type === "publish_linkedin_post") return "LinkedIn";
+  if (type === "export_content_artifact") return "Verified Harmonia artifact store";
   if (type === "render_clip" || type === "render_reel") return "Harmonia asset library";
   return "Harmonia working set";
 }
@@ -109,12 +105,10 @@ function missingReferences(node: PlannedNode, job: JobFull | null | undefined, r
   const missing: string[] = [];
   if (node.refs.jobId && node.refs.jobId !== job.id) missing.push(node.refs.jobId);
   const maps = {
-    draftIds: new Set(job.drafts.map((value) => value.id)),
+    draftIds: new Set((job.contentArtifacts ?? []).map((value) => value.id)),
     momentIds: new Set((job.sourceAnalysis?.moments ?? []).map((value) => value.id)),
     sourceIds: new Set([
-      ...(job.config.youtubeUrl ? ["source-video"] : []),
-      ...(job.config.mediaAttachmentId ? ["source-upload"] : []),
-      ...job.transcriptSegments.map((value) => value.id),
+      ...(job.normalizedSources ?? []).flatMap((source) => [source.sourceId, ...source.segments.map((segment) => `${source.sourceId}:${segment.id}`)]),
     ]),
     assetActionIds: new Set((job.assets ?? []).map((value) => value.actionId)),
     actionIds: new Set(job.actions.map((value) => value.id)),
@@ -151,13 +145,10 @@ function hydrateNode(surface: PlannedSurface, node: PlannedNode, job: JobFull | 
       return parseCatalogComponent({
         ...base,
         component: node.component,
-        ...framing(surface, node, job.ingestedTitle || "Campaign direction"),
-        brief: job.config.brief || "Build platform-native content from the selected source.",
-        sourceKind: job.config.youtubeUrl || job.config.mediaMime?.startsWith("video/")
-          ? (job.config.brief ? "mixed" : "video")
-          : job.config.mediaMime?.startsWith("audio/")
-            ? (job.config.brief ? "mixed" : "audio")
-            : "written",
+        ...framing(surface, node, job.sourceAnalysis?.summary || "Campaign direction"),
+        brief: `Build ${job.config.desiredOutputs.join(", ")} from manifest ${job.config.sourceManifestId}.`,
+        sourceKind: new Set((job.normalizedSources ?? []).map((source) => source.sourceKind)).size === 1
+          ? ((job.normalizedSources ?? [])[0]?.sourceKind ?? "mixed") : "mixed",
         platforms: job.config.platforms.slice(0, 10),
         angles: (job.sourceAnalysis?.angles ?? []).slice(0, 20),
       }) as CatalogRecord;
@@ -185,24 +176,10 @@ function hydrateNode(surface: PlannedSurface, node: PlannedNode, job: JobFull | 
     case "MomentExplorer": {
       const moments = selected(job.sourceAnalysis?.moments ?? [], node.refs.momentIds, 20);
       const selectedIds = new Set(moments.map((moment) => moment.id));
-      const segmentIds = new Set(moments.flatMap((moment) => moment.transcriptSegmentRefs));
-      const transcript = job.transcriptSegments.filter((segment) => (
-        moments.length === 0 || segmentIds.has(segment.id)
-      )).slice(0, 200);
-      const source = job.config.youtubeUrl ? {
-        id: "source-video",
-        label: job.ingestedTitle || "Source video",
-        kind: "video" as const,
-        externalUrl: job.config.youtubeUrl,
-        ...(typeof (job as JobFull & { ingestedDurationSec?: number }).ingestedDurationSec === "number"
-          ? { durationSec: (job as JobFull & { ingestedDurationSec?: number }).ingestedDurationSec }
-          : {}),
-      } : job.config.mediaAttachmentId ? {
-        id: "source-upload",
-        label: job.config.mediaFilename || "Uploaded source",
-        kind: job.config.mediaMime?.startsWith("audio/") ? "audio" as const : "media" as const,
-        previewUrl: `/api/chat/attachments/${job.config.mediaAttachmentId}`,
-      } : undefined;
+      const segmentIds = new Set(moments.flatMap((moment) => moment.sourceSegmentRefs));
+      const mediaSource = (job.normalizedSources ?? []).find((candidate) => candidate.sourceKind === "video" || candidate.sourceKind === "audio");
+      const transcript = (mediaSource?.segments ?? []).filter((segment) => segment.locator.kind === "time_range" && (moments.length === 0 || segmentIds.has(segment.id))).slice(0, 200).map((segment) => ({ id: segment.id, startSec: segment.locator.kind === "time_range" ? segment.locator.startMs / 1000 : 0, endSec: segment.locator.kind === "time_range" ? segment.locator.endMs / 1000 : 0, text: segment.text }));
+      const source = mediaSource ? { id: mediaSource.sourceId, label: mediaSource.title, kind: mediaSource.sourceKind } : undefined;
       return parseCatalogComponent({
         ...base,
         component: node.component,
@@ -223,7 +200,7 @@ function hydrateNode(surface: PlannedSurface, node: PlannedNode, job: JobFull | 
       }) as CatalogRecord;
     }
     case "DraftComparison": {
-      const drafts = selected(job.drafts, node.refs.draftIds, 20);
+      const drafts = selected(job.contentArtifacts ?? [], node.refs.draftIds, 20);
       return parseCatalogComponent({
         ...base,
         component: node.component,
@@ -232,12 +209,12 @@ function hydrateNode(surface: PlannedSurface, node: PlannedNode, job: JobFull | 
       }) as CatalogRecord;
     }
     case "PlatformPreview": {
-      const draft = selected(job.drafts, node.refs.draftIds, 1)[0];
+      const draft = selected(job.contentArtifacts ?? [], node.refs.draftIds, 1)[0];
       const assets = (job.assets ?? []).filter((asset) => node.refs.assetActionIds.includes(asset.actionId)).slice(0, 20);
       return parseCatalogComponent({
         ...base,
         component: node.component,
-        ...framing(surface, node, `${draft.platform.toUpperCase()} preview`),
+        ...framing(surface, node, `${draft.outputType.replaceAll("_", " ").toUpperCase()} preview`),
         draft: hydratedDraft(job, draft, true),
         assets: assets.map((asset) => ({
           actionId: asset.actionId,
@@ -248,11 +225,10 @@ function hydrateNode(surface: PlannedSurface, node: PlannedNode, job: JobFull | 
     }
     case "SourceEvidence": {
       const wanted = new Set(node.refs.sourceIds);
-      const allSources = [
-        ...(job.config.youtubeUrl ? [{ id: "source-video", kind: "video" as const, label: job.ingestedTitle || "Source video", url: job.config.youtubeUrl }] : []),
-        ...(job.config.mediaAttachmentId ? [{ id: "source-upload", kind: "media" as const, label: job.config.mediaFilename || "Uploaded source" }] : []),
-        ...job.transcriptSegments.map((segment) => ({ id: segment.id, kind: "transcript" as const, label: `Transcript ${segment.startSec}s–${segment.endSec}s`, excerpt: segment.text })),
-      ];
+      const allSources = (job.normalizedSources ?? []).flatMap((source) => [
+        { id: source.sourceId, kind: source.sourceKind, label: source.title },
+        ...source.segments.map((segment) => ({ id: `${source.sourceId}:${segment.id}`, kind: "segment" as const, label: segment.locator.kind, excerpt: segment.text })),
+      ]);
       const sources = (wanted.size ? allSources.filter((source) => wanted.has(source.id)) : allSources).slice(0, 100);
       if (sources.length === 0) return unresolved(surface, node, ["sourceIds"]);
       return parseCatalogComponent({
@@ -260,9 +236,9 @@ function hydrateNode(surface: PlannedSurface, node: PlannedNode, job: JobFull | 
         component: node.component,
         ...framing(surface, node, "Source evidence"),
         sources,
-        links: job.drafts.flatMap((draft) => draft.momentId
-          ? [{ fromId: draft.id, toId: draft.momentId, label: "grounded in moment" }]
-          : []).slice(0, 200),
+        links: (job.contentArtifacts ?? []).flatMap((artifact) => artifact.sourceSegmentRefs.map((sourceRef) => ({
+          fromId: artifact.id, toId: sourceRef, label: "grounded in source segment",
+        }))).slice(0, 200),
       }) as CatalogRecord;
     }
     case "ApprovalReview": {

@@ -9,15 +9,15 @@ Harmonia keeps Firestore as workflow authority and Pub/Sub as trigger transport.
 
 The operational feed returns a current snapshot plus sequence-numbered changes. The projection combines pending action and strategy approvals, policy failures, credential and budget gaps, missing assets, resident-agent escalation, and uncertain effects. Each item links to the existing authoritative resolution surface. See [API routes](/reference/api-routes) for the request and response contract.
 
-Every job is reduced to a compact shell: lifecycle, stage, desired state, control version, bounded progress, liveness, last progress time, and attention counts. Lifecycle precedence is deliberately safety-biased: uncertain effects, operator work, pause/cancel, failure, scheduling, settlement, then active work.
+Every job is reduced to a compact shell: lifecycle, stage, control state, control epoch, bounded progress, liveness, last progress time, and attention counts. Lifecycle precedence is deliberately safety-biased: uncertain effects, operator work, pause/cancel, failure, scheduling, settlement, then active work.
 
 The dashboard polls with its last sequence cursor. Firestore allocates contiguous feed sequences and stores the current projection, so a reconnect does not depend on process memory or transient browser state.
 
 ## Pause, resume, and cancel
 
-Control commands carry a unique command ID, action, and expected control version. The server derives the authenticated actor and atomically stores a command receipt with the updated desired state. Duplicate command IDs return the original receipt; changed payloads or stale versions fail closed.
+Control commands carry a unique command ID, action, and expected control epoch. The server derives the authenticated actor and atomically stores a command receipt with the updated control state. Duplicate command IDs return the original receipt; changed payloads or stale epochs fail closed. Cancellation additionally requires exact job-scoped confirmation.
 
-Pause and cancellation are cooperative controls. New stage and effect claims check the durable desired state before execution. Work already past an external dispatch boundary is not declared cancelled; it continues through observation or uncertain-outcome reconciliation.
+Pause and cancellation are cooperative controls. New stage and effect claims check the durable control state before execution. Work already past an external dispatch boundary is not declared cancelled; it continues through observation or uncertain-outcome reconciliation.
 
 ## Business connector contract
 

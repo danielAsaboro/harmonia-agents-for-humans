@@ -1,15 +1,15 @@
 import type {
   EvidencePacket,
   PlannedAction,
-  PostDraft,
   Receipt,
   VerificationResult,
 } from "./types";
+import type { ContentArtifact } from "./contentArtifacts/contracts";
 
 export interface PacketInputs {
   jobId: string;
   config: EvidencePacket["config"];
-  drafts: PostDraft[];
+  artifacts: ContentArtifact[];
   actions: PlannedAction[];
   receipts: Receipt[];
   verifications: VerificationResult[];
@@ -45,10 +45,6 @@ export function assemblePacket(inputs: PacketInputs): EvidencePacket {
     if (!v.verified) unresolved.push(`not verified: ${v.target} (${v.note ?? v.method})`);
   }
 
-  for (const d of inputs.drafts) {
-    if (!d.valid) unresolved.push(`draft rejected by platform limits (${d.platform}): ${d.validationNote}`);
-  }
-
   if (inputs.receipts.length === 0 && inputs.actions.length > 0 && !inputs.actions.some((action) => action.state === "executed")) {
     unresolved.push("no publish receipts recorded");
   }
@@ -57,7 +53,7 @@ export function assemblePacket(inputs: PacketInputs): EvidencePacket {
     jobId: inputs.jobId,
     generatedAt: new Date().toISOString(),
     config: inputs.config,
-    drafts: inputs.drafts,
+    artifacts: inputs.artifacts.map(({ id, outputType, revision, contentDigest }) => ({ id, outputType, revision, contentDigest })),
     verifications: inputs.verifications,
     unresolved,
   };

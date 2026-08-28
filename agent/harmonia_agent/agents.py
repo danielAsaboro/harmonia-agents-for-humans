@@ -38,16 +38,12 @@ from .agent_models import (
     StrategistResult,
 )
 from .a2ui_models import SurfacePlan, UiContext
+from .content_artifacts import ArtifactProductionInput, ArtifactReviewBatch, ArtifactReviewInput, ProductionBatch
+from .content_production import DARA_ARTIFACT_INSTRUCTION, NONI_ARTIFACT_INSTRUCTION, ProductionResult, finalize_production
 from .agent_errors import AgentContractError
 from .config import settings
 from .generation_policy import generation_config
 from .model_catalog import PRICING_VERSION, estimate_text_cost
-from .mock_ai import (
-    mock_ai_enabled,
-    mock_analyze,
-    mock_ask,
-)
-from .multimodal import attach_media_evidence
 from .memory_bank import MemoryBank, MemoryScope, VertexMemoryBank
 from .memory_bank import MemoryFact as RetrievedMemoryFact
 from .agent_models import MemoryFact as StrategyMemoryFact
@@ -149,6 +145,8 @@ _SPECIALIST_ROLES = {
     "temi_editorial_planner": ("harmonia_coordinator", "temi_editorial_planner"),
     "noni_copywriter": ("harmonia_coordinator", "noni_copywriter"),
     "dara_editor": ("harmonia_coordinator", "dara_editor"),
+    "noni_artifact_producer": ("harmonia_coordinator", "noni_artifact_producer"),
+    "dara_artifact_editor": ("harmonia_coordinator", "dara_artifact_editor"),
     "maya_presenter": ("harmonia_coordinator", "maya_presenter"),
     "nova_liaison": ("harmonia_coordinator", "nova_liaison"),
 }
@@ -158,6 +156,8 @@ _MAX_OUTPUT_TOKENS = {
     "ryan_strategist": 4096,
     "noni_copywriter": 2048,
     "dara_editor": 2048,
+    "noni_artifact_producer": 8192,
+    "dara_artifact_editor": 4096,
     "temi_editorial_planner": 1024,
     "maya_presenter": 2048,
     "nova_liaison": 2048,
@@ -223,6 +223,8 @@ class RoleModelInstances:
             "nimi_analyst": self.analyst,
             "noni_copywriter": self.copywriter,
             "dara_editor": self.editor,
+            "noni_artifact_producer": self.copywriter,
+            "dara_artifact_editor": self.editor,
             "temi_editorial_planner": self.planner,
             "maya_presenter": self.presenter,
             "nova_liaison": self.liaison,
@@ -327,7 +329,7 @@ def _role_task(role: str, specialist: str, payload: BaseModel) -> str:
     if role == "ryan_strategist":
         return "strategize"
     if role == "nimi_analyst":
-        return "analyze_media" if getattr(payload, "mediaEvidence", None) else "analyze_transcript"
+        return "analyze_media" if getattr(payload, "sourceKind", None) in {"video", "audio", "mixed"} else "analyze_sources"
     return {
         "noni_copywriter": "draft_or_revise_x",
         "dara_editor": "review_drafts",
@@ -387,7 +389,7 @@ def build_agent_team(
         model=resolved.analyst,
         generate_content_config=generation_config(resolved.config_for("nimi_analyst")),
         name="nimi_analyst",
-        description="Finds clip-worthy moments and defensible trend or meme angles in a transcript.",
+        description="Finds grounded insights and, when timed media exists, clip-worthy moments across a source manifest.",
         instruction=NIMI_ANALYST_INSTRUCTION,
         input_schema=AnalystInput,
         output_schema=SourceAnalysis,
@@ -397,7 +399,6 @@ def build_agent_team(
         before_agent_callback=_reset_nimi_capability_traces,
         before_tool_callback=_guard_nimi_capability,
         after_tool_callback=_record_nimi_capability,
-        before_model_callback=attach_media_evidence,
     )
     presenter = Agent(
         model=resolved.presenter,
@@ -438,6 +439,35 @@ def build_agent_team(
         input_schema=EditorialReviewInput,
         output_schema=EditorialAssessment,
         output_key="editorial_assessment",
+        tools=[build_dara_editing_skillset()],
+        mode="single_turn",
+        before_agent_callback=reset_dara_skill_trace,
+        before_tool_callback=guard_dara_skill_tool,
+        after_tool_callback=record_dara_skill_tool,
+    )
+    artifact_producer = Agent(
+        model=resolved.copywriter,
+        generate_content_config=generation_config(resolved.config_for("noni_artifact_producer")),
+        name="noni_artifact_producer",
+        description="Produces a strict batch of requested, evidence-grounded content artifacts.",
+        instruction=NONI_ARTIFACT_INSTRUCTION,
+        input_schema=ArtifactProductionInput,
+        output_schema=ProductionBatch,
+        output_key="production_batch",
+        tools=[build_noni_writing_skillset(), build_noni_google_search_tool(resolved.copywriter)],
+        mode="single_turn",
+        before_agent_callback=reset_noni_skill_trace,
+        after_tool_callback=record_noni_skill_tool,
+    )
+    artifact_editor = Agent(
+        model=resolved.editor,
+        generate_content_config=generation_config(resolved.config_for("dara_artifact_editor")),
+        name="dara_artifact_editor",
+        description="Reviews every exact Noni artifact independently without rewriting it.",
+        instruction=DARA_ARTIFACT_INSTRUCTION,
+        input_schema=ArtifactReviewInput,
+        output_schema=ArtifactReviewBatch,
+        output_key="artifact_review_batch",
         tools=[build_dara_editing_skillset()],
         mode="single_turn",
         before_agent_callback=reset_dara_skill_trace,
@@ -485,12 +515,13 @@ def build_agent_team(
             "Delegate exactly once to the specialist named in the user's task instruction. Use "
             "nimi_analyst for evidence analysis, ryan_strategist for strategy and content plans, "
             "temi_editorial_planner for approved-strategy editorial planning, noni_copywriter "
-            "for one application-bounded draft pass, dara_editor for one structured review, maya_presenter "
+            "for one application-bounded draft pass, dara_editor for one structured review, "
+            "noni_artifact_producer for a requested artifact batch, dara_artifact_editor for its review, maya_presenter "
             "for a reference-only A2UI surface plan, and nova_liaison for free-form operator "
             "questions. Never answer the task yourself and never call "
             "publishing or approval systems."
         ),
-        sub_agents=[strategist, analyst, planner, copywriter, editor, presenter, liaison],
+        sub_agents=[strategist, analyst, planner, copywriter, editor, artifact_producer, artifact_editor, presenter, liaison],
         tools=[],
     )
 
@@ -1518,11 +1549,8 @@ def validate_source_analysis(
     if analysis.sourceDigest != input.sourceDigest:
         raise AgentProtocolError("Nimi analysis source digest does not match the input")
 
-    segments = {segment.id: segment for segment in input.transcriptSegments}
-    frames = {
-        frame.id: frame
-        for frame in (input.mediaEvidence.frames if input.mediaEvidence else [])
-    }
+    segments = {segment.id: segment for segment in input.sourceSegments}
+    frames = {segment.id: segment for segment in input.sourceSegments if segment.locator.kind == "frame"}
     performance_ids = {item.id for item in input.performanceObservations}
     memory_ids = {item.id for item in input.memoryFacts}
     moment_ids = {moment.id for moment in analysis.moments}
@@ -1539,19 +1567,19 @@ def validate_source_analysis(
     all_ids = source_ids | public_ids | private_ids | performance_ids | memory_ids
 
     for moment in analysis.moments:
-        unknown_segments = set(moment.transcriptSegmentRefs) - set(segments)
+        unknown_segments = set(moment.sourceSegmentRefs) - set(segments)
         if unknown_segments:
             raise AgentProtocolError(
-                f"Nimi moment contains unknown transcript segment ids: {sorted(unknown_segments)}"
+                f"Nimi moment contains unknown source segment ids: {sorted(unknown_segments)}"
             )
-        cited = [segments[ref] for ref in moment.transcriptSegmentRefs]
+        cited = [segments[ref] for ref in moment.sourceSegmentRefs]
         cited_text = " ".join(segment.text for segment in cited)
         if moment.quote not in cited_text:
-            raise AgentProtocolError("Nimi moment exact quote is absent from cited transcript segments")
-        if moment.startSec < min(segment.startSec for segment in cited) or moment.endSec > max(segment.endSec for segment in cited):
-            raise AgentProtocolError("Nimi moment time bounds exceed cited transcript segments")
-        if input.mediaEvidence and moment.endSec > input.mediaEvidence.duration_sec:
-            raise AgentProtocolError("Nimi moment time bounds exceed media duration")
+            raise AgentProtocolError("Nimi moment exact quote is absent from cited source segments")
+        if any(segment.locator.kind != "time_range" for segment in cited):
+            raise AgentProtocolError("Nimi clip moments require time-range source evidence")
+        if moment.startSec * 1000 < min(segment.locator.startMs for segment in cited) or moment.endSec * 1000 > max(segment.locator.endMs for segment in cited):
+            raise AgentProtocolError("Nimi moment time bounds exceed cited source segments")
         unknown_visual = set(moment.visualEvidenceIds) - set(frames)
         if unknown_visual:
             raise AgentProtocolError(
@@ -1701,12 +1729,33 @@ def _validate_run_output_unwrapped(
         except ValueError as exc:
             raise AgentProtocolError(f"invalid Dara editing-skill trace: {exc}") from exc
         review_input = EditorialReviewInput.model_validate(payload)
-        assessment = _validated_state(
-            state, "editorial_assessment", EditorialAssessment,
-        )
-        validate_editorial_assessment(
-            review_input.copywriterInput, review_input.draft, assessment,
-        )
+        assessment = _validated_state(state, "editorial_assessment", EditorialAssessment)
+        validate_editorial_assessment(review_input.copywriterInput, review_input.draft, assessment)
+        return
+    if specialist == "noni_artifact_producer":
+        writer_input = ArtifactProductionInput.model_validate(payload)
+        trace = state.get(NONI_SKILL_TRACE_KEY)
+        if not isinstance(trace, list):
+            raise AgentProtocolError("Noni returned no actual writing-skill trace")
+        try:
+            research_evidence = validate_noni_skill_trace(trace, brief_id=writer_input.outputPlanId, brief_text=json.dumps({"requests": [item.model_dump(mode="json") for item in writer_input.requests], "brandContext": writer_input.brandContext}, sort_keys=True), grounding_metadata=state.get("_adk_grounding_metadata"))
+        except ValueError as exc:
+            raise AgentProtocolError(f"invalid Noni writing-skill trace: {exc}") from exc
+        batch = _validated_state(state, "production_batch", ProductionBatch)
+        batch.validate_against([item.id for item in writer_input.evidence], [item.id for item in writer_input.requests])
+        state["_noni_research_evidence"] = research_evidence
+        return
+    if specialist == "dara_artifact_editor":
+        trace = state.get(DARA_SKILL_TRACE_KEY)
+        if not isinstance(trace, list):
+            raise AgentProtocolError("Dara returned no actual editing-skill trace")
+        try:
+            validate_dara_skill_trace(trace)
+        except ValueError as exc:
+            raise AgentProtocolError(f"invalid Dara editing-skill trace: {exc}") from exc
+        review_input = ArtifactReviewInput.model_validate(payload)
+        reviews = _validated_state(state, "artifact_review_batch", ArtifactReviewBatch)
+        reviews.accepted_ids([item.id for item in review_input.batch.artifacts])
         return
     raise AgentProtocolError(f"unsupported specialist output: {specialist}")
 
@@ -1714,7 +1763,7 @@ def _validate_run_output_unwrapped(
 _AGENT_DISPLAY_NAMES = {
     "nimi_analyst": "Nimi", "ryan_strategist": "Ryan",
     "temi_editorial_planner": "Temi", "noni_copywriter": "Noni",
-    "dara_editor": "Dara", "maya_presenter": "Maya", "nova_liaison": "Nova",
+    "dara_editor": "Dara", "noni_artifact_producer": "Noni", "dara_artifact_editor": "Dara", "maya_presenter": "Maya", "nova_liaison": "Nova",
 }
 
 
@@ -2167,15 +2216,6 @@ async def analyze_with_team(
                 ) for fact in facts),
             ][:5],
         })
-    if mock_ai_enabled():
-        print("[MOCK-AI] coordinator -> nimi_analyst", flush=True)
-        raw = mock_analyze(input)
-        return AnalysisRunResult(
-            analysis=validate_source_analysis(
-                input, SourceAnalysis.model_validate({k: v for k, v in raw.items() if k != "mock"}),
-            ),
-            searchEvidence={}, groundingMetadata=None,
-        )
     state = await _run_coordinator("nimi_analyst", input, invocation=invocation)
     research_evidence = state.get("_nimi_search_evidence") or {}
     if not isinstance(research_evidence, dict):
@@ -2578,9 +2618,6 @@ async def strategize_with_team(
     input = StrategistInput.model_validate(input)
     if not prepared:
         input = await prepare_strategist_input(input, invocation=invocation, memory=memory)
-    if mock_ai_enabled():
-        print("[MOCK-AI] coordinator -> ryan_strategist", flush=True)
-        raise RuntimeError("Ryan has no mock strategy path; inject a TeamRuntime in tests")
     state = await _run_coordinator("ryan_strategist", input, invocation=invocation)
     result = _validated_state(state, "strategist_result", StrategistResult)
     research_evidence = state.get("_ryan_search_evidence") or {}
@@ -2602,8 +2639,6 @@ async def plan_with_team(
 ) -> EditorialPlan:
     """Run Temi and fail closed against the approved planning boundary."""
     input = EditorialPlannerInput.model_validate(input)
-    if mock_ai_enabled():
-        raise RuntimeError("Temi has no mock editorial-plan path; inject a TeamRuntime in tests")
     state = await _run_coordinator("temi_editorial_planner", input, invocation=invocation)
     plan = _validated_state(state, "editorial_plan", EditorialPlan)
     return validate_editorial_plan(input, plan)
@@ -2613,8 +2648,6 @@ async def draft_with_team(
     input: CopywriterInput, *, invocation: InvocationContext | None = None,
 ) -> DraftWorkflowResult:
     input = CopywriterInput.model_validate(input)
-    if mock_ai_enabled():
-        raise RuntimeError("Noni has no mock production path; inject a TeamRuntime in tests")
 
     async def noni(writer_input: CopywriterInput, pass_number: int) -> ContentDraft:
         pass_invocation = invocation.model_copy(update={
@@ -2658,14 +2691,39 @@ async def draft_with_team(
     return DraftWorkflowResult(originalDraft=original, reviews=[first_review, final_review], revisionDraft=revision, acceptedDraft=revision)
 
 
+async def produce_artifacts_with_team(
+    input: ArtifactProductionInput, *, invocation: InvocationContext | None = None,
+) -> ProductionResult:
+    """Run one bounded Noni/Dara batch with at most one issue-bound revision."""
+    input = ArtifactProductionInput.model_validate(input)
+
+    async def noni(value: ArtifactProductionInput, pass_number: int) -> ProductionBatch:
+        pass_invocation = invocation.model_copy(update={"operation_id": f"{invocation.operation_id}:noni:{pass_number}"}) if invocation else None
+        state = await _run_coordinator("noni_artifact_producer", value, invocation=pass_invocation)
+        return _validated_state(state, "production_batch", ProductionBatch)
+
+    async def dara(value: ArtifactProductionInput, batch: ProductionBatch, pass_number: int) -> ArtifactReviewBatch:
+        pass_invocation = invocation.model_copy(update={"operation_id": f"{invocation.operation_id}:dara:{pass_number}"}) if invocation else None
+        state = await _run_coordinator("dara_artifact_editor", ArtifactReviewInput(productionInput=value, batch=batch), invocation=pass_invocation)
+        return _validated_state(state, "artifact_review_batch", ArtifactReviewBatch)
+
+    evidence_ids = [item.id for item in input.evidence]
+    request_ids = [item.id for item in input.requests]
+    original = await noni(input, 1)
+    first_review = await dara(input, original, 1)
+    if len(first_review.accepted_ids([item.id for item in original.artifacts])) == len(original.artifacts):
+        return finalize_production(original=original, first_review=first_review, revision=None, final_review=None, evidence_refs=evidence_ids, output_plan_item_ids=request_ids)
+    revision_input = ArtifactProductionInput.model_validate({**input.model_dump(mode="python"), "passType": "revision", "priorBatch": original, "priorReview": first_review})
+    revision = await noni(revision_input, 2)
+    final_review = await dara(revision_input, revision, 2)
+    return finalize_production(original=original, first_review=first_review, revision=revision, final_review=final_review, evidence_refs=evidence_ids, output_plan_item_ids=request_ids)
+
+
 async def ask_with_team(
     question: str, *, invocation: InvocationContext | None = None,
 ) -> str:
     """Answer a free-form operator question via the skill-enabled liaison."""
     input = LiaisonInput(question=question)
-    if mock_ai_enabled():
-        print("[MOCK-AI] coordinator -> nova_liaison", flush=True)
-        return mock_ask(input.question)
     state = await _run_coordinator("nova_liaison", input, invocation=invocation)
     return _validated_liaison_state(state).answer
 
@@ -2675,8 +2733,6 @@ async def ask_with_team_detailed(
 ) -> tuple[str, list[dict[str, Any]]]:
     """Return Nova's answer plus content-free activity derived from its validated trace."""
     input = LiaisonInput(question=question)
-    if mock_ai_enabled():
-        return mock_ask(input.question), []
     state = await _run_coordinator("nova_liaison", input, invocation=invocation)
     answer = _validated_liaison_state(state)
     trace = state.get(LIAISON_TRACE_KEY) or []

@@ -132,25 +132,3 @@ def test_memory_generation_rejects_cross_scope_evidence():
         bank.generate(scope=MemoryScope(workspace_id="workspace-1", brand_id="brand-a"), candidates=[
             MemoryCandidate(kind="preference", fact="Use concise hooks.", evidence_ref=MemoryEvidenceRef(workspace_id="workspace-2", brand_id="brand-a", job_id="job-1", kind="decision", record_id="a1")),
         ])
-
-
-def test_agent_entrypoint_retrieves_scoped_memory_before_mock_normalization(monkeypatch):
-    class FakeBank:
-        def __init__(self):
-            self.calls = []
-
-        def retrieve(self, **kwargs):
-            self.calls.append(kwargs)
-            return [MemoryFact(kind="preference", fact="Use concise, evidence-led hooks.", evidence_ref=MemoryEvidenceRef(workspace_id="workspace-1", brand_id="brand-a", job_id="job-1", kind="decision", record_id="a1"))]
-
-    monkeypatch.setenv("HARMONIA_MOCK_AI", "1")
-    bank = FakeBank()
-    scope = MemoryScope(workspace_id="workspace-1", brand_id="brand-a")
-
-    result = asyncio.run(analyze_with_team(
-        AnalystInput.model_validate(analyst_input()),
-        memory=(bank, scope),
-    ))
-
-    assert result.analysis.summary
-    assert bank.calls == [{"scope": scope, "query": "Activation interview", "top_k": 3}]

@@ -6,6 +6,7 @@ import { claimCommandEffect, createCommand, finalizeCommandReceipt, getCommand, 
 import { db, getDurableOperation, getJob, listReceipts } from "@/lib/firestore";
 import { runWithTenant } from "@/lib/tenancy";
 import type { PlannedAction, Receipt } from "@/lib/types";
+import { actionPayloadDigest } from "@/lib/idempotency";
 
 const emulator = process.env.FIRESTORE_EMULATOR_HOST;
 const scope = { workspaceId: "command-test", brandId: "brand-test", principal: servicePrincipal("command-integration") };
@@ -22,16 +23,21 @@ const draft: EffectCommandInput = {
 };
 const command = createEffectCommand({ ...draft, authorization: { kind: "approval", approvalId: action.id, approvedPayloadDigest: effectCommandDigest(draft) } });
 const jobPath = `workspaces/${scope.workspaceId}/jobs/${jobId}`;
+const approval = (approvedAction: PlannedAction, id = approvedAction.id) => ({ id, jobId: approvedAction.jobId, actionId: approvedAction.id, decision: "approved", payloadDigest: actionPayloadDigest(approvedAction), actorType: "firebase_operator", actorSubjectId: "operator-test", authenticationId: "firebase-test", channel: "dashboard", operationId: `${approvedAction.jobId}:approval:${approvedAction.id}`, traceId: "a".repeat(32), decidedAt: new Date().toISOString() });
 
 describe.skipIf(!emulator)("effect command Firestore aggregate", () => {
   it("grants one owner and atomically finalizes command, claim, receipt, and action", async () => {
     await db().doc(jobPath).set({
       workspaceId: scope.workspaceId, brandId: scope.brandId, createdByUserId: "operator-test",
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), status: "running",
-      stage: "publish", config: { platforms: ["x"] }, actions: [action],
+      stage: "publish", config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, actions: [action],
     });
+    const approvalRef = db().doc(`${jobPath}/approval_decisions/${action.id}`);
+    await approvalRef.set({ ...approval(action), actorType: "service", channel: "telegram" });
     await runWithTenant(scope, () => createCommand(command));
     const owner = { operationId: `job:${jobId}:effect:${command.id}`, traceId: "a".repeat(32) };
+    await expect(runWithTenant(scope, () => claimCommandEffect(command.id, { ...owner, claimToken: "non-human-owner" }))).rejects.toThrow("stale");
+    await approvalRef.set(approval(action));
     const outcomes = await runWithTenant(scope, () => Promise.all([
       claimCommandEffect(command.id, { ...owner, claimToken: "owner-a" }),
       claimCommandEffect(command.id, { ...owner, claimToken: "owner-b" }),
@@ -85,8 +91,9 @@ describe.skipIf(!emulator)("effect command Firestore aggregate", () => {
     await db().doc(`workspaces/${scope.workspaceId}/jobs/${unknownJobId}`).set({
       workspaceId: scope.workspaceId, brandId: scope.brandId, createdByUserId: "operator-test",
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), status: "running",
-      stage: "publish", config: { platforms: ["x"] }, actions: [unknownAction],
+      stage: "publish", config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, actions: [unknownAction],
     });
+    await db().doc(`workspaces/${scope.workspaceId}/jobs/${unknownJobId}/approval_decisions/${unknownAction.id}`).set(approval(unknownAction));
     await runWithTenant(scope, () => createCommand(unknownCommand));
     const operationId = `job:${unknownJobId}:effect:${unknownCommand.id}`;
     const claimed = await runWithTenant(scope, () => claimCommandEffect(unknownCommand.id, {
@@ -127,8 +134,9 @@ describe.skipIf(!emulator)("effect command Firestore aggregate", () => {
     await db().doc(`workspaces/${scope.workspaceId}/jobs/${retryJobId}`).set({
       workspaceId: scope.workspaceId, brandId: scope.brandId, createdByUserId: "operator-test",
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), status: "running",
-      stage: "publish", config: { platforms: ["x"] }, actions: [retryAction],
+      stage: "publish", config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, actions: [retryAction],
     });
+    await db().doc(`workspaces/${scope.workspaceId}/jobs/${retryJobId}/approval_decisions/${retryAction.id}`).set(approval(retryAction));
     await runWithTenant(scope, () => createCommand(retryCommand));
     const operationId = `job:${retryJobId}:effect:${retryCommand.id}`;
     const first = await runWithTenant(scope, () => claimCommandEffect(retryCommand.id, {

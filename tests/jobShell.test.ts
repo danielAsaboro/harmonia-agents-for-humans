@@ -7,8 +7,8 @@ const base = {
     id: "job-1",
     status: "running" as const,
     stage: "understand" as const,
-    desiredState: "run" as const,
-    controlVersion: 3,
+    controlState: "running" as const,
+    controlEpoch: 3,
     updatedAt: "2026-08-31T00:00:00.000Z",
   },
   pendingApprovalCount: 0,
@@ -21,7 +21,7 @@ describe("job shell derivation", () => {
   it("keeps uncertain effects visible above approvals, pause, and terminal job status", () => {
     const shell = deriveJobShell({
       ...base,
-      job: { ...base.job, status: "failed", desiredState: "pause_requested" },
+      job: { ...base.job, status: "failed", controlState: "paused" },
       pendingApprovalCount: 2,
       attentionCount: 1,
       unknownEffectCount: 1,
@@ -35,13 +35,13 @@ describe("job shell derivation", () => {
   it("surfaces operator work before pause and failure", () => {
     expect(deriveJobShell({
       ...base,
-      job: { ...base.job, status: "failed", desiredState: "pause_requested" },
+      job: { ...base.job, status: "failed", controlState: "paused" },
       pendingApprovalCount: 1,
     }).lifecycle).toBe("needs_you");
   });
 
   it("derives paused, failed, scheduled, settled, and active states deterministically", () => {
-    expect(deriveJobShell({ ...base, job: { ...base.job, desiredState: "pause_requested" } }).lifecycle).toBe("paused");
+    expect(deriveJobShell({ ...base, job: { ...base.job, controlState: "paused" } }).lifecycle).toBe("paused");
     expect(deriveJobShell({ ...base, job: { ...base.job, status: "failed" } }).lifecycle).toBe("failed");
     expect(deriveJobShell({ ...base, scheduledFor: "2026-09-01T10:00:00.000Z" }).lifecycle).toBe("scheduled");
     expect(deriveJobShell({ ...base, job: { ...base.job, status: "complete", stage: "complete" } }).lifecycle).toBe("settled");
@@ -50,7 +50,7 @@ describe("job shell derivation", () => {
 
   it("reports bounded stage and explicit plan progress", () => {
     const inferred = deriveJobShell(base);
-    expect(inferred.progress).toEqual({ completedSteps: 3, totalSteps: 12 });
+    expect(inferred.progress).toEqual({ completedSteps: 4, totalSteps: 13 });
     expect(inferred.backgroundLiveness).toBe("working");
 
     const explicit = deriveJobShell({

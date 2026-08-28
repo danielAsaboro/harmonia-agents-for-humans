@@ -8,12 +8,14 @@ import type { JobFull } from "@/components/jobTypes";
 import type { TimelineEvent } from "@/components/Timeline";
 import type { PlannedAction, Receipt } from "@/lib/types";
 import { isReplayableAction } from "@/lib/replayEligibility";
+import { SteeringControls } from "@/components/studio/SteeringControls";
+import { contentArtifactPreview } from "@/lib/contentArtifacts/presentation";
 
 type Tab = "overview" | "drafts" | "actions" | "receipts" | "packet";
 
 const TABS: Array<{ key: Tab; label: string }> = [
   { key: "overview", label: "Analysis" },
-  { key: "drafts", label: "Drafts" },
+  { key: "drafts", label: "Artifacts" },
   { key: "actions", label: "Actions" },
   { key: "receipts", label: "Receipts" },
   { key: "packet", label: "Packet" },
@@ -125,8 +127,8 @@ export default function JobDetail({
     <div className="flex flex-col gap-4">
       <section className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="max-w-md truncate font-mono text-sm font-semibold" title={job.config.youtubeUrl ?? job.config.brief}>
-            {(job.config.youtubeUrl ?? `brief: ${job.config.brief ?? ""}`).replace(/^https?:\/\//, "").slice(0, 60)}
+          <h2 className="max-w-md truncate font-mono text-sm font-semibold" title={job.config.sourceManifestId}>
+            {job.sourceAnalysis?.summary ?? `Source bundle ${job.config.sourceManifestId.slice(0, 12)}`}
           </h2>
           <div className="flex items-center gap-2">
             {job.status === "complete" && <Chip tone="green">complete</Chip>}
@@ -134,21 +136,22 @@ export default function JobDetail({
             {job.status === "waiting_for_approval" && <Chip tone="amber">awaiting approval</Chip>}
             {job.status === "running" && <Chip tone="blue">running</Chip>}
             <span className="font-mono text-xs text-zinc-400">{job.id.slice(0, 8)}</span>
-            <AskAiButton kind="job" id={job.id} label={(job.config.youtubeUrl ?? job.config.brief ?? job.id).slice(0, 60)} />
+            <AskAiButton kind="job" id={job.id} label={(job.sourceAnalysis?.summary ?? `Source bundle ${job.config.sourceManifestId}`).slice(0, 60)} />
           </div>
         </div>
 
         <div className="mt-4">
           <PipelineStepper stage={job.stage} status={job.status} />
         </div>
+        <SteeringControls job={job} />
 
         {job.failure && (
           <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">
             <p className="text-sm text-red-700 dark:text-red-300">
-              {job.failure.permanent ? "Permanent failure" : "Transient failure — Pub/Sub will redeliver"} at{" "}
-              <span className="font-mono">{job.failure.stage}</span>: {job.failure.error}
+              {job.failure.retryable ? "Transient failure — retry is available" : "Permanent failure"} at{" "}
+              <span className="font-mono">{job.failure.stage}</span>: {job.failure.publicMessage}
             </p>
-            {job.failure.permanent && (
+            {job.failure.retryable && (
               <button
                 onClick={() => void onRetry()}
                 disabled={busy}
@@ -260,16 +263,16 @@ export default function JobDetail({
         <div className="p-4">
           {tab === "overview" && (
             <>
-              {job.transcriptSegments.length > 0 && (
+              {(job.normalizedSources?.length ?? 0) > 0 && (
                 <details open>
-                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-zinc-500">Transcript ({job.transcriptSegments.length})</summary>
+                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-zinc-500">Normalized sources ({job.normalizedSources?.length ?? 0})</summary>
                   <ol className="mt-2 max-h-56 space-y-1 overflow-y-auto text-xs leading-5">
-                    {job.transcriptSegments.map((seg) => (
-                      <li key={seg.id}>
-                        <span className="mr-2 font-mono text-[10px] text-zinc-400">{Math.floor(seg.startSec / 60)}:{String(Math.round(seg.startSec % 60)).padStart(2, "0")}</span>
-                        {seg.text}
+                    {(job.normalizedSources ?? []).flatMap((source) => source.segments.map((segment) => (
+                      <li key={`${source.sourceId}:${segment.id}`}>
+                        <span className="mr-2 font-mono text-[10px] text-zinc-400">{source.title} · {segment.locator.kind}</span>
+                        {segment.text}
                       </li>
-                    ))}
+                    )))}
                   </ol>
                 </details>
               )}
@@ -303,30 +306,26 @@ export default function JobDetail({
                   </ul>
                 </div>
               )}
-              {!job.sourceAnalysis && job.transcriptSegments.length === 0 && (
-                <Empty text="Transcript and analysis appear after the transcribe and understand stages." />
+              {!job.sourceAnalysis && !(job.normalizedSources?.length) && (
+                <Empty text="Normalized evidence and analysis appear after source extraction and understanding." />
               )}
             </>
           )}
 
           {tab === "drafts" && (
             <>
-              {(job.drafts?.length ?? 0) === 0 ? (
-                <Empty text="Platform drafts appear after the draft stage." />
+              {(job.contentArtifacts?.length ?? 0) === 0 ? (
+                <Empty text="Reviewed content artifacts appear after production." />
               ) : (
                 <ul className="flex flex-col gap-2">
-                  {job.drafts.map((d) => (
-                    <li key={d.id} className={`rounded-lg border p-3 dark:border-zinc-800 ${d.valid ? "border-emerald-200 dark:border-emerald-900" : "border-red-200 dark:border-red-900"}`}>
+                  {job.contentArtifacts!.map((artifact) => (
+                    <li key={artifact.id} className="rounded-lg border border-emerald-200 p-3 dark:border-emerald-900">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <Chip tone={d.valid ? "green" : "red"}>{d.platform.toUpperCase()}</Chip>
-                        <span className="font-mono text-[10px] text-zinc-400">{d.validationNote ?? `${d.text.length} chars`}</span>
+                        <Chip tone="green">{artifact.outputType.toUpperCase()}</Chip>
+                        <span className="font-mono text-[10px] text-zinc-400">revision {artifact.revision} · {artifact.contentDigest.slice(0, 12)}…</span>
                       </div>
-                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{d.text}</p>
-                      {d.momentId && (
-                        <p className="mt-1 font-mono text-[10px] text-zinc-400">
-                          from moment: {job.sourceAnalysis?.moments.find((m) => m.id === d.momentId)?.title ?? d.momentId}
-                        </p>
-                      )}
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{contentArtifactPreview(artifact)}</p>
+                      <p className="mt-1 font-mono text-[10px] text-zinc-400">Sources: {artifact.sourceSegmentRefs.join(" · ")}</p>
                     </li>
                   ))}
                 </ul>
@@ -422,12 +421,6 @@ export default function JobDetail({
 
           {tab === "packet" && (
             <>
-              {job.contentPack && (
-                <details className="mb-4">
-                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-zinc-500">Content pack (sha256 {job.contentPack.digest.slice(0, 12)}…)</summary>
-                  <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-zinc-200 bg-white p-3 text-[11px] leading-5 dark:border-zinc-700 dark:bg-zinc-950">{job.contentPack.markdown}</pre>
-                </details>
-              )}
               {!job.packet ? (
                 <Empty text="The evidence packet is assembled after independent verification completes." />
               ) : (
@@ -451,10 +444,10 @@ export default function JobDetail({
                   )}
                   <div className="flex gap-2">
                     <button
-                      onClick={() => download(`harmonia-pack-${job.id.slice(0, 8)}.md`, job.contentPack?.markdown ?? "No content pack generated yet.", "text/markdown")}
+                      onClick={() => download(`harmonia-evidence-${job.id.slice(0, 8)}.json`, JSON.stringify(job.packet, null, 2), "application/json")}
                       className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-white dark:text-black dark:hover:bg-zinc-300"
                     >
-                      Download packet (.md)
+                      Download evidence (.json)
                     </button>
                   </div>
                 </div>

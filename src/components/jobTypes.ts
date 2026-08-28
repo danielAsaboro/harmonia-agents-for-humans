@@ -1,4 +1,5 @@
-import type { AnalysisResearchRequest, AnalysisSearchEvidence, ApprovalDecision, EvidenceRef, Angle, ContentStrategy, DraftWorkflowResult, EditorialPlan, EditorialPlanningSnapshot, EffectClaimSummary, Moment, PlannedAction, PostDraft, Receipt, SourceAnalysis, Stage, StrategyApproval } from "@/lib/types";
+import type { AnalysisResearchRequest, AnalysisSearchEvidence, ApprovalDecision, CampaignOutputPlan, EvidenceRef, Angle, ContentStrategy, EditorialPlan, EditorialPlanningSnapshot, EffectClaimSummary, Job, JobConfig, JobSourceManifest, Moment, NormalizedSource, PlannedAction, Receipt, SourceAnalysis, SourceRecord, Stage, StrategyApproval } from "@/lib/types";
+import type { ContentArtifact } from "@/lib/contentArtifacts/contracts";
 
 export interface JobSummary {
   id: string;
@@ -6,23 +7,16 @@ export interface JobSummary {
   stage: Stage;
   createdAt: string;
   updatedAt: string;
-  desiredState?: "run" | "pause_requested" | "cancel_requested";
-  controlVersion?: number;
-  config: {
-    youtubeUrl?: string;
-    mediaAttachmentId?: string;
-    mediaFilename?: string;
-    mediaMime?: string;
-    brief?: string;
-    platforms: string[];
-  };
-  ingestedTitle?: string;
-  ingestedDurationSec?: number;
-  failure?: { stage: Stage; error: string; permanent: boolean; at: string };
+  config: JobConfig;
+  sourceAnalysis?: SourceAnalysis;
+  controlEpoch?: number;
+  controlState?: "running" | "paused" | "cancelled";
+  failure?: Job["failure"];
   learnings?: { summary: string; notes: string[] };
 }
 
 export interface JobFull extends JobSummary {
+  campaignOutputPlan?: CampaignOutputPlan;
   contentStrategy?: ContentStrategy;
   strategyDigest?: string;
   strategyRevision?: number;
@@ -38,16 +32,14 @@ export interface JobFull extends JobSummary {
   editorialPlanningSnapshotDigest?: string;
   selectedNextItemId?: string;
   editorialItemStates?: Record<string, { status: "planned" | "selected" | "drafting" | "reviewed" | "awaiting_approval"; updatedAt: string }>;
-  productionTrace?: DraftWorkflowResult;
-  productionTraceDigest?: string;
-  transcriptSegments: Array<{ id: string; startSec: number; endSec: number; text: string }>;
-  sourceAnalysis?: SourceAnalysis;
+  sourceManifest?: JobSourceManifest;
+  sourceRecords?: SourceRecord[];
+  normalizedSources?: NormalizedSource[];
   analysisDigest?: string;
   analysisResearchRequest?: AnalysisResearchRequest | null;
   analysisSearchEvidence?: AnalysisSearchEvidence[];
   analysisGroundingMetadata?: Record<string, unknown> | null;
-  drafts: PostDraft[];
-  contentPack?: { markdown: string; digest: string; generatedAt: string };
+  contentArtifacts?: ContentArtifact[];
   actions: PlannedAction[];
   engagement?: Array<{
     actionId: string;
@@ -84,4 +76,4 @@ export interface JobFull extends JobSummary {
   decisions?: ApprovalDecision[];
 }
 
-export type { Angle, Moment, PlannedAction, PostDraft, Receipt, Stage };
+export type { Angle, Moment, PlannedAction, Receipt, Stage };

@@ -1,7 +1,10 @@
+import type { ContentArtifact } from "./contentArtifacts/contracts";
+
 export const STAGES = [
   "queued",
-  "ingest",
-  "transcribe",
+  "collect_sources",
+  "extract_sources",
+  "awaiting_source_resolution",
   "understand",
   "strategize",
   "awaiting_strategy_approval",
@@ -23,19 +26,113 @@ export type JobStatus =
   | "complete"
   | "failed";
 
+export type SourceInput =
+  | { kind: "youtube"; url: string; rightsAuthorizationId: string }
+  | { kind: "web"; url: string; rightsAuthorizationId: string }
+  | { kind: "upload"; attachmentId: string; rightsAuthorizationId: string }
+  | { kind: "pasted_text"; title: string; text: string; rightsAuthorizationId: string };
+
+export type SourceState =
+  | "discovered"
+  | "validating"
+  | "queued"
+  | "extracting"
+  | "ready"
+  | "failed"
+  | "excluded";
+
+export interface SourceFailure {
+  code: string;
+  category: "validation" | "authorization" | "policy" | "provider_transient" | "provider_permanent" | "dependency";
+  publicMessage: string;
+  retryable: boolean;
+  occurredAt: string;
+}
+
+export interface SourceRecord {
+  id: string;
+  workspaceId: string;
+  brandId: string;
+  provider: "youtube" | "web" | "upload" | "pasted_text" | "google_drive" | "gcs";
+  providerResourceId: string;
+  providerVersion: string;
+  title: string;
+  mimeType: string;
+  state: SourceState;
+  rightsAuthorizationId: string;
+  trust: "operator_supplied" | "authorized_private" | "public_untrusted";
+  contentDigest?: string;
+  normalizedArtifactId?: string;
+  extractionReceiptId?: string;
+  failure?: SourceFailure;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type EvidenceLocator =
+  | { kind: "time_range"; startMs: number; endMs: number }
+  | { kind: "frame"; timestampMs: number; frameArtifactId: string }
+  | { kind: "page_range"; startPage: number; endPage: number }
+  | { kind: "paragraph_range"; startParagraph: number; endParagraph: number }
+  | { kind: "line_range"; startLine: number; endLine: number }
+  | { kind: "section"; heading: string; occurrence: number }
+  | { kind: "url_fragment"; canonicalUrl: string; fragment: string };
+
+export interface ContentSegment {
+  id: string;
+  text: string;
+  locator: EvidenceLocator;
+  digest: string;
+}
+
+export interface NormalizedSource {
+  sourceId: string;
+  sourceKind: "video" | "audio" | "document" | "web" | "text";
+  title: string;
+  mimeType: string;
+  contentDigest: string;
+  extractorVersion: string;
+  extractedAt: string;
+  segments: ContentSegment[];
+  metadata: Record<string, string | number | boolean>;
+  extractionReceiptId: string;
+}
+
+export interface SourceExclusionRecord {
+  sourceId: string;
+  reason: string;
+  excludedAt: string;
+  excludedBySubjectId: string;
+}
+
+export interface JobSourceManifest {
+  id: string;
+  jobId: string;
+  revision: number;
+  librarySnapshotId?: string;
+  directSourceIds: string[];
+  excludedSourceIds: string[];
+  exclusionRecords: SourceExclusionRecord[];
+  digest: string;
+  sealedAt: string;
+  sealedBySubjectId: string;
+}
+
+export type OutputKind =
+  | "x_post" | "x_thread" | "linkedin_post" | "blog_article" | "newsletter" | "caption"
+  | "carousel_spec" | "social_image" | "quote_card" | "diagram"
+  | "short_clip" | "reel" | "generated_broll" | "generated_audio" | "editorial_calendar" | "content_pack";
+
+export interface ProposedOutput { id: string; outputType: OutputKind; quantity: number; destinations: string[]; evidenceRefs: string[]; costClass: "local" | "provider_metered"; approvalClass: "strategy" | "effect" }
+export interface CampaignOutputPlan { id: string; desiredOutputs: OutputKind[]; allowedOutputs: OutputKind[]; outputs: ProposedOutput[]; digest: string }
+
 export interface JobConfig {
-  youtubeUrl?: string;
-  /** Tenant-scoped uploaded media selected by the chat request router. */
-  mediaAttachmentId?: string;
-  mediaFilename?: string;
-  mediaMime?: string;
-  mediaStorageUri?: string;
-  /** Operator-supplied topic/brief for concept jobs that skip ingest+transcribe. */
-  brief?: string;
+  sourceManifestId: string;
+  desiredOutputs: OutputKind[];
+  allowedOutputs: OutputKind[];
   strategyContext?: StrategyContext;
   analysisResearchRequest?: AnalysisResearchRequest;
   platforms: string[];
-  sourceRights?: import("./sourceRights").SourceRightsAuthorization;
 }
 
 export interface AnalysisResearchRequest {
@@ -164,106 +261,6 @@ export interface EditorialPlanningSnapshot {
   provenanceIds: string[];
 }
 
-export interface ContentClaim {
-  text: string;
-  evidenceRefs: string[];
-}
-
-export interface ContentDraft {
-  id: string;
-  planId: string;
-  planDigest: string;
-  strategyDigest: string;
-  editorialItemId: string;
-  briefId: string;
-  revision: 1 | 2;
-  platform: "x";
-  format: "text_post";
-  audienceId: string;
-  objective: string;
-  funnelStage: "awareness" | "consideration" | "conversion" | "retention" | "advocacy";
-  ctaIntent: string;
-  text: string;
-  ctaTreatment: string;
-  intendedConversion: string;
-  evidenceRefs: string[];
-  claims: ContentClaim[];
-  assumptions: string[];
-  confidence: "low" | "medium" | "high";
-  appliedConstraints: string[];
-  priorDraftId: string | null;
-  addressedIssueIds: string[];
-}
-
-export interface EditorialReviewIssue {
-  id: string;
-  category: "grounding" | "brief_alignment" | "brand_voice" | "platform_constraints" | "cta" | "safety" | "clarity";
-  severity: "low" | "medium" | "high";
-  fieldPath: "text" | "ctaTreatment" | "claims" | "assumptions" | "evidenceRefs" | "appliedConstraints" | "audienceId" | "objective" | "funnelStage" | "intendedConversion" | "platform" | "format";
-  instruction: string;
-  evidenceRefs: string[];
-  constraintRefs: string[];
-}
-
-export type EditorialDimension = "grounding" | "brief_alignment" | "brand_voice" | "platform_constraints" | "cta" | "safety" | "clarity";
-
-export interface EditorialCheck {
-  dimension: EditorialDimension;
-  status: "pass" | "fail";
-  rationale: string;
-  evidenceRefs: string[];
-  constraintRefs: string[];
-}
-
-export interface EditorialAssessment {
-  verdict: "accepted" | "revise";
-  checks: EditorialCheck[];
-  issues: EditorialReviewIssue[];
-  resolvedIssueIds: string[];
-}
-
-export interface EditorialReview {
-  id: string;
-  planId: string;
-  planDigest: string;
-  strategyDigest: string;
-  editorialItemId: string;
-  briefId: string;
-  draftId: string;
-  revision: 1 | 2;
-  verdict: "accepted" | "revise";
-  reviewedAt: string;
-  checks: EditorialCheck[];
-  issues: EditorialReviewIssue[];
-  resolvedIssueIds: string[];
-}
-
-export interface DraftWorkflowResult {
-  originalDraft: ContentDraft;
-  reviews: EditorialReview[];
-  revisionDraft: ContentDraft | null;
-  acceptedDraft: ContentDraft;
-}
-
-export interface CopywriterInput {
-  planId: string;
-  planDigest: string;
-  strategyDigest: string;
-  editorialItemId: string;
-  briefId: string;
-  editorialItem: EditorialPlanItem;
-  brief: ContentStrategy["briefs"][number];
-  referencedMoments: Moment[];
-  referencedAngles: Angle[];
-  brandContext: string;
-  constraints: string[];
-  platform: "x";
-  format: "text_post";
-  passType: "original" | "revision";
-  priorDraft: ContentDraft | null;
-  priorReview: EditorialReview | null;
-}
-
 export interface StrategyInvocationContext {
   revision: number; sourceIds: string[]; operatorContextIds: string[];
   performance: Array<{ id: string; firestoreEvidenceRef: string }>;
@@ -282,17 +279,17 @@ export interface Job {
   createdAt: string;
   updatedAt: string;
   status: JobStatus;
-  desiredState: "run" | "pause_requested" | "cancel_requested";
-  controlVersion: number;
   terminalOutcome?: "succeeded" | "partial" | "failed" | "unresolved" | "rejected";
   retentionDeleteAfter?: string;
   retentionHold?: boolean;
   stage: Stage;
   config: JobConfig;
-  ingestedTitle?: string;
-  ingestedChannel?: string;
-  ingestedDurationSec?: number;
-  mediaDigest?: string;
+  controlEpoch: number;
+  controlState: "running" | "paused" | "cancelled";
+  steeringInstructions?: Array<{ nudgeId: string; scope: "current_stage" | "remaining_job" | "content_item"; contentItemId?: string; instruction: string; appliedAt: string; controlEpoch: number }>;
+  campaignOutputPlan?: CampaignOutputPlan;
+  contentArtifacts?: ContentArtifact[];
+  artifactProductionResult?: import("./contentArtifacts/submission").ArtifactProductionResult;
   sourceAnalysis?: SourceAnalysis;
   analysisDigest?: string;
   analysisResearchRequest?: AnalysisResearchRequest | null;
@@ -318,10 +315,8 @@ export interface Job {
   selectedNextItemId?: string;
   editorialItemStates?: Record<string, { status: "planned" | "selected" | "drafting" | "reviewed" | "awaiting_approval"; updatedAt: string }>;
   activeProductionLineage?: { editorialPlanId: string; editorialPlanDigest: string; editorialItemId: string; briefId: string };
-  productionTrace?: DraftWorkflowResult;
-  productionTraceDigest?: string;
+  artifactProductionDigest?: string;
   editorialPlanHistory?: Record<string, { plan: EditorialPlan; digest: string; revision: number; strategyId: string; strategyDigest: string; evidenceLineage: string[]; selectedNextItemId: string; acceptedAt: string }>;
-  videoId?: string;
   budget?: JobBudget;
   failure?: {
     stage: Stage;
@@ -334,10 +329,6 @@ export interface Job {
     attempt: number;
     maxAttempts: number;
     details: Record<string, string | number | boolean>;
-    /** Compatibility display alias for publicMessage. */
-    error: string;
-    /** Compatibility display alias for !retryable. */
-    permanent: boolean;
     at: string;
   };
 }
@@ -387,6 +378,7 @@ export interface EvidenceRef {
     | "media_file"
     | "gemini_call"
     | "x_api"
+    | "linkedin_api"
     | "http_probe"
     | "firestore_doc"
     | "asset_store";
@@ -398,11 +390,10 @@ export interface EvidenceRef {
 export type RiskLevel = "low" | "medium" | "high";
 
 export type ActionType =
-  | "export_content_pack"
+  | "export_content_artifact"
   | "publish_x_post"
+  | "publish_x_thread"
   | "publish_linkedin_post"
-  | "publish_instagram_post"
-  | "publish_youtube_video"
   | "generate_image"
   | "generate_veo_broll"
   | "generate_lyria_soundtrack"
@@ -550,7 +541,7 @@ export interface Moment {
   endSec: number;
   hook: string;
   quote: string;
-  transcriptSegmentRefs: string[];
+  sourceSegmentRefs: string[];
   visualHook?: string;
   cropSuitability?: "poor" | "fair" | "good" | "excellent";
   captionSafeRegion?: string;
@@ -579,24 +570,11 @@ export interface SourceAnalysis {
   confidence: "low" | "medium" | "high";
 }
 
-export interface PostDraft {
-  id: string;
-  platform: string;
-  momentId?: string;
-  angleId?: string;
-  editorialPlanId?: string;
-  editorialItemId?: string;
-  briefId?: string;
-  text: string;
-  valid: boolean;
-  validationNote?: string;
-}
-
 export interface EvidencePacket {
   jobId: string;
   generatedAt: string;
   config: JobConfig;
-  drafts: PostDraft[];
+  artifacts: Array<{ id: string; outputType: string; revision: number; contentDigest: string }>;
   verifications: VerificationResult[];
   unresolved: string[];
 }

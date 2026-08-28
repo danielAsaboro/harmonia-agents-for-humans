@@ -4,6 +4,7 @@ import { claimStageExecution, finalizeStageExecution, type StageExecution } from
 const execution: StageExecution = {
   jobId: "job-1",
   stage: "draft",
+  operationId: "job:job-1:stage:draft:generation:0",
   state: "claimed",
   ownerId: "worker-a",
   claimTokenDigest: "a".repeat(64),

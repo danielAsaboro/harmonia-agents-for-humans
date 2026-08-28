@@ -6,7 +6,7 @@ import {
   markEffectClaimObserved, markEffectClaimUnknown, restoreEffectClaimForRetry,
 } from "./effectClaims";
 import {
-  effectCommandDigest, markEffectDispatched, markEffectObserved,
+  effectCommandDigest, markEffectDispatched, markEffectObserved, markEffectProgress,
   markEffectUnknown, restoreEffectPrepared, type EffectCommand,
   type EffectObservedOutcome,
 } from "./effectCommands";
@@ -15,9 +15,10 @@ import {
   operationIdForEffect, type OperationFence, type OperationRecord,
 } from "./operations";
 import { decideWorkAdmission } from "./operations/workAdmission";
+import { actionPayloadDigest } from "./idempotency";
 import { canonicalJson } from "./recordReplay/integrity";
 import { currentTenant, tenantCollectionPath } from "./tenancy";
-import type { EffectClaim, EffectClaimInput, EffectClaimOutcome, Job, PlannedAction, Receipt } from "./types";
+import type { ApprovalDecision, EffectClaim, EffectClaimInput, EffectClaimOutcome, Job, PlannedAction, Receipt } from "./types";
 
 const COMMANDS = "effect_commands";
 const CLAIMS = "claims";
@@ -25,6 +26,7 @@ const JOBS = "jobs";
 const RECEIPTS = "receipts";
 const CONTENT_ITEMS = "content_items";
 const OPERATIONS = "operations";
+const APPROVAL_DECISIONS = "approval_decisions";
 
 function commands() {
   return db().collection(tenantCollectionPath(currentTenant(), COMMANDS));
@@ -119,8 +121,9 @@ export async function claimCommandEffect(
     if (owner.operationId !== operationId) throw new Error("effect command operation id mismatch");
     const operationRef = db().collection(tenantCollectionPath(tenant, OPERATIONS)).doc(operationId);
     const jobRef = db().collection(tenantCollectionPath(tenant, JOBS)).doc(command.jobId);
-    const [claimSnap, operationSnap, jobSnap] = await Promise.all([
-      tx.get(claimRef), tx.get(operationRef), tx.get(jobRef),
+    const approvalRef = jobRef.collection(APPROVAL_DECISIONS).doc(command.actionId);
+    const [claimSnap, operationSnap, jobSnap, approvalSnap] = await Promise.all([
+      tx.get(claimRef), tx.get(operationRef), tx.get(jobRef), tx.get(approvalRef),
     ]);
     assertStoredCommand(command);
     assertCommandTenant(command);
@@ -141,10 +144,41 @@ export async function claimCommandEffect(
     let result = decideEffectClaim(existingClaim, input);
     if (result.outcome === "execute") {
       if (!jobSnap.exists) throw new Error("effect command job not found");
-      const job = jobSnap.data() as Job;
+      const job = jobSnap.data() as Job & { actions: PlannedAction[] };
       if (job.workspaceId !== tenant.workspaceId || job.brandId !== tenant.brandId) throw new Error("effect command job tenant mismatch");
-      const admission = decideWorkAdmission(job.desiredState);
+      const admission = decideWorkAdmission(job.controlState);
       if (admission.outcome !== "execute") return admission;
+      if (command.sourceKind === "job_action") {
+        const action = job.actions?.find((candidate) => candidate.id === command.actionId);
+        if (!action || action.state !== "planned" || action.type !== command.actionType || canonicalJson(action.payload) !== canonicalJson(command.payload)) {
+          throw new Error("effect command action is no longer current");
+        }
+        if (command.authorization.kind === "approval" && action.approvalState !== "approved") {
+          throw new Error("effect command approval has been revoked");
+        }
+        if (command.authorization.kind === "approval") {
+          if (!approvalSnap.exists) throw new Error("effect command approval decision is missing");
+          const approval = approvalSnap.data() as ApprovalDecision;
+          if (
+            approval.id !== command.authorization.approvalId
+            || approval.jobId !== command.jobId
+            || approval.actionId !== command.actionId
+            || approval.decision !== "approved"
+            || approval.payloadDigest !== actionPayloadDigest(action)
+            || !["firebase_operator", "telegram_operator"].includes(approval.actorType)
+            || !approval.actorSubjectId
+            || !approval.authenticationId
+            || approval.channel !== (approval.actorType === "firebase_operator" ? "dashboard" : "telegram")
+            || approval.operationId !== `${command.jobId}:approval:${command.actionId}`
+            || !/^[a-f0-9]{32}$/.test(approval.traceId)
+            || approval.traceId === "0".repeat(32)
+            || !Number.isFinite(Date.parse(approval.decidedAt))
+          ) throw new Error("effect command approval decision is stale");
+        }
+        if (command.authorization.kind === "mandate" && action.approvalState !== "not_required") {
+          throw new Error("effect command mandate is no longer valid");
+        }
+      }
       const now = result.claim.claimedAt;
       let operation = operationSnap.exists
         ? operationSnap.data() as OperationRecord
@@ -187,6 +221,7 @@ export async function claimCommandEffect(
 
 export type EffectDispatchTransition =
   | { phase: "dispatched"; claimToken: string; attempt: number }
+  | { phase: "progress"; claimToken: string; progress: { kind: "x_thread"; confirmedPostIds: string[] } }
   | { phase: "provider_not_started"; claimToken: string }
   | { phase: "observed"; claimToken: string; outcome: EffectObservedOutcome; artifact?: unknown; detail: Record<string, unknown> }
   | { phase: "unknown"; claimToken: string; reason: string };
@@ -227,6 +262,12 @@ export async function transitionCommandEffect(
         claimToken: input.claimToken, operationEpoch: fence.epoch,
         goalDigest: operation.goal.digest, now: fence.now,
       });
+    } else if (input.phase === "progress") {
+      nextCommand = markEffectProgress(command, {
+        operationId: fence.operationId, operationEpoch: fence.epoch,
+        progress: input.progress, now: fence.now,
+      });
+      nextClaim = claim;
     } else if (input.phase === "observed") {
       nextCommand = markEffectObserved(command, {
         operationId: fence.operationId, operationEpoch: fence.epoch,

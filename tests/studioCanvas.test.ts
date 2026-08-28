@@ -31,7 +31,7 @@ describe("studio canvas", () => {
     const html = renderToStaticMarkup(createElement(WorkingCanvas, {
       job: {
         id: "job-1", status: "running", stage: "draft", createdAt: "2026-08-23T00:00:00.000Z", updatedAt: "2026-08-23T00:00:00.000Z",
-        config: { brief: "Launch", platforms: ["x"] }, transcriptSegments: [], drafts: [], actions: [], assets: [],
+        config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, normalizedSources: [], actions: [], assets: [],
       },
       events: [], receipts: [], selectedArtifactId: null, onSelectedArtifactChange: () => {},
       operations: [

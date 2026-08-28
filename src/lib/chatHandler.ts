@@ -1,25 +1,25 @@
 import { z } from "zod";
 import { requestAgentAnswer } from "@/lib/agentAskClient";
-import { answerFromContext, fetchContextRecord, isValidContext, mockContextAnswer } from "@/lib/contextAnswer";
-import { isMockAi } from "@/lib/chatIntent";
+import { answerFromContext, fetchContextRecord, isValidContext } from "@/lib/contextAnswer";
 import {
   appendEvent,
-  createJob,
   getJob,
   listAssets,
   listJobs,
   saveChatMessage,
-  saveIngestMeta,
 } from "@/lib/firestore";
 import { currentTenant } from "@/lib/tenancy";
 import { parseIntent } from "@/lib/chatIntent";
 import { queueStageTrigger } from "@/lib/stageTrigger";
-import { parseYouTubeUrl } from "@/lib/youtubeUrl";
-import type { PlannedAction, PostDraft, Stage } from "@/lib/types";
+import type { Job, PlannedAction, SourceInput, Stage } from "@/lib/types";
+import type { ContentArtifact } from "@/lib/contentArtifacts/contracts";
 import { requireReadyAttachments, type ChatAttachment } from "@/lib/chatAttachments";
 import { actionPayloadDigest } from "@/lib/idempotency";
 import { createPendingOperation, type PendingOperation } from "@/lib/pendingOperations";
-import { hasRightsAttestation, RIGHTS_ATTESTATION_PHRASE, sourceRightsAuthorization } from "@/lib/sourceRights";
+import { hasRightsAttestation, RIGHTS_ATTESTATION_PHRASE, sourceRightsAuthorization, sourceRightsAuthorizationId } from "@/lib/sourceRights";
+import { createSourceJob } from "@/lib/sourceManifest";
+import { latestHealthySnapshot, listLibraryConnections } from "@/lib/brandLibraries/repository";
+import { outputKindSchema } from "@/lib/contracts";
 
 const chatSchema = z.object({
   message: z.string().min(1).max(2000),
@@ -32,7 +32,7 @@ const chatSchema = z.object({
       id: z.string().min(1),
     })
     .optional(),
-  attachmentIds: z.array(z.string().min(1)).max(20).default([]),
+  attachmentIds: z.array(z.string().min(1)).max(10).default([]),
 });
 
 export interface JobCard {
@@ -70,7 +70,7 @@ export interface ChatResponse {
   reply: string;
   job?: JobCard;
   jobs?: JobCard[];
-  drafts?: PostDraft[];
+  artifacts?: ContentArtifact[];
   pendingActions?: PendingActionSummary[];
   /** Media produced by the referenced job, so conversations render richly. */
   assets?: ChatAsset[];
@@ -82,17 +82,17 @@ export interface ChatResponse {
 }
 
 type FullJob = Awaited<ReturnType<typeof getJob>>;
-type AnyJob = FullJob | Awaited<ReturnType<typeof createJob>>;
-type ApprovalJob = Pick<FullJob, "id" | "stage" | "status" | "ingestedTitle" | "failure" | "actions" | "contentStrategy" | "strategyDigest" | "strategyApprovalState">;
+type AnyJob = Pick<Job, "id" | "stage" | "status" | "sourceAnalysis" | "failure">;
+type ApprovalJob = Pick<FullJob, "id" | "stage" | "status" | "sourceAnalysis" | "failure" | "actions" | "contentStrategy" | "strategyDigest" | "strategyApprovalState">;
 
 function toCard(job: AnyJob): JobCard {
   return {
     id: job.id,
     stage: job.stage,
     status: job.status,
-    title: job.ingestedTitle,
+    title: job.sourceAnalysis?.summary,
     failure: job.failure
-      ? { stage: job.failure.stage, error: job.failure.error, permanent: job.failure.permanent }
+      ? { stage: job.failure.stage, error: job.failure.publicMessage, permanent: !job.failure.retryable }
       : undefined,
   };
 }
@@ -267,9 +267,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
     }
     let reply: string;
     try {
-      reply = isMockAi()
-        ? mockContextAnswer(message, record, context.kind)
-        : await answerFromContext(message, record);
+      reply = await answerFromContext(message, record);
     } catch (e) {
       return { payload: {
         intent: "context_qa",
@@ -298,64 +296,40 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
 
   switch (intent.intent) {
     case "create_job": {
-      const videoId = intent.youtubeUrl ? parseYouTubeUrl(intent.youtubeUrl) : null;
-      const media = attachments.find((attachment) => attachment.category === "video" || attachment.category === "audio");
-      if (media) {
-        if (!hasRightsAttestation(message)) return { payload: {
-          intent: intent.intent,
-          reply: `Before processing this upload, send the request again with: “${RIGHTS_ATTESTATION_PHRASE}”.`,
-        } satisfies ChatResponse };
-        const job = await createJob({
-          mediaAttachmentId: media.id,
-          mediaFilename: media.filename,
-          mediaMime: media.mime,
-          mediaStorageUri: media.storageUri,
-          sourceRights: sourceRightsAuthorization(currentTenant(), "upload"),
-          platforms: ["x"],
-        }, "ingest");
-        await appendEvent(job.id, "queued", `job created via ${surface} chat for uploaded ${media.category}`, "operator");
-        await queueStageTrigger(job.id, "ingest");
-        return { payload: {
-          intent: intent.intent,
-          reply: `Created job ${job.id} from ${media.filename}. The pipeline is running and will stop at the approval gate before any external action.`,
-          jobId: job.id,
-          job: toCard(job),
-        } satisfies ChatResponse };
+      const descriptors = intent.sources ?? [];
+      const needsRightsAttestation = attachments.length > 0 || descriptors.some((source) => source.kind === "youtube");
+      if (needsRightsAttestation && !hasRightsAttestation(message)) return { payload: { intent: intent.intent, reply: `Before processing uploaded or YouTube media, send the request again with: “${RIGHTS_ATTESTATION_PHRASE}”.` } satisfies ChatResponse };
+      const directSources: SourceInput[] = [];
+      for (const attachment of attachments) {
+        const authorization = sourceRightsAuthorization(currentTenant(), "upload");
+        directSources.push({ kind: "upload", attachmentId: attachment.id, rightsAuthorizationId: sourceRightsAuthorizationId(authorization) });
       }
-      if (videoId) {
-        if (!hasRightsAttestation(message)) return { payload: {
-          intent: intent.intent,
-          reply: `Before downloading or clipping this video, send the request again with: “${RIGHTS_ATTESTATION_PHRASE}”.`,
-        } satisfies ChatResponse };
-        const job = await createJob(
-          { youtubeUrl: intent.youtubeUrl as string, platforms: ["x"], sourceRights: sourceRightsAuthorization(currentTenant(), "youtube") },
-          "ingest",
-        );
-        await appendEvent(job.id, "queued", `job created via ${surface} chat for video ${videoId}`, "operator");
-        await queueStageTrigger(job.id, "ingest");
-        return { payload: {
-          intent: intent.intent,
-          reply: `Created job ${job.id} for video ${videoId}. Pipeline is running: ingest → transcribe → understand → strategize. Ryan's strategy and the final publication effects each require separate approval.`,
-          jobId: job.id,
-          job: toCard(job),
-        } satisfies ChatResponse };
+      for (const source of descriptors) {
+        const authorization = sourceRightsAuthorization(currentTenant(), source.kind);
+        const rightsAuthorizationId = sourceRightsAuthorizationId(authorization);
+        if (source.kind === "pasted_text") directSources.push({ ...source, rightsAuthorizationId });
+        else directSources.push({ ...source, rightsAuthorizationId });
       }
-      if (intent.topic && intent.topic.length >= 20) {
-        const title = intent.topic.length > 60 ? `${intent.topic.slice(0, 57)}...` : intent.topic;
-        const job = await createJob({ brief: intent.topic, platforms: ["x"] }, "understand");
-        await saveIngestMeta(job.id, { videoId: "brief", title, channel: "operator", durationSec: 0 });
-        await appendEvent(job.id, "understand", `concept job created via ${surface} chat`, "operator");
-        await queueStageTrigger(job.id, "understand");
-        return { payload: {
-          intent: intent.intent,
-          reply: `Created concept job ${job.id} from your brief. Nimi will analyze it, then Ryan will propose a strategy for your approval before Temi plans production.`,
-          jobId: job.id,
-          job: toCard(job),
-        } satisfies ChatResponse };
+      let librarySnapshotId: string | undefined;
+      if (intent.libraryName) {
+        const libraries = await listLibraryConnections();
+        const library = libraries.find((candidate) => candidate.name.toLocaleLowerCase() === intent.libraryName!.toLocaleLowerCase());
+        if (!library) return { payload: { intent: intent.intent, reply: `No connected brand library is named “${intent.libraryName}”. Select an existing library in Settings first.` } satisfies ChatResponse };
+        const snapshot = await latestHealthySnapshot(library.id);
+        if (!snapshot) return { payload: { intent: intent.intent, reply: `Brand library “${library.name}” has no healthy synchronized snapshot yet.` } satisfies ChatResponse };
+        librarySnapshotId = snapshot.id;
+      }
+      if (directSources.length || librarySnapshotId) {
+        const desiredOutputs = (intent.desiredOutputs ?? []).map((item) => outputKindSchema.safeParse(item)).filter((item) => item.success).map((item) => item.data);
+        if (!desiredOutputs.length) desiredOutputs.push("x_post");
+        const job = await createSourceJob({ librarySnapshotId, directSources, desiredOutputs, allowedOutputs: desiredOutputs, platforms: ["x"] });
+        await appendEvent(job.id, "collect_sources", `source manifest created via ${surface} chat`, "operator");
+        await queueStageTrigger(job.id, "collect_sources");
+        return { payload: { intent: intent.intent, reply: `Created job ${job.id} with ${directSources.length} direct source${directSources.length === 1 ? "" : "s"}${librarySnapshotId ? " and one pinned brand-library snapshot" : ""}. Harmonia is collecting and extracting them; any partial failure will pause for resolution before analysis.`, jobId: job.id, job: toCard(job) } satisfies ChatResponse };
       }
       return { payload: {
         intent: intent.intent,
-        reply: "Give me either a YouTube video URL or a topic to post about (a sentence or two works best).",
+        reply: "Add at least one source: a YouTube or public web URL, an uploaded file, or pasted factual context.",
       } satisfies ChatResponse };
     }
 
@@ -363,7 +337,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
       if (intent.jobId) {
         const job = await getJob(intent.jobId);
         const reply = job.failure
-          ? `Job ${job.id} failed at '${job.failure.stage}' (${job.failure.permanent ? "permanent" : "transient"}): ${job.failure.error}`
+          ? `Job ${job.id} failed at '${job.failure.stage}' (${job.failure.retryable ? "transient" : "permanent"}): ${job.failure.publicMessage}`
           : job.stage === "awaiting_strategy_approval"
             ? `Job ${job.id} is waiting for approval of Ryan's strategy digest ${job.strategyDigest ?? "(missing)"}.`
             : job.stage === "awaiting_approval"
@@ -388,7 +362,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
       } satisfies ChatResponse };
     }
 
-    case "list_drafts": {
+    case "list_artifacts": {
       if (!intent.jobId) {
         const jobs = await listJobs();
         return { payload: {
@@ -398,20 +372,21 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
         } satisfies ChatResponse };
       }
       const job = await getJob(intent.jobId);
-      if (job.drafts.length === 0) {
+      const artifacts = job.contentArtifacts ?? [];
+      if (artifacts.length === 0) {
         return { payload: {
           intent: intent.intent,
-          reply: `Job ${job.id} has no drafts yet (stage: ${job.stage}).`,
+          reply: `Job ${job.id} has no content artifacts yet (stage: ${job.stage}).`,
           jobId: job.id,
           job: toCard(job),
         } satisfies ChatResponse };
       }
       return { payload: {
         intent: intent.intent,
-        reply: `${job.drafts.length} drafted post(s) for "${job.ingestedTitle ?? job.id}":`,
+        reply: `${artifacts.length} immutable content artifact(s) for "${job.sourceAnalysis?.summary ?? job.id}":`,
         jobId: job.id,
         job: toCard(job),
-        drafts: job.drafts,
+        artifacts,
         assets: await assetsOf(job.id),
       } satisfies ChatResponse };
     }
@@ -444,7 +419,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
     }
 
     default: {
-      if (!isMockAi()) {
+      {
         try {
           const result = await requestAgentAnswer(message);
           const askJobId = result.operationId;
@@ -479,7 +454,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
           "I can run your Harmonia content pipeline. Try:\n" +
           "- \"make a job from https://youtu.be/<id>\"\n" +
           "- \"status of job <id>\" or \"status\"\n" +
-          "- \"show drafts for <id>\"\n" +
+          "- \"show artifacts for <id>\"\n" +
           "- \"approve job <id>\" (strategy and publication effects have separate explicit approvals)",
       } satisfies ChatResponse };
     }

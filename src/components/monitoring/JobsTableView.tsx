@@ -63,12 +63,14 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
   }, [reload]);
 
   const control = async (shell: JobShell, action: "pause" | "resume" | "cancel") => {
+    const confirmation = action === "cancel" ? window.prompt(`Type CANCEL ${shell.jobId} to confirm cancellation.`) : undefined;
+    if (action === "cancel" && confirmation !== `CANCEL ${shell.jobId}`) return;
     setBusyJob(shell.jobId);
     setControlError("");
     try {
       const response = await fetch(`/api/jobs/${encodeURIComponent(shell.jobId)}/control`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ commandId: crypto.randomUUID(), action, expectedControlVersion: shell.controlVersion }),
+        body: JSON.stringify({ commandId: crypto.randomUUID(), action, expectedControlEpoch: shell.controlEpoch, ...(confirmation ? { confirmation } : {}) }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.receipt?.error ?? data.error ?? `Control HTTP ${response.status}`);
@@ -88,8 +90,8 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
       out = out.filter(
         (j) =>
           j.id.toLowerCase().includes(needle) ||
-          (j.config.youtubeUrl ?? "").toLowerCase().includes(needle) ||
-          (j.config.brief ?? "").toLowerCase().includes(needle),
+          j.config.sourceManifestId.toLowerCase().includes(needle) ||
+          j.config.desiredOutputs.some((output) => output.includes(needle)),
       );
     }
     return [...out].sort((a, b) =>
@@ -115,7 +117,7 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
         <TextInput aria-label="Search jobs"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search url, brief, or job id…"
+          placeholder="Search job, manifest, or output…"
         />
         <Select aria-label="Filter jobs by status"
           value={statusFilter}
@@ -154,7 +156,7 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
               >
                 <td className="px-3 py-2 font-mono">{j.id.slice(0, 16)}</td>
                 <td className="max-w-[220px] truncate px-3 py-2">
-                  {j.config.youtubeUrl ?? `brief: ${(j.config.brief ?? "").slice(0, 40)}`.replace(/^https?:\/\//, "")}
+                  {j.sourceAnalysis?.summary ?? `Bundle ${j.config.sourceManifestId.slice(0, 12)}`}
                 </td>
                 <td className="px-3 py-2 capitalize">{j.stage.replace("_", " ")}</td>
                 <td className="px-3 py-2">
@@ -164,16 +166,16 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
                 </td>
                 <td className="ops-table__muted">{shell ? `${shell.progress.completedSteps}/${shell.progress.totalSteps}` : "—"}</td>
                 <td onClick={(event) => event.stopPropagation()}>
-                  {shell && shell.lifecycle !== "settled" ? shell.desiredState === "cancel_requested" ? <StatusBadge tone="warning">Cancel requested</StatusBadge> : <div className="ops-filter-row">
-                    <Button variant="quiet" busy={busyJob === j.id} onClick={() => void control(shell, shell.desiredState === "pause_requested" ? "resume" : "pause")}>{shell.desiredState === "pause_requested" ? "Resume" : "Pause"}</Button>
+                  {shell && shell.lifecycle !== "settled" ? shell.controlState === "cancelled" ? <StatusBadge tone="warning">Cancelled</StatusBadge> : <div className="ops-filter-row">
+                    <Button variant="quiet" busy={busyJob === j.id} onClick={() => void control(shell, shell.controlState === "paused" ? "resume" : "pause")}>{shell.controlState === "paused" ? "Resume" : "Pause"}</Button>
                     <Button variant="danger" busy={busyJob === j.id} onClick={() => void control(shell, "cancel")}>Cancel</Button>
                   </div> : "—"}
                 </td>
                 <td className="ops-table__muted">
                   {new Date(j.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                 </td>
-                <td className={j.failure ? "ops-table__danger" : "ops-table__muted"} title={j.failure?.error}>
-                  {j.failure ? `${j.failure.stage}: ${j.failure.error.slice(0, 60)}` : "—"}
+                <td className={j.failure ? "ops-table__danger" : "ops-table__muted"} title={j.failure?.publicMessage}>
+                  {j.failure ? `${j.failure.stage}: ${j.failure.publicMessage.slice(0, 60)}` : "—"}
                 </td>
               </tr>
               );

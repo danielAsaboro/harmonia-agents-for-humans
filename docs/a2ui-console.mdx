@@ -7,7 +7,7 @@ The Harmonia Console combines operator conversation with a living editorial canv
 
 <CardGroup cols={3}>
   <Card title="Conversation" icon="comments">Chaptered messages, safe activity summaries, tool state, and context.</Card>
-  <Card title="Working canvas" icon="objects-column">Drafts, media, evidence, plans, comparisons, and persisted artifacts.</Card>
+  <Card title="Working canvas" icon="objects-column">Typed content artifacts, media, evidence, plans, comparisons, and receipts.</Card>
   <Card title="Approval dock" icon="user-check">Server-owned controls bound to durable job and action identities.</Card>
 </CardGroup>
 
@@ -23,7 +23,7 @@ flowchart LR
   FIRE[(Authoritative records)] --> HYDRATE
 ```
 
-Unknown components, wrong-job or invented entity references, duplicate references, component/reference mismatches, authoritative titles, non-HTTP citations, and preview URLs outside authenticated routes fail validation. `ApprovalReview` is valid only in the approval slot for exactly one action that the supplied context marks pending. Loading, empty, unresolved, and failure components are host-owned and cannot be selected by Maya. Hydration supplies actual draft text, transcript excerpts, policy state, costs, asset routes, and receipts from authenticated records; the model never supplies those authoritative values.
+Unknown components, wrong-job or invented entity references, duplicate references, component/reference mismatches, authoritative titles, non-HTTP citations, and preview URLs outside authenticated routes fail validation. `ApprovalReview` is valid only in the approval slot for exactly one action that the supplied context marks pending. Loading, empty, unresolved, and failure components are host-owned and cannot be selected by Maya. Hydration supplies exact content-artifact payloads, transcript excerpts, policy state, costs, asset routes, and receipts from authenticated records; the model never supplies those authoritative values.
 
 ## Durable streaming
 
@@ -41,8 +41,9 @@ Cloud uploads use a tenant-scoped resumable Cloud Storage URL. The server downlo
 
 | Upload | Current behavior |
 |---|---|
-| video/audio | may seed the existing ingest and transcription pipeline when the prompt selects `create_job` |
-| image/document | retained and rendered as context; not silently claimed as analyzed |
+| video/audio | registered as direct sources and normalized into timed evidence when the prompt selects `create_job` |
+| document | registered as a direct source and normalized into page/paragraph evidence |
+| image | retained and rendered as conversation context; standalone image analysis is not claimed |
 | upload without task intent | stores the attachment but creates no job |
 
 <Warning>Generated approval detail is presentation only. The unchanged server-protected approval dock validates persisted `jobId + actionId` and remains the sole dashboard decision control.</Warning>

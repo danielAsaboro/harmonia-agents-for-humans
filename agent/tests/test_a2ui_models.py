@@ -8,7 +8,7 @@ def context_payload() -> dict:
     return {
         "runId": "run-1",
         "operatorRequest": "Compare the launch drafts.",
-        "intent": "list_drafts",
+        "intent": "list_artifacts",
         "job": {
             "id": "job-1",
             "stage": "awaiting_approval",

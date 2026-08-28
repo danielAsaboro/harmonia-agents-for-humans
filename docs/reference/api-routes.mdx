@@ -8,7 +8,7 @@ Route handlers live under `src/app/api/`. Exact request schemas are enforced in 
 | Family | Examples | Caller |
 |---|---|---|
 | Jobs | `/api/jobs`, `/api/jobs/{id}`, strategy and action decisions, retry | Authenticated operator UI |
-| Operational control | `/api/operations/shell`, `/api/jobs/{id}/control` | Authenticated operator or workspace admin |
+| Operational control | `/api/operations/shell`, `/api/jobs/{id}/control`, steering nudge/apply/redo routes | Authenticated operator; pause/resume/cancel require workspace admin |
 | Chat | `/api/chat`, history, streams, runs, attachments, operation decisions | Authenticated operator chat |
 | Content and calendar | `/api/content-items`, approvals, `/api/calendar`, `/api/calendar/google` | Authenticated operator UI |
 | Settings and OAuth | `/api/settings/*`, `/api/oauth/{platform}/*` | Authenticated workspace admin |
@@ -44,11 +44,17 @@ Authentication: workspace administrator using a browser operator session.
 {
   "commandId": "control_01",
   "action": "pause",
-  "expectedControlVersion": 4
+  "expectedControlEpoch": 4
 }
 ```
 
-`action` is `pause`, `resume`, or `cancel`. The server derives the actor from the authenticated principal. An accepted command returns `200` with its immutable receipt. A valid but rejected transition, including a stale version, returns `409` with the rejected receipt. Invalid input returns `400`.
+`action` is `pause`, `resume`, or `cancel`. Cancellation also requires `"confirmation": "CANCEL {jobId}"`. The server derives the actor from the authenticated principal. An accepted command returns `200` with its immutable receipt. A valid but rejected transition, including a stale epoch, returns `409` with the rejected receipt. Invalid input returns `400`.
+
+### Steering endpoints
+
+`POST /api/jobs/{id}/steering/nudges` proposes a bounded instruction and returns its exact impact digest. `POST /api/jobs/{id}/steering/nudges/{nudgeId}/apply` accepts that digest, revokes affected approvals and prepared effects atomically, advances the control epoch, and queues a generation-fenced stage execution. Gate stages rewind to their owning production stage; terminal stages reject steering.
+
+`POST /api/jobs/{id}/steering/redo` requires `expectedControlEpoch`, `targetStage`, and exact `confirmation` equal to `REDO {targetStage}`. Redo refuses to cross executed external effects. These steering routes require an authenticated operator and enforce both workspace and brand ownership.
 
 ## Data-plane endpoints
 

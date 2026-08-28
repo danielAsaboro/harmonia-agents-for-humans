@@ -19,7 +19,7 @@ const scope = {
 
 describe.skipIf(!emulator)("stage outbox Firestore transaction", () => {
   it("atomically creates the initial trigger and grants one concurrent publisher", async () => {
-    const job = await runWithTenant(scope, () => createJob({ brief: "A sufficiently detailed integration test brief", platforms: ["x"] }, "understand"));
+    const job = await runWithTenant(scope, () => createJob({ sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, "understand"));
     const [record] = await runWithTenant(scope, () => listDispatchableStageOutbox());
     expect(record).toMatchObject({ jobId: job.id, stage: "understand", state: "pending" });
 

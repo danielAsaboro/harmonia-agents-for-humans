@@ -52,7 +52,7 @@ function Nested({ children }: { children?: ReactNode }) {
 
 export interface CampaignBriefProps extends FrameProps {
   brief: string;
-  sourceKind: "written" | "video" | "audio" | "mixed";
+  sourceKind: "video" | "audio" | "document" | "web" | "text" | "mixed";
   platforms: string[];
   angles: Array<{ id: string; angleType: "source_insight" | "trend" | "meme" | "performance_learning" | "memory_learning"; evidenceKind: "source" | "public_context" | "private_context" | "performance" | "memory"; title: string; rationale: string }>;
 }

@@ -19,7 +19,7 @@ def envelope() -> dict:
         "brandId": "brand-1",
         "jobId": "job-1",
         "eventType": "stage.requested",
-        "operationId": "job:job-1:stage:draft",
+        "operationId": "job:job-1:stage:draft:generation:0",
         "correlationId": "job:job-1",
         "attempt": 0,
         "trust": "system",
@@ -35,7 +35,7 @@ def envelope() -> dict:
                 "workspaceId": "workspace-1",
                 "brandId": "brand-1",
                 "sourceEventId": "stage-outbox:outbox-1",
-                "operationId": "job:job-1:stage:draft",
+                "operationId": "job:job-1:stage:draft:generation:0",
             },
         }
     }
@@ -62,7 +62,7 @@ def test_push_scopes_fenced_stage_calls_and_finalizes(monkeypatch) -> None:
     })
     monkeypatch.setattr(main, "complete_event_inbox", finalized.append)
 
-    async def dispatch(_job_id, _stage, *, attempt=0):
+    async def dispatch(_job_id, _stage, *, attempt=0, operation_id=None):
         seen.append((current_operation().operation_id, current_operation().epoch, attempt))
         return True
 
@@ -70,10 +70,29 @@ def test_push_scopes_fenced_stage_calls_and_finalizes(monkeypatch) -> None:
     response = TestClient(main.app).post("/pubsub/push", json=envelope())
 
     assert response.status_code == 200
-    assert seen == [("job:job-1:stage:draft", 4, 0)]
+    assert seen == [("job:job-1:stage:draft:generation:0", 4, 0)]
     assert finalized[0]["operationEpoch"] == 4
     assert finalized[0]["operationState"] == "succeeded"
     assert current_operation() is None
+
+
+def test_push_finalizes_failed_stage_as_failed_operation(monkeypatch) -> None:
+    finalized = []
+    monkeypatch.setattr(main, "claim_event_inbox", lambda _payload: {"outcome": "execute"})
+    monkeypatch.setattr(main, "claim_operation", lambda _payload: {"outcome": "execute", "operation": {"epoch": 5}})
+    monkeypatch.setattr(main, "complete_event_inbox", finalized.append)
+
+    async def failed(_job_id, _stage, *, attempt=0, operation_id=None):
+        assert operation_id == "job:job-1:stage:draft:generation:0"
+        return "failed"
+
+    monkeypatch.setattr(main, "dispatch", failed)
+    response = TestClient(main.app).post("/pubsub/push", json=envelope())
+
+    assert response.status_code == 200
+    assert response.json()["failed"] is True
+    assert finalized[0]["outcome"] == "rejected"
+    assert finalized[0]["operationState"] == "failed"
 
 
 def test_push_leaves_claims_for_recovery_on_transient_crash(monkeypatch) -> None:

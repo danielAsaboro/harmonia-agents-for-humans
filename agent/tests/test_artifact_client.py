@@ -103,3 +103,26 @@ def test_context_projection_client_persists_the_digest_bound_manifest(monkeypatc
         "renderedChars": 1200,
         "renderedArtifactId": "018f47a2-4f40-7b1f-b19f-8f6b916b7d12",
     })]
+
+
+def test_content_artifact_client_reads_exact_revision_and_digest(monkeypatch) -> None:
+    calls = []
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"artifact": {"id": "content-1", "revision": 2, "contentDigest": "a" * 64}}
+
+    class Client:
+        def __enter__(self): return self
+        def __exit__(self, *_args): return None
+        def get(self, path, params):
+            calls.append((path, params))
+            return Response()
+
+    monkeypatch.setattr(web_client, "_client", lambda: Client())
+    artifact = web_client.get_content_artifact("job-1", "content-1", "a" * 64)
+    assert artifact["revision"] == 2
+    assert calls == [("/api/internal/content-artifacts/content-1", {"jobId": "job-1", "digest": "a" * 64})]

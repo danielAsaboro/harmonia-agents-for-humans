@@ -3,6 +3,7 @@ export type StageExecutionState = "claimed" | "applied" | "failed" | "uncertain"
 export interface StageExecution {
   jobId: string;
   stage: string;
+  operationId: string;
   state: StageExecutionState;
   ownerId: string;
   claimTokenDigest: string;
@@ -31,13 +32,14 @@ export type StageClaimResult =
 
 export function claimStageExecution(
   existing: StageExecution | null,
-  input: StageClaimInput & { jobId?: string; stage?: string },
+  input: StageClaimInput & { jobId?: string; stage?: string; operationId?: string },
 ): ActiveStageClaimResult {
   if (!existing) {
-    if (!input.jobId || !input.stage) throw new Error("new stage claim requires job and stage");
+    if (!input.jobId || !input.stage || !input.operationId) throw new Error("new stage claim requires job, stage, and operation");
     const execution: StageExecution = {
       jobId: input.jobId,
       stage: input.stage,
+      operationId: input.operationId,
       state: "claimed",
       ownerId: input.ownerId,
       claimTokenDigest: input.claimTokenDigest,

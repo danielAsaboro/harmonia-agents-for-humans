@@ -14,6 +14,7 @@ const context: UiContext = {
     sourceKind: "video",
   },
   drafts: [],
+
   moments: [{ id: "moment-1", title: "Outcome proof", startSec: 12, endSec: 24 }],
   sources: [{ id: "source-video", kind: "video", label: "Source video" }],
   assets: [],

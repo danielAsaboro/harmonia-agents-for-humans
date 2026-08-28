@@ -1,9 +1,12 @@
 import type { Firestore } from "@google-cloud/firestore";
 
-import { assertResourceWorkspace, currentTenant, tenantDocumentPath } from "../tenancy";
-import type { JobStatus } from "../types";
+import { createStageOutboxInTransaction } from "../firestore";
+import { invalidateEffectCommand, type EffectCommand } from "../effectCommands";
+import { assertResourceWorkspace, currentTenant, tenantCollectionPath, tenantDocumentPath } from "../tenancy";
+import type { EffectClaim } from "../types";
+import type { JobStatus, Stage } from "../types";
 import { decideJobControl, type CommandEnvelope, type JobControlState } from "./commands";
-import { jobDesiredStateSchema, type JobDesiredState } from "./jobShell";
+import { jobControlStateSchema, type JobControlStateValue } from "./jobShell";
 
 export interface CommandReceipt {
   commandId: string;
@@ -16,8 +19,8 @@ export interface CommandReceipt {
   receivedAt: string;
   recordedAt: string;
   accepted: boolean;
-  resultingControlVersion?: number;
-  resultingDesiredState?: JobDesiredState;
+  resultingControlEpoch?: number;
+  resultingControlState?: JobControlStateValue;
   errorCode?: string;
   error?: string;
 }
@@ -55,15 +58,23 @@ export class JobControlCommandStore {
         workspaceId: string;
         brandId: string;
         status: JobStatus;
-        desiredState: JobDesiredState;
-        controlVersion: number;
+        controlState: JobControlStateValue;
+        controlEpoch: number;
+        stage: Stage;
+        actions?: Array<Record<string, unknown>>;
       };
       assertResourceWorkspace(tenant, job);
+      const effectSnapshots = command.action === "cancel"
+        ? await transaction.get(this.firestore.collection(tenantCollectionPath(tenant, "effect_commands")).where("jobId", "==", command.jobId))
+        : null;
+      const effectClaims = effectSnapshots
+        ? await Promise.all(effectSnapshots.docs.map((snapshot) => transaction.get(snapshot.ref.collection("claims").doc("effect"))))
+        : [];
       const state: JobControlState = {
         jobId: command.jobId,
         status: job.status,
-        desiredState: jobDesiredStateSchema.parse(job.desiredState),
-        controlVersion: job.controlVersion,
+        controlState: jobControlStateSchema.parse(job.controlState),
+        controlEpoch: job.controlEpoch,
       };
       const decision = decideJobControl(state, command);
       const receipt: CommandReceipt = {
@@ -78,16 +89,47 @@ export class JobControlCommandStore {
         recordedAt: new Date().toISOString(),
         accepted: decision.accepted,
         ...(decision.accepted ? {
-          resultingControlVersion: decision.next.controlVersion,
-          resultingDesiredState: decision.next.desiredState,
+          resultingControlEpoch: decision.next.controlEpoch,
+          resultingControlState: decision.next.controlState,
         } : { errorCode: decision.errorCode, error: decision.error }),
       };
       if (decision.accepted) {
+        const activeActionIds = new Set<string>();
+        if (effectSnapshots) {
+          effectSnapshots.docs.forEach((snapshot, index) => {
+            const effect = snapshot.data() as EffectCommand;
+            const claim = effectClaims[index]?.exists ? effectClaims[index].data() as EffectClaim : null;
+            const inFlight = ["dispatched", "observed", "unknown"].includes(effect.state)
+              || (claim ? ["claimed", "dispatched", "observed", "unknown"].includes(claim.state) : false);
+            if (inFlight) activeActionIds.add(effect.actionId);
+            else if (effect.state === "prepared") transaction.set(snapshot.ref, invalidateEffectCommand(effect, `job cancelled by command ${command.commandId}`, receipt.recordedAt));
+          });
+        }
+        const actions = command.action === "cancel"
+          ? (job.actions ?? []).map((action) => action.state === "planned" && !activeActionIds.has(String(action.id))
+            ? { ...action, state: "skipped", approvalState: "rejected" }
+            : action)
+          : job.actions;
         transaction.update(jobRef, {
-          desiredState: decision.next.desiredState,
-          controlVersion: decision.next.controlVersion,
+          controlState: decision.next.controlState,
+          controlEpoch: decision.next.controlEpoch,
+          ...(command.action === "cancel" ? {
+            actions,
+            terminalOutcome: activeActionIds.size > 0 ? "unresolved" : "rejected",
+            status: activeActionIds.size > 0 ? "failed" : "complete",
+          } : {}),
+          ...(command.action === "resume" ? { status: "running" } : {}),
           updatedAt: receipt.recordedAt,
         });
+        if (command.action === "resume") {
+          createStageOutboxInTransaction(
+            transaction,
+            command.jobId,
+            job.stage,
+            decision.next.controlEpoch,
+            { note: `resume command ${command.commandId}` },
+          );
+        }
       }
       transaction.create(receiptRef, receipt);
       return receipt;

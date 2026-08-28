@@ -149,7 +149,7 @@ def load_role_model_catalog() -> RoleModelCatalog:
         ),
         analyst=_gemini(
             "nimi_analyst", "ANALYST_MODEL_ID", "gemini-3.5-flash", 2048, 0.2,
-            ("analyze_media", "analyze_transcript"),
+            ("analyze_media", "analyze_sources"),
         ),
         copywriter=_gemini(
             "noni_copywriter", "COPYWRITER_MODEL_ID", "gemini-3.5-flash", 2048, 0.8,

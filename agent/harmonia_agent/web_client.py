@@ -91,6 +91,26 @@ def get_job(job_id: str) -> dict[str, Any]:
     return res.json()["job"]
 
 
+def get_source_manifest(job_id: str) -> dict[str, Any]:
+    with _client() as c:
+        res = c.get("/api/internal/source-manifest", params={"jobId": job_id})
+    if res.status_code != 200:
+        raise WebApiError(f"source manifest unavailable: {res.status_code} {res.text}", res.status_code)
+    return dict(res.json())
+
+
+def get_source(source_id: str) -> dict[str, Any]:
+    with _client() as c:
+        res = c.get(f"/api/internal/sources/{source_id}")
+    if res.status_code != 200:
+        raise WebApiError(f"source unavailable: {res.status_code} {res.text}", res.status_code)
+    return dict(res.json())
+
+
+def run_library_sync_tick() -> dict[str, Any]:
+    return post("/api/internal/libraries/sync", {})
+
+
 def get_editorial_planning_snapshot(job_id: str) -> dict[str, Any]:
     """Create or re-read the immutable Firestore planning snapshot for Temi."""
     with _client() as c:
@@ -117,6 +137,14 @@ def get_effect_commands(job_id: str) -> list[dict[str, Any]]:
     if res.status_code != 200:
         raise WebApiError(f"effect command feed failed: {res.status_code} {res.text}", res.status_code)
     return list(res.json().get("commands") or [])
+
+
+def get_receipts(job_id: str) -> list[dict[str, Any]]:
+    with _client() as c:
+        res = c.get(f"/api/internal/job/{job_id}/receipts")
+    if res.status_code != 200:
+        raise WebApiError(f"receipt feed failed: {res.status_code} {res.text}", res.status_code)
+    return list(res.json().get("receipts") or [])
 
 
 def get_effect_command(command_id: str) -> dict[str, Any]:
@@ -291,6 +319,14 @@ def post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     return res.json()
 
 
+def patch(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    with _client() as c:
+        res = c.patch(path, json=payload)
+    if res.status_code >= 300:
+        raise WebApiError(f"{path} failed: {res.status_code} {res.text}", res.status_code)
+    return res.json()
+
+
 def claim_effect(payload: dict[str, Any]) -> dict[str, Any]:
     result = post("/api/internal/effect-claim", payload)
     outcome = result.get("outcome")
@@ -300,7 +336,7 @@ def claim_effect(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def transition_effect_command(phase: str, payload: dict[str, Any]) -> dict[str, Any]:
-    if phase not in {"dispatched", "provider_not_started", "observed", "unknown"}:
+    if phase not in {"dispatched", "progress", "provider_not_started", "observed", "unknown"}:
         raise ValueError(f"invalid effect transition: {phase}")
     command_id = str(payload.get("commandId") or "")
     if not command_id:
@@ -402,6 +438,24 @@ def read_artifact(
             f"artifact read failed: {res.status_code} {res.text}", res.status_code
         )
     return dict(res.json())
+
+
+def get_content_artifact(
+    job_id: str, artifact_id: str, content_digest: str,
+) -> dict[str, Any]:
+    with _client() as c:
+        res = c.get(
+            f"/api/internal/content-artifacts/{artifact_id}",
+            params={"jobId": job_id, "digest": content_digest},
+        )
+    if res.status_code != 200:
+        raise WebApiError(
+            f"content artifact read failed: {res.status_code} {res.text}", res.status_code
+        )
+    artifact = dict(res.json()["artifact"])
+    if artifact.get("id") != artifact_id or artifact.get("contentDigest") != content_digest:
+        raise WebApiError("content artifact identity mismatch")
+    return artifact
 
 
 def save_context_projection(

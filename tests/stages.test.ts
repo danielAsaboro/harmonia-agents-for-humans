@@ -4,13 +4,13 @@ import { TransitionError, assertTransition, isKnownStage, nextStage } from "@/li
 describe("stage pipeline", () => {
   it("walks the linear pipeline", () => {
     const path: string[] = [];
-    let stage: string | null = "ingest";
+    let stage: string | null = "collect_sources";
     while (stage) {
       path.push(stage);
       stage = nextStage(stage as never);
       if (path.length > 20) throw new Error("cycle");
     }
-    expect(path).toEqual(["ingest", "transcribe", "understand", "strategize", "awaiting_strategy_approval"]);
+    expect(path).toEqual(["collect_sources", "extract_sources", "understand", "strategize", "awaiting_strategy_approval"]);
   });
 
   it("places durable planning before production drafting", () => {
@@ -26,8 +26,8 @@ describe("stage pipeline", () => {
   });
 
   it("rejects out-of-order results", () => {
-    expect(() => assertTransition("understand", "transcribe")).toThrow(TransitionError);
-    expect(() => assertTransition("transcribe", "transcribe")).not.toThrow();
+    expect(() => assertTransition("understand", "extract_sources")).toThrow(TransitionError);
+    expect(() => assertTransition("extract_sources", "extract_sources")).not.toThrow();
   });
 
   it("validates known stages", () => {

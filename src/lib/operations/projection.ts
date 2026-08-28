@@ -1,13 +1,13 @@
 import type { JobStatus, Stage } from "../types";
 import type { AttentionItem } from "./attention";
-import { deriveJobShell, type JobDesiredState, type JobShell } from "./jobShell";
+import { deriveJobShell, type JobControlStateValue, type JobShell } from "./jobShell";
 
 interface ProjectionJob {
   id: string;
   status: JobStatus;
   stage: Stage;
-  desiredState: JobDesiredState;
-  controlVersion: number;
+  controlState: JobControlStateValue;
+  controlEpoch: number;
   updatedAt: string;
   actions?: Array<{ approvalState?: string }>;
 }

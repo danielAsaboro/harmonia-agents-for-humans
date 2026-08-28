@@ -1,8 +1,9 @@
 "use client";
 
 const FLOW = [
-  { key: "ingest", label: "Ingest" },
-  { key: "transcribe", label: "Transcribe" },
+  { key: "collect_sources", label: "Collect" },
+  { key: "extract_sources", label: "Extract" },
+  { key: "awaiting_source_resolution", label: "Resolve sources" },
   { key: "understand", label: "Understand" },
   { key: "strategize", label: "Strategy" },
   { key: "awaiting_strategy_approval", label: "Strategy approval" },

@@ -3,30 +3,9 @@ title: "Development"
 description: "Use explicit test fixtures, local emulators, and verification suites without confusing them with provider evidence."
 ---
 
-## Explicit test-fixture modes
+## Test boundaries
 
-Harmonia's model and social-effect legs have explicit development-only fixtures for contract testing. Identity still uses Google sign-in and durable workflow state uses the emulators. With either flag unset, fixture code is unreachable. A fixture run must never be used in a demo, benchmark, provider claim, or authenticated evidence bundle.
-
-### `HARMONIA_MOCK_AI=1`
-
-Replaces every Gemini call with deterministic local fixtures that satisfy the exact JSON shapes of the real stages:
-
-- **Transcription** — segments derived from audio size, plausible startup-podcast text
-- **Analysis / strategy** — Nimi summary and grounded moments/angles, followed by Ryan's typed strategy proposal and briefs
-- **Drafting** — three ≤280-char X posts referencing moment/angle ids
-- **Image generation** — renders a *real* PNG locally via ffmpeg lavfi
-- **Chat intent parsing** — keyword rules instead of structured output
-- **Proactive proposals** — deterministic proposals derived from fixture signals; later learning inputs re-enter Ryan through the same strict strategy contract
-
-Every mock path logs loudly (`[MOCK-AI] ...`) and persisted `modelUsed` labels read `mock-local (HARMONIA_MOCK_AI)` so offline runs are never mistaken for real model calls.
-
-### `HARMONIA_MOCK_X=1`
-
-Independent flag covering the X API client only. Publishing returns a deterministic id derived from the post text hash (`mock-<sha256[:12]>`), and verification/metrics return small stable payloads. This is useful for development assertions only. Leave it off when testing honest integration failures or collecting real evidence.
-
-### What fixture mode still executes locally
-
-Firestore and Pub/Sub run as Google emulators locally; ffmpeg rendering and the local asset store execute real code. Receipts and verification records exercise the real schemas but refer to fixture effects when `HARMONIA_MOCK_X=1`. YouTube ingestion through yt-dlp still uses the network and requires source authorization.
+Unit tests inject explicit collaborators at function boundaries. Shipped runtime code has no provider-success fixture mode: Gemini and official publisher calls either execute with real credentials or fail visibly. Firestore and Pub/Sub emulators exercise durable state and delivery locally; they do not constitute provider or deployment evidence.
 
 ## Emulator-based workflow
 
@@ -50,7 +29,7 @@ npm run lint && npx tsc --noEmit && npm test
 cd agent && ./.venv/bin/python -m pytest tests -q
 ```
 
-Worker tests set safe dummy credentials via `agent/tests/conftest.py`; mock-mode tests exercise the fixture generators and assert their output shapes match the real stages' contracts.
+Worker tests set non-secret dummy configuration via `agent/tests/conftest.py` and inject provider responses only inside individual tests.
 
 ## Useful local endpoints
 

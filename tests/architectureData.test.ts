@@ -7,6 +7,7 @@ const byId = (id: string) => architectureDefinition.nodes.find((node) => node.id
 describe("Harmonia architecture dataset", () => {
   it("contains the exact agent and model team", () => {
     expect(byId("agent-harmonia").model?.name).toBe("Gemini 3.5 Flash-Lite");
+    expect(byId("agent-intent-router").model?.name).toBe("Gemini 3.5 Flash-Lite");
     expect(byId("agent-ryan").model?.name).toBe("Gemini 3.5 Flash");
     expect(byId("agent-nimi").model?.name).toBe("Gemini 3.5 Flash");
     expect(byId("agent-noni").model?.name).toBe("Gemini 3.5 Flash");
@@ -16,11 +17,14 @@ describe("Harmonia architecture dataset", () => {
     expect(byId("agent-nova").model?.name).toBe("Gemini 3.5 Flash");
   });
 
-  it("contains the eleven stages, seven skills, and eight read-only data tools", () => {
+  it("contains the eleven stages, routing skill, and read-only data tools", () => {
     for (const id of ["collect-sources", "extract-sources", "analyze", "strategize", "strategy-approval", "plan", "draft", "await-approval", "publish-render", "verify", "learn"]) expect(byId(`stage-${id}`)).toBeTruthy();
     for (const id of ["trend-scan", "signal-watch", "engagement-insights", "job-status", "posting-schedule"]) expect(byId(`skill-${id}`)).toBeTruthy();
     expect(byId("skill-noni-writing-skills")).toBeTruthy();
     expect(byId("skill-dara-editing-skills")).toBeTruthy();
+    expect(byId("skill-harmonia-intent-routing")).toBeTruthy();
+    expect(byId("agent-intent-router").skills).toEqual(["harmonia-intent-routing"]);
+    expect(architectureDefinition.edges).toContainEqual(expect.objectContaining({ source: "agent-harmonia", target: "agent-intent-router", kind: "delegation" }));
     for (const id of ["fetch-trend-signals", "search-trend-signals", "get-engagement-insights", "get-operator-feed", "get-job-status", "suggest-posting-windows", "search-verified-publications", "google-search-grounding"]) {
       expect(byId(`tool-${id}`).authorities).toEqual(["read"]);
     }

@@ -9,9 +9,9 @@ describe("multiformat chat intent", () => {
     });
   });
 
-  it("passes exact registry output kinds into a new content operation", () => {
-    const parsed = parseLocalIntent("Create content from https://example.com/launch\nDesired outputs: newsletter, carousel_spec");
+  it("does not require registry output tags in ordinary requests", () => {
+    const parsed = parseLocalIntent("Turn https://example.com/launch into the best launch content for founders");
     expect(parsed.intent).toBe("create_job");
-    expect(parsed.desiredOutputs).toEqual(["newsletter", "carousel_spec"]);
+    expect(parsed.desiredOutputs).toBeUndefined();
   });
 });

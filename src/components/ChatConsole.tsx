@@ -115,7 +115,7 @@ export default function ChatConsole() {
           }));
           setMessages(hydrated);
         })
-        .catch(() => setMessages([{ id: "welcome", role: "assistant", text: "Bring me a raw idea, a brief, or source media. We can shape the narrative together before anything reaches approval." }]))
+        .catch(() => setMessages([{ id: "welcome", role: "assistant", text: "Tell me what your startup needs: I can establish the strategy, plan the calendar, repurpose source material, or handle a one-off request in context." }]))
         .finally(() => setLoaded(true));
     }, 0);
     return () => window.clearTimeout(timer);

@@ -53,9 +53,26 @@ describe("source-agnostic product copy", () => {
     }));
 
     const payload = await response.json() as { reply: string };
-    expect(payload.reply).toContain("share a public URL");
-    expect(payload.reply).toContain("upload a file");
-    expect(payload.reply).toContain("paste source material");
+    expect(payload.reply).toContain("content strategy for our startup");
+    expect(payload.reply).toContain("Plan the next month");
+    expect(payload.reply).toContain("one-off launch announcement");
+    expect(payload.reply).not.toContain("x_post");
     errorLog.mockRestore();
+  });
+
+  it("invites the operator to connect a recommended but disconnected platform", async () => {
+    chatIntent.parseIntent.mockResolvedValue({
+      intent: "establish_strategy",
+      connectionSuggestions: ["linkedin"],
+      workspaceContext: { strategyReady: false },
+    });
+    const response = await handleChat(new Request("http://localhost/api/chat", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "Build our content strategy" }),
+    }));
+    const payload = await response.json() as { reply: string };
+    expect(payload.reply).toContain("LinkedIn is a good fit but not connected yet");
+    expect(payload.reply).toContain("Connect it in Settings");
+    expect(payload.reply).toContain("still prepare the strategy and drafts now");
   });
 });

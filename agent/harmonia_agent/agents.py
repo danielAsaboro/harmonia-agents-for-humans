@@ -134,12 +134,18 @@ from .context_projection import (
     compile_context_projection,
 )
 from .operation_context import current_operation
+from .intent_routing import (
+    IntentRoute,
+    IntentRoutingInput,
+    build_intent_routing_skillset,
+)
 
 logger = logging.getLogger("harmonia.agents")
 
 T = TypeVar("T", bound=BaseModel)
 
 _SPECIALIST_ROLES = {
+    "harmonia_intent_router": ("harmonia_coordinator", "harmonia_intent_router"),
     "nimi_analyst": ("harmonia_coordinator", "nimi_analyst"),
     "ryan_strategist": ("harmonia_coordinator", "ryan_strategist"),
     "temi_editorial_planner": ("harmonia_coordinator", "temi_editorial_planner"),
@@ -151,6 +157,7 @@ _SPECIALIST_ROLES = {
     "nova_liaison": ("harmonia_coordinator", "nova_liaison"),
 }
 _MAX_OUTPUT_TOKENS = {
+    "harmonia_intent_router": 1024,
     "harmonia_coordinator": 1024,
     "nimi_analyst": 2048,
     "ryan_strategist": 4096,
@@ -218,6 +225,7 @@ class RoleModelInstances:
 
     def model_for(self, role: str) -> str | BaseLlm:
         mapping = {
+            "harmonia_intent_router": self.coordinator,
             "harmonia_coordinator": self.coordinator,
             "ryan_strategist": self.strategist,
             "nimi_analyst": self.analyst,
@@ -237,6 +245,9 @@ class RoleModelInstances:
     def config_for(self, role: str) -> RoleModelConfig:
         if role in self.configs:
             return self.configs[role]
+        if role == "harmonia_intent_router":
+            base = self.config_for("harmonia_coordinator")
+            return base.model_copy(update={"role": role, "eligible_tasks": ("route_operator_intent",)})
         return RoleModelConfig(
             role=role,
             provider="gemini",
@@ -326,6 +337,8 @@ def _reservation_payloads(
 def _role_task(role: str, specialist: str, payload: BaseModel) -> str:
     if role == "harmonia_coordinator":
         return "route"
+    if role == "harmonia_intent_router":
+        return "route_operator_intent"
     if role == "ryan_strategist":
         return "strategize"
     if role == "nimi_analyst":
@@ -359,6 +372,22 @@ def build_agent_team(
 ) -> Agent:
     """Build one coordinator with two delegated specialists and one draft workflow."""
     resolved = _resolve_role_models(model, models)
+    intent_router = Agent(
+        model=resolved.coordinator,
+        generate_content_config=generation_config(resolved.config_for("harmonia_intent_router")),
+        name="harmonia_intent_router",
+        description="Routes ordinary operator language against durable workspace content context.",
+        instruction=(
+            "Load and follow the harmonia-intent-routing skill. Classify the typed message and "
+            "workspace context. Infer user-level output concepts, never internal registry names. "
+            "Return the strict route only; routing cannot authorize an external effect."
+        ),
+        input_schema=IntentRoutingInput,
+        output_schema=IntentRoute,
+        output_key="intent_route",
+        tools=[build_intent_routing_skillset()],
+        mode="single_turn",
+    )
     strategist = Agent(
         model=resolved.strategist,
         generate_content_config=generation_config(resolved.config_for("ryan_strategist")),
@@ -518,10 +547,10 @@ def build_agent_team(
             "for one application-bounded draft pass, dara_editor for one structured review, "
             "noni_artifact_producer for a requested artifact batch, dara_artifact_editor for its review, maya_presenter "
             "for a reference-only A2UI surface plan, and nova_liaison for free-form operator "
-            "questions. Never answer the task yourself and never call "
+            "questions, and harmonia_intent_router for natural-language product routing. Never answer the task yourself and never call "
             "publishing or approval systems."
         ),
-        sub_agents=[strategist, analyst, planner, copywriter, editor, artifact_producer, artifact_editor, presenter, liaison],
+        sub_agents=[intent_router, strategist, analyst, planner, copywriter, editor, artifact_producer, artifact_editor, presenter, liaison],
         tools=[],
     )
 
@@ -1639,6 +1668,9 @@ def _validated_liaison_state(state: dict[str, Any]) -> LiaisonAnswer:
 def _validate_run_output_unwrapped(
     specialist: str, payload: BaseModel, state: dict[str, Any],
 ) -> None:
+    if specialist == "harmonia_intent_router":
+        _validated_state(state, "intent_route", IntentRoute)
+        return
     if specialist == "maya_presenter":
         _validated_state(state, "surface_plan", SurfacePlan)
         return
@@ -1761,6 +1793,7 @@ def _validate_run_output_unwrapped(
 
 
 _AGENT_DISPLAY_NAMES = {
+    "harmonia_intent_router": "Harmonia",
     "nimi_analyst": "Nimi", "ryan_strategist": "Ryan",
     "temi_editorial_planner": "Temi", "noni_copywriter": "Noni",
     "dara_editor": "Dara", "noni_artifact_producer": "Noni", "dara_artifact_editor": "Dara", "maya_presenter": "Maya", "nova_liaison": "Nova",
@@ -2717,6 +2750,17 @@ async def produce_artifacts_with_team(
     revision = await noni(revision_input, 2)
     final_review = await dara(revision_input, revision, 2)
     return finalize_production(original=original, first_review=first_review, revision=revision, final_review=final_review, evidence_refs=evidence_ids, output_plan_item_ids=request_ids)
+
+
+async def route_intent_with_team(
+    value: IntentRoutingInput, *, invocation: InvocationContext | None = None,
+    team_runtime: TeamRuntime | None = None,
+) -> IntentRoute:
+    """Route one natural operator request through Harmonia's owned ADK skill."""
+    state = await _run_coordinator(
+        "harmonia_intent_router", value, invocation=invocation, team_runtime=team_runtime,
+    )
+    return _validated_state(state, "intent_route", IntentRoute)
 
 
 async def ask_with_team(

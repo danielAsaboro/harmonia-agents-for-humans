@@ -254,6 +254,14 @@ type HandlerResult =
   | { payload: ChatResponse; status?: number }
   | { __http: Response };
 
+const PLATFORM_LABELS: Record<string, string> = { x: "X", linkedin: "LinkedIn", "linkedin-organization": "LinkedIn company page", instagram: "Instagram", tiktok: "TikTok" };
+
+function connectionGuidance(platforms: string[] | undefined): string {
+  if (!platforms?.length) return "";
+  const labels = platforms.map((platform) => PLATFORM_LABELS[platform] ?? platform);
+  return ` ${labels.join(" and ")} ${labels.length === 1 ? "is" : "are"} a good fit but not connected yet. Connect ${labels.length === 1 ? "it" : "them"} in Settings before publishing; Harmonia can still prepare the strategy and drafts now.`;
+}
+
 async function buildResponse(req: Request, message: string, surface: "dashboard" | "telegram", context?: { kind: "job" | "content_item" | "proposal"; id: string }, attachments: ChatAttachment[] = []): Promise<HandlerResult> {
 
   // Grounded Q&A about a specific record ("chat with any item").
@@ -286,7 +294,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
     const attachmentContext = attachments.length
       ? `\n\nAttached files: ${attachments.map((attachment) => `${attachment.filename} (${attachment.mime})`).join(", ")}`
       : "";
-    intent = await parseIntent(`${message}${attachmentContext}`);
+    intent = await parseIntent(`${message}${attachmentContext}`, attachments.length);
   } catch (e) {
     return { __http: Response.json(
       { error: `intent parsing failed: ${e instanceof Error ? e.message : String(e)}` },
@@ -294,10 +302,21 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
     ) };
   }
 
+  if (intent.needsClarification && intent.clarifyingQuestion) {
+    return { payload: { intent: intent.intent, reply: intent.clarifyingQuestion } satisfies ChatResponse };
+  }
+
+  if (["establish_strategy", "revise_strategy"].includes(intent.intent) && ((intent.sources?.length ?? 0) > 0 || attachments.length > 0)) {
+    intent = { ...intent, intent: "create_job" };
+  }
+
   switch (intent.intent) {
     case "create_job": {
-      const descriptors = intent.sources ?? [];
-      const needsRightsAttestation = attachments.length > 0 || descriptors.some((source) => source.kind === "youtube");
+      const descriptors = [...(intent.sources ?? [])];
+      if (descriptors.length === 0 && attachments.length === 0) {
+        descriptors.push({ kind: "pasted_text", title: "Operator brief", text: intent.userOutcome ?? message });
+      }
+      const needsRightsAttestation = intent.requiresRightsAttestation || attachments.length > 0 || descriptors.some((source) => source.kind === "youtube");
       if (needsRightsAttestation && !hasRightsAttestation(message)) return { payload: { intent: intent.intent, reply: `Before processing uploaded or YouTube media, send the request again with: “${RIGHTS_ATTESTATION_PHRASE}”.` } satisfies ChatResponse };
       const directSources: SourceInput[] = [];
       for (const attachment of attachments) {
@@ -321,17 +340,33 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
       }
       if (directSources.length || librarySnapshotId) {
         const desiredOutputs = (intent.desiredOutputs ?? []).map((item) => outputKindSchema.safeParse(item)).filter((item) => item.success).map((item) => item.data);
-        if (!desiredOutputs.length) desiredOutputs.push("x_post");
+        if (!desiredOutputs.length) desiredOutputs.push(intent.workspaceContext?.channels.includes("linkedin") ? "linkedin_post" : "x_post");
         const job = await createSourceJob({ librarySnapshotId, directSources, desiredOutputs, allowedOutputs: desiredOutputs, platforms: ["x"] });
         await appendEvent(job.id, "collect_sources", `source manifest created via ${surface} chat`, "operator");
         await queueStageTrigger(job.id, "collect_sources");
-        return { payload: { intent: intent.intent, reply: `Created job ${job.id} with ${directSources.length} direct source${directSources.length === 1 ? "" : "s"}${librarySnapshotId ? " and one pinned brand-library snapshot" : ""}. Harmonia is collecting and extracting them; any partial failure will pause for resolution before analysis.`, jobId: job.id, job: toCard(job) } satisfies ChatResponse };
+        const inherited = intent.workspaceContext?.strategyReady ? " It is using your approved workspace strategy as context." : " Harmonia will state its assumptions before strategy approval.";
+        return { payload: { intent: intent.intent, reply: `Started job ${job.id} for “${intent.userOutcome ?? "your content request"}”. Harmonia will collect the sources, extract or transcribe them, decide where the material fits, and prepare the work for review.${inherited}${connectionGuidance(intent.connectionSuggestions)}`, jobId: job.id, job: toCard(job) } satisfies ChatResponse };
       }
       return { payload: {
         intent: intent.intent,
         reply: "Add at least one source: a YouTube or public web URL, an uploaded file, or pasted factual context.",
       } satisfies ChatResponse };
     }
+
+    case "establish_strategy":
+      return { payload: { intent: intent.intent, reply: `Share your company website (or attach your current positioning material). Harmonia will research the public context, draft the content strategy, and bring the exact strategy back for approval.${connectionGuidance(intent.connectionSuggestions)}` } satisfies ChatResponse };
+
+    case "revise_strategy":
+      return { payload: { intent: intent.intent, reply: `${intent.workspaceContext?.strategyReady ? "Tell me what changed—or share the updated company/product source—and Harmonia will revise the approved strategy without making any publishing changes." : "There is no approved workspace strategy yet. Share your company website and the business outcome you want; Harmonia will establish one first."}${connectionGuidance(intent.connectionSuggestions)}` } satisfies ChatResponse };
+
+    case "advance_plan":
+      return { payload: { intent: intent.intent, reply: `${intent.workspaceContext?.strategyReady ? (intent.workspaceContext.planReady ? `Your active plan is “${intent.workspaceContext.planSummary ?? "the current editorial plan"}”. Share the new campaign, source, or constraint and Harmonia will re-plan it against that strategy.` : "Your strategy is ready. Share the campaign window or next source and Harmonia will turn it into the editorial plan and calendar.") : "Harmonia needs a content strategy before it can build an ongoing plan. Share your company website and desired business outcome to start."}${connectionGuidance(intent.connectionSuggestions)}` } satisfies ChatResponse };
+
+    case "manage_calendar":
+      return { payload: { intent: intent.intent, reply: `${intent.workspaceContext?.planReady ? `Your plan is active with ${intent.workspaceContext.upcomingItemCount} upcoming item(s). Tell me the date, cadence, or priority change you want; external calendar sync will still require its normal confirmation.` : "There is no active editorial plan to schedule yet. Start with the company strategy, then Harmonia will build the plan and calendar in context."}${connectionGuidance(intent.connectionSuggestions)}` } satisfies ChatResponse };
+
+    case "effect_request":
+      return { payload: { intent: intent.intent, reply: "I can prepare that effect, but routing a request does not authorize it. Open the pending work, review the exact digest-bound action, and confirm only the action you want executed." } satisfies ChatResponse };
 
     case "status": {
       if (intent.jobId) {
@@ -451,10 +486,11 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
       return { payload: {
         intent: "unknown",
         reply:
-          "I can run your Harmonia content pipeline. Try:\n" +
-          "- \"share a public URL and turn it into platform-native posts\"\n" +
-          "- \"upload a file and build a content campaign from it\"\n" +
-          "- \"paste source material or describe a content brief\"\n" +
+          "Tell me the outcome you need. For example:\n" +
+          "- \"Build a content strategy for our startup from our website\"\n" +
+          "- \"Plan the next month of founder content\"\n" +
+          "- \"Turn this video into the best content for our current plan\"\n" +
+          "- \"Write a one-off launch announcement for founders\"\n" +
           "- \"status of job <id>\" or \"status\"\n" +
           "- \"show artifacts for <id>\"\n" +
           "- \"approve job <id>\" (strategy and publication effects have separate explicit approvals)",

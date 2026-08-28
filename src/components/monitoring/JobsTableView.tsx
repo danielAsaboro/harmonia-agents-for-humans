@@ -68,7 +68,7 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
         >
           created {sortDesc ? "↓ newest first" : "↑ oldest first"}
         </Button>
-        <span className="ml-auto text-[11px] text-zinc-400">{rows.length} job(s)</span>
+        <span className="monitor-result-count">{rows.length} job(s)</span>
       </div>
 
       {error ? <ErrorState title="Jobs could not be loaded" message={error} action={<Button onClick={() => setReload((value) => value + 1)}>Retry</Button>} /> : jobs === null ? <LoadingState title="Loading jobs" /> : rows.length === 0 ? <EmptyState title="No jobs match" message="Change the search or status filter to widen the query." /> : <DataShell>
@@ -83,7 +83,7 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
               <tr
                 key={j.id}
                 onClick={() => onOpenJob?.(j.id)}
-                className={`transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900/60 ${onOpenJob ? "cursor-pointer" : ""}`}
+                className={onOpenJob ? "ops-table__interactive-row" : undefined}
               >
                 <td className="px-3 py-2 font-mono">{j.id.slice(0, 16)}</td>
                 <td className="max-w-[220px] truncate px-3 py-2">
@@ -95,10 +95,10 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
                     {j.status.replace("_", " ")}
                   </StatusBadge>
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 text-zinc-500">
+                <td className="ops-table__muted">
                   {new Date(j.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                 </td>
-                <td className="max-w-[200px] truncate px-3 py-2 text-red-600 dark:text-red-400" title={j.failure?.error}>
+                <td className={j.failure ? "ops-table__danger" : "ops-table__muted"} title={j.failure?.error}>
                   {j.failure ? `${j.failure.stage}: ${j.failure.error.slice(0, 60)}` : "—"}
                 </td>
               </tr>

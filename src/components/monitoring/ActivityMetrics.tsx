@@ -1,4 +1,7 @@
 import type { AgentActivity } from "@/lib/observability/schema";
+import { DataShell } from "@/components/dashboard/DataShell";
+import { Surface } from "@/components/dashboard/Surface";
+import { EmptyState } from "@/components/dashboard/SystemState";
 
 export interface AgentMetricSummary {
   agent: string;
@@ -53,27 +56,26 @@ export function summarizeActivity(records: AgentActivity[]): ActivitySummary {
 
 export default function ActivityMetrics({ records }: { records: AgentActivity[] }) {
   const summary = summarizeActivity(records);
+  if (!summary.totalInvocations) return <EmptyState title="No metrics match these filters" message="Change or reset the filters to widen the operational query." />;
   return (
-    <div className="space-y-4">
-      <p className="text-xs text-zinc-500">Aggregates cover the current filtered page.</p>
-      <div className="grid gap-3 sm:grid-cols-3">
+    <div className="ops-stack">
+      <p className="dash-supporting-copy">Aggregates cover the current filtered page.</p>
+      <div className="ops-metrics">
         <Metric label="Invocations" value={summary.totalInvocations.toLocaleString()} />
         <Metric label="Success rate" value={`${(summary.successRate * 100).toFixed(1)}%`} />
         <Metric label="Failures" value={summary.failures.toLocaleString()} />
       </div>
-      <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
-        <table className="w-full text-left text-xs">
-          <thead className="bg-zinc-50 text-zinc-500 dark:bg-zinc-900"><tr>{["Agent", "Calls", "Errors", "p50", "p95", "Tokens in/out", "Tools"].map((h) => <th key={h} className="px-3 py-2 font-medium">{h}</th>)}</tr></thead>
-          <tbody>{summary.agents.map((agent) => <tr key={agent.agent} className="border-t border-zinc-200 dark:border-zinc-800">
-            <td className="px-3 py-2 font-mono">{agent.agent}</td><td className="px-3 py-2">{agent.invocations}</td><td className="px-3 py-2">{agent.failures}</td>
-            <td className="px-3 py-2">{agent.p50Ms} ms</td><td className="px-3 py-2">{agent.p95Ms} ms</td><td className="px-3 py-2">{agent.inputTokens}/{agent.outputTokens}</td><td className="px-3 py-2">{agent.toolCalls}</td>
+      <DataShell><table className="ops-table">
+          <thead><tr>{["Agent", "Calls", "Errors", "p50", "p95", "Tokens in/out", "Tools"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
+          <tbody>{summary.agents.map((agent) => <tr key={agent.agent}>
+            <td className="font-mono">{agent.agent}</td><td>{agent.invocations}</td><td>{agent.failures}</td>
+            <td>{agent.p50Ms} ms</td><td>{agent.p95Ms} ms</td><td>{agent.inputTokens}/{agent.outputTokens}</td><td>{agent.toolCalls}</td>
           </tr>)}</tbody>
-        </table>
-      </div>
+        </table></DataShell>
     </div>
   );
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800"><p className="text-xs text-zinc-500">{label}</p><p className="mt-1 text-xl font-semibold">{value}</p></div>;
+  return <Surface className="ops-metric"><p>{label}</p><strong>{value}</strong></Surface>;
 }

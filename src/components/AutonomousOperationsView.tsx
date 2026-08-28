@@ -1,17 +1,47 @@
 "use client";
-import { useEffect, useState } from "react";
+
+import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/dashboard/Button";
+import { SectionHeader } from "@/components/dashboard/DashboardPage";
+import { Surface } from "@/components/dashboard/Surface";
+import { AlertBanner, EmptyState, ErrorState, LoadingState } from "@/components/dashboard/SystemState";
 
 type Row = { id: string; type?: string; state?: string; outcome?: string; scheduledAt?: string; briefing?: string; estimatedCostUsd?: number };
 type Data = { provenance: string; cycles: Row[]; agendas: Row[]; experiments: Row[]; revisions: Row[]; attention: Row[] };
+
 export default function AutonomousOperationsView() {
-  const [data, setData] = useState<Data | null>(null); const [error, setError] = useState("");
-  useEffect(() => { fetch("/api/autonomy", { cache: "no-store" }).then(async (r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }).then(setData).catch((e) => setError(String(e))); }, []);
-  if (error) return <div role="alert" className="rounded-xl border border-red-300 p-4">Autonomy state unavailable: {error}</div>;
-  if (!data) return <p>Loading resident autonomy state…</p>;
+  const [data, setData] = useState<Data | null>(null);
+  const [error, setError] = useState("");
+
+  const load = useCallback(() => {
+    setError("");
+    setData(null);
+    fetch("/api/autonomy", { cache: "no-store" })
+      .then(async (response) => { if (!response.ok) throw new Error(`HTTP ${response.status}`); return response.json(); })
+      .then(setData)
+      .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
+  }, []);
+
+  useEffect(() => { const timer = setTimeout(load, 0); return () => clearTimeout(timer); }, [load]);
+
+  if (error) return <ErrorState title="Autonomy state unavailable" message={error} action={<Button onClick={load}>Retry autonomy state</Button>} />;
+  if (!data) return <LoadingState title="Loading resident autonomy" message="Reading persisted tenant-scoped cycles, agendas, experiments, and attention state." />;
+
   const cost = data.cycles.reduce((sum, row) => sum + (row.estimatedCostUsd ?? 0), 0);
-  return <section className="space-y-5">
-    <div className="grid gap-3 sm:grid-cols-4">{[["Cycles", data.cycles.length], ["Experiments", data.experiments.length], ["Open attention", data.attention.filter((x) => x.state === "open").length], ["Estimated cost", `$${cost.toFixed(4)}`]].map(([label, value]) => <div key={label} className="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800"><div className="text-xs text-zinc-500">{label}</div><div className="mt-1 text-xl font-semibold">{value}</div></div>)}</div>
-    <div className="rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800"><h2 className="font-semibold">Resident cycles</h2><p className="text-xs text-zinc-500">Persisted tenant-scoped state · {data.provenance}</p>{data.cycles.length === 0 ? <p className="mt-4 text-sm">No resident cycles have run. Schedules are disabled by default.</p> : <ul className="mt-3 divide-y divide-zinc-200 dark:divide-zinc-800">{data.cycles.map((cycle) => <li key={cycle.id} className="py-3 text-sm"><b>{cycle.type}</b> · {cycle.state}<div className="text-zinc-500">{cycle.outcome}</div></li>)}</ul>}</div>
-    <div className="rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800"><h2 className="font-semibold">Wakeup agendas</h2>{data.agendas.length === 0 ? <p className="mt-3 text-sm">No durable agenda yet.</p> : data.agendas.map((a) => <p key={a.id} className="mt-3 text-sm">{a.briefing}</p>)}</div>
+  const metrics = [["Cycles", data.cycles.length], ["Experiments", data.experiments.length], ["Open attention", data.attention.filter((item) => item.state === "open").length], ["Estimated cost", `$${cost.toFixed(4)}`]];
+
+  return <section className="ops-stack" aria-label="Resident autonomy">
+    <AlertBanner tone="warning" title="Autonomy is bounded">
+      Resident cycles may observe and propose work within the workspace. Schedules are disabled by default, and external effects still require the existing approval and receipt path.
+    </AlertBanner>
+    <div className="ops-metrics">{metrics.map(([label, value]) => <Surface key={label} variant="raised" className="ops-metric"><span>{label}</span><strong>{value}</strong></Surface>)}</div>
+    <Surface as="section" className="ops-section">
+      <SectionHeader title="Resident cycles" description={`Persisted tenant-scoped state · ${data.provenance}`} />
+      {data.cycles.length === 0 ? <EmptyState title="No resident cycles have run" message="Schedules are disabled by default; no background action is implied." /> : <ul className="ops-list">{data.cycles.map((cycle) => <li key={cycle.id}><strong>{cycle.type}</strong><span>{cycle.state}</span><p>{cycle.outcome}</p></li>)}</ul>}
+    </Surface>
+    <Surface as="section" className="ops-section">
+      <SectionHeader title="Wakeup agendas" description="Durable briefs for the next bounded resident cycle." />
+      {data.agendas.length === 0 ? <EmptyState title="No durable agenda" message="The resident agent has not persisted a wakeup briefing." /> : <div className="ops-list">{data.agendas.map((agenda) => <p key={agenda.id}>{agenda.briefing}</p>)}</div>}
+    </Surface>
   </section>;
 }

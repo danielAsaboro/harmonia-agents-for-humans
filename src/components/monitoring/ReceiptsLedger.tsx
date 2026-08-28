@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Receipt } from "@/lib/types";
+import { Button } from "@/components/dashboard/Button";
+import { ErrorState, LoadingState } from "@/components/dashboard/SystemState";
 
 const OUTCOMES = ["applied", "already_applied", "failed", "rejected"] as const;
 
@@ -9,16 +11,18 @@ export default function ReceiptsLedger() {
   const [receipts, setReceipts] = useState<Array<Receipt & { jobTitle?: string }> | null>(null);
   const [outcomeFilter, setOutcomeFilter] = useState<string>("");
   const [q, setQ] = useState("");
+  const [error, setError] = useState("");
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     const t = setTimeout(() => {
       fetch("/api/receipts", { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-        .then((d) => setReceipts(d.receipts))
-        .catch(() => setReceipts([]));
+        .then((d) => { setReceipts(d.receipts); setError(""); })
+        .catch((cause) => setError(cause instanceof Error ? cause.message : "Receipts request failed"));
     }, 0);
     return () => clearTimeout(t);
-  }, []);
+  }, [reload]);
 
   const rows = useMemo(() => {
     let out = receipts ?? [];
@@ -67,7 +71,7 @@ export default function ReceiptsLedger() {
         />
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+      {error ? <ErrorState title="Receipts could not be loaded" message={error} action={<Button onClick={() => setReload((value) => value + 1)}>Retry</Button>} /> : receipts === null ? <LoadingState title="Loading receipts" /> : <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
         <table className="w-full min-w-[680px] text-left text-xs">
           <thead className="bg-zinc-50 uppercase tracking-wide text-[10px] text-zinc-400 dark:bg-zinc-900">
             <tr>
@@ -114,7 +118,7 @@ export default function ReceiptsLedger() {
             )}
           </tbody>
         </table>
-      </div>
+      </div>}
     </div>
   );
 }

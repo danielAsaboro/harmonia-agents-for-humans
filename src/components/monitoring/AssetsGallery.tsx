@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Button } from "@/components/dashboard/Button";
+import { EmptyState, ErrorState, LoadingState } from "@/components/dashboard/SystemState";
 
 interface AssetInfo {
   actionId: string;
@@ -14,16 +16,18 @@ interface AssetInfo {
 export default function AssetsGallery() {
   const [assets, setAssets] = useState<AssetInfo[] | null>(null);
   const [mimeFilter, setMimeFilter] = useState("");
+  const [error, setError] = useState("");
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     const t = setTimeout(() => {
       fetch("/api/assets", { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-        .then((d) => setAssets(d.assets))
-        .catch(() => setAssets([]));
+        .then((d) => { setAssets(d.assets); setError(""); })
+        .catch((cause) => setError(cause instanceof Error ? cause.message : "Assets request failed"));
     }, 0);
     return () => clearTimeout(t);
-  }, []);
+  }, [reload]);
 
   const rows = (assets ?? []).filter((a) => !mimeFilter || a.mime === mimeFilter);
 
@@ -52,12 +56,10 @@ export default function AssetsGallery() {
         <span className="ml-auto text-[11px] text-zinc-400">{rows.length} asset(s)</span>
       </div>
 
-      {assets === null ? (
-        <p className="p-6 text-center text-xs text-zinc-400">Loading…</p>
+      {error ? <ErrorState title="Assets could not be loaded" message={error} action={<Button onClick={() => setReload((value) => value + 1)}>Retry</Button>} /> : assets === null ? (
+        <LoadingState title="Loading assets" />
       ) : rows.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-zinc-300 p-10 text-center text-sm text-zinc-400 dark:border-zinc-700">
-          No assets yet — approve image/clip actions on a job and they appear here.
-        </p>
+        <EmptyState title="No assets yet" message="Approve image or clip actions on a job and verified assets will appear here." />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map((a) => (

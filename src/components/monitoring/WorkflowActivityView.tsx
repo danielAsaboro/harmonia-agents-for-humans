@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AgentActivity } from "@/lib/contracts";
 import type { DurableRuntimeSnapshot } from "@/lib/observability/schema";
+import { Button } from "@/components/dashboard/Button";
+import { Select, TextInput } from "@/components/dashboard/Controls";
+import { StatusBadge } from "@/components/dashboard/StatusBadge";
+import { Surface } from "@/components/dashboard/Surface";
+import { EmptyState, ErrorState, LoadingState } from "@/components/dashboard/SystemState";
 
 interface ActivityEvent {
   id: string;
@@ -15,11 +20,7 @@ interface ActivityEvent {
 }
 
 const ROLES = ["nimi_analyst", "ryan_strategist", "temi_editorial_planner", "noni_copywriter", "dara_editor", "maya_trend_researcher", "nova_liaison"];
-const STATUS_STYLE = {
-  succeeded: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
-  retrying: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-  failed: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
-};
+const STATUS_TONE = { succeeded: "success", retrying: "warning", failed: "danger" } as const;
 
 export default function WorkflowActivityView() {
   const [events, setEvents] = useState<ActivityEvent[] | null>(null);
@@ -81,7 +82,7 @@ export default function WorkflowActivityView() {
   return (
     <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]" aria-label="Agent activity">
       <div className="space-y-3">
-        {runtime && <div className="space-y-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800" aria-label="Durable runtime health">
+        {runtime && <Surface className="space-y-3 p-4" aria-label="Durable runtime health">
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             <RuntimeMetric label="Stale leases" value={String(runtime.staleLeases.operations + runtime.staleLeases.inbox + runtime.staleLeases.outbox)} />
             <RuntimeMetric label="Unknown effects" value={String(runtime.unknownEffects.length)} />
@@ -95,9 +96,9 @@ export default function WorkflowActivityView() {
           {runtime.unknownEffects.length > 0 && <div className="space-y-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
             <h2 className="text-sm font-semibold">Resolve unknown effects</h2>
             <div className="grid gap-2 sm:grid-cols-3">
-              <label className="text-xs text-zinc-500">Reason<input aria-label="Resolution reason" value={resolution.reason} onChange={(event) => setResolution((current) => ({ ...current, reason: event.target.value }))} className="mt-1 w-full rounded border border-zinc-300 bg-transparent px-2 py-1.5 text-zinc-900 dark:border-zinc-700 dark:text-zinc-100" /></label>
-              <label className="text-xs text-zinc-500">Evidence artifact ID<input aria-label="Evidence artifact ID" value={resolution.artifactId} onChange={(event) => setResolution((current) => ({ ...current, artifactId: event.target.value }))} className="mt-1 w-full rounded border border-zinc-300 bg-transparent px-2 py-1.5 font-mono text-zinc-900 dark:border-zinc-700 dark:text-zinc-100" /></label>
-              <label className="text-xs text-zinc-500">Evidence digest<input aria-label="Evidence digest" value={resolution.digest} onChange={(event) => setResolution((current) => ({ ...current, digest: event.target.value }))} className="mt-1 w-full rounded border border-zinc-300 bg-transparent px-2 py-1.5 font-mono text-zinc-900 dark:border-zinc-700 dark:text-zinc-100" /></label>
+              <label className="text-xs text-zinc-500">Reason<TextInput aria-label="Resolution reason" value={resolution.reason} onChange={(event) => setResolution((current) => ({ ...current, reason: event.target.value }))} /></label>
+              <label className="text-xs text-zinc-500">Evidence artifact ID<TextInput aria-label="Evidence artifact ID" value={resolution.artifactId} onChange={(event) => setResolution((current) => ({ ...current, artifactId: event.target.value }))} /></label>
+              <label className="text-xs text-zinc-500">Evidence digest<TextInput aria-label="Evidence digest" value={resolution.digest} onChange={(event) => setResolution((current) => ({ ...current, digest: event.target.value }))} /></label>
             </div>
             {runtime.unknownEffects.map((effect) => <article key={effect.operationId} className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-900 dark:bg-amber-950/30">
               <p className="font-semibold">{effect.commandId}</p>
@@ -107,26 +108,26 @@ export default function WorkflowActivityView() {
                 {([
                   ["confirm_applied", "Confirm applied"], ["confirm_not_applied", "Confirm not applied"],
                   ["compensate", "Compensate"], ["cancel", "Cancel"],
-                ] as const).map(([choice, label]) => <button key={choice} disabled={!resolutionReady} onClick={() => void resolveEffect(effect, choice)} className="rounded-full border border-zinc-300 px-2.5 py-1 font-medium disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700">{label}</button>)}
+                ] as const).map(([choice, label]) => <Button key={choice} disabled={!resolutionReady} onClick={() => void resolveEffect(effect, choice)}>{label}</Button>)}
               </div>
             </article>)}
             {resolutionStatus && <p role="status" className="text-xs text-zinc-500">{resolutionStatus}</p>}
           </div>}
-        </div>}
+        </Surface>}
         <div className="flex flex-wrap gap-2">
-          <select aria-label="Filter by agent" value={role} onChange={(event) => setRole(event.target.value)} className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950">
+          <Select aria-label="Filter by agent" value={role} onChange={(event) => setRole(event.target.value)}>
             <option value="">all agents</option>
             {ROLES.map((item) => <option key={item} value={item}>{item.replaceAll("_", " ")}</option>)}
-          </select>
-          <select aria-label="Filter by status" value={status} onChange={(event) => setStatus(event.target.value)} className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-950">
+          </Select>
+          <Select aria-label="Filter by status" value={status} onChange={(event) => setStatus(event.target.value)}>
             <option value="">all states</option><option value="succeeded">succeeded</option><option value="retrying">retrying</option><option value="failed">failed</option>
-          </select>
-          <button onClick={() => void load()} className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-700">Refresh</button>
+          </Select>
+          <Button onClick={() => void load()}>Refresh</Button>
         </div>
-        {error ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950">{error}</p> : events === null ? (
-          <p className="rounded-xl border border-zinc-200 p-6 text-center text-sm text-zinc-400 dark:border-zinc-800">Loading agent activity…</p>
+        {error ? <ErrorState title="Agent activity could not be loaded" message={error} action={<Button onClick={() => void load()}>Retry</Button>} /> : events === null ? (
+          <LoadingState title="Loading agent activity" />
         ) : events.length === 0 ? (
-          <p className="rounded-xl border border-zinc-200 p-6 text-center text-sm text-zinc-400 dark:border-zinc-800">No structured agent activity matches these filters.</p>
+          <EmptyState title="No structured agent activity matches these filters." />
         ) : (
           <ol className="divide-y divide-zinc-100 overflow-hidden rounded-xl border border-zinc-200 dark:divide-zinc-900 dark:border-zinc-800">
             {events.map((event) => {
@@ -134,7 +135,7 @@ export default function WorkflowActivityView() {
               return <li key={event.id}><button onClick={() => setSelected(event)} className="grid w-full gap-2 p-3 text-left hover:bg-zinc-50 dark:hover:bg-zinc-900 sm:grid-cols-[8rem_1fr_auto]">
                 <span className="font-mono text-[10px] text-zinc-400">{event.at ? new Date(event.at).toLocaleString() : "pending"}</span>
                 <span><span className="block text-xs font-semibold">{item.kind === "handoff" ? `${item.fromRole} → ${item.toRole}` : `${item.role} · ${item.toolName ?? item.kind}`}</span><span className="mt-1 block text-xs text-zinc-500">{item.publicMessage}</span></span>
-                <span className={`h-fit rounded-full px-2 py-1 text-[10px] font-semibold uppercase ${STATUS_STYLE[item.status]}`}>{item.status}</span>
+                <StatusBadge tone={STATUS_TONE[item.status]}>{item.status}</StatusBadge>
               </button></li>;
             })}
           </ol>

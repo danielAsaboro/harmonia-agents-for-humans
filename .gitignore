@@ -53,3 +53,6 @@ __pycache__/
 
 # isolated feature worktrees
 .worktrees/
+
+# local visual brainstorming sessions
+.superpowers/

@@ -39,6 +39,9 @@ export function decideEffectClaim(
     return { outcome: "execute", claim: nextClaim(input, existing.attempt + 1, now) };
   }
   if (existing.state === "unknown") return { outcome: "uncertain", claim: existing };
+  if (existing.state === "claimed" && Date.parse(existing.leaseExpiresAt) <= now.getTime()) {
+    return { outcome: "execute", claim: nextClaim(input, existing.attempt + 1, now) };
+  }
   if (Date.parse(existing.leaseExpiresAt) <= now.getTime()) {
     return { outcome: "uncertain", claim: existing };
   }

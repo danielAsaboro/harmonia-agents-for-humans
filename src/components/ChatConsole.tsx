@@ -143,9 +143,9 @@ export default function ChatConsole() {
     setDetailError(null);
     try {
       const response = await fetch(`/api/jobs/${jobId}`, { cache: "no-store", signal: controller.signal });
-      const body = await response.json().catch(() => null) as { job?: JobFull; events?: TimelineEvent[]; receipts?: Receipt[]; assets?: NonNullable<JobFull["assets"]>; error?: string } | null;
+      const body = await response.json().catch(() => null) as { job?: JobFull; events?: TimelineEvent[]; receipts?: Receipt[]; decisions?: NonNullable<JobFull["decisions"]>; assets?: NonNullable<JobFull["assets"]>; error?: string } | null;
       if (!response.ok || !body?.job) throw new Error(body?.error ?? `Unable to load job (${response.status})`);
-      if (!controller.signal.aborted) setDetail({ job: { ...body.job, assets: body.assets ?? body.job.assets ?? [] }, events: body.events ?? [], receipts: body.receipts ?? [] });
+      if (!controller.signal.aborted) setDetail({ job: { ...body.job, decisions: body.decisions ?? body.job.decisions ?? [], assets: body.assets ?? body.job.assets ?? [] }, events: body.events ?? [], receipts: body.receipts ?? [] });
     } catch (error) {
       if (!controller.signal.aborted) setDetailError(error instanceof Error ? error.message : String(error));
     } finally {

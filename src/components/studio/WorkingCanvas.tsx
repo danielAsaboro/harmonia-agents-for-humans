@@ -13,6 +13,7 @@ import { SourcesWorkspace } from "./SourcesWorkspace";
 import { StudioEmpty, StudioFailure, StudioLoading } from "./StudioStates";
 import { WrittenWorkspace } from "./WrittenWorkspace";
 import { ApprovalDock } from "./ApprovalDock";
+import { JobExecutionProof } from "./JobExecutionProof";
 
 export type CanvasView = "board" | "written" | "visual" | "motion" | "audio" | "sources";
 
@@ -104,6 +105,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
           }} /> : null}
           {a2uiActionError ? <div className="mb-5"><StudioFailure message={`A2UI action blocked: ${a2uiActionError}`} permanent /></div> : null}
           {supplemental ? <div className="mb-5">{supplemental}</div> : null}
+          <JobExecutionProof job={job} events={events} receipts={receipts} />
           {visibleView === "board" ? <ArtifactBoard job={job} model={model} onSelect={selectFromBoard} /> : null}
           {visibleView === "written" ? <WrittenWorkspace job={job} traceLinks={model.traceLinks} selectedArtifactId={selectedArtifactId} onSelect={onSelectedArtifactChange} /> : null}
           {visibleView === "visual" ? <MediaWorkspace kind="visual" jobId={job.id} assets={model.visual} selectedArtifactId={selectedArtifactId} onSelect={onSelectedArtifactChange} /> : null}

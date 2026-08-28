@@ -41,6 +41,16 @@ function validBundle() {
       createdAt: "2026-08-24T12:00:00.000Z",
       completedAt: "2026-08-24T12:18:00.000Z",
     },
+    metrics: {
+      sourceDurationSec: 900,
+      elapsedSec: 1080,
+      handsOffProcessingSec: 1020,
+      approvalWaitSec: 60,
+      operatorActionCount: 1,
+      outputCount: 3,
+      approvedOutputCount: 1,
+      verifiedOutputCount: 1,
+    },
     events: stages.map((stage, index) => ({
       eventId: `event-${index}`, stage,
       status: stage === "awaiting_approval" ? "waiting" : "completed",
@@ -128,6 +138,20 @@ describe("vertical-slice evidence", () => {
     bundle.cognition[1].model = "gemini-2.5-flash";
     expect(failureCodes(bundle)).toEqual(expect.arrayContaining([
       "missing_agent_engine", "missing_required_gemini",
+    ]));
+  });
+
+  it("requires internally consistent demonstrated-job KPIs", () => {
+    const missing = validBundle() as Record<string, unknown>;
+    delete missing.metrics;
+    expect(failureCodes(missing)).toContain("schema_invalid");
+
+    const inconsistent = validBundle();
+    inconsistent.metrics.handsOffProcessingSec = 1000;
+    inconsistent.metrics.approvedOutputCount = 4;
+    inconsistent.metrics.verifiedOutputCount = 5;
+    expect(failureCodes(inconsistent)).toEqual(expect.arrayContaining([
+      "elapsed_time_mismatch", "approved_output_overflow", "verified_output_overflow",
     ]));
   });
 

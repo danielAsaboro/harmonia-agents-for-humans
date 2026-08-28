@@ -5,6 +5,8 @@ export interface TimelineEvent {
   stage: string;
   message: string;
   actor: string;
+  operationId?: string;
+  traceId?: string;
 }
 
 const ACTOR_STYLES: Record<string, string> = {

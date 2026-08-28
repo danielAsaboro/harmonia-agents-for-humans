@@ -1886,6 +1886,8 @@ export async function saveContentPack(
   markdown: string,
   digest: string,
 ) {
+  const observedDigest = createHash("sha256").update(markdown).digest("hex");
+  if (observedDigest !== digest) throw new Error("content pack digest mismatch");
   await jobRef(jobId).update({
     contentPack: { markdown, digest, generatedAt: new Date().toISOString() },
     updatedAt: new Date().toISOString(),
@@ -2107,12 +2109,40 @@ export async function listReplayObservations(jobId: string): Promise<ReplayObser
 export async function claimEffect(input: EffectClaimInput): Promise<EffectClaimOutcome> {
   const ref = jobRef(input.jobId);
   const claimRef = ref.collection(EFFECT_CLAIMS).doc(input.idempotencyKey);
+  const approvalRef = ref.collection(APPROVAL_DECISIONS).doc(input.actionId);
   return db().runTransaction(async (tx) => {
-    const [jobSnap, claimSnap] = await Promise.all([tx.get(ref), tx.get(claimRef)]);
+    const [jobSnap, claimSnap, approvalSnap] = await Promise.all([
+      tx.get(ref), tx.get(claimRef), tx.get(approvalRef),
+    ]);
     const job = requireJobDoc(jobSnap);
     const action = job.actions.find((candidate) => candidate.id === input.actionId);
     if (!action) throw new Error(`action ${input.actionId} not found on job ${input.jobId}`);
     if (action.type !== input.actionType) throw new Error("effect claim action type mismatch");
+    if (action.requiresApproval) {
+      const approval = approvalSnap.exists ? approvalSnap.data() as ApprovalDecision : null;
+      if (
+        !approval
+        || approval.jobId !== input.jobId
+        || approval.actionId !== input.actionId
+        || approval.decision !== "approved"
+        || approval.payloadDigest !== actionPayloadDigest(action)
+        || !["firebase_operator", "telegram_operator"].includes(approval.actorType)
+      ) {
+        throw new Error("effect claim requires a durable approval decision");
+      }
+      const expectedChannel = approval.actorType === "firebase_operator" ? "dashboard" : "telegram";
+      if (
+        !approval.actorSubjectId
+        || !approval.authenticationId
+        || approval.channel !== expectedChannel
+        || approval.operationId !== `${input.jobId}:approval:${input.actionId}`
+        || !/^[a-f0-9]{32}$/.test(approval.traceId)
+        || approval.traceId === "0".repeat(32)
+        || !Number.isFinite(Date.parse(approval.decidedAt))
+      ) {
+        throw new Error("effect claim requires authenticated approval provenance");
+      }
+    }
 
     const existing = claimSnap.exists ? claimSnap.data() as EffectClaim : null;
     const decision = decideEffectClaim(existing, input);
@@ -2143,9 +2173,55 @@ export async function saveVerifications(
   jobId: string,
   results: VerificationResult[],
 ) {
-  await jobRef(jobId).update({
-    verifications: results,
-    updatedAt: new Date().toISOString(),
+  const ref = jobRef(jobId);
+  await db().runTransaction(async (tx) => {
+    const [jobSnap, ...receiptSnaps] = await Promise.all([
+      tx.get(ref),
+      ...results.map((result) => tx.get(ref.collection(RECEIPTS).doc(result.receiptId))),
+    ]);
+    const job = requireJobDoc(jobSnap);
+    const seenActions = new Set<string>();
+    const seenReceipts = new Set<string>();
+    results.forEach((result, index) => {
+      if (seenActions.has(result.actionId) || seenReceipts.has(result.receiptId)) {
+        throw new Error("verification submission contains duplicate lineage");
+      }
+      seenActions.add(result.actionId);
+      seenReceipts.add(result.receiptId);
+      const receiptSnap = receiptSnaps[index];
+      if (!receiptSnap.exists) throw new Error("verification receipt not found");
+      const receipt = receiptSnap.data() as Receipt;
+      const action = job.actions.find((candidate) => candidate.id === result.actionId);
+      if (
+        !action
+        || action.state !== "executed"
+        || receipt.jobId !== jobId
+        || receipt.actionId !== result.actionId
+        || receipt.outcome !== "applied"
+      ) {
+        throw new Error("verification does not match an applied job action");
+      }
+      if (result.operationId === receipt.operationId) {
+        throw new Error("verification requires a distinct readback operation");
+      }
+      if (Date.parse(result.checkedAt) < Date.parse(receipt.performedAt)) {
+        throw new Error("verification predates its receipt");
+      }
+      const expectedMethod = receipt.actionType === "publish_x_post"
+        ? "official_api_readback"
+        : "artifact_digest_reread";
+      if (result.method !== expectedMethod) throw new Error("verification method does not match action type");
+      if (result.verified && (
+        !receipt.artifact?.digest
+        || result.evidence.digest !== receipt.artifact.digest
+      )) {
+        throw new Error("verified evidence digest does not match receipt");
+      }
+    });
+    tx.update(ref, {
+      verifications: results,
+      updatedAt: new Date().toISOString(),
+    });
   });
 }
 

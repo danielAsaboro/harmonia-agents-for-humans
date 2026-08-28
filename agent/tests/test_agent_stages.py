@@ -202,12 +202,17 @@ def test_ingest_uploaded_media_uses_tenant_scoped_attachment(monkeypatch):
     assert payload["mediaBytes"] == len(media)
 
 
-def test_verify_posts_observed_receipt_and_trace_lineage(monkeypatch):
+@pytest.mark.parametrize(("stored_markdown", "verified"), [
+    ("Approved content pack", True),
+    ("Tampered after receipt", False),
+])
+def test_verify_posts_observed_receipt_and_trace_lineage(monkeypatch, stored_markdown, verified):
     posts = []
-    digest = "b" * 64
+    approved_markdown = "Approved content pack"
+    digest = hashlib.sha256(approved_markdown.encode()).hexdigest()
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
         "actions": [{"id": "a1", "type": "export_content_pack", "state": "executed"}],
-        "contentPack": {"digest": digest},
+        "contentPack": {"markdown": stored_markdown, "digest": digest},
     })
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [{
         "id": "r1", "actionId": "a1", "detail": {"digest": digest},
@@ -224,6 +229,8 @@ def test_verify_posts_observed_receipt_and_trace_lineage(monkeypatch):
     assert result["operationId"] == "job-1:verify:a1"
     assert result["traceId"] == "a" * 32
     assert result["method"] == "artifact_digest_reread"
+    assert result["verified"] is verified
+    assert result["evidence"]["digest"] == hashlib.sha256(stored_markdown.encode()).hexdigest()
 
 
 @pytest.mark.parametrize(("observed_text", "verified"), [

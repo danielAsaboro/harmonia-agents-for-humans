@@ -33,8 +33,18 @@ describe("effect claim state machine", () => {
     expect(contender.claim.claimToken).toBe("claim-token-1");
   });
 
-  it("fails closed when a live claim expires without a receipt", () => {
+  it("reclaims an expired lease when provider dispatch never started", () => {
     const expired = claim({ leaseExpiresAt: "2026-08-25T00:59:59.000Z" });
+    expect(decideEffectClaim(expired, { ...input, claimToken: "claim-token-2" }, now)).toMatchObject({
+      outcome: "execute", claim: { attempt: 2, claimToken: "claim-token-2" },
+    });
+  });
+
+  it("fails closed when a dispatched claim expires without a receipt", () => {
+    const expired = claim({
+      state: "dispatched", operationEpoch: 1, goalDigest: "c".repeat(64),
+      dispatchedAt: "2026-08-25T00:59:30.000Z", leaseExpiresAt: "2026-08-25T00:59:59.000Z",
+    });
     expect(decideEffectClaim(expired, { ...input, claimToken: "claim-token-2" }, now).outcome).toBe("uncertain");
   });
 

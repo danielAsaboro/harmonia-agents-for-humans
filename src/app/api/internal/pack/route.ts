@@ -4,7 +4,7 @@ import { internalTenantHandler } from "@/lib/internalAuth";
 const packSchema = z.object({
   jobId: z.string().min(1),
   markdown: z.string().min(1),
-  digest: z.string().min(16),
+  digest: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
 import { z } from "zod";

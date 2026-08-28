@@ -45,6 +45,17 @@ const jobSchema = z.object({
   completedAt: timestamp,
 }).strict();
 
+const metricsSchema = z.object({
+  sourceDurationSec: z.number().int().positive(),
+  elapsedSec: z.number().int().nonnegative(),
+  handsOffProcessingSec: z.number().int().nonnegative(),
+  approvalWaitSec: z.number().int().nonnegative(),
+  operatorActionCount: z.number().int().nonnegative(),
+  outputCount: z.number().int().positive(),
+  approvedOutputCount: z.number().int().nonnegative(),
+  verifiedOutputCount: z.number().int().nonnegative(),
+}).strict();
+
 const eventSchema = z.object({
   eventId: z.string().min(1),
   stage: z.enum(REQUIRED_STAGES),
@@ -146,6 +157,7 @@ export const verticalSliceEvidenceSchema = z.object({
   source: sourceSchema,
   environment: environmentSchema,
   job: jobSchema,
+  metrics: metricsSchema,
   events: z.array(eventSchema),
   cognition: z.array(cognitionSchema).min(1),
   approval: approvalSchema,
@@ -201,6 +213,48 @@ export function verifyVerticalSliceEvidence(input: unknown): EvidenceVerificatio
 
   const bundle = parsed.data;
   const failures: EvidenceFailure[] = [];
+
+  const elapsedFromTimestamps = Math.round(
+    (Date.parse(bundle.job.completedAt) - Date.parse(bundle.job.createdAt)) / 1000,
+  );
+  if (
+    bundle.metrics.elapsedSec !== elapsedFromTimestamps
+    || bundle.metrics.handsOffProcessingSec + bundle.metrics.approvalWaitSec !== bundle.metrics.elapsedSec
+  ) {
+    failures.push(failure(
+      "elapsed_time_mismatch",
+      "metrics",
+      "Elapsed time must match job timestamps and equal hands-off processing plus approval wait.",
+    ));
+  }
+  if (bundle.metrics.approvedOutputCount > bundle.metrics.outputCount) {
+    failures.push(failure(
+      "approved_output_overflow",
+      "metrics.approvedOutputCount",
+      "Approved outputs cannot exceed total outputs.",
+    ));
+  }
+  if (bundle.metrics.verifiedOutputCount > bundle.metrics.approvedOutputCount) {
+    failures.push(failure(
+      "verified_output_overflow",
+      "metrics.verifiedOutputCount",
+      "Verified outputs cannot exceed approved outputs.",
+    ));
+  }
+  if (bundle.metrics.operatorActionCount < 1) {
+    failures.push(failure(
+      "missing_operator_action",
+      "metrics.operatorActionCount",
+      "The approval-gated demonstrated slice requires at least one operator action.",
+    ));
+  }
+  if (bundle.metrics.approvedOutputCount < 1 || bundle.metrics.verifiedOutputCount < 1) {
+    failures.push(failure(
+      "missing_verified_output",
+      "metrics",
+      "The demonstrated slice requires at least one approved and independently verified output.",
+    ));
+  }
 
   if (bundle.environment.mockAi || bundle.environment.mockEffects || bundle.environment.emulator) {
     failures.push(failure(

@@ -1033,13 +1033,17 @@ async def run_verify(job_id: str) -> None:
                 ),
             })
         elif action["type"] == "export_content_pack" and job.get("contentPack"):
-            expected, actual = detail.get("digest", ""), job["contentPack"]["digest"]
+            pack = job["contentPack"]
+            expected = detail.get("digest", "")
+            declared = pack.get("digest", "")
+            actual = hashlib.sha256(str(pack.get("markdown", "")).encode()).hexdigest()
+            verified = bool(expected and actual == expected and declared == actual)
             results.append({
                 "target": "content-pack", "actionId": action["id"],
-                "verified": bool(expected and actual == expected),
+                "verified": verified,
                 "method": "artifact_digest_reread", **lineage,
                 "evidence": {"kind": "firestore_doc", "url": "", "fetchedAt": _now(), "digest": actual},
-                "note": "pack digest matches receipt" if expected == actual else "pack digest mismatch",
+                "note": "pack bytes and stored digest match receipt" if verified else "pack digest mismatch",
             })
         elif action["type"] in (
             "generate_image", "generate_veo_broll", "generate_lyria_soundtrack",

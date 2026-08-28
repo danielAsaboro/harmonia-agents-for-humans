@@ -1,4 +1,4 @@
-import type { AnalysisResearchRequest, AnalysisSearchEvidence, EvidenceRef, Angle, ContentStrategy, DraftWorkflowResult, EditorialPlan, EditorialPlanningSnapshot, EffectClaimSummary, Moment, PlannedAction, PostDraft, Receipt, SourceAnalysis, Stage, StrategyApproval } from "@/lib/types";
+import type { AnalysisResearchRequest, AnalysisSearchEvidence, ApprovalDecision, EvidenceRef, Angle, ContentStrategy, DraftWorkflowResult, EditorialPlan, EditorialPlanningSnapshot, EffectClaimSummary, Moment, PlannedAction, PostDraft, Receipt, SourceAnalysis, Stage, StrategyApproval } from "@/lib/types";
 
 export interface JobSummary {
   id: string;
@@ -15,6 +15,7 @@ export interface JobSummary {
     platforms: string[];
   };
   ingestedTitle?: string;
+  ingestedDurationSec?: number;
   failure?: { stage: Stage; error: string; permanent: boolean; at: string };
   learnings?: { summary: string; notes: string[] };
 }
@@ -59,8 +60,13 @@ export interface JobFull extends JobSummary {
   }>;
   learnings?: { summary: string; notes: string[] };
   verifications?: Array<{
+    id?: string;
     rubricItemId: string;
     actionId?: string;
+    receiptId?: string;
+    operationId?: string;
+    traceId?: string;
+    checkedAt?: string;
     verified: boolean;
     method: string;
     evidence: Pick<EvidenceRef, "url" | "digest"> & { fetchedAt: string };
@@ -73,6 +79,7 @@ export interface JobFull extends JobSummary {
   };
   assets?: Array<{ actionId: string; mime: string; sizeBytes: number; digest: string }>;
   claims?: EffectClaimSummary[];
+  decisions?: ApprovalDecision[];
 }
 
 export type { Angle, Moment, PlannedAction, PostDraft, Receipt, Stage };

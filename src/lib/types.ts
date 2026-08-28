@@ -434,9 +434,9 @@ export interface ApprovalDecision {
   decision: "approved" | "rejected";
   payloadDigest: string;
   actorType: "firebase_operator" | "telegram_operator";
-  actorSubjectId?: string;
-  authenticationId?: string;
-  channel?: "dashboard" | "telegram";
+  actorSubjectId: string;
+  authenticationId: string;
+  channel: "dashboard" | "telegram";
   operationId: string;
   traceId: string;
   decidedAt: string;

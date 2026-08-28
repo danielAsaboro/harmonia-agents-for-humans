@@ -50,6 +50,7 @@ import {
   SurfaceUnresolved,
   VerificationReceipt,
 } from "./HarmoniaWorkspaceElements";
+import styles from "./HarmoniaWorkspaceElements.module.css";
 
 const status = z.enum(["pending", "active", "complete", "failed"]);
 const step = z.object({ id: z.string(), label: z.string(), description: z.string().optional(), status });
@@ -70,6 +71,14 @@ const generatedNode = {
   children: z.array(z.string().min(1)).max(30).default([]),
   emphasis: z.enum(["primary", "secondary", "compact"]).default("primary"),
   agentFraming: z.boolean().default(false),
+  tone: z.enum(["paper", "ink", "acid", "blue", "coral", "violet"]).default("paper"),
+  role: z.enum(["hero", "feature", "support", "strip", "inline"]).default("support"),
+  density: z.enum(["airy", "balanced", "compact"]).default("balanced"),
+  motion: z.enum(["none", "reveal", "pulse", "trace"]).default("none"),
+  surfaceRhythm: z.enum(["editorial", "operational", "cinematic", "evidence"]).default("editorial"),
+  surfaceComposition: z.enum(["stack", "split", "mosaic", "rail"]).default("stack"),
+  surfaceEnergy: z.enum(["quiet", "active", "resolved"]).default("quiet"),
+  revision: z.number().int().positive().default(1),
 };
 const hydratedDraft = z.object({ id: z.string().min(1), platform: z.string().min(1), text: z.string(), valid: z.boolean(), validationNote: z.string().optional(), momentId: z.string().min(1).optional(), angleId: z.string().min(1).optional(), selected: z.boolean(), sourceCount: z.number().int().nonnegative() }).strict();
 const CampaignBriefApi: ComponentApi = { name: "CampaignBrief", schema: z.object({ jobId: z.string().min(1), title: z.string().min(1), brief: z.string(), sourceKind: z.enum(["written", "video", "audio", "mixed"]), platforms: z.array(z.string()).max(10), angles: z.array(z.object({ id: z.string().min(1), angleType: z.enum(["source_insight", "trend", "meme", "performance_learning", "memory_learning"]), evidenceKind: z.enum(["source", "public_context", "private_context", "performance", "memory"]), title: z.string(), rationale: z.string() }).strict()).max(20), ...generatedNode }).strict() };
@@ -146,7 +155,64 @@ export function parseHarmoniaA2uiOperation(operation: unknown) {
   return parsed;
 }
 
-export function HarmoniaA2uiHost({ operations, onAction, onProtocolError, className }: { operations: unknown[]; onAction?: (action: A2uiClientAction) => void | Promise<void>; onProtocolError?: (error: Error) => void; className?: string }) {
+export interface SurfaceFrameMetadata {
+  composition: "stack" | "split" | "mosaic" | "rail";
+  rhythm: "editorial" | "operational" | "cinematic" | "evidence";
+  energy: "quiet" | "active" | "resolved";
+  revision: number;
+}
+
+const DEFAULT_SURFACE_FRAME: SurfaceFrameMetadata = {
+  composition: "stack",
+  rhythm: "editorial",
+  energy: "quiet",
+  revision: 1,
+};
+
+export function surfaceFrameMetadata(surface: SurfaceModel<ReactComponentImplementation> | undefined): SurfaceFrameMetadata {
+  if (!surface) return DEFAULT_SURFACE_FRAME;
+  const queue = ["root"];
+  const visited = new Set<string>();
+  while (queue.length > 0) {
+    const componentId = queue.shift();
+    if (!componentId || visited.has(componentId)) continue;
+    visited.add(componentId);
+    const component = surface.componentsModel.get(componentId);
+    if (!component) continue;
+    const properties = component.properties as Partial<Record<string, unknown>>;
+    if (typeof properties.surfaceComposition === "string") {
+      return {
+        composition: properties.surfaceComposition as SurfaceFrameMetadata["composition"],
+        rhythm: properties.surfaceRhythm as SurfaceFrameMetadata["rhythm"],
+        energy: properties.surfaceEnergy as SurfaceFrameMetadata["energy"],
+        revision: properties.revision as number,
+      };
+    }
+    if (Array.isArray(properties.children)) {
+      queue.push(...properties.children.filter((child): child is string => typeof child === "string"));
+    }
+  }
+  return DEFAULT_SURFACE_FRAME;
+}
+
+export function surfaceMotionState({
+  live,
+  operationsGrew,
+  previousRevision,
+  revision,
+}: {
+  live: boolean;
+  operationsGrew: boolean;
+  previousRevision?: number;
+  revision: number;
+}) {
+  return {
+    liveUpdate: live && operationsGrew,
+    revisionChanged: live && previousRevision !== undefined && revision > previousRevision,
+  };
+}
+
+export function HarmoniaA2uiHost({ operations, onAction, onProtocolError, className, live = false }: { operations: unknown[]; onAction?: (action: A2uiClientAction) => void | Promise<void>; onProtocolError?: (error: Error) => void; className?: string; live?: boolean }) {
   const processor = useMemo(() => new MessageProcessor<ReactComponentImplementation>(
     [harmoniaCatalog],
     (action) => onAction?.(action),
@@ -178,7 +244,25 @@ export function HarmoniaA2uiHost({ operations, onAction, onProtocolError, classN
       setProtocolError(failure.message);
       onProtocolError?.(failure);
     }
-  }, [onProtocolError, operations, processor]);
+  }, [live, onProtocolError, operations, processor]);
 
-  return <div className={className ?? "flex flex-col gap-2"}>{protocolError && <p className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">A2UI protocol error: {protocolError}</p>}{surfaces.map((surface) => <A2uiSurface key={surface.id} surface={surface} />)}</div>;
+  return <div className={className ?? "flex flex-col gap-2"}>{protocolError && <p className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">A2UI protocol error: {protocolError}</p>}{surfaces.map((surface) => {
+    const frame = surfaceFrameMetadata(surface);
+    const motion = surfaceMotionState({
+      live,
+      operationsGrew: live,
+      previousRevision: frame.revision > 1 ? frame.revision - 1 : undefined,
+      revision: frame.revision,
+    });
+    return <div
+      key={surface.id}
+      className={styles.surfaceFrame}
+      data-composition={frame.composition}
+      data-rhythm={frame.rhythm}
+      data-energy={frame.energy}
+      data-revision={frame.revision}
+      data-live-update={motion.liveUpdate}
+      data-revision-changed={motion.revisionChanged}
+    ><A2uiSurface surface={surface} /></div>;
+  })}</div>;
 }

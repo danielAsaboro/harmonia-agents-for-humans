@@ -34,7 +34,7 @@ function generatedApprovalActionIds(operations: unknown[]): string[] {
   return ids;
 }
 
-export function ApprovalDock({ job, jobId, actions, verifications, receipts, claims = [], busy, onDecide, operations = [], onOperationDecision }: {
+export function ApprovalDock({ job, jobId, actions, verifications, receipts, claims = [], busy, onDecide, operations = [], operationsLive = false, onOperationDecision }: {
   job?: JobFull;
   jobId: string;
   actions: PlannedAction[];
@@ -44,6 +44,7 @@ export function ApprovalDock({ job, jobId, actions, verifications, receipts, cla
   busy: boolean;
   onDecide: (jobId: string, actionId: string, decision: "approved" | "rejected") => Promise<void> | void;
   operations?: unknown[];
+  operationsLive?: boolean;
   onOperationDecision?: (operationId: string, decision: "approved" | "rejected") => Promise<void> | void;
 }) {
   const [actionError, setActionError] = useState<string | null>(null);
@@ -105,7 +106,7 @@ export function ApprovalDock({ job, jobId, actions, verifications, receipts, cla
         {protocolError ? <StudioFailure message={`A2UI protocol error: ${protocolError}`} permanent /> : null}
         {actionError ? <StudioFailure message={`A2UI action blocked: ${actionError}`} permanent /> : null}
         {strategyPending ? <article className="mb-3 border-2 border-[#5165ff] bg-[#f0edff] p-4"><p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#5165ff]">Strategy approval · v{job.contentStrategy!.version}</p><h3 className="mt-1 font-serif text-xl">{job.contentStrategy!.thesis}</h3><p className="mt-2 text-xs text-black/60">Approves the exact four-week strategy digest before Temi&#39;s bounded editorial-plan proposal. Temi has no external-calendar authority.</p><code className="mt-2 block text-[8px] text-black/40">sha256 {job.strategyDigest}</code><textarea value={strategyFeedback} onChange={(event) => setStrategyFeedback(event.target.value)} placeholder="Required feedback when rejecting" className="mt-3 w-full border border-black/20 bg-white p-2 text-xs" maxLength={2000} /><div className="mt-3 flex gap-2"><button type="button" onClick={() => void decideStrategy("rejected")} className="rounded-full border-2 border-black px-4 py-2 text-xs font-black">Reject</button><button type="button" onClick={() => void decideStrategy("approved")} className="rounded-full bg-black px-4 py-2 text-xs font-black text-white">Approve strategy</button></div></article> : null}
-        {approvalOperations.length ? <HarmoniaA2uiHost operations={approvalOperations} onAction={(action) => {
+        {approvalOperations.length ? <HarmoniaA2uiHost operations={approvalOperations} live={operationsLive} onAction={(action) => {
         if (action.name === "decide_operation" && onOperationDecision) {
           const operationId = String(action.context.operationId ?? "");
           const decision = action.context.decision;

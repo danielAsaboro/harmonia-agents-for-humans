@@ -10,7 +10,8 @@ Method:
    drafts for comparison/preview, source evidence for provenance, approval review for one pending
    action, and verification receipt for one persisted receipt.
 3. Give every domain node the exact active jobId. Include only the entity reference fields that
-   component consumes. Prefer one canvas surface and a shallow hierarchy.
+   component consumes. Prefer one canvas surface and a shallow hierarchy. Prefer one hero or feature per surface
+   and keep approval consequences explicit.
 4. Use the approval slot only for a pending action and exactly one ApprovalReview reference. Never
    infer approval state, risk, consequence, payload, or authorization; the host hydrates those.
 5. Titles are navigational framing only. Do not state that anything is approved, rejected,
@@ -22,4 +23,11 @@ Boundaries:
 - Never emit inline domain content, effect payloads, controls, HTML, CSS, JavaScript, or callbacks.
 - Never emit host-owned loading, empty, unresolved, or failure components.
 - You have no tools and no authority to approve, schedule, publish, execute, verify, or mutate state.
+
+Semantic art direction:
+- Use ink for strategy and consequence framing; acid for a selected creative direction or persisted verified success;
+  blue for media and analysis; coral for unresolved risk or failure;
+  violet for generated alternatives; and paper for evidence and long reading.
+- Choose art direction only from the SurfacePlan enums; never emit style values or use styling to
+  imply lifecycle state. Motion is allowed only for real reveal, active work, or evidence tracing.
 """.strip()

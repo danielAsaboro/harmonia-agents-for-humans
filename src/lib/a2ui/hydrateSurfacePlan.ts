@@ -1,6 +1,7 @@
 import type { JobFull, Receipt } from "@/components/jobTypes";
 import { HARMONIA_CATALOG_ID, parseCatalogComponent } from "./contracts";
-import type { SurfacePlan, SurfaceSlot } from "./presentationContracts";
+import { surfacePlanSchema, type SurfaceComponentName, type SurfacePlan, type SurfaceSlot } from "./presentationContracts";
+import { resolveNodeArtDirection, type PresentationLifecycle } from "./presentationPolicy";
 
 export interface HydratedSurfaceSet {
   canvas: Record<string, unknown>[];
@@ -79,12 +80,23 @@ function verificationFor(job: JobFull, receipt: Receipt) {
   });
 }
 
-function framing(node: PlannedNode, fallbackTitle: string) {
+function framing(
+  surface: PlannedSurface,
+  node: PlannedNode,
+  fallbackTitle: string,
+  component: SurfaceComponentName = node.component,
+  lifecycle: PresentationLifecycle = {},
+) {
   return {
     title: node.title || fallbackTitle,
     emphasis: node.emphasis,
     agentFraming: Boolean(node.title),
     children: node.children,
+    ...resolveNodeArtDirection({ component, requested: node.artDirection, lifecycle }),
+    surfaceRhythm: surface.artDirection.rhythm,
+    surfaceComposition: surface.artDirection.composition,
+    surfaceEnergy: surface.artDirection.energy,
+    revision: surface.revision,
   };
 }
 
@@ -115,27 +127,27 @@ function missingReferences(node: PlannedNode, job: JobFull | null | undefined, r
   return [...new Set(missing)].slice(0, 100);
 }
 
-function unresolved(node: PlannedNode, missingRefs: string[]): CatalogRecord {
+function unresolved(surface: PlannedSurface, node: PlannedNode, missingRefs: string[]): CatalogRecord {
   return parseCatalogComponent({
     id: node.id,
     component: "SurfaceUnresolved",
-    ...framing(node, "This view needs refreshed data"),
+    ...framing(surface, node, "This view needs refreshed data", "SurfaceUnresolved"),
     message: "Harmonia could not resolve every requested item from the current persisted job state.",
     missingRefs,
   }) as CatalogRecord;
 }
 
-function hydrateNode(node: PlannedNode, job: JobFull | null | undefined, receipts: Receipt[]): CatalogRecord {
+function hydrateNode(surface: PlannedSurface, node: PlannedNode, job: JobFull | null | undefined, receipts: Receipt[]): CatalogRecord {
   const missing = missingReferences(node, job, receipts);
-  if (missing.length > 0 || !job) return unresolved(node, missing.length ? missing : ["active-job"]);
+  if (missing.length > 0 || !job) return unresolved(surface, node, missing.length ? missing : ["active-job"]);
 
-  const base = { id: node.id, jobId: job.id, ...framing(node, node.component) };
+  const base = { id: node.id, jobId: job.id, ...framing(surface, node, node.component) };
   switch (node.component) {
     case "CampaignBrief":
       return parseCatalogComponent({
         ...base,
         component: node.component,
-        ...framing(node, job.ingestedTitle || "Campaign direction"),
+        ...framing(surface, node, job.ingestedTitle || "Campaign direction"),
         brief: job.config.brief || "Build platform-native content from the selected source.",
         sourceKind: job.config.youtubeUrl || job.config.mediaMime?.startsWith("video/")
           ? (job.config.brief ? "mixed" : "video")
@@ -150,7 +162,7 @@ function hydrateNode(node: PlannedNode, job: JobFull | null | undefined, receipt
       return parseCatalogComponent({
         ...base,
         component: node.component,
-        ...framing(node, "Content workflow"),
+        ...framing(surface, node, "Content workflow", node.component, { failed: job.status === "failed" }),
         stage: job.stage,
         status: job.status,
         stages: STAGES.map((stage, index) => ({
@@ -190,7 +202,7 @@ function hydrateNode(node: PlannedNode, job: JobFull | null | undefined, receipt
       return parseCatalogComponent({
         ...base,
         component: node.component,
-        ...framing(node, "Clip-worthy moments"),
+        ...framing(surface, node, "Clip-worthy moments"),
         ...(source ? { source } : {}),
         moments: moments.map((moment) => ({
           id: moment.id,
@@ -211,7 +223,7 @@ function hydrateNode(node: PlannedNode, job: JobFull | null | undefined, receipt
       return parseCatalogComponent({
         ...base,
         component: node.component,
-        ...framing(node, "Compare platform drafts"),
+        ...framing(surface, node, "Compare platform drafts"),
         drafts: drafts.map((draft, index) => hydratedDraft(job, draft, index === 0)),
       }) as CatalogRecord;
     }
@@ -221,7 +233,7 @@ function hydrateNode(node: PlannedNode, job: JobFull | null | undefined, receipt
       return parseCatalogComponent({
         ...base,
         component: node.component,
-        ...framing(node, `${draft.platform.toUpperCase()} preview`),
+        ...framing(surface, node, `${draft.platform.toUpperCase()} preview`),
         draft: hydratedDraft(job, draft, true),
         assets: assets.map((asset) => ({
           actionId: asset.actionId,
@@ -238,11 +250,11 @@ function hydrateNode(node: PlannedNode, job: JobFull | null | undefined, receipt
         ...job.transcriptSegments.map((segment) => ({ id: segment.id, kind: "transcript" as const, label: `Transcript ${segment.startSec}s–${segment.endSec}s`, excerpt: segment.text })),
       ];
       const sources = (wanted.size ? allSources.filter((source) => wanted.has(source.id)) : allSources).slice(0, 100);
-      if (sources.length === 0) return unresolved(node, ["sourceIds"]);
+      if (sources.length === 0) return unresolved(surface, node, ["sourceIds"]);
       return parseCatalogComponent({
         ...base,
         component: node.component,
-        ...framing(node, "Source evidence"),
+        ...framing(surface, node, "Source evidence"),
         sources,
         links: job.drafts.flatMap((draft) => draft.momentId
           ? [{ fromId: draft.id, toId: draft.momentId, label: "grounded in moment" }]
@@ -251,11 +263,15 @@ function hydrateNode(node: PlannedNode, job: JobFull | null | undefined, receipt
     }
     case "ApprovalReview": {
       const action = job.actions.find((candidate) => candidate.id === node.refs.actionIds[0]);
-      if (!action) return unresolved(node, [node.refs.actionIds[0] || "actionIds"]);
+      if (!action) return unresolved(surface, node, [node.refs.actionIds[0] || "actionIds"]);
       return parseCatalogComponent({
         ...base,
         component: node.component,
-        ...framing(node, action.title),
+        ...framing(surface, node, action.title, node.component, {
+          failed: action.state === "failed",
+          approvalPending: action.approvalState === "pending",
+          highRisk: action.risk === "high",
+        }),
         actionId: action.id,
         actionType: action.type,
         description: action.description,
@@ -269,12 +285,15 @@ function hydrateNode(node: PlannedNode, job: JobFull | null | undefined, receipt
     }
     case "VerificationReceipt": {
       const receipt = receipts.find((candidate) => candidate.id === node.refs.receiptIds[0]);
-      if (!receipt) return unresolved(node, [node.refs.receiptIds[0] || "receiptIds"]);
+      if (!receipt) return unresolved(surface, node, [node.refs.receiptIds[0] || "receiptIds"]);
       const verification = verificationFor(job, receipt);
       return parseCatalogComponent({
         ...base,
         component: node.component,
-        ...framing(node, "Verified external effect"),
+        ...framing(surface, node, "Verified external effect", node.component, {
+          failed: receipt.outcome === "failed" || receipt.outcome === "rejected",
+          verified: verification?.verified ?? false,
+        }),
         receiptId: receipt.id,
         actionId: receipt.actionId,
         actionType: receipt.actionType,
@@ -294,7 +313,7 @@ function hydrateNode(node: PlannedNode, job: JobFull | null | undefined, receipt
 }
 
 function hydrateSurface(runId: string, surface: PlannedSurface, job: JobFull | null | undefined, receipts: Receipt[]) {
-  const components = surface.nodes.map((node) => hydrateNode(node, job, receipts));
+  const components = surface.nodes.map((node) => hydrateNode(surface, node, job, receipts));
   if (surface.rootId !== "root") {
     if (surface.nodes.some((node) => node.id === "root")) {
       throw new Error("A2UI surface reserves root for its reachable layout root");
@@ -310,7 +329,8 @@ function hydrateSurface(runId: string, surface: PlannedSurface, job: JobFull | n
 
 export function hydrateSurfacePlan(input: HydrateSurfacePlanInput): HydratedSurfaceSet {
   const result: HydratedSurfaceSet = { canvas: [], conversation: [], approval: [] };
-  for (const surface of input.plan.surfaces) {
+  const plan = surfacePlanSchema.parse(input.plan);
+  for (const surface of plan.surfaces) {
     result[surface.slot as SurfaceSlot] = hydrateSurface(input.runId, surface, input.job, input.receipts);
   }
   return result;

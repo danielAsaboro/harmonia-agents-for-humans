@@ -49,6 +49,49 @@ describe("A2UI presentation contracts", () => {
     expect(plan.surfaces[0].nodes[0].refs.draftIds).toEqual(["draft-1"]);
   });
 
+  it("accepts bounded surface and node art direction", () => {
+    const plan = surfacePlanSchema.parse({
+      version: "harmonia.ui/v1",
+      surfaces: [{
+        slot: "canvas",
+        revision: 1,
+        rootId: "brief",
+        artDirection: { rhythm: "editorial", composition: "mosaic", energy: "active" },
+        nodes: [{
+          id: "brief",
+          component: "CampaignBrief",
+          refs: { jobId: "job-1" },
+          artDirection: { tone: "ink", role: "hero", density: "airy", motion: "reveal" },
+          children: [],
+        }],
+      }],
+    });
+
+    expect(plan.surfaces[0].artDirection.composition).toBe("mosaic");
+    expect(plan.surfaces[0].nodes[0].artDirection.tone).toBe("ink");
+  });
+
+  it("rejects arbitrary presentation values", () => {
+    const result = surfacePlanSchema.safeParse({
+      version: "harmonia.ui/v1",
+      surfaces: [{
+        slot: "canvas",
+        revision: 1,
+        rootId: "brief",
+        artDirection: { rhythm: "editorial", composition: "absolute", energy: "active" },
+        nodes: [{
+          id: "brief",
+          component: "CampaignBrief",
+          refs: {},
+          style: "color:red",
+          children: [],
+        }],
+      }],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("rejects model-authored approval risk", () => {
     const result = surfacePlanSchema.safeParse({
       version: "harmonia.ui/v1",

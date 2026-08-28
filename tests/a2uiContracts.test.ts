@@ -67,4 +67,32 @@ describe("Harmonia A2UI contracts", () => {
     ).toThrow();
     expect(HARMONIA_CATALOG_ID).toContain("harmonia");
   });
+
+  test("accepts only bounded hydrated presentation tokens", () => {
+    const campaignBrief = {
+      component: "CampaignBrief",
+      id: "brief-1",
+      jobId: "job-1",
+      title: "Campaign direction",
+      brief: "Lead with measurable outcomes.",
+      sourceKind: "written",
+      platforms: ["x"],
+      angles: [],
+      children: [],
+      emphasis: "primary",
+      agentFraming: false,
+      tone: "ink",
+      role: "hero",
+      density: "airy",
+      motion: "reveal",
+      surfaceRhythm: "editorial",
+      surfaceComposition: "mosaic",
+      surfaceEnergy: "active",
+      revision: 2,
+    };
+
+    expect(() => parseCatalogComponent(campaignBrief)).not.toThrow();
+    expect(() => parseCatalogComponent({ ...campaignBrief, tone: "hotpink" })).toThrow();
+    expect(() => parseCatalogComponent({ ...campaignBrief, css: "position:fixed" })).toThrow();
+  });
 });

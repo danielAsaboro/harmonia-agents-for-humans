@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { JobFull, Receipt } from "../src/components/jobTypes";
 import { hydrateSurfacePlan } from "../src/lib/a2ui/hydrateSurfacePlan";
-import type { SurfacePlan } from "../src/lib/a2ui/presentationContracts";
+import { surfacePlanSchema, type NodeArtDirection, type SurfaceArtDirection, type SurfacePlan } from "../src/lib/a2ui/presentationContracts";
 
 const job: JobFull = {
   id: "job-1",
@@ -41,11 +41,28 @@ const receipts: Receipt[] = [{
   detail: { remoteId: "post-1" },
 }];
 
-function plan(slot: "canvas" | "conversation" | "approval", node: SurfacePlan["surfaces"][number]["nodes"][number]): SurfacePlan {
-  return {
+type PlannedNodeInput = Omit<SurfacePlan["surfaces"][number]["nodes"][number], "artDirection"> & {
+  artDirection?: NodeArtDirection;
+};
+
+function plan(
+  slot: "canvas" | "conversation" | "approval",
+  node: PlannedNodeInput,
+  artDirection?: SurfaceArtDirection,
+): SurfacePlan {
+  return surfacePlanSchema.parse({
     version: "harmonia.ui/v1",
-    surfaces: [{ slot, revision: 1, rootId: node.id, nodes: [node] }],
+    surfaces: [{ slot, revision: 1, rootId: node.id, ...(artDirection ? { artDirection } : {}), nodes: [node] }],
+  });
+}
+
+function componentFrom(operations: Record<string, unknown>[], id: string): Record<string, unknown> {
+  const update = operations.find((operation) => "updateComponents" in operation) as {
+    updateComponents: { components: Array<Record<string, unknown>> };
   };
+  const component = update.updateComponents.components.find((candidate) => candidate.id === id);
+  if (!component) throw new Error(`Missing hydrated component ${id}`);
+  return component;
 }
 
 describe("A2UI trusted hydration", () => {
@@ -66,6 +83,99 @@ describe("A2UI trusted hydration", () => {
     const serialized = JSON.stringify(result.conversation);
     expect(serialized).toContain('"id":"plan","label":"plan","status":"active"');
     expect(serialized).toContain('"id":"draft","label":"draft","status":"pending"');
+  });
+
+  it("hydrates bounded art direction onto catalog components", () => {
+    const result = hydrateSurfacePlan({
+      runId: "run-1",
+      plan: plan("canvas", {
+        id: "brief",
+        component: "CampaignBrief",
+        emphasis: "primary",
+        refs: { jobId: "job-1", draftIds: [], momentIds: [], sourceIds: [], assetActionIds: [], actionIds: [], receiptIds: [] },
+        artDirection: { tone: "ink", role: "hero", density: "airy", motion: "reveal" },
+        children: [],
+      }, { rhythm: "editorial", composition: "mosaic", energy: "active" }),
+      job,
+      receipts,
+    });
+
+    expect(componentFrom(result.canvas, "brief")).toMatchObject({
+      tone: "ink",
+      role: "hero",
+      density: "airy",
+      motion: "reveal",
+      surfaceComposition: "mosaic",
+      surfaceEnergy: "active",
+      revision: 1,
+    });
+  });
+
+  it("prevents unresolved state from using success styling", () => {
+    const result = hydrateSurfacePlan({
+      runId: "run-1",
+      plan: plan("canvas", {
+        id: "receipt",
+        component: "VerificationReceipt",
+        emphasis: "primary",
+        refs: { jobId: "job-1", draftIds: [], momentIds: [], sourceIds: [], assetActionIds: [], actionIds: [], receiptIds: ["missing-receipt"] },
+        artDirection: { tone: "acid", role: "feature", density: "balanced", motion: "reveal" },
+        children: [],
+      }),
+      job,
+      receipts,
+    });
+
+    expect(componentFrom(result.canvas, "receipt")).toMatchObject({
+      component: "SurfaceUnresolved",
+      tone: "coral",
+      motion: "none",
+    });
+  });
+
+  it("reserves acid verification styling for independently verified receipts", () => {
+    const result = hydrateSurfacePlan({
+      runId: "run-1",
+      plan: plan("canvas", {
+        id: "receipt",
+        component: "VerificationReceipt",
+        emphasis: "primary",
+        refs: { jobId: "job-1", draftIds: [], momentIds: [], sourceIds: [], assetActionIds: [], actionIds: [], receiptIds: ["receipt-1"] },
+        artDirection: { tone: "acid", role: "feature", density: "balanced", motion: "reveal" },
+        children: [],
+      }),
+      job,
+      receipts,
+    });
+
+    expect(componentFrom(result.canvas, "receipt")).toMatchObject({
+      component: "VerificationReceipt",
+      verified: false,
+      tone: "paper",
+      motion: "none",
+    });
+  });
+
+  it("forces pending high-risk approvals into the coral consequence treatment", () => {
+    const result = hydrateSurfacePlan({
+      runId: "run-1",
+      plan: plan("approval", {
+        id: "approval",
+        component: "ApprovalReview",
+        emphasis: "primary",
+        refs: { jobId: "job-1", draftIds: [], momentIds: [], sourceIds: [], assetActionIds: [], actionIds: ["publish-1"], receiptIds: [] },
+        artDirection: { tone: "paper", role: "feature", density: "balanced", motion: "reveal" },
+        children: [],
+      }),
+      job,
+      receipts,
+    });
+
+    expect(componentFrom(result.approval, "approval")).toMatchObject({
+      approvalState: "pending",
+      risk: "high",
+      tone: "coral",
+    });
   });
 
   it("hydrates approval risk and content from the persisted action", () => {
@@ -119,9 +229,10 @@ describe("A2UI trusted hydration", () => {
           slot: "canvas",
           revision: 3,
           rootId: "brief",
+          artDirection: { rhythm: "editorial", composition: "stack", energy: "quiet" },
           nodes: [
-            { id: "brief", component: "CampaignBrief", emphasis: "primary", refs: { jobId: "job-1", draftIds: [], momentIds: [], sourceIds: [], assetActionIds: [], actionIds: [], receiptIds: [] }, children: ["drafts"] },
-            { id: "drafts", component: "DraftComparison", emphasis: "secondary", refs: { jobId: "job-1", draftIds: ["draft-1"], momentIds: [], sourceIds: [], assetActionIds: [], actionIds: [], receiptIds: [] }, children: [] },
+            { id: "brief", component: "CampaignBrief", emphasis: "primary", refs: { jobId: "job-1", draftIds: [], momentIds: [], sourceIds: [], assetActionIds: [], actionIds: [], receiptIds: [] }, artDirection: { tone: "paper", role: "support", density: "balanced", motion: "none" }, children: ["drafts"] },
+            { id: "drafts", component: "DraftComparison", emphasis: "secondary", refs: { jobId: "job-1", draftIds: ["draft-1"], momentIds: [], sourceIds: [], assetActionIds: [], actionIds: [], receiptIds: [] }, artDirection: { tone: "paper", role: "support", density: "balanced", motion: "none" }, children: [] },
           ],
         }],
       },

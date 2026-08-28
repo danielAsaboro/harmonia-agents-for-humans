@@ -6,11 +6,28 @@ import styles from "./HarmoniaWorkspaceElements.module.css";
 
 type Emphasis = "primary" | "secondary" | "compact";
 
-interface FrameProps {
+export interface ArtDirectionProps {
+  tone: "paper" | "ink" | "acid" | "blue" | "coral" | "violet";
+  role: "hero" | "feature" | "support" | "strip" | "inline";
+  density: "airy" | "balanced" | "compact";
+  motion: "none" | "reveal" | "pulse" | "trace";
+}
+
+interface FrameProps extends Partial<ArtDirectionProps> {
   title: string;
   agentFraming?: boolean;
   emphasis?: Emphasis;
   children?: ReactNode;
+}
+
+function directed(className: string, props: Partial<ArtDirectionProps>) {
+  return {
+    className: `${styles.artifact} ${className}`,
+    "data-tone": props.tone ?? "paper",
+    "data-role": props.role ?? "support",
+    "data-density": props.density ?? "balanced",
+    "data-motion": props.motion ?? "none",
+  } as const;
 }
 
 function clock(seconds: number): string {
@@ -40,9 +57,9 @@ export interface CampaignBriefProps extends FrameProps {
   angles: Array<{ id: string; angleType: "source_insight" | "trend" | "meme" | "performance_learning" | "memory_learning"; evidenceKind: "source" | "public_context" | "private_context" | "performance" | "memory"; title: string; rationale: string }>;
 }
 
-export function CampaignBrief({ title, brief, sourceKind, platforms, angles, agentFraming, emphasis, children }: CampaignBriefProps) {
+export function CampaignBrief({ title, brief, sourceKind, platforms, angles, agentFraming, emphasis, children, tone, role, density, motion }: CampaignBriefProps) {
   return (
-    <article className={styles.brief} data-emphasis={emphasis ?? "primary"}>
+    <article {...directed(styles.brief, { tone, role, density, motion })} data-emphasis={emphasis ?? "primary"}>
       <FrameHeading title={title} agentFraming={agentFraming} />
       <p className={styles.briefCopy}>{brief}</p>
       <dl className={styles.factRow}>
@@ -62,12 +79,12 @@ export interface JobProgressProps extends FrameProps {
   stages: Array<{ id: string; label: string; status: "pending" | "active" | "complete" | "failed" }>;
 }
 
-export function JobProgress({ title, stage, status, stages, agentFraming, emphasis, children }: JobProgressProps) {
+export function JobProgress({ title, stage, status, stages, agentFraming, emphasis, children, tone, role, density, motion }: JobProgressProps) {
   return (
-    <section className={styles.progress} data-emphasis={emphasis ?? "primary"} aria-label={`${title}: ${status}`}>
+    <section {...directed(styles.progress, { tone, role, density, motion })} data-active={stages.some((item) => item.status === "active")} data-emphasis={emphasis ?? "primary"} aria-label={`${title}: ${status}`}>
       <FrameHeading title={title} agentFraming={agentFraming} />
       <div className={styles.progressMeta}><strong>{stage.replaceAll("_", " ")}</strong><span>{status.replaceAll("_", " ")}</span></div>
-      <ol className={styles.progressTrack}>{stages.map((item) => <li key={item.id} data-status={item.status}><span aria-hidden="true" /><small>{item.label}</small></li>)}</ol>
+      <ol className={styles.progressTrack}>{stages.map((item) => <li key={item.id} data-status={item.status}><span aria-hidden="true" /><small>{item.label}{item.status === "active" ? " · In progress" : item.status === "failed" ? " · Failed" : ""}</small></li>)}</ol>
       <Nested>{children}</Nested>
     </section>
   );
@@ -79,7 +96,7 @@ export interface MomentExplorerProps extends FrameProps {
   transcript: Array<{ id: string; startSec: number; endSec: number; text: string }>;
 }
 
-export function MomentExplorer({ title, source, moments, transcript, agentFraming, emphasis, children }: MomentExplorerProps) {
+export function MomentExplorer({ title, source, moments, transcript, agentFraming, emphasis, children, tone, role, density, motion }: MomentExplorerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [activeMomentId, setActiveMomentId] = useState(moments.find((moment) => moment.selected)?.id ?? moments[0]?.id);
   const duration = source?.durationSec || Math.max(1, ...moments.map((moment) => moment.endSec));
@@ -91,7 +108,7 @@ export function MomentExplorer({ title, source, moments, transcript, agentFramin
     }
   }
   return (
-    <figure className={styles.momentExplorer} data-emphasis={emphasis ?? "primary"}>
+    <figure {...directed(styles.momentExplorer, { tone, role, density, motion })} data-emphasis={emphasis ?? "primary"}>
       <FrameHeading title={title} agentFraming={agentFraming} />
       <div className={styles.momentGrid}>
         <div className={styles.sourcePane}>
@@ -105,7 +122,7 @@ export function MomentExplorer({ title, source, moments, transcript, agentFramin
         </div>
         <ol className={styles.momentList}>{moments.map((moment) => (
           <li key={moment.id} data-selected={moment.id === activeMomentId}>
-            <button type="button" className={styles.momentButton} aria-label={`Seek to moment ${moment.title} at ${clock(moment.startSec)}`} onClick={() => activateMoment(moment)}>
+            <button type="button" className={styles.momentButton} aria-pressed={moment.id === activeMomentId} aria-label={`Seek to moment ${moment.title} at ${clock(moment.startSec)}`} onClick={() => activateMoment(moment)}>
             <div className={styles.timecode}><time>{clock(moment.startSec)}</time><span>→</span><time>{clock(moment.endSec)}</time></div>
             <h4>{moment.title}</h4>
             <p>{moment.hook}</p>
@@ -135,10 +152,10 @@ export interface HydratedDraftView {
 
 export interface DraftComparisonProps extends FrameProps { drafts: HydratedDraftView[]; onRequestRevision?: (draftId: string) => void }
 
-export function DraftComparison({ title, drafts, agentFraming, emphasis, children, onRequestRevision }: DraftComparisonProps) {
+export function DraftComparison({ title, drafts, agentFraming, emphasis, children, onRequestRevision, tone, role, density, motion }: DraftComparisonProps) {
   const [activeDraftId, setActiveDraftId] = useState(drafts.find((draft) => draft.selected)?.id ?? drafts[0]?.id);
   return (
-    <section className={styles.draftComparison} data-emphasis={emphasis ?? "primary"}>
+    <section {...directed(styles.draftComparison, { tone, role, density, motion })} data-emphasis={emphasis ?? "primary"}>
       <FrameHeading title={title} agentFraming={agentFraming} />
       <div className={styles.draftTabs} role="tablist" aria-label="Draft comparison">{drafts.map((draft) => <button key={draft.id} type="button" role="tab" aria-selected={draft.id === activeDraftId} onClick={() => setActiveDraftId(draft.id)}>{draft.platform} · {draft.id}</button>)}</div>
       <div className={styles.draftGrid}>{drafts.map((draft) => (
@@ -160,9 +177,9 @@ export interface PlatformPreviewProps extends FrameProps {
   assets: Array<{ actionId: string; mime: string; previewUrl: string }>;
 }
 
-export function PlatformPreview({ title, draft, assets, agentFraming, emphasis, children }: PlatformPreviewProps) {
+export function PlatformPreview({ title, draft, assets, agentFraming, emphasis, children, tone, role, density, motion }: PlatformPreviewProps) {
   return (
-    <article className={styles.platformPreview} data-emphasis={emphasis ?? "primary"}>
+    <article {...directed(styles.platformPreview, { tone, role, density, motion })} data-emphasis={emphasis ?? "primary"}>
       <FrameHeading title={title} agentFraming={agentFraming} />
       <div className={styles.socialCard}>
         <header><BrandMark className={styles.avatar} decorative /><div><strong>Harmonia campaign</strong><small>@startup · draft</small></div><span>•••</span></header>
@@ -188,9 +205,9 @@ export interface SourceEvidenceProps extends FrameProps {
   links: Array<{ fromId: string; toId: string; label: string }>;
 }
 
-export function SourceEvidence({ title, sources, links, agentFraming, emphasis, children }: SourceEvidenceProps) {
+export function SourceEvidence({ title, sources, links, agentFraming, emphasis, children, tone, role, density, motion }: SourceEvidenceProps) {
   return (
-    <section className={styles.evidence} data-emphasis={emphasis ?? "primary"}>
+    <section {...directed(styles.evidence, { tone, role, density, motion })} data-emphasis={emphasis ?? "primary"}>
       <FrameHeading title={title} agentFraming={agentFraming} />
       <ol>{sources.map((source) => <li key={source.id}><span>{source.kind}</span><div><strong>{source.label}</strong>{source.excerpt && <blockquote>{source.excerpt}</blockquote>}{source.url && <a href={source.url} target="_blank" rel="noreferrer">Open source ↗</a>}</div><code>{source.id}</code></li>)}</ol>
       {links.length > 0 && <details><summary>{links.length} provenance {links.length === 1 ? "link" : "links"}</summary><ul>{links.map((link, index) => <li key={`${link.fromId}-${link.toId}-${index}`}><code>{link.fromId}</code><span>{link.label}</span><code>{link.toId}</code></li>)}</ul></details>}
@@ -211,9 +228,9 @@ export interface ApprovalReviewProps extends FrameProps {
   previewText?: string;
 }
 
-export function ApprovalReview({ title, actionId, actionType, description, risk, requiresApproval, approvalState, actionState, destination, previewText, agentFraming, emphasis, children }: ApprovalReviewProps) {
+export function ApprovalReview({ title, actionId, actionType, description, risk, requiresApproval, approvalState, actionState, destination, previewText, agentFraming, emphasis, children, tone, role, density, motion }: ApprovalReviewProps) {
   return (
-    <aside className={styles.approval} data-risk={risk} data-emphasis={emphasis ?? "primary"}>
+    <aside {...directed(styles.approval, { tone, role, density, motion })} data-risk={risk} data-emphasis={emphasis ?? "primary"}>
       <FrameHeading title={title} agentFraming={agentFraming} />
       <div className={styles.approvalMeta}><span>{risk} risk</span><span>{approvalState.replaceAll("_", " ")}</span><code>{actionId}</code></div>
       <p>{description}</p>
@@ -237,11 +254,11 @@ export interface VerificationReceiptProps extends FrameProps {
   artifact?: { kind: string; url?: string; digest?: string | null };
 }
 
-export function VerificationReceipt({ title, receiptId, actionId, actionType, performedAt, outcome, verified, verificationMethod, verificationNote, artifact, agentFraming, emphasis, children }: VerificationReceiptProps) {
+export function VerificationReceipt({ title, receiptId, actionId, actionType, performedAt, outcome, verified, verificationMethod, verificationNote, artifact, agentFraming, emphasis, children, tone, role, density, motion }: VerificationReceiptProps) {
   return (
-    <article className={styles.receipt} data-verified={verified} data-emphasis={emphasis ?? "primary"}>
+    <article {...directed(styles.receipt, { tone, role, density, motion })} data-verified={verified} data-emphasis={emphasis ?? "primary"}>
       <FrameHeading title={title} agentFraming={agentFraming} />
-      <div className={styles.receiptSeal}><span aria-hidden="true">{verified ? "✓" : "!"}</span><div><strong>{verified ? "Verified" : "Unverified"}</strong><small>{outcome.replaceAll("_", " ")}</small></div></div>
+      <div className={styles.receiptSeal}><span aria-hidden="true">{verified ? "✓" : "!"}</span><div><strong>{verified ? "Verified" : "Verification pending"}</strong><small>{outcome.replaceAll("_", " ")}</small></div></div>
       <dl><div><dt>Receipt</dt><dd><code>{receiptId}</code></dd></div><div><dt>Action</dt><dd><code>{actionId}</code> · {actionType.replaceAll("_", " ")}</dd></div><div><dt>Performed</dt><dd><time dateTime={performedAt}>{new Date(performedAt).toLocaleString("en", { timeZone: "UTC" })} UTC</time></dd></div>{verificationMethod && <div><dt>Method</dt><dd>{verificationMethod}</dd></div>}</dl>
       {verificationNote && <p>{verificationNote}</p>}
       {artifact?.url && <a href={artifact.url} target="_blank" rel="noreferrer">Inspect evidence ↗</a>}
@@ -252,7 +269,7 @@ export function VerificationReceipt({ title, receiptId, actionId, actionType, pe
 }
 
 export interface SurfaceStateProps extends FrameProps { message: string }
-export function SurfaceLoading(props: SurfaceStateProps) { return <section className={styles.state} aria-live="polite"><FrameHeading title={props.title} agentFraming={props.agentFraming} /><p>{props.message}</p><span className={styles.loadingBar} /><Nested>{props.children}</Nested></section>; }
-export function SurfaceEmpty(props: SurfaceStateProps) { return <section className={styles.state}><FrameHeading title={props.title} agentFraming={props.agentFraming} /><p>{props.message}</p><Nested>{props.children}</Nested></section>; }
-export function SurfaceUnresolved(props: SurfaceStateProps & { missingRefs: string[] }) { return <section className={styles.state} data-state="unresolved"><FrameHeading title={props.title} agentFraming={props.agentFraming} /><p>{props.message}</p><code>{props.missingRefs.join(", ")}</code><Nested>{props.children}</Nested></section>; }
-export function SurfaceFailure(props: SurfaceStateProps & { retryable: boolean }) { return <section className={styles.state} data-state="failed" role="alert"><FrameHeading title={props.title} agentFraming={props.agentFraming} /><p>{props.message}</p>{props.retryable && <small>Retry is available from the conversation.</small>}<Nested>{props.children}</Nested></section>; }
+export function SurfaceLoading(props: SurfaceStateProps) { return <section {...directed(styles.state, props)} aria-live="polite"><FrameHeading title={props.title} agentFraming={props.agentFraming} /><p>{props.message}</p><span className={styles.loadingBar} /><Nested>{props.children}</Nested></section>; }
+export function SurfaceEmpty(props: SurfaceStateProps) { return <section {...directed(styles.state, props)}><FrameHeading title={props.title} agentFraming={props.agentFraming} /><p>{props.message}</p><Nested>{props.children}</Nested></section>; }
+export function SurfaceUnresolved(props: SurfaceStateProps & { missingRefs: string[] }) { return <section {...directed(styles.state, props)} data-state="unresolved"><FrameHeading title={props.title} agentFraming={props.agentFraming} /><p>{props.message}</p><code>{props.missingRefs.join(", ")}</code><Nested>{props.children}</Nested></section>; }
+export function SurfaceFailure(props: SurfaceStateProps & { retryable: boolean }) { return <section {...directed(styles.state, props)} data-state="failed" role="alert"><FrameHeading title={props.title} agentFraming={props.agentFraming} /><p>{props.message}</p>{props.retryable && <small>Retry is available from the conversation.</small>}<Nested>{props.children}</Nested></section>; }

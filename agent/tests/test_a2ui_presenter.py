@@ -4,10 +4,9 @@ import asyncio
 
 import pytest
 
-from harmonia_agent.a2ui_models import UiContext
+from harmonia_agent.a2ui_models import SurfacePlan, UiContext
 from harmonia_agent.a2ui_presenter import plan_surface, validate_surface_plan
-from harmonia_agent.a2ui_models import SurfacePlan
-from harmonia_agent.agents import AgentProtocolError
+from harmonia_agent.agents import AgentProtocolError, build_agent_team
 from harmonia_agent.agent_errors import AgentContractError
 from harmonia_agent.usage import InvocationContext
 
@@ -67,11 +66,22 @@ def valid_surface_state() -> dict:
                     "slot": "canvas",
                     "revision": 1,
                     "rootId": "root",
+                    "artDirection": {
+                        "rhythm": "cinematic",
+                        "composition": "split",
+                        "energy": "active",
+                    },
                     "nodes": [
                         {
                             "id": "root",
                             "component": "MomentExplorer",
                             "refs": {"jobId": "job-1", "momentIds": ["moment-1"]},
+                            "artDirection": {
+                                "tone": "blue",
+                                "role": "feature",
+                                "density": "balanced",
+                                "motion": "trace",
+                            },
                             "children": [],
                         }
                     ],
@@ -97,6 +107,8 @@ def test_plan_surface_uses_managed_runtime_and_validates_output() -> None:
     )
 
     assert result.surfaces[0].nodes[0].component == "MomentExplorer"
+    assert result.surfaces[0].artDirection.rhythm == "cinematic"
+    assert result.surfaces[0].nodes[0].artDirection.tone == "blue"
     assert runtime.calls[0]["specialist"] == "maya_presenter"
     assert runtime.calls[0]["user_id"] == "workspace-1:operator-1:job-1"
     assert [record["role"] for record in reservations] == [
@@ -158,3 +170,30 @@ def test_plan_surface_validates_managed_output_against_exact_context() -> None:
         asyncio.run(plan_surface(context_fixture(), invocation=invocation_fixture(),
             team_runtime=FakeTeamRuntime(candidate), budget_reserver=lambda _record: None,
             usage_reporter=lambda _record: None))
+
+
+def test_plan_surface_rejects_arbitrary_color_output() -> None:
+    state = valid_surface_state()
+    state["surface_plan"]["surfaces"][0]["nodes"][0]["artDirection"]["tone"] = "#00ff00"
+    runtime = FakeTeamRuntime(state)
+
+    with pytest.raises(AgentContractError, match="Maya returned output"):
+        asyncio.run(
+            plan_surface(
+                context_fixture(),
+                invocation=invocation_fixture(),
+                team_runtime=runtime,
+                budget_reserver=lambda _record: None,
+                usage_reporter=lambda _record: None,
+            )
+        )
+
+
+def test_presenter_instruction_defines_semantic_art_direction() -> None:
+    presenter = next(agent for agent in build_agent_team().sub_agents if agent.name == "maya_presenter")
+    instruction = str(presenter.instruction)
+
+    assert "Use ink for strategy" in instruction
+    assert "acid for a selected creative direction or persisted verified success" in instruction
+    assert "never emit style values" in instruction
+    assert "Prefer one hero or feature per surface" in instruction

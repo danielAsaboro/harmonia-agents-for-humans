@@ -37,9 +37,9 @@ export function parseLocalIntent(message: string): ParsedIntent {
   return { intent: "unknown" };
 }
 
-export async function parseIntent(message: string, attachmentCount = 0): Promise<ParsedIntent> {
+export async function parseIntent(message: string, attachmentCount = 0, recentConversation: Array<{ role: "user" | "assistant"; text: string }> = []): Promise<ParsedIntent> {
   const workspaceContext = await loadWorkspaceContentContext();
-  const route = await requestIntentRoute({ message, workspaceContext, attachmentCount });
+  const route = await requestIntentRoute({ message, workspaceContext, attachmentCount, recentConversation });
   const sources: ChatSourceDescriptor[] = route.sourceUrls.map((url) => ({ kind: YOUTUBE_RE.test(url) ? "youtube" : "web", url }));
   const desiredOutputs = route.outputConcepts.map((concept) => OUTPUT_CONCEPT_TO_KIND[concept]).flatMap((kind) => {
     const parsed = outputKindSchema.safeParse(kind);

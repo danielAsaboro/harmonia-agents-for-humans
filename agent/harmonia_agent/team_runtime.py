@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from hashlib import sha256
 from typing import Any, Protocol
@@ -25,6 +26,79 @@ class TeamRuntime(Protocol):
         user_id: str,
         session_key: str,
     ) -> dict[str, Any]: ...
+
+
+def _specialist_prompt_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Remove runtime envelopes that are not part of a specialist's strict input."""
+    return {key: value for key, value in payload.items() if not key.startswith("_")}
+
+
+class LocalAdkTeamRuntime:
+    """Run the real ADK hierarchy in-process for local browser verification."""
+
+    def __init__(self, agent: Any) -> None:
+        self.agent = agent
+
+    async def invoke(self, *, specialist: str, payload: dict[str, Any], user_id: str, session_key: str) -> dict[str, Any]:
+        from google.adk.runners import InMemoryRunner
+        from google.genai import types
+
+        specialist_agent = next(
+            (agent for agent in self.agent.sub_agents if agent.name == specialist),
+            None,
+        )
+        if specialist_agent is None:
+            raise AgentEngineProtocolError(f"unknown local ADK specialist: {specialist}")
+        specialist_agent = specialist_agent.model_copy(
+            update={"mode": "task", "parent_agent": None},
+        )
+        runner = InMemoryRunner(agent=specialist_agent, app_name="harmonia-local")
+        session_id = f"harmonia-{sha256(f'{user_id}|{session_key}'.encode()).hexdigest()[:40]}"
+        state: dict[str, Any] = {}
+        response_texts: list[str] = []
+        prompt = json.dumps(_specialist_prompt_payload(payload), separators=(",", ":"), ensure_ascii=False)
+        try:
+            await runner.session_service.create_session(
+                app_name="harmonia-local",
+                user_id=user_id,
+                session_id=session_id,
+                state={**payload, "requested_specialist": specialist},
+            )
+            async for event in runner.run_async(
+                user_id=user_id,
+                session_id=session_id,
+                new_message=types.Content(role="user", parts=[types.Part(text=prompt)]),
+            ):
+                state.update(_state_delta(event))
+                content = getattr(event, "content", None)
+                for part in getattr(content, "parts", []) or []:
+                    if isinstance(getattr(part, "text", None), str):
+                        response_texts.append(part.text)
+                if metadata := _grounding_metadata(event):
+                    state["_adk_grounding_metadata"] = metadata
+            completed_session = await runner.session_service.get_session(
+                app_name="harmonia-local", user_id=user_id, session_id=session_id,
+            )
+            if completed_session is not None:
+                state.update(dict(completed_session.state))
+            if specialist_agent.output_key and specialist_agent.output_key not in state:
+                for candidate in reversed(response_texts):
+                    candidate = candidate.strip()
+                    if candidate.startswith("```"):
+                        candidate = candidate.removeprefix("```json").removeprefix("```")
+                        candidate = candidate.removesuffix("```").strip()
+                    start, end = candidate.find("{"), candidate.rfind("}")
+                    if start >= 0 and end > start:
+                        try:
+                            state[specialist_agent.output_key] = json.loads(candidate[start:end + 1])
+                            break
+                        except json.JSONDecodeError:
+                            continue
+        except Exception as exc:  # noqa: BLE001 - normalized runtime boundary
+            raise AgentEngineProviderError(f"local ADK invocation failed: {exc}") from exc
+        if not state:
+            raise AgentEngineProtocolError("local ADK returned no state delta")
+        return state
 
 
 def _session_id(session: Any) -> str:

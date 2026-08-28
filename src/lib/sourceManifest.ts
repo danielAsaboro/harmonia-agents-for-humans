@@ -39,16 +39,18 @@ export async function createSourceJob(input: CreateSourceJobInput): Promise<Job>
   const sourceIds = input.directSources.map(() => randomUUID());
   const manifestId = randomUUID();
   const allowedOutputs = input.allowedOutputs ?? input.desiredOutputs;
-  return createJob({
+  const config = {
     sourceManifestId: manifestId,
     desiredOutputs: input.desiredOutputs,
     allowedOutputs,
-    strategyContext: input.strategyContext,
-    analysisResearchRequest: input.analysisResearchRequest,
     platforms: input.platforms,
-  }, "collect_sources", (transaction, jobId, now) => {
+    ...(input.strategyContext ? { strategyContext: input.strategyContext } : {}),
+    ...(input.analysisResearchRequest ? { analysisResearchRequest: input.analysisResearchRequest } : {}),
+  };
+  return createJob(config, "collect_sources", (transaction, jobId, now) => {
     const manifest = sealManifest({
-      id: manifestId, jobId, revision: 1, librarySnapshotId: input.librarySnapshotId,
+      id: manifestId, jobId, revision: 1,
+      ...(input.librarySnapshotId ? { librarySnapshotId: input.librarySnapshotId } : {}),
       directSourceIds: sourceIds, excludedSourceIds: [], exclusionRecords: [], sealedAt: now,
       sealedBySubjectId: tenantSubjectId(tenant),
     });

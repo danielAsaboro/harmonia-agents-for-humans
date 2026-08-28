@@ -84,6 +84,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
       <div className="flex-1 overflow-y-auto px-[22px] py-5">
         {loading ? <StudioLoading /> : null}
         {!loading && error ? <StudioFailure message={error} onRetry={onRetry} /> : null}
+        {!loading && !error && job?.failure ? <div className="mb-5"><StudioFailure message={job.failure.publicMessage} permanent={!job.failure.retryable} onRetry={job.failure.retryable ? onRetry : undefined} /></div> : null}
         {!loading && !error && !job ? <StudioEmpty title="Your working canvas is ready">Start a conversation or open a real job. Written posts, visual concepts, clips, video, audio, sources, policy, and verification will assemble here.</StudioEmpty> : null}
         {!loading && !error && job && model ? <>
           <div className="mb-4 flex items-end gap-4"><div><p className="font-mono text-[7px] uppercase tracking-[0.12em] text-[#817d74]">Current working set</p><h1 className="mt-1 text-[31px] font-extrabold leading-none tracking-[-0.05em]">One conversation,<br /><em className="font-serif text-[#5165ff]">{model.written.length + model.visual.length + model.motion.length + model.audio.length} living artifacts.</em></h1></div><div className="ml-auto text-right font-mono text-[8px] text-[#77736b]">{job.stage}<br />updated from persisted state</div></div>

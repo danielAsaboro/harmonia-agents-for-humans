@@ -48,4 +48,17 @@ describe("studio canvas", () => {
       "Show drafts for job job-1. Recompose the generated comparison around draft draft-2.",
     );
   });
+
+  it("shows the operator retry control for a retryable persisted job failure", () => {
+    const html = renderToStaticMarkup(createElement(WorkingCanvas, {
+      job: {
+        id: "job-retry", status: "failed", stage: "understand", createdAt: "2026-08-23T00:00:00.000Z", updatedAt: "2026-08-23T00:00:00.000Z",
+        config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, normalizedSources: [], actions: [], assets: [],
+        failure: { stage: "understand", category: "dependency", code: "managed_dependency_unavailable", publicMessage: "A required dependency is temporarily unavailable.", retryable: true, operationId: "op-1", traceId: "a".repeat(32), attempt: 0, maxAttempts: 3, details: {}, at: "2026-08-23T00:00:00.000Z" },
+      },
+      events: [], receipts: [], selectedArtifactId: null, onSelectedArtifactChange: () => {}, onRetry: () => {},
+    }));
+    expect(html).toContain("A required dependency is temporarily unavailable.");
+    expect(html).toContain(">Retry</button>");
+  });
 });

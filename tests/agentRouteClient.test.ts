@@ -13,12 +13,12 @@ describe("Harmonia intent route client", () => {
       clarifyingQuestion: null, requiresRightsAttestation: false, effectRequested: false,
       effectAuthorized: false, jobId: null,
     }), { status: 200, headers: { "content-type": "application/json" } }));
-    const route = await requestIntentRoute({ message: "Announce our launch", workspaceContext: context, attachmentCount: 0 }, {
+    const route = await requestIntentRoute({ message: "Announce our launch", workspaceContext: context, attachmentCount: 0, recentConversation: [{ role: "user", text: "We sell developer tools." }] }, {
       baseUrl: "http://localhost:8080", token: "token", fetchImpl,
       tenant: { workspaceId: "w", brandId: "b", userId: "u" },
     });
     expect(route.intent).toBe("one_off_content");
-    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toMatchObject({ message: "Announce our launch", workspaceContext: { strategyReady: true } });
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toMatchObject({ message: "Announce our launch", workspaceContext: { strategyReady: true }, recentConversation: [{ role: "user", text: "We sell developer tools." }] });
   });
 
   it("rejects routes that claim to authorize an effect", async () => {
@@ -28,7 +28,7 @@ describe("Harmonia intent route client", () => {
       assumptions: [], needsClarification: false, clarifyingQuestion: null,
       requiresRightsAttestation: false, effectRequested: true, effectAuthorized: true, jobId: null,
     }), { status: 200 }));
-    await expect(requestIntentRoute({ message: "Publish it", workspaceContext: context, attachmentCount: 0 }, {
+    await expect(requestIntentRoute({ message: "Publish it", workspaceContext: context, attachmentCount: 0, recentConversation: [] }, {
       baseUrl: "http://localhost:8080", token: "token", fetchImpl,
       tenant: { workspaceId: "w", brandId: "b", userId: "u" },
     })).rejects.toThrow(/invalid intent route/i);

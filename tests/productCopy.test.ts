@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const firestore = vi.hoisted(() => ({
   listJobs: vi.fn(),
+  listChatMessages: vi.fn(),
   saveChatMessage: vi.fn(),
 }));
 const chatIntent = vi.hoisted(() => ({ parseIntent: vi.fn() }));
@@ -10,6 +11,7 @@ vi.mock("@/lib/firestore", () => ({
   appendEvent: vi.fn(),
   getJob: vi.fn(),
   listAssets: vi.fn(),
+  listChatMessages: firestore.listChatMessages,
   listJobs: firestore.listJobs,
   saveChatMessage: firestore.saveChatMessage,
 }));
@@ -23,6 +25,7 @@ import { handleChat } from "../src/lib/chatHandler";
 describe("source-agnostic product copy", () => {
   beforeEach(() => {
     firestore.listJobs.mockResolvedValue([]);
+    firestore.listChatMessages.mockResolvedValue([]);
     firestore.saveChatMessage.mockResolvedValue(undefined);
     chatIntent.parseIntent.mockResolvedValue({ intent: "status" });
   });
@@ -74,5 +77,21 @@ describe("source-agnostic product copy", () => {
     expect(payload.reply).toContain("LinkedIn is a good fit but not connected yet");
     expect(payload.reply).toContain("Connect it in Settings");
     expect(payload.reply).toContain("still prepare the strategy and drafts now");
+  });
+
+  it("keeps connection guidance visible while asking a clarifying question", async () => {
+    chatIntent.parseIntent.mockResolvedValue({
+      intent: "establish_strategy",
+      needsClarification: true,
+      clarifyingQuestion: "What outcome should the strategy prioritize?",
+      connectionSuggestions: ["linkedin"],
+    });
+    const response = await handleChat(new Request("http://localhost/api/chat", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "Help us plan LinkedIn content" }),
+    }));
+    const payload = await response.json() as { reply: string };
+    expect(payload.reply).toContain("What outcome should the strategy prioritize?");
+    expect(payload.reply).toContain("LinkedIn is a good fit but not connected yet");
   });
 });

@@ -26,7 +26,7 @@ const routeSchema = z.object({
 });
 
 export type IntentRoute = z.infer<typeof routeSchema>;
-export interface IntentRouteRequest { message: string; workspaceContext: WorkspaceContentContext; attachmentCount: number }
+export interface IntentRouteRequest { message: string; workspaceContext: WorkspaceContentContext; attachmentCount: number; recentConversation: Array<{ role: "user" | "assistant"; text: string }> }
 interface Options { baseUrl?: string; token?: string; fetchImpl?: typeof fetch; timeoutMs?: number; tenant?: { workspaceId: string; brandId: string; userId: string } }
 
 async function authorizedFetch(url: string, init: RequestInit, custom?: typeof fetch): Promise<Response> {
@@ -45,7 +45,7 @@ export async function requestIntentRoute(input: IntentRouteRequest, options: Opt
   const baseUrl = new URL(options.baseUrl ?? config?.AGENT_SERVICE_URL ?? "").toString().replace(/\/$/, "");
   const tenant = options.tenant ?? (() => { const value = currentTenant(); return { workspaceId: value.workspaceId, brandId: value.brandId, userId: tenantSubjectId(value) }; })();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 30_000);
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 90_000);
   try {
     const response = await authorizedFetch(`${baseUrl}/internal/agent/route`, {
       method: "POST", signal: controller.signal,

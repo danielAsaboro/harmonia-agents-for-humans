@@ -115,7 +115,7 @@ from .dara_skills import (
 from .telemetry import current_trace_id, safe_attributes, tracer
 from .activity_models import AgentActivityRecord
 from .activity_projection import invocation_activity, tool_activity
-from .team_runtime import AgentEngineTeamRuntime, TeamRuntime
+from .team_runtime import AgentEngineTeamRuntime, LocalAdkTeamRuntime, TeamRuntime
 from .tenant_context import current_tenant
 from .role_models import RoleModelConfig, load_role_model_catalog
 from .usage import (
@@ -139,6 +139,7 @@ from .intent_routing import (
     IntentRoutingInput,
     build_intent_routing_skillset,
 )
+from . import web_client
 
 logger = logging.getLogger("harmonia.agents")
 
@@ -379,8 +380,15 @@ def build_agent_team(
         description="Routes ordinary operator language against durable workspace content context.",
         instruction=(
             "Load and follow the harmonia-intent-routing skill. Classify the typed message and "
-            "workspace context. Infer user-level output concepts, never internal registry names. "
-            "Return the strict route only; routing cannot authorize an external effect."
+            "workspace context. Treat recentConversation as the discovery context you already "
+            "elicited; never make the operator repeat it. Infer user-level output concepts, never internal registry names. "
+            "Return the strict route only; routing cannot authorize an external effect. The JSON "
+            "object must contain exactly these schema keys: intent, userOutcome, sourceUrls, "
+            "outputConcepts, platformRecommendations, connectionSuggestions, assumptions, "
+            "needsClarification, clarifyingQuestion, requiresRightsAttestation, effectRequested, "
+            "effectAuthorized, and jobId. Platform values are lowercase registry values. Do not "
+            "invent alternate keys such as route, rationale, confidence, requiredContext, "
+            "suggestedWorkflow, missingFacts, or userFacingMessage."
         ),
         input_schema=IntentRoutingInput,
         output_schema=IntentRoute,
@@ -2029,6 +2037,7 @@ async def _run_coordinator(
     usage_reporter: Callable[[dict[str, object]], None] = report_usage,
     activity_reporter: Callable[[AgentActivityRecord], None] | None = None,
     team_runtime: TeamRuntime | None = None,
+    job_scoped_accounting: bool = True,
 ) -> dict[str, Any]:
     resolved = _resolve_role_models(model, models)
     roles = _SPECIALIST_ROLES[specialist]
@@ -2058,14 +2067,16 @@ async def _run_coordinator(
                     invocation.operation_id if invocation else "proactive",
                 )
     try:
-        if invocation is not None:
+        if invocation is not None and job_scoped_accounting:
             for reservation in _reservation_payloads(
                 specialist, payload, invocation, resolved,
             ):
                 budget_reserver(reservation)
                 reserved.append(reservation)
-        managed_runtime = team_runtime or AgentEngineTeamRuntime(
-            resource_name=settings().agent_engine_resource,
+        managed_runtime = team_runtime or (
+            LocalAdkTeamRuntime(build_agent_team(models=resolved))
+            if os.environ.get("HARMONIA_LOCAL_ADK") == "1"
+            else AgentEngineTeamRuntime(resource_name=settings().agent_engine_resource)
         )
         if invocation is not None:
             managed_user_id = invocation.agent_engine_user_id()
@@ -2120,7 +2131,7 @@ async def _run_coordinator(
             if span_context.is_valid:
                 managed_span_id = f"{span_context.span_id:016x}"
         _validate_run_output(specialist, payload, final_state)
-        if invocation is not None:
+        if invocation is not None and job_scoped_accounting:
             serialized = payload.model_dump_json(exclude_none=True)
             trace_id = managed_trace_id
             for role in roles:
@@ -2759,8 +2770,32 @@ async def route_intent_with_team(
     """Route one natural operator request through Harmonia's owned ADK skill."""
     state = await _run_coordinator(
         "harmonia_intent_router", value, invocation=invocation, team_runtime=team_runtime,
+        job_scoped_accounting=False,
     )
-    return _validated_state(state, "intent_route", IntentRoute)
+    route = _validated_state(state, "intent_route", IntentRoute)
+
+    # Channel mentions are ordinary user language, not implementation hints. Reconcile
+    # them with the live connection registry so a model cannot omit required setup
+    # guidance after correctly choosing a strategy-first route.
+    message = value.message.casefold()
+    declared_platforms = [
+        platform for platform, markers in (
+            ("linkedin", ("linkedin",)),
+            ("instagram", ("instagram",)),
+            ("tiktok", ("tiktok", "tik tok")),
+            ("x", (" x ", "twitter")),
+        )
+        if any(marker in f" {message} " for marker in markers)
+    ]
+    recommendations = list(dict.fromkeys([*route.platformRecommendations, *declared_platforms]))
+    connections = await asyncio.to_thread(web_client.get_platform_connections)
+    connected = {str(item.get("id")): item.get("connected") is True for item in connections}
+    suggestions = [platform for platform in recommendations if not connected.get(platform, False)]
+    return IntentRoute.model_validate({
+        **route.model_dump(mode="json"),
+        "platformRecommendations": recommendations,
+        "connectionSuggestions": suggestions,
+    })
 
 
 async def ask_with_team(

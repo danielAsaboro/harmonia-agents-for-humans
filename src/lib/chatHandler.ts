@@ -5,6 +5,7 @@ import {
   appendEvent,
   getJob,
   listAssets,
+  listChatMessages,
   listJobs,
   saveChatMessage,
 } from "@/lib/firestore";
@@ -202,7 +203,7 @@ export async function handleChat(req: Request, options: { chatRunId?: string } =
   let payload: ChatResponse;
   let status = 200;
   try {
-    const result = await buildResponse(req, message, surface, context, attachments);
+    const result = await buildResponse(req, message, surface, conversationId, context, attachments);
     if ("__http" in result) return result.__http; // e.g. operator forbidden
     payload = result.payload;
     status = result.status ?? 200;
@@ -262,7 +263,7 @@ function connectionGuidance(platforms: string[] | undefined): string {
   return ` ${labels.join(" and ")} ${labels.length === 1 ? "is" : "are"} a good fit but not connected yet. Connect ${labels.length === 1 ? "it" : "them"} in Settings before publishing; Harmonia can still prepare the strategy and drafts now.`;
 }
 
-async function buildResponse(req: Request, message: string, surface: "dashboard" | "telegram", context?: { kind: "job" | "content_item" | "proposal"; id: string }, attachments: ChatAttachment[] = []): Promise<HandlerResult> {
+async function buildResponse(req: Request, message: string, surface: "dashboard" | "telegram", conversationId: string, context?: { kind: "job" | "content_item" | "proposal"; id: string }, attachments: ChatAttachment[] = []): Promise<HandlerResult> {
 
   // Grounded Q&A about a specific record ("chat with any item").
   if (context && isValidContext(context)) {
@@ -294,7 +295,10 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
     const attachmentContext = attachments.length
       ? `\n\nAttached files: ${attachments.map((attachment) => `${attachment.filename} (${attachment.mime})`).join(", ")}`
       : "";
-    intent = await parseIntent(`${message}${attachmentContext}`, attachments.length);
+    const recentConversation = (await listChatMessages(8, surface, conversationId))
+      .filter((turn): turn is typeof turn & { role: "user" | "assistant" } => turn.role === "user" || turn.role === "assistant")
+      .map((turn) => ({ role: turn.role, text: turn.text }));
+    intent = await parseIntent(`${message}${attachmentContext}`, attachments.length, recentConversation);
   } catch (e) {
     return { __http: Response.json(
       { error: `intent parsing failed: ${e instanceof Error ? e.message : String(e)}` },
@@ -303,7 +307,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
   }
 
   if (intent.needsClarification && intent.clarifyingQuestion) {
-    return { payload: { intent: intent.intent, reply: intent.clarifyingQuestion } satisfies ChatResponse };
+    return { payload: { intent: intent.intent, reply: `${intent.clarifyingQuestion}${connectionGuidance(intent.connectionSuggestions)}` } satisfies ChatResponse };
   }
 
   if (["establish_strategy", "revise_strategy"].includes(intent.intent) && ((intent.sources?.length ?? 0) > 0 || attachments.length > 0)) {

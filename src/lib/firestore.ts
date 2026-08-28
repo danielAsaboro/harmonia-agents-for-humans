@@ -313,7 +313,7 @@ export async function transitionStageWithOutbox(
     });
     tx.create(ref, {
       id, workspaceId: tenant.workspaceId, brandId: tenant.brandId,
-      jobId, stage: nextStage, attempt: generation, completedStage, note,
+      jobId, stage: nextStage, attempt: 0, completedStage, note,
       ...stageOutboxDurability(id, jobId, nextStage, generation, completedStage),
       state: "pending", createdAt: new Date().toISOString(),
     } satisfies StageOutboxRecord);
@@ -832,7 +832,9 @@ export async function saveChatMessage(
   const tenant = currentTenant();
   const userId = tenantSubjectId(tenant);
   const scopeKey = chatScopeKey(userId, m.surface, m.conversationId);
-  await tenantCollection(CHATS).add({ ...m, userId, scopeKey, at: FieldValue.serverTimestamp() });
+  const document = { ...m, userId, scopeKey, at: FieldValue.serverTimestamp() };
+  if (document.data === undefined) delete document.data;
+  await tenantCollection(CHATS).add(document);
   const scoped = await tenantCollection(CHATS).where("scopeKey", "==", scopeKey).get();
   const retained = scoped.docs.map((doc) => {
     const data = doc.data() as ChatMessageDoc & { at?: { toDate(): Date } | string };
@@ -1358,21 +1360,23 @@ export async function createJob(
 }
 
 export async function retryFailedJobWithOutbox(jobId: string, stage: Stage, attempt: number): Promise<string> {
-  const id = stageOutboxId(jobId, stage, attempt);
-  const ref = stageOutboxRef(id);
   const tenant = currentTenant();
-  await db().runTransaction(async (tx) => {
-    const [jobSnapshot, existing] = await Promise.all([tx.get(jobRef(jobId)), tx.get(ref)]);
+  return db().runTransaction(async (tx) => {
+    const jobSnapshot = await tx.get(jobRef(jobId));
     const job = requireJobDoc(jobSnapshot);
-    if (job.status !== "failed" || job.failure?.stage !== stage) throw new Error("job is not retryable from this stage");
-    tx.update(jobRef(jobId), { stage, status: "running", updatedAt: new Date().toISOString() });
+    if (!job.failure || job.failure.stage !== stage || (job.status !== "failed" && !job.failure.retryable)) throw new Error("job is not retryable from this stage");
+    const generation = job.controlEpoch + 1;
+    const id = stageOutboxId(jobId, stage, generation);
+    const ref = stageOutboxRef(id);
+    const existing = await tx.get(ref);
+    tx.update(jobRef(jobId), { stage, status: "running", controlEpoch: generation, updatedAt: new Date().toISOString() });
     if (!existing.exists) tx.create(ref, {
       id, workspaceId: tenant.workspaceId, brandId: tenant.brandId, jobId, stage, attempt,
-      ...stageOutboxDurability(id, jobId, stage, attempt),
+      ...stageOutboxDurability(id, jobId, stage, generation),
       state: "pending", createdAt: new Date().toISOString(),
     } satisfies StageOutboxRecord);
+    return id;
   });
-  return id;
 }
 
 export async function getJob(jobId: string) {

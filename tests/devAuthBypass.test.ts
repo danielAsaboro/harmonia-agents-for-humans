@@ -26,6 +26,7 @@ describe("development authentication bypass", () => {
   test("refuses the bypass in production even when the flag is set", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("HARMONIA_DEV_AUTH_BYPASS", "1");
+    vi.stubEnv("FIRESTORE_EMULATOR_HOST", "");
 
     expect(isDevAuthBypassEnabled()).toBe(false);
     const response = await POST(new Request("https://harmonia.example/api/auth/session", {
@@ -36,5 +37,13 @@ describe("development authentication bypass", () => {
 
     expect(response.status).toBe(403);
     expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  test("allows a production-built local server only when Firestore points at loopback", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("HARMONIA_DEV_AUTH_BYPASS", "1");
+    vi.stubEnv("FIRESTORE_EMULATOR_HOST", "127.0.0.1:8081");
+
+    expect(isDevAuthBypassEnabled()).toBe(true);
   });
 });

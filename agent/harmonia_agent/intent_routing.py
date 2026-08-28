@@ -60,10 +60,16 @@ class WorkspaceContentContext(StrictModel):
     recentJobs: list[RecentJobSummary] = Field(max_length=8)
 
 
+class ConversationTurn(StrictModel):
+    role: Literal["user", "assistant"]
+    text: StrictStr = Field(min_length=1, max_length=2000)
+
+
 class IntentRoutingInput(StrictModel):
     message: StrictStr = Field(min_length=1, max_length=2000)
     workspaceContext: WorkspaceContentContext
     attachmentCount: StrictInt = Field(ge=0, le=10)
+    recentConversation: list[ConversationTurn] = Field(default_factory=list, max_length=8)
 
 
 class IntentRoute(StrictModel):

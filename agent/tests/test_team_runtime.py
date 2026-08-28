@@ -9,6 +9,7 @@ import pytest
 from harmonia_agent.team_runtime import (
     AgentEngineProtocolError,
     AgentEngineTeamRuntime,
+    _specialist_prompt_payload,
 )
 from harmonia_agent.agent_engine_app import build_agent_engine_app
 from harmonia_agent.agent_engine_deploy import build_deployment_config
@@ -45,6 +46,19 @@ class _RemoteAgent:
 
     async def async_delete_session(self, **kwargs):
         self.deleted.append(kwargs)
+
+
+def test_local_specialist_prompt_excludes_runtime_only_projection() -> None:
+    payload = {
+        "title": "Demo",
+        "transcript": "proof",
+        "_durable_context_projection": {"manifestDigest": "a" * 64},
+    }
+
+    assert _specialist_prompt_payload(payload) == {
+        "title": "Demo",
+        "transcript": "proof",
+    }
 
 
 class _AgentEngines:

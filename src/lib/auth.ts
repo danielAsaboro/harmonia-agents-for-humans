@@ -31,7 +31,10 @@ function stableId(prefix: string, value: string): string {
 }
 
 export function isDevAuthBypassEnabled(): boolean {
-  return process.env.NODE_ENV !== "production" && process.env.HARMONIA_DEV_AUTH_BYPASS === "1";
+  const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST ?? "";
+  const usingLocalEmulator = /^(127\.0\.0\.1|localhost)(:\d+)?$/.test(emulatorHost);
+  return process.env.HARMONIA_DEV_AUTH_BYPASS === "1"
+    && (process.env.NODE_ENV !== "production" || usingLocalEmulator);
 }
 
 function sessionCookie(value: string): string {

@@ -125,6 +125,49 @@ def test_health_reports_durable_runtime_capabilities_without_secrets() -> None:
     assert "internalApiToken" not in payload
 
 
+def test_production_execution_endpoint_applies_tenant_scope_and_exact_operation(monkeypatch) -> None:
+    observed = []
+
+    def execute(plan_id, operation_id):
+        tenant = current_tenant()
+        observed.append((tenant.workspace_id, tenant.brand_id, plan_id, operation_id))
+        return {"outcome": "waiting_provider", "providerOperationId": "operations/1"}
+
+    monkeypatch.setattr(main, "execute_paid_production_operation", execute)
+    response = TestClient(main.app).post("/production/execute", json={
+        "workspaceId": "workspace-1",
+        "brandId": "brand-1",
+        "planId": "plan-1",
+        "operationId": "plan-1:generate_video:scene-1",
+    })
+
+    assert response.status_code == 200
+    assert response.json()["outcome"] == "waiting_provider"
+    assert observed == [("workspace-1", "brand-1", "plan-1", "plan-1:generate_video:scene-1")]
+
+
+def test_production_pubsub_delivery_uses_the_same_claimed_executor(monkeypatch) -> None:
+    observed = []
+    payload = {
+        "workspaceId": "workspace-1",
+        "brandId": "brand-1",
+        "planId": "plan-1",
+        "operationId": "plan-1:generate_video:scene-1",
+    }
+    monkeypatch.setattr(main, "execute_paid_production_operation", lambda plan_id, operation_id: observed.append((current_tenant().workspace_id, plan_id, operation_id)) or {"outcome": "in_progress"})
+    response = TestClient(main.app).post("/pubsub/production", json={
+        "message": {
+            "messageId": "production-delivery-1",
+            "data": base64.b64encode(json.dumps(payload).encode()).decode(),
+            "attributes": {"workspaceId": "workspace-1", "brandId": "brand-1"},
+        },
+    })
+
+    assert response.status_code == 200
+    assert response.json() == {"ack": True, "outcome": "in_progress"}
+    assert observed == [("workspace-1", "plan-1", "plan-1:generate_video:scene-1")]
+
+
 def test_recovery_wake_uses_bounded_config(monkeypatch) -> None:
     calls = []
     monkeypatch.setattr("harmonia_agent.web_client.get_workspaces", lambda: [

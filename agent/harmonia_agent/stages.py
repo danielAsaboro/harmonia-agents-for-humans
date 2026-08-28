@@ -12,7 +12,7 @@ import struct
 from pathlib import Path
 import asyncio
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 import httpx
@@ -48,19 +48,6 @@ from .agents import (
     validate_source_analysis,
 )
 from .config import settings
-from .generative_media import (
-    LYRIA_MODEL,
-    VEO_MODEL,
-    GoogleMediaTransport,
-    LyriaGenerator,
-    MediaOperationPending,
-    MediaProtocolError,
-    MediaProviderError,
-    VeoGenerator,
-    estimate_media_cost,
-    validate_lyria_request,
-    validate_veo_request,
-)
 from .memory_bank import (
     MemoryProtocolError,
     MemoryProviderError,
@@ -69,7 +56,7 @@ from .memory_bank import (
 from .failures import FailureCategory, FailureEnvelope, normalize_failure
 from .team_runtime import AgentEngineProtocolError, AgentEngineProviderError
 from .telemetry import current_trace_id, inject_context, safe_attributes, tracer
-from .usage import InvocationContext, media_usage_record
+from .usage import InvocationContext
 from .effect_executor import execute_effect_command, production_adapters
 from .extraction import extract_docx, extract_html, extract_media, extract_pdf, extract_text
 from .extraction.security import assert_public_url
@@ -87,7 +74,6 @@ from .web_client import (
     get_editorial_planning_snapshot,
     get_insights,
     get_job,
-    get_media_operation,
     get_source,
     get_source_manifest,
     get_chat_attachment,
@@ -96,9 +82,6 @@ from .web_client import (
     post as web_post,
     patch as web_patch,
     report_usage,
-    reserve_budget,
-    resolve_budget_reservation,
-    save_media_operation,
     transition_effect_command,
 )
 
@@ -665,7 +648,6 @@ async def run_publish(job_id: str) -> None:
             and datetime.fromisoformat(str(command.get("nextPollAt")).replace("Z", "+00:00")) <= now
         )
     ]
-    has_pending_provider = False
     done_keys = {
         r["idempotencyKey"] for r in _receipts_for_job(job_id)
         if r["outcome"] in ("applied", "already_applied")
@@ -680,6 +662,10 @@ async def run_publish(job_id: str) -> None:
             "type": command["actionType"],
             "payload": command["payload"],
         }
+        if action["type"] in {"generate_video", "generate_music"}:
+            raise AgentProtocolError(
+                "paid media operations must execute through the sealed production executor"
+            )
         key = command["payloadDigest"]
         if action["type"] in {
             "export_content_artifact", "publish_x_post", "publish_x_thread",
@@ -747,8 +733,6 @@ async def run_publish(job_id: str) -> None:
             })
         detail: dict[str, Any] = {"idempotencyKey": key}
         outcome, artifact = "failed", None
-        budget_operation_id: str | None = None
-        budget_dispatched = False
         try:
             if action["type"] == "generate_image":
                 if key in done_keys:
@@ -780,129 +764,6 @@ async def run_publish(job_id: str) -> None:
                         "fetchedAt": _now(), "digest": digest,
                     }
                     detail.update({"digest": digest, "mime": mime, "bytes": len(img_bytes)})
-            elif action["type"] in ("generate_video", "generate_music"):
-                if key in done_keys:
-                    outcome, detail["note"] = "already_applied", "receipt exists; skipped"
-                else:
-                    cfg = settings()
-                    payload = action["payload"]
-                    media_request = (
-                        validate_veo_request(payload)
-                        if action["type"] == "generate_video"
-                        else validate_lyria_request(payload)
-                    )
-                    pricing_overrides = {
-                        name: value for name, value in {
-                            "veo-3.1": os.environ.get("VEO_3_1_COST_PER_SECOND_USD"),
-                            "lyria-3-clip": os.environ.get("LYRIA_3_CLIP_COST_USD"),
-                            "lyria-3-pro": os.environ.get("LYRIA_3_PRO_COST_USD"),
-                        }.items() if value
-                    }
-                    model_id = str(media_request["providerModel"])
-                    cost = estimate_media_cost(media_request, pricing_overrides)
-                    role = "veo_generator" if action["type"] == "generate_video" else "lyria_generator"
-                    invocation = InvocationContext(
-                        job_id=job_id,
-                        workspace_id=job["workspaceId"],
-                        brand_id=job["brandId"],
-                        user_id=job["createdByUserId"],
-                        stage="publish",
-                        operation_id=f"{job_id}:publish:{action['id']}",
-                    )
-                    reserve_budget({
-                        "jobId": job_id,
-                        "operationId": invocation.operation_id,
-                        "stage": "publish",
-                        "role": role,
-                        "model": model_id,
-                        "estimatedCostUsd": cost,
-                        "pricingVersion": "2026-08-23",
-                    })
-                    budget_operation_id = invocation.operation_id
-                    recorded = get_media_operation(job_id, action["id"])
-                    existing_asset = get_asset(job_id, action["id"])
-                    if recorded is not None and existing_asset is not None:
-                        budget_dispatched = True
-                        report_usage(media_usage_record(
-                            invocation=invocation,
-                            role=role,
-                            model=model_id,
-                            estimated_cost_usd=cost,
-                            trace_id=current_trace_id(),
-                        ).to_wire())
-                        budget_operation_id = None
-                        outcome = "already_applied"
-                        digest = str(existing_asset["digest"])
-                        artifact = {
-                            "kind": "asset_store",
-                            "url": f"/api/jobs/{job_id}/assets/{action['id']}",
-                            "fetchedAt": _now(), "digest": digest,
-                        }
-                        detail.update({
-                            "digest": digest,
-                            "mime": existing_asset["mime"],
-                            "model": model_id,
-                            "providerOperation": recorded["operationName"],
-                            "note": "persisted provider operation and asset already exist",
-                        })
-                        with operation_scope(operation_id, operation_epoch):
-                            transition_effect_command("observed", {
-                                **effect_identity, "outcome": outcome,
-                                "artifact": artifact, "detail": detail,
-                            })
-                            web_post("/api/internal/receipt", {
-                                **effect_receipt_identity, "outcome": outcome,
-                                "artifact": artifact, "detail": detail,
-                            })
-                        continue
-                    transport = GoogleMediaTransport(
-                        project=cfg.gcp_project, location=cfg.vertex_media_location,
-                    )
-                    budget_dispatched = recorded is not None
-                    if action["type"] == "generate_video":
-                        budget_dispatched = True
-                        generated = VeoGenerator(transport=transport).generate(
-                            request=media_request,
-                            existing_operation=(recorded or {}).get("operationName"),
-                            persist_operation=lambda operation_name: save_media_operation(
-                                job_id, action["id"], "veo", operation_name,
-                            ),
-                        )
-                    else:
-                        budget_dispatched = True
-                        generated = LyriaGenerator(transport=transport).generate(
-                            request=media_request,
-                            estimated_cost_usd=cost,
-                        )
-                        save_media_operation(
-                            job_id, action["id"], "lyria", generated.provider_id,
-                        )
-                    digest = hashlib.sha256(generated.data).hexdigest()
-                    web_post_raw_asset(
-                        job_id, action["id"], generated.mime, digest, generated.data,
-                    )
-                    report_usage(media_usage_record(
-                        invocation=invocation,
-                        role=role,
-                        model=generated.model,
-                        estimated_cost_usd=generated.estimated_cost_usd,
-                        trace_id=current_trace_id(),
-                    ).to_wire())
-                    budget_operation_id = None
-                    outcome = "applied"
-                    artifact = {
-                        "kind": "asset_store",
-                        "url": f"/api/jobs/{job_id}/assets/{action['id']}",
-                        "fetchedAt": _now(), "digest": digest,
-                    }
-                    detail.update({
-                        "digest": digest,
-                        "mime": generated.mime,
-                        "bytes": len(generated.data),
-                        "model": generated.model,
-                        "providerOperation": generated.provider_id,
-                        "durationSec": generated.duration_sec,
-                    })
             elif action["type"] in ("render_clip", "render_reel"):
                 if key in done_keys:
                     outcome, detail["note"] = "already_applied", "receipt exists; skipped"
@@ -963,33 +824,9 @@ async def run_publish(job_id: str) -> None:
                         "bytes": len(video_bytes), "format": fmt,
                         **({"notes": render_notes} if render_notes else {}),
                     })
-        except MediaOperationPending as exc:
-            has_pending_provider = True
-            budget_operation_id = None  # reservation remains live across the durable poll
-            transition_effect_command("provider_pending", {
-                **effect_identity,
-                "providerOperationId": exc.operation_name,
-                "nextPollAt": (datetime.now(timezone.utc) + timedelta(seconds=10)).isoformat(),
-            })
-            continue
         except (x_client.XError, content.ImageGenError, ClipRenderError) as exc:
             outcome, detail["error"] = "failed", str(exc)
         except Exception as exc:
-            if budget_operation_id is not None:
-                try:
-                    resolve_budget_reservation({
-                        "jobId": job_id,
-                        "operationId": budget_operation_id,
-                        "outcome": "uncertain" if budget_dispatched else "not_invoked",
-                        "reason": (
-                            "paid media failed after provider dispatch"
-                            if budget_dispatched else "paid media failed before provider dispatch"
-                        ),
-                    })
-                except Exception:  # noqa: BLE001 - preserve the causal provider failure
-                    logger.exception(
-                        "budget resolution failed for operation %s", budget_operation_id,
-                    )
             with operation_scope(operation_id, operation_epoch):
                 transition_effect_command("unknown", {
                     **effect_identity,
@@ -1008,7 +845,7 @@ async def run_publish(job_id: str) -> None:
             })
 
     refreshed = get_job(job_id)
-    if refreshed["stage"] == "publish" and not has_pending_provider:
+    if refreshed["stage"] == "publish":
         web_post(f"/api/internal/publish/{job_id}/complete", {"stage": "publish"})
 
 

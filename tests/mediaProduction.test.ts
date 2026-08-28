@@ -19,7 +19,7 @@ const videoSpec = generatedVideoSpecSchema.parse({
 });
 const musicSpec = generatedMusicSpecSchema.parse({
   modelCapability: "lyria-3-clip", prompt: "Warm minimal electronic soundtrack, 100 BPM", instrumental: true,
-  lyricsMode: "none", language: "en", bpm: 100, intensity: 0.45, structure: ["intro", "build"], targetDurationSec: 30, outputCount: 1,
+  lyricsMode: "none", language: "en", targetDurationSec: 30, outputCount: 1,
 });
 const basePlan = {
   id: "plan-1",
@@ -55,6 +55,18 @@ describe("media production contracts", () => {
       sourceVideoArtifactId: "asset-1", durationSec: 4, aspectRatio: "9:16",
       resolution: "4k", generateAudio: false, enhancePrompt: true, outputCount: 1,
     })).toThrow(/resolution/i);
+  });
+
+  it("blocks provider controls whose real conditioning path is not implemented", () => {
+    expect(() => generatedVideoSpecSchema.parse({
+      ...basePlan.scenes[0].video,
+      mode: "image_to_video",
+      sourceImageArtifactId: "image-1",
+    })).toThrow(/mode/i);
+    expect(() => generatedMusicSpecSchema.parse({
+      ...basePlan.soundtrack,
+      conditioningImageArtifactId: "image-1",
+    })).toThrow(/conditioning|control/i);
   });
 
   it("rejects Lyria lyrics when instrumental mode is selected", () => {

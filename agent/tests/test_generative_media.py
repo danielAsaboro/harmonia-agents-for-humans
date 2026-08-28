@@ -25,8 +25,8 @@ class FakeTransport:
         self.calls.append(("start", kwargs))
         return {"name": "projects/p/locations/us-central1/models/veo/operations/op-1"}
 
-    def poll_veo(self, operation_name: str):
-        self.calls.append(("poll", operation_name))
+    def poll_veo(self, operation_name: str, model: str):
+        self.calls.append(("poll", operation_name, model))
         if not self.veo_done:
             return {"name": operation_name, "done": False}
         return {"name": operation_name, "done": True, "response": {"videos": [{
@@ -55,6 +55,7 @@ def test_veo_persists_operation_before_polling_and_returns_typed_media():
     assert result.model == "veo-3.1-fast-generate-001"
     assert order == ["persist:projects/p/locations/us-central1/models/veo/operations/op-1"]
     assert [call[0] for call in transport.calls] == ["start", "poll"]
+    assert transport.calls[1][2] == "veo-3.1-fast-generate-001"
 
 
 def test_veo_resumes_existing_operation_without_starting_a_duplicate():
@@ -66,7 +67,7 @@ def test_veo_resumes_existing_operation_without_starting_a_duplicate():
             existing_operation="operations/op-1",
             persist_operation=lambda _: pytest.fail("must not persist twice"),
         )
-    assert transport.calls == [("poll", "operations/op-1")]
+    assert transport.calls == [("poll", "operations/op-1", "veo-3.1-fast-generate-001")]
 
 
 def test_lyria_returns_one_bounded_audio_clip_and_provider_interaction_id():
@@ -117,11 +118,9 @@ def test_preview_lyria_requires_deployment_pricing_and_rejects_invalid_instrumen
         validate_lyria_request({**request, "lyricsMode": "provided", "providedLyrics": "hello"})
 
 
-def test_veo_forwards_validated_advanced_controls_to_transport():
-    transport = FakeTransport()
-    VeoGenerator(transport=transport).generate(
-        request=validate_veo_request({"modelCapability": "veo-3.1-fast", "mode": "text_to_video", "prompt": "blue network", "durationSec": 6, "aspectRatio": "16:9", "resolution": "1080p", "generateAudio": True, "seed": 7, "enhancePrompt": False, "outputCount": 1}),
-        existing_operation=None, persist_operation=lambda _name: None,
-    )
-    sent = transport.calls[0][1]
-    assert sent == {"model": "veo-3.1-fast-generate-001", "mode": "text_to_video", "prompt": "blue network", "duration_sec": 6, "aspect_ratio": "16:9", "resolution": "1080p", "generate_audio": True, "seed": 7, "enhance_prompt": False, "source_image_artifact_id": None, "last_frame_artifact_id": None, "reference_image_artifact_ids": None, "source_video_artifact_id": None}
+def test_unwired_conditioning_and_music_controls_are_not_advertised_as_executable():
+    base_video = {"modelCapability": "veo-3.1-fast", "prompt": "blue network", "durationSec": 6, "aspectRatio": "16:9", "resolution": "1080p", "generateAudio": True, "enhancePrompt": False, "outputCount": 1}
+    with pytest.raises(MediaProtocolError, match="mode"):
+        validate_veo_request({**base_video, "mode": "image_to_video", "sourceImageArtifactId": "image-1"})
+    with pytest.raises(MediaProtocolError, match="conditioning|controls"):
+        validate_lyria_request({"modelCapability": "lyria-3-clip", "prompt": "pulse", "conditioningImageArtifactId": "image-1", "instrumental": True, "lyricsMode": "none", "language": "en", "targetDurationSec": 30, "outputCount": 1})

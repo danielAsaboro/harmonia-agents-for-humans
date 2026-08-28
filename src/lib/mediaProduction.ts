@@ -5,8 +5,8 @@ const usd = z.string().regex(/^\d+\.\d{6}$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 
 export const VEO_CAPABILITIES = {
-  "veo-3.1-fast": { model: "veo-3.1-fast-generate-001", resolutions: ["720p", "1080p"], durations: [4, 6, 8], modes: ["text_to_video", "image_to_video", "first_last_frame", "reference_images", "extend_video"], usdPerSecond: "0.080000", preview: false },
-  "veo-3.1": { model: "veo-3.1-generate-001", resolutions: ["720p", "1080p", "4k"], durations: [4, 6, 8], modes: ["text_to_video", "image_to_video", "first_last_frame", "reference_images", "extend_video"], usdPerSecond: null, preview: false },
+  "veo-3.1-fast": { model: "veo-3.1-fast-generate-001", resolutions: ["720p", "1080p"], durations: [4, 6, 8], modes: ["text_to_video"], usdPerSecond: "0.080000", preview: false },
+  "veo-3.1": { model: "veo-3.1-generate-001", resolutions: ["720p", "1080p", "4k"], durations: [4, 6, 8], modes: ["text_to_video"], usdPerSecond: null, preview: false },
 } as const;
 
 export const LYRIA_CAPABILITIES = {
@@ -43,6 +43,9 @@ export const generatedVideoSpecSchema = z.object({
   requireField(value.mode === "first_last_frame", "lastFrameArtifactId", "last frame is required");
   requireField(value.mode === "reference_images", "referenceImageArtifactIds", "reference images are required");
   requireField(value.mode === "extend_video", "sourceVideoArtifactId", "source video is required");
+  if (value.negativePrompt || value.sourceImageArtifactId || value.lastFrameArtifactId || value.referenceImageArtifactIds || value.sourceVideoArtifactId) {
+    context.addIssue({ code: "custom", path: ["mode"], message: "conditioning controls are unavailable until their real provider path is implemented" });
+  }
 });
 
 export const generatedMusicSpecSchema = z.object({
@@ -70,6 +73,11 @@ export const generatedMusicSpecSchema = z.object({
   if (value.conditioningImageArtifactId && !capability.imageConditioning) context.addIssue({ code: "custom", path: ["conditioningImageArtifactId"], message: "image conditioning is unsupported" });
   if (!value.instrumental && !capability.vocals) context.addIssue({ code: "custom", path: ["instrumental"], message: "vocals are unsupported" });
   if ((value.structure?.length || value.bpm || value.intensity !== undefined) && !capability.structure) context.addIssue({ code: "custom", path: ["structure"], message: "structure controls are unsupported" });
+  if (
+    value.conditioningImageArtifactId || !value.instrumental || value.lyricsMode !== "none"
+    || value.genre || value.mood || value.instrumentation?.length || value.bpm
+    || value.intensity !== undefined || value.structure?.length || value.seed !== undefined
+  ) context.addIssue({ code: "custom", path: ["conditioningImageArtifactId"], message: "advanced Lyria conditioning and music controls are unavailable until their real provider path is implemented" });
   const maximum = Math.max(...capability.durations);
   if (value.targetDurationSec > maximum) context.addIssue({ code: "custom", path: ["targetDurationSec"], message: `duration exceeds ${maximum} seconds` });
 });

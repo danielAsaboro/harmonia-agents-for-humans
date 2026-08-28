@@ -411,73 +411,12 @@ def test_paid_media_actions_are_deterministic_and_reference_reviewed_evidence_on
     assert all("requiresApproval" not in action for action in actions)
 
 
-def test_paid_media_releases_budget_when_state_lookup_fails_before_dispatch(monkeypatch):
+def test_publish_rejects_paid_production_commands_before_effect_claim(monkeypatch):
     action = _veo_action()
-    job = {
-        "stage": "publish", "workspaceId": "w1", "brandId": "b1",
-        "createdByUserId": "u1", "actions": [action],
-    }
-    resolutions = []
-    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: {"stage": "publish", "controlState": "running"})
     monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(action)])
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
-    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
-    monkeypatch.setattr(stages, "transition_effect_command", lambda _phase, _payload: {})
-    monkeypatch.setattr(stages, "reserve_budget", lambda _payload: None)
-    monkeypatch.setattr(stages, "get_media_operation", lambda *_args: (_ for _ in ()).throw(RuntimeError("store down")))
-    monkeypatch.setattr(stages, "resolve_budget_reservation", resolutions.append)
+    monkeypatch.setattr(stages, "claim_effect", lambda _payload: pytest.fail("publishing must not claim production work"))
 
-    with pytest.raises(RuntimeError, match="store down"):
+    with pytest.raises(stages.AgentProtocolError, match="production executor"):
         asyncio.run(stages.run_publish("job-1"))
-
-    assert resolutions[0]["outcome"] == "not_invoked"
-
-
-def test_paid_media_quarantines_budget_when_provider_times_out(monkeypatch):
-    action = _veo_action()
-    job = {
-        "stage": "publish", "workspaceId": "w1", "brandId": "b1",
-        "createdByUserId": "u1", "actions": [action],
-    }
-    resolutions = []
-    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
-    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(action)])
-    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
-    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
-    monkeypatch.setattr(stages, "transition_effect_command", lambda _phase, _payload: {})
-    monkeypatch.setattr(stages, "reserve_budget", lambda _payload: None)
-    monkeypatch.setattr(stages, "get_media_operation", lambda *_args: None)
-    monkeypatch.setattr(stages, "get_asset", lambda *_args: None)
-    monkeypatch.setattr(stages, "GoogleMediaTransport", lambda **_kwargs: object())
-    monkeypatch.setattr(stages.VeoGenerator, "generate", lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("provider timeout")))
-    monkeypatch.setattr(stages, "resolve_budget_reservation", resolutions.append)
-
-    with pytest.raises(TimeoutError, match="provider timeout"):
-        asyncio.run(stages.run_publish("job-1"))
-
-    assert resolutions[0]["outcome"] == "uncertain"
-
-
-def test_veo_pending_requeues_without_uncertain_budget_or_publish_completion(monkeypatch):
-    action = _veo_action()
-    job = {"stage": "publish", "workspaceId": "w1", "brandId": "b1", "createdByUserId": "u1", "actions": [action]}
-    transitions, resolutions, posts = [], [], []
-    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
-    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(action)])
-    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
-    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
-    monkeypatch.setattr(stages, "transition_effect_command", lambda phase, payload: transitions.append((phase, payload)) or {})
-    monkeypatch.setattr(stages, "reserve_budget", lambda _payload: None)
-    monkeypatch.setattr(stages, "get_media_operation", lambda *_args: {"operationName": "operations/123"})
-    monkeypatch.setattr(stages, "get_asset", lambda *_args: None)
-    monkeypatch.setattr(stages, "GoogleMediaTransport", lambda **_kwargs: object())
-    monkeypatch.setattr(stages.VeoGenerator, "generate", lambda *_args, **_kwargs: (_ for _ in ()).throw(stages.MediaOperationPending("operations/123")))
-    monkeypatch.setattr(stages, "resolve_budget_reservation", resolutions.append)
-    monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)) or {})
-
-    asyncio.run(stages.run_publish("job-1"))
-
-    assert [phase for phase, _ in transitions] == ["dispatched", "provider_pending"]
-    assert transitions[-1][1]["providerOperationId"] == "operations/123"
-    assert resolutions == []
-    assert not any(path.endswith("/complete") for path, _ in posts)

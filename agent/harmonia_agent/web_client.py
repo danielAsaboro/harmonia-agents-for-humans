@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import base64
 import hashlib
 import secrets
+import json
 from urllib.parse import unquote
 
 import httpx
@@ -213,6 +214,105 @@ def save_media_operation(
         )
 
 
+def claim_production_operation(plan_id: str, operation_id: str, claim_token: str) -> dict[str, Any]:
+    return post(
+        f"/api/internal/production-plans/{plan_id}/operations/{operation_id}/claim",
+        {"claimToken": claim_token},
+    )
+
+
+def record_production_provider_operation(
+    plan_id: str,
+    operation_id: str,
+    *,
+    claim_id: str,
+    claim_token: str,
+    provider: str,
+    provider_operation_id: str,
+    next_poll_at: str,
+) -> dict[str, Any]:
+    return post(
+        f"/api/internal/production-plans/{plan_id}/operations/{operation_id}/provider",
+        {
+            "claimId": claim_id,
+            "claimToken": claim_token,
+            "provider": provider,
+            "providerOperationId": provider_operation_id,
+            "nextPollAt": next_poll_at,
+        },
+    )
+
+
+def start_production_provider_submission(
+    plan_id: str,
+    operation_id: str,
+    *,
+    claim_id: str,
+    claim_token: str,
+    provider: str,
+) -> dict[str, Any]:
+    return post(
+        f"/api/internal/production-plans/{plan_id}/operations/{operation_id}/submission",
+        {
+            "claimId": claim_id,
+            "claimToken": claim_token,
+            "provider": provider,
+        },
+    )
+
+
+def record_production_operation_failure(
+    plan_id: str,
+    operation_id: str,
+    *,
+    claim_id: str,
+    claim_token: str,
+    outcome: str,
+    reason: str,
+) -> dict[str, Any]:
+    return post(
+        f"/api/internal/production-plans/{plan_id}/operations/{operation_id}/failure",
+        {
+            "claimId": claim_id,
+            "claimToken": claim_token,
+            "outcome": outcome,
+            "reason": reason,
+        },
+    )
+
+
+def upload_production_artifact(
+    plan_id: str,
+    operation_id: str,
+    *,
+    claim_id: str,
+    claim_token: str,
+    mime: str,
+    digest: str,
+    data: bytes,
+    provider_metadata: dict[str, Any],
+) -> dict[str, Any]:
+    with _client() as c:
+        res = c.post(
+            f"/api/internal/production-plans/{plan_id}/operations/{operation_id}/artifact",
+            content=data,
+            headers={
+                "content-type": "application/octet-stream",
+                "x-claim-id": claim_id,
+                "x-claim-token": claim_token,
+                "x-artifact-mime": mime,
+                "x-artifact-digest": digest,
+                "x-provider-metadata": json.dumps(provider_metadata, separators=(",", ":")),
+            },
+        )
+    if res.status_code >= 300:
+        raise WebApiError(
+            f"production artifact upload failed: {res.status_code} {res.text}",
+            res.status_code,
+        )
+    return dict(res.json()["claim"])
+
+
 def get_insights() -> dict[str, Any]:
     """Cross-job reaction insights for the feedback loop (may be empty early)."""
     with _client() as c:
@@ -270,6 +370,14 @@ def run_stage_outbox_tick(limit: int = 20) -> list[dict[str, Any]]:
         res = c.post("/api/internal/stage-outbox", json={"limit": limit})
     if res.status_code != 200:
         raise WebApiError(f"stage outbox tick failed: {res.status_code} {res.text}", res.status_code)
+    return list(res.json().get("results") or [])
+
+
+def run_production_outbox_tick(limit: int = 20) -> list[dict[str, Any]]:
+    with _client() as c:
+        res = c.post("/api/internal/production-outbox", json={"limit": limit})
+    if res.status_code != 200:
+        raise WebApiError(f"production outbox tick failed: {res.status_code} {res.text}", res.status_code)
     return list(res.json().get("results") or [])
 
 

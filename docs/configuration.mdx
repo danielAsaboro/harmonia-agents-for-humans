@@ -34,6 +34,7 @@ This page documents supported operator-facing configuration. It deliberately exc
 | `WEB_INTERNAL_URL` | yes | — | Base URL of the web app's internal API |
 | `INTERNAL_API_TOKEN` | yes | — | Must match the web app's token |
 | `PUBSUB_STAGE_TOPIC` | no | `harmonia-stages` | Stage trigger topic |
+| `PUBSUB_PRODUCTION_TOPIC` | no | `harmonia-production` | Paid production-operation trigger topic |
 | `PROACTIVE_SCAN_SECONDS` | no | `60` | How often the proactive agent looks for due checks |
 | `PROACTIVE_<NAME>_INTERVAL_SECONDS` | no | per check | Override a single proactive check's cadence (see [Proactive Agent](/proactive-agent)) |
 | `MODEL_PRICING_VERSION` | no | `2026-08-23` | Immutable rate-catalog version; unknown versions fail startup |

@@ -22,5 +22,6 @@ Secrets belong in server-side environment injection or Secret Manager. Never exp
 |---|---|---|---|
 | `PUBSUB_STAGE_TOPIC` | `harmonia-stages` | Web and agent runtime | Ordinary job-stage trigger transport. |
 | `PUBSUB_DATA_TOPIC` | `harmonia-data-work` | Web data-plane dispatcher | Large-batch work-item trigger transport. |
+| `PUBSUB_PRODUCTION_TOPIC` | `harmonia-production` | Web and agent runtime | Mandate-authorized paid production-operation wake transport. |
 
-Production infrastructure must provision both before enabling their corresponding dispatch paths. `infra/setup.sh` creates both topics with the selected-region message storage policy.
+Production infrastructure must provision all three before enabling their corresponding dispatch paths. `infra/setup.sh` creates the topics with the selected-region message storage policy.

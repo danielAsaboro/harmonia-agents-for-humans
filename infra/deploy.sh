@@ -138,7 +138,7 @@ if secret_exists x-oauth-client-id || secret_exists x-oauth-client-secret; then
     WEB_SECRETS="${WEB_SECRETS},${env_name}=${secret_name}:latest"
   done
 fi
-WEB_ENV="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GCS_BUCKET=${GCS_BUCKET},PUBSUB_DATA_TOPIC=harmonia-data-work,MODEL_ID=${MODEL_ID},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},DEFAULT_WORKSPACE_BUDGET_USD=${DEFAULT_WORKSPACE_BUDGET_USD},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-web,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false"
+WEB_ENV="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GCS_BUCKET=${GCS_BUCKET},PUBSUB_DATA_TOPIC=harmonia-data-work,PUBSUB_PRODUCTION_TOPIC=harmonia-production,MODEL_ID=${MODEL_ID},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},DEFAULT_WORKSPACE_BUDGET_USD=${DEFAULT_WORKSPACE_BUDGET_USD},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-web,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false"
 if [[ -n "${MALWARE_SCANNER_URL:-}" ]] && secret_exists malware-scanner-token; then
   WEB_SECRETS="${WEB_SECRETS},MALWARE_SCANNER_TOKEN=malware-scanner-token:latest"
   WEB_ENV="${WEB_ENV},MALWARE_SCANNER_URL=${MALWARE_SCANNER_URL}"
@@ -228,6 +228,9 @@ PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format 'value(proje
 gcloud pubsub topics add-iam-policy-binding harmonia-stages-dlq \
   --member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
   --role roles/pubsub.publisher --project "${PROJECT_ID}" >/dev/null
+gcloud pubsub topics add-iam-policy-binding harmonia-production-dlq \
+  --member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
+  --role roles/pubsub.publisher --project "${PROJECT_ID}" >/dev/null
 
 if gcloud pubsub subscriptions describe harmonia-stages-agent-push --project "${PROJECT_ID}" >/dev/null 2>&1; then
   gcloud pubsub subscriptions update harmonia-stages-agent-push \
@@ -256,6 +259,33 @@ else
     --project "${PROJECT_ID}"
 fi
 
+if gcloud pubsub subscriptions describe harmonia-production-agent-push --project "${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud pubsub subscriptions update harmonia-production-agent-push \
+    --push-endpoint "${AGENT_URL}/pubsub/production" \
+    --push-auth-service-account "harmonia-pubsub-push@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --push-auth-token-audience "${AGENT_URL}/pubsub/production" \
+    --ack-deadline 300 \
+    --dead-letter-topic "projects/${PROJECT_ID}/topics/harmonia-production-dlq" \
+    --max-delivery-attempts 5 \
+    --min-retry-delay 10s \
+    --max-retry-delay 600s \
+    --message-retention-duration 7d \
+    --project "${PROJECT_ID}"
+else
+  gcloud pubsub subscriptions create harmonia-production-agent-push \
+    --topic harmonia-production \
+    --push-endpoint "${AGENT_URL}/pubsub/production" \
+    --push-auth-service-account "harmonia-pubsub-push@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --push-auth-token-audience "${AGENT_URL}/pubsub/production" \
+    --ack-deadline 300 \
+    --dead-letter-topic "projects/${PROJECT_ID}/topics/harmonia-production-dlq" \
+    --max-delivery-attempts 5 \
+    --min-retry-delay 10s \
+    --max-retry-delay 600s \
+    --message-retention-duration 7d \
+    --project "${PROJECT_ID}"
+fi
+
 echo "== Wiring bounded durable recovery wake =="
 RECOVERY_SCHEDULER_ARGS=(
   --location "${REGION}"
@@ -275,6 +305,9 @@ else
 fi
 
 gcloud pubsub subscriptions add-iam-policy-binding harmonia-stages-agent-push \
+  --member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
+  --role roles/pubsub.subscriber --project "${PROJECT_ID}" >/dev/null
+gcloud pubsub subscriptions add-iam-policy-binding harmonia-production-agent-push \
   --member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
   --role roles/pubsub.subscriber --project "${PROJECT_ID}" >/dev/null
 

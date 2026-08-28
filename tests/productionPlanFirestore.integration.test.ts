@@ -2,14 +2,20 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { firebasePrincipal, servicePrincipal } from "@/lib/authority";
 import { db } from "@/lib/firestore";
-import { compileProductionOperations, generatedMusicSpecSchema, generatedVideoSpecSchema, productionPlanDigest, videoProductionPlanSchema } from "@/lib/mediaProduction";
+import { compileProductionOperations, createProductionMandate, generatedMusicSpecSchema, generatedVideoSpecSchema, productionPlanDigest, videoProductionPlanSchema } from "@/lib/mediaProduction";
 import {
   approveProductionPlan,
   claimPaidProductionOperation,
+  claimProductionOutbox,
+  completePaidProductionOperation,
+  finalizeProductionOutboxPublish,
   getProductionPlan,
   getProductionPlanRevision,
+  listDispatchableProductionOutbox,
   proposeProductionPlan,
   rejectProductionPlan,
+  recordProductionProviderOperation,
+  startProductionProviderSubmission,
   sealProductionPlan,
 } from "@/lib/productionPlanStore";
 import { runWithTenant } from "@/lib/tenancy";
@@ -62,6 +68,82 @@ const basePlan = videoProductionPlanSchema.parse({
 });
 
 describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
+  it("rejects a claimed operation if its revision is superseded before provider submission", async () => {
+    const raceJobId = `production-race-${Date.now()}`;
+    const racePlan = videoProductionPlanSchema.parse({
+      ...basePlan,
+      id: "plan-race",
+      jobId: raceJobId,
+      operationCostsUsd: {
+        "plan-race:generate_video:scene-1": "0.320000",
+        "plan-race:generate_music": "0.120000",
+      },
+    });
+    await db().doc(`workspaces/${workspaceId}`).set({ defaultBrandId: brandId });
+    await db().doc(`workspaces/${workspaceId}/jobs/${raceJobId}`).set({
+      workspaceId, brandId, status: "running", stage: "draft",
+      createdAt: "2026-08-31T09:00:00.000Z", updatedAt: "2026-08-31T09:00:00.000Z",
+    });
+    await runWithTenant(serviceScope, () => proposeProductionPlan(racePlan));
+    await runWithTenant(operatorScope, () => sealProductionPlan(racePlan.id, {
+      planDigest: productionPlanDigest(racePlan),
+    }));
+    await runWithTenant(operatorScope, () => approveProductionPlan(racePlan.id, {
+      planDigest: productionPlanDigest(racePlan),
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    }));
+    const operation = compileProductionOperations(racePlan).find((item) => item.type === "generate_video")!;
+    const initialWake = (await runWithTenant(serviceScope, () => listDispatchableProductionOutbox(
+      20, new Date("2098-01-01T00:00:00.000Z"),
+    ))).find((record) => record.planId === racePlan.id && record.operationId === operation.id)!;
+    const publishingWake = await runWithTenant(serviceScope, () => claimProductionOutbox(
+      initialWake.id, "b".repeat(64),
+    ));
+    expect(publishingWake.outcome).toBe("publish");
+    const publishedWake = await runWithTenant(serviceScope, () => finalizeProductionOutboxPublish(
+      initialWake.id, "b".repeat(64), "production-message-race",
+    ));
+    expect(publishedWake).toMatchObject({ state: "published", pubsubMessageId: "production-message-race" });
+    expect(Date.parse(publishedWake.availableAt)).toBeGreaterThan(Date.parse(publishedWake.updatedAt));
+    expect(await runWithTenant(serviceScope, () => listDispatchableProductionOutbox(
+      100, new Date(Date.parse(publishedWake.availableAt) + 1),
+    ))).toEqual(expect.arrayContaining([expect.objectContaining({ id: initialWake.id, state: "published" })]));
+    await db().doc(
+      `workspaces/${workspaceId}/brands/${brandId}/production_operation_outbox/${initialWake.id}`,
+    ).update({ availableAt: "2000-01-01T00:00:00.000Z" });
+    expect(await runWithTenant(serviceScope, () => claimProductionOutbox(
+      initialWake.id, "c".repeat(64),
+    ))).toMatchObject({ outcome: "publish", record: { state: "publishing", publishAttempt: 2 } });
+    await db().doc(
+      `workspaces/${workspaceId}/brands/${brandId}/production_operation_outbox/${initialWake.id}`,
+    ).update({ publishLeaseExpiresAt: "2000-01-01T00:00:00.000Z" });
+    expect(await runWithTenant(serviceScope, () => listDispatchableProductionOutbox(
+      100, new Date(),
+    ))).toEqual(expect.arrayContaining([expect.objectContaining({ id: initialWake.id, state: "publishing" })]));
+    expect(await runWithTenant(serviceScope, () => claimProductionOutbox(
+      initialWake.id, "d".repeat(64),
+    ))).toMatchObject({ outcome: "publish", record: { state: "publishing", publishAttempt: 3 } });
+    const claimed = await runWithTenant(serviceScope, () => claimPaidProductionOperation(
+      racePlan.id, operation.id, { claimToken: "race-worker" },
+    ));
+    const revisionTwo = videoProductionPlanSchema.parse({
+      ...racePlan,
+      revision: 2,
+      scenes: [{ ...racePlan.scenes[0], video: { ...racePlan.scenes[0].video!, prompt: "Superseding prompt" } }],
+    });
+    await runWithTenant(serviceScope, () => proposeProductionPlan(revisionTwo));
+
+    await expect(runWithTenant(serviceScope, () => startProductionProviderSubmission(
+      racePlan.id,
+      operation.id,
+      {
+        claimId: claimed.claim.id,
+        claimToken: "race-worker",
+        provider: "veo",
+      },
+    ))).rejects.toThrow(/no longer authorizes|active production mandate|current revision/i);
+  });
+
   it("persists immutable revisions and invalidates the active mandate after a material revision", async () => {
     await db().doc(`workspaces/${workspaceId}`).set({ defaultBrandId: brandId });
     await db().doc(`workspaces/${workspaceId}/jobs/${jobId}`).set({
@@ -88,6 +170,13 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
       approvedAt: "2026-08-31T00:00:00.000Z",
       expiresAt: "2099-01-01T00:00:00.000Z",
     }));
+    const initialOutbox = await db().collection(
+      `workspaces/${workspaceId}/brands/${brandId}/production_operation_outbox`,
+    ).get();
+    expect(initialOutbox.docs.map((doc) => doc.data())).toEqual(expect.arrayContaining([
+      expect.objectContaining({ planId: basePlan.id, operationId: "plan-1:generate_video:scene-1", state: "pending" }),
+      expect.objectContaining({ planId: basePlan.id, operationId: "plan-1:generate_music", state: "pending" }),
+    ]));
     const paidOperation = compileProductionOperations(basePlan).find((operation) => operation.type === "generate_video")!;
     const claims = await runWithTenant(serviceScope, () => Promise.all([
       claimPaidProductionOperation(basePlan.id, paidOperation.id, {
@@ -98,7 +187,10 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
       }),
     ]));
     expect(claims.map((claim) => claim.outcome).sort()).toEqual(["execute", "in_progress"]);
-    expect(claims[0].claim).toMatchObject({
+    const activeClaimIndex = claims.findIndex((claim) => claim.outcome === "execute");
+    const activeClaim = claims[activeClaimIndex];
+    const activeClaimToken = activeClaimIndex === 0 ? "worker-a" : "worker-b";
+    expect(activeClaim.claim).toMatchObject({
       planRevision: 1,
       planDigest: productionPlanDigest(basePlan),
       operationId: paidOperation.id,
@@ -107,6 +199,93 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
       state: "claimed",
       reservedCostUsd: "0.320000",
     });
+    expect(activeClaim.operation).toEqual(paidOperation);
+
+    await expect(runWithTenant(serviceScope, () => completePaidProductionOperation(
+      basePlan.id,
+      paidOperation.id,
+      {
+        claimId: activeClaim.claim.id,
+        claimToken: activeClaimToken,
+        artifact: {
+          objectKey: `durable-artifacts/${workspaceId}/${brandId}/production/plan-1/untrusted.mp4`,
+          mime: "video/mp4",
+          digest: "d".repeat(64),
+          sizeBytes: 5,
+        },
+        providerMetadata: {},
+      },
+    ))).rejects.toThrow(/cannot complete|provider identity/i);
+
+    await runWithTenant(serviceScope, () => startProductionProviderSubmission(
+      basePlan.id,
+      paidOperation.id,
+      {
+        claimId: activeClaim.claim.id,
+        claimToken: activeClaimToken,
+        provider: "veo",
+      },
+    ));
+
+    await runWithTenant(serviceScope, () => recordProductionProviderOperation(
+      basePlan.id,
+      paidOperation.id,
+      {
+        claimId: activeClaim.claim.id,
+        claimToken: activeClaimToken,
+        provider: "veo",
+        providerOperationId: "projects/p/locations/us-central1/operations/veo-1",
+        nextPollAt: "2000-01-01T00:00:00.000Z",
+      },
+    ));
+    const videoOutboxAfterPoll = await db().doc(
+      `workspaces/${workspaceId}/brands/${brandId}/production_operation_outbox/${activeClaim.claim.id}`,
+    ).get();
+    expect(videoOutboxAfterPoll.data()).toMatchObject({ state: "pending", availableAt: "2000-01-01T00:00:00.000Z" });
+    const resumed = await runWithTenant(serviceScope, () => claimPaidProductionOperation(
+      basePlan.id,
+      paidOperation.id,
+      { claimToken: "worker-resume" },
+    ));
+    expect(resumed).toMatchObject({
+      outcome: "execute",
+      claim: {
+        provider: "veo",
+        providerOperationId: "projects/p/locations/us-central1/operations/veo-1",
+      },
+      operation: { id: paidOperation.id },
+    });
+    await runWithTenant(serviceScope, () => completePaidProductionOperation(
+      basePlan.id,
+      paidOperation.id,
+      {
+        claimId: resumed.claim.id,
+        claimToken: "worker-resume",
+        artifact: {
+          objectKey: `durable-artifacts/${workspaceId}/${brandId}/production/plan-1/video.mp4`,
+          mime: "video/mp4",
+          digest: "c".repeat(64),
+          sizeBytes: 5,
+        },
+        providerMetadata: {
+          provider: "veo",
+          providerOperationId: "projects/p/locations/us-central1/operations/veo-1",
+          model: "veo-3.1-fast-generate-001",
+        },
+      },
+    ));
+    const duplicate = await runWithTenant(serviceScope, () => claimPaidProductionOperation(
+      basePlan.id,
+      paidOperation.id,
+      { claimToken: "worker-duplicate" },
+    ));
+    expect(duplicate).toMatchObject({
+      outcome: "already_succeeded",
+      claim: { state: "succeeded", artifact: { digest: "c".repeat(64) } },
+    });
+    expect((await db().doc(
+      `workspaces/${workspaceId}/brands/${brandId}/production_operation_outbox/${activeClaim.claim.id}`,
+    ).get()).data()).toMatchObject({ state: "completed" });
     expect(await runWithTenant(operatorScope, () => getProductionPlan(basePlan.id))).toMatchObject({
       currentMandateReservedCostUsd: "0.320000",
     });
@@ -117,6 +296,47 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
       { claimToken: "worker-music" },
     ));
     expect(musicClaim).toMatchObject({ outcome: "execute", claim: { reservedCostUsd: "0.120000" } });
+    await runWithTenant(serviceScope, () => startProductionProviderSubmission(
+      basePlan.id,
+      musicOperation.id,
+      {
+        claimId: musicClaim.claim.id,
+        claimToken: "worker-music",
+        provider: "lyria",
+      },
+    ));
+    await runWithTenant(serviceScope, () => recordProductionProviderOperation(
+      basePlan.id,
+      musicOperation.id,
+      {
+        claimId: musicClaim.claim.id,
+        claimToken: "worker-music",
+        provider: "lyria",
+        providerOperationId: "interactions/lyria-1",
+        nextPollAt: "2000-01-01T00:00:00.000Z",
+      },
+    ));
+    const quarantinedMusic = await runWithTenant(serviceScope, () => claimPaidProductionOperation(
+      basePlan.id,
+      musicOperation.id,
+      { claimToken: "worker-music-retry" },
+    ));
+    expect(quarantinedMusic).toMatchObject({ outcome: "uncertain", claim: { state: "uncertain" } });
+    const expiredMandate = createProductionMandate(basePlan, {
+      operatorSubjectId: "operator-test",
+      authenticationId: "firebase-production-test",
+      approvedAt: "1999-01-01T00:00:00.000Z",
+      expiresAt: "2000-01-01T00:00:00.000Z",
+    });
+    await db().doc(
+      `workspaces/${workspaceId}/brands/${brandId}/production_plans/${basePlan.id}/mandates/${mandate.id}`,
+    ).set(expiredMandate);
+    const completedAfterExpiry = await runWithTenant(serviceScope, () => claimPaidProductionOperation(
+      basePlan.id,
+      paidOperation.id,
+      { claimToken: "worker-after-expiry" },
+    ));
+    expect(completedAfterExpiry).toMatchObject({ outcome: "already_succeeded" });
     expect(await runWithTenant(operatorScope, () => getProductionPlan(basePlan.id))).toMatchObject({
       currentMandateReservedCostUsd: "0.440000",
     });
@@ -164,6 +384,24 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
       outcome: "execute",
       claim: { planRevision: 2, mandateId: revisionTwoMandate.id, requestDigest: revisionTwoOperation.requestDigest },
     });
+    await runWithTenant(serviceScope, () => startProductionProviderSubmission(
+      revisionTwo.id,
+      revisionTwoOperation.id,
+      {
+        claimId: revisionTwoClaim.claim.id,
+        claimToken: "worker-v2",
+        provider: "veo",
+      },
+    ));
+    await db().doc(
+      `workspaces/${workspaceId}/brands/${brandId}/production_plans/${revisionTwo.id}/operation_claims/${revisionTwoClaim.claim.id}`,
+    ).update({ leaseExpiresAt: "2000-01-01T00:00:00.000Z" });
+    const ambiguousSubmission = await runWithTenant(serviceScope, () => claimPaidProductionOperation(
+      revisionTwo.id,
+      revisionTwoOperation.id,
+      { claimToken: "worker-v2-redelivery" },
+    ));
+    expect(ambiguousSubmission).toMatchObject({ outcome: "uncertain", claim: { state: "uncertain" } });
   });
 
   it("persists an immutable rejection decision with verified operator provenance", async () => {

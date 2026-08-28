@@ -55,18 +55,53 @@ export interface PaidProductionOperationClaim {
   operationId: string;
   requestDigest: string;
   mandateId: string;
-  state: "claimed";
+  state: "claimed" | "submitting" | "waiting_provider" | "succeeded" | "failed" | "uncertain";
   reservedCostUsd: string;
+  pricingVersion: string;
   claimTokenDigest: string;
   claimedAt: string;
   leaseExpiresAt: string;
   attempt: number;
+  provider?: "veo" | "lyria";
+  providerOperationId?: string;
+  nextPollAt?: string;
+  artifact?: {
+    objectKey: string;
+    mime: string;
+    digest: string;
+    sizeBytes: number;
+  };
+  providerMetadata?: Record<string, unknown>;
+  completedAt?: string;
+  failureReason?: string;
+  failedAt?: string;
+  submissionStartedAt?: string;
 }
 
 export type PaidProductionClaimOutcome = {
-  outcome: "execute" | "in_progress";
+  outcome: "execute" | "in_progress" | "already_succeeded" | "failed" | "uncertain";
   claim: PaidProductionOperationClaim;
+  operation: ProductionOperation;
 };
+
+export interface ProductionOperationOutboxRecord {
+  id: string;
+  workspaceId: string;
+  brandId: string;
+  planId: string;
+  jobId: string;
+  planRevision: number;
+  planDigest: string;
+  operationId: string;
+  state: "pending" | "publishing" | "published" | "completed" | "superseded";
+  availableAt: string;
+  publishAttempt: number;
+  createdAt: string;
+  updatedAt: string;
+  publishTokenDigest?: string;
+  publishLeaseExpiresAt?: string;
+  pubsubMessageId?: string;
+}
 
 function checkedDocumentId(label: string, value: string): string {
   if (!DOCUMENT_ID.test(value)) throw new Error(`invalid ${label}`);
@@ -83,6 +118,20 @@ function microsUsd(value: bigint): string {
   return `${digits.slice(0, -6)}.${digits.slice(-6)}`;
 }
 
+function claimTokenDigest(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function operationClaimId(revision: number, planDigest: string, operationId: string): string {
+  return createHash("sha256").update(`${revision}\n${planDigest}\n${operationId}`).digest("hex");
+}
+
+function assertClaimOwner(claim: PaidProductionOperationClaim, claimId: string, claimToken: string): void {
+  if (claim.id !== claimId || claim.claimTokenDigest !== claimTokenDigest(claimToken)) {
+    throw new Error("production operation claim ownership mismatch");
+  }
+}
+
 function plans() {
   const tenant = currentTenant();
   return db().collection("workspaces").doc(tenant.workspaceId)
@@ -91,6 +140,16 @@ function plans() {
 
 function planRef(planId: string) {
   return plans().doc(checkedDocumentId("production plan id", planId));
+}
+
+function productionOutbox() {
+  const tenant = currentTenant();
+  return db().collection("workspaces").doc(tenant.workspaceId)
+    .collection("brands").doc(tenant.brandId).collection("production_operation_outbox");
+}
+
+function productionOutboxRef(id: string) {
+  return productionOutbox().doc(checkedDocumentId("production outbox id", id));
 }
 
 function revisionRef(planId: string, revision: number) {
@@ -172,6 +231,17 @@ export async function proposeProductionPlan(
     const expectedRevision = existing ? existing.currentRevision + 1 : 1;
     if (plan.revision !== expectedRevision) throw new Error(`expected production plan revision ${expectedRevision}`);
     if (existing && existing.jobId !== plan.jobId) throw new Error("production plan job cannot change");
+    if (existing) {
+      const priorRevisionSnap = await tx.get(revisionRef(plan.id, existing.currentRevision));
+      if (!priorRevisionSnap.exists) throw new Error("current production plan revision not found");
+      for (const operation of assertRevision(priorRevisionSnap.data()).operations.filter((item) => item.executionAuthority === "production_mandate")) {
+        const priorOutboxId = operationClaimId(existing.currentRevision, existing.currentPlanDigest, operation.id);
+        tx.set(productionOutboxRef(priorOutboxId), {
+          state: "superseded",
+          updatedAt: proposedAt,
+        }, { merge: true });
+      }
+    }
     const aggregate: ProductionPlanAggregate = {
       id: plan.id,
       jobId: plan.jobId,
@@ -259,6 +329,24 @@ export async function approveProductionPlan(
       decidedAt: approvedAt,
       mandateId: mandate.id,
     });
+    for (const operation of revision.operations.filter((item) => item.executionAuthority === "production_mandate")) {
+      const id = operationClaimId(aggregate.currentRevision, aggregate.currentPlanDigest, operation.id);
+      tx.create(productionOutboxRef(id), {
+        id,
+        workspaceId: tenant.workspaceId,
+        brandId: tenant.brandId,
+        planId,
+        jobId: revision.plan.jobId,
+        planRevision: aggregate.currentRevision,
+        planDigest: aggregate.currentPlanDigest,
+        operationId: operation.id,
+        state: "pending",
+        availableAt: approvedAt,
+        publishAttempt: 0,
+        createdAt: approvedAt,
+        updatedAt: approvedAt,
+      } satisfies ProductionOperationOutboxRecord);
+    }
     tx.set(aggregateRef, {
       ...aggregate,
       state: "approved",
@@ -331,9 +419,7 @@ export async function claimPaidProductionOperation(
     if (aggregate.state !== "approved" || !aggregate.activeMandateId) {
       throw new Error("active production mandate required");
     }
-    const claimId = createHash("sha256").update(
-      `${aggregate.currentRevision}\n${aggregate.currentPlanDigest}\n${operationId}`,
-    ).digest("hex");
+    const claimId = operationClaimId(aggregate.currentRevision, aggregate.currentPlanDigest, operationId);
     const claimRef = aggregateRef.collection("operation_claims").doc(claimId);
     const immutableRevisionRef = revisionRef(planId, aggregate.currentRevision);
     const mandateRef = aggregateRef.collection("mandates").doc(aggregate.activeMandateId);
@@ -357,7 +443,7 @@ export async function claimPaidProductionOperation(
       activeMandateId: aggregate.activeMandateId,
       workspaceId: tenant.workspaceId,
       brandId: tenant.brandId,
-      now: new Date(claimedAt),
+      now: new Date(mandate.approvedAt),
     });
     const existing = claimSnap.exists ? claimSnap.data() as PaidProductionOperationClaim : null;
     if (existing) {
@@ -369,12 +455,47 @@ export async function claimPaidProductionOperation(
         || existing.requestDigest !== operation.requestDigest
         || existing.mandateId !== mandate.id
         || existing.reservedCostUsd !== operation.estimatedCostUsd
+        || existing.pricingVersion !== revision.plan.pricingVersion
         || existing.workspaceId !== tenant.workspaceId
         || existing.brandId !== tenant.brandId
       ) throw new Error("production operation claim binding mismatch");
-      if (Date.parse(existing.leaseExpiresAt) > claimedAtMs) {
-        return { outcome: "in_progress", claim: existing };
+      if (existing.state === "succeeded") {
+        return { outcome: "already_succeeded", claim: existing, operation };
       }
+      if (existing.state === "failed" || existing.state === "uncertain") {
+        return { outcome: existing.state, claim: existing, operation };
+      }
+      if (Date.parse(existing.leaseExpiresAt) > claimedAtMs) {
+        return { outcome: "in_progress", claim: existing, operation };
+      }
+      if (
+        (existing.state === "submitting" && !existing.providerOperationId)
+        || (existing.provider === "lyria" && Boolean(existing.providerOperationId))
+      ) {
+        const uncertain: PaidProductionOperationClaim = {
+          ...existing,
+          state: "uncertain",
+          failureReason: existing.provider === "lyria"
+            ? "Lyria completed response cannot be resumed after worker lease expiry"
+            : "provider submission may have occurred before worker lease expiry",
+          failedAt: claimedAt,
+          leaseExpiresAt: claimedAt,
+        };
+        tx.set(claimRef, uncertain);
+        tx.set(productionOutboxRef(existing.id), { state: "completed", updatedAt: claimedAt }, { merge: true });
+        return { outcome: "uncertain", claim: uncertain, operation };
+      }
+    }
+    if (!existing?.providerOperationId) {
+      assertProductionMandateAuthorizes({
+        mandate,
+        plan: revision.plan,
+        operation,
+        activeMandateId: aggregate.activeMandateId,
+        workspaceId: tenant.workspaceId,
+        brandId: tenant.brandId,
+        now: new Date(claimedAt),
+      });
     }
     const alreadyReserved = usdMicros(aggregate.currentMandateReservedCostUsd);
     const nextReserved = existing ? alreadyReserved : alreadyReserved + estimatedCostMicros;
@@ -382,6 +503,7 @@ export async function claimPaidProductionOperation(
       throw new Error("production mandate cost ceiling exceeded");
     }
     const claim: PaidProductionOperationClaim = {
+      ...(existing ?? {}),
       id: claimId,
       planId,
       jobId: revision.plan.jobId,
@@ -394,7 +516,8 @@ export async function claimPaidProductionOperation(
       mandateId: mandate.id,
       state: "claimed",
       reservedCostUsd: operation.estimatedCostUsd,
-      claimTokenDigest: createHash("sha256").update(input.claimToken).digest("hex"),
+      pricingVersion: revision.plan.pricingVersion,
+      claimTokenDigest: claimTokenDigest(input.claimToken),
       claimedAt,
       leaseExpiresAt,
       attempt: (existing?.attempt ?? 0) + 1,
@@ -406,6 +529,372 @@ export async function claimPaidProductionOperation(
       currentMandateReservedCostUsd: microsUsd(nextReserved),
       updatedAt: claimedAt,
     } satisfies ProductionPlanAggregate);
-    return { outcome: "execute", claim };
+    return { outcome: "execute", claim, operation };
+  });
+}
+
+export async function startProductionProviderSubmission(
+  planId: string,
+  operationId: string,
+  input: { claimId: string; claimToken: string; provider: "veo" | "lyria" },
+): Promise<PaidProductionOperationClaim> {
+  const tenant = currentTenant();
+  requireService(tenant);
+  const aggregateRef = planRef(planId);
+  return db().runTransaction(async (tx) => {
+    const aggregateSnap = await tx.get(aggregateRef);
+    if (!aggregateSnap.exists) throw new Error("production plan not found");
+    const aggregate = assertAggregate(aggregateSnap.data());
+    const claimRef = aggregateRef.collection("operation_claims").doc(checkedDocumentId("claim id", input.claimId));
+    const claimSnap = await tx.get(claimRef);
+    if (!claimSnap.exists) throw new Error("production operation claim not found");
+    const claim = claimSnap.data() as PaidProductionOperationClaim;
+    if (claim.operationId !== operationId) throw new Error("production operation claim binding mismatch");
+    assertClaimOwner(claim, input.claimId, input.claimToken);
+    if (claim.state === "submitting" && claim.provider === input.provider) return claim;
+    if (claim.state !== "claimed") throw new Error(`production operation cannot submit from '${claim.state}'`);
+    if (
+      aggregate.state !== "approved"
+      || aggregate.currentRevision !== claim.planRevision
+      || aggregate.currentPlanDigest !== claim.planDigest
+      || aggregate.activeMandateId !== claim.mandateId
+    ) throw new Error("current production plan no longer authorizes this claimed revision");
+    const [revisionSnap, mandateSnap] = await Promise.all([
+      tx.get(revisionRef(planId, claim.planRevision)),
+      tx.get(aggregateRef.collection("mandates").doc(claim.mandateId)),
+    ]);
+    if (!revisionSnap.exists || !mandateSnap.exists) throw new Error("production authorization aggregate is incomplete");
+    const revision = assertRevision(revisionSnap.data());
+    const mandate = productionMandateSchema.parse(mandateSnap.data());
+    const operation = revision.operations.find((candidate) => candidate.id === operationId);
+    if (!operation) throw new Error("production operation not found in immutable revision");
+    if (
+      operation.requestDigest !== claim.requestDigest
+      || operation.estimatedCostUsd !== claim.reservedCostUsd
+      || revision.plan.pricingVersion !== claim.pricingVersion
+    ) throw new Error("production operation claim binding mismatch");
+    assertProductionMandateAuthorizes({
+      mandate,
+      plan: revision.plan,
+      operation,
+      activeMandateId: aggregate.activeMandateId,
+      workspaceId: tenant.workspaceId,
+      brandId: tenant.brandId,
+      now: new Date(),
+    });
+    const expectedProvider = operation.type === "generate_music" ? "lyria" : "veo";
+    if (input.provider !== expectedProvider) throw new Error("provider does not match sealed production operation");
+    const updated: PaidProductionOperationClaim = {
+      ...claim,
+      state: "submitting",
+      provider: input.provider,
+      submissionStartedAt: new Date().toISOString(),
+    };
+    tx.set(claimRef, updated);
+    return updated;
+  });
+}
+
+export async function recordProductionProviderOperation(
+  planId: string,
+  operationId: string,
+  input: {
+    claimId: string;
+    claimToken: string;
+    provider: "veo" | "lyria";
+    providerOperationId: string;
+    nextPollAt: string;
+  },
+): Promise<PaidProductionOperationClaim> {
+  const tenant = currentTenant();
+  requireService(tenant);
+  if (!input.providerOperationId || input.providerOperationId.length > 2048) {
+    throw new Error("invalid provider operation identity");
+  }
+  const nextPollAt = new Date(input.nextPollAt);
+  if (Number.isNaN(nextPollAt.getTime())) throw new Error("invalid provider poll time");
+  const aggregateRef = planRef(planId);
+  return db().runTransaction(async (tx) => {
+    const aggregateSnap = await tx.get(aggregateRef);
+    if (!aggregateSnap.exists) throw new Error("production plan not found");
+    assertAggregate(aggregateSnap.data());
+    const claimRef = aggregateRef.collection("operation_claims").doc(checkedDocumentId("claim id", input.claimId));
+    const snap = await tx.get(claimRef);
+    if (!snap.exists) throw new Error("production operation claim not found");
+    const claim = snap.data() as PaidProductionOperationClaim;
+    if (claim.operationId !== operationId) throw new Error("production operation claim binding mismatch");
+    assertClaimOwner(claim, input.claimId, input.claimToken);
+    if (claim.state !== "submitting" && claim.state !== "waiting_provider") {
+      throw new Error(`production operation cannot wait for provider from '${claim.state}'`);
+    }
+    if (claim.providerOperationId && (
+      claim.providerOperationId !== input.providerOperationId || claim.provider !== input.provider
+    )) throw new Error("provider operation identity is immutable");
+    const updated: PaidProductionOperationClaim = {
+      ...claim,
+      state: "waiting_provider",
+      provider: input.provider,
+      providerOperationId: input.providerOperationId,
+      nextPollAt: nextPollAt.toISOString(),
+      leaseExpiresAt: nextPollAt.toISOString(),
+    };
+    tx.set(claimRef, updated);
+    tx.set(productionOutboxRef(claim.id), {
+      state: "pending",
+      availableAt: nextPollAt.toISOString(),
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+    return updated;
+  });
+}
+
+export async function completePaidProductionOperation(
+  planId: string,
+  operationId: string,
+  input: {
+    claimId: string;
+    claimToken: string;
+    artifact: NonNullable<PaidProductionOperationClaim["artifact"]>;
+    providerMetadata: Record<string, unknown>;
+  },
+): Promise<PaidProductionOperationClaim> {
+  const tenant = currentTenant();
+  requireService(tenant);
+  if (!input.artifact) throw new Error("production artifact is required");
+  const expectedPrefix = `durable-artifacts/${tenant.workspaceId}/${tenant.brandId}/production/`;
+  if (!input.artifact.objectKey.startsWith(expectedPrefix) || input.artifact.objectKey.includes("..")) {
+    throw new Error("production artifact is outside the tenant output prefix");
+  }
+  if (!/^[a-f0-9]{64}$/.test(input.artifact.digest) || !Number.isSafeInteger(input.artifact.sizeBytes) || input.artifact.sizeBytes < 1) {
+    throw new Error("invalid production artifact identity");
+  }
+  const aggregateRef = planRef(planId);
+  return db().runTransaction(async (tx) => {
+    const aggregateSnap = await tx.get(aggregateRef);
+    if (!aggregateSnap.exists) throw new Error("production plan not found");
+    assertAggregate(aggregateSnap.data());
+    const claimRef = aggregateRef.collection("operation_claims").doc(checkedDocumentId("claim id", input.claimId));
+    const snap = await tx.get(claimRef);
+    if (!snap.exists) throw new Error("production operation claim not found");
+    const claim = snap.data() as PaidProductionOperationClaim;
+    if (claim.operationId !== operationId) throw new Error("production operation claim binding mismatch");
+    assertClaimOwner(claim, input.claimId, input.claimToken);
+    if (claim.state === "succeeded") {
+      if (JSON.stringify(claim.artifact) !== JSON.stringify(input.artifact)) {
+        throw new Error("completed production artifact identity is immutable");
+      }
+      return claim;
+    }
+    if (claim.state !== "claimed" && claim.state !== "waiting_provider") {
+      throw new Error(`production operation cannot complete from '${claim.state}'`);
+    }
+    if (!claim.provider || !claim.providerOperationId) {
+      throw new Error("persisted provider identity is required before production completion");
+    }
+    const revisionSnap = await tx.get(revisionRef(planId, claim.planRevision));
+    if (!revisionSnap.exists) throw new Error("production plan revision not found");
+    const operation = assertRevision(revisionSnap.data()).operations.find((candidate) => candidate.id === operationId);
+    if (!operation) throw new Error("production operation not found in immutable revision");
+    const expectedProvider = operation.type === "generate_music" ? "lyria" : "veo";
+    const expectedMimePrefix = expectedProvider === "lyria" ? "audio/" : "video/";
+    if (claim.provider !== expectedProvider || !input.artifact.mime.startsWith(expectedMimePrefix)) {
+      throw new Error("production artifact does not match its sealed provider operation");
+    }
+    if (
+      input.providerMetadata.provider !== claim.provider
+      || input.providerMetadata.providerOperationId !== claim.providerOperationId
+    ) throw new Error("production artifact provider metadata mismatch");
+    const completedAt = new Date().toISOString();
+    const updated: PaidProductionOperationClaim = {
+      ...claim,
+      state: "succeeded",
+      artifact: input.artifact,
+      providerMetadata: input.providerMetadata,
+      completedAt,
+      leaseExpiresAt: completedAt,
+    };
+    tx.set(claimRef, updated);
+    tx.set(productionOutboxRef(claim.id), { state: "completed", updatedAt: completedAt }, { merge: true });
+    return updated;
+  });
+}
+
+export async function recordProductionOperationFailure(
+  planId: string,
+  operationId: string,
+  input: {
+    claimId: string;
+    claimToken: string;
+    outcome: "failed" | "uncertain";
+    reason: string;
+  },
+): Promise<PaidProductionOperationClaim> {
+  const tenant = currentTenant();
+  requireService(tenant);
+  if (!input.reason || input.reason.length > 2000) throw new Error("invalid production failure reason");
+  const aggregateRef = planRef(planId);
+  return db().runTransaction(async (tx) => {
+    const aggregateSnap = await tx.get(aggregateRef);
+    if (!aggregateSnap.exists) throw new Error("production plan not found");
+    assertAggregate(aggregateSnap.data());
+    const claimRef = aggregateRef.collection("operation_claims").doc(checkedDocumentId("claim id", input.claimId));
+    const snap = await tx.get(claimRef);
+    if (!snap.exists) throw new Error("production operation claim not found");
+    const claim = snap.data() as PaidProductionOperationClaim;
+    if (claim.operationId !== operationId) throw new Error("production operation claim binding mismatch");
+    assertClaimOwner(claim, input.claimId, input.claimToken);
+    if (claim.state === input.outcome && claim.failureReason === input.reason) return claim;
+    if (claim.state !== "claimed" && claim.state !== "submitting" && claim.state !== "waiting_provider") {
+      throw new Error(`production operation cannot fail from '${claim.state}'`);
+    }
+    const failedAt = new Date().toISOString();
+    const updated: PaidProductionOperationClaim = {
+      ...claim,
+      state: input.outcome,
+      failureReason: input.reason,
+      failedAt,
+      leaseExpiresAt: failedAt,
+    };
+    tx.set(claimRef, updated);
+    tx.set(productionOutboxRef(claim.id), { state: "completed", updatedAt: failedAt }, { merge: true });
+    return updated;
+  });
+}
+
+function assertProductionOutboxRecord(value: unknown): ProductionOperationOutboxRecord {
+  if (!value || typeof value !== "object") throw new Error("invalid production outbox record");
+  const record = value as ProductionOperationOutboxRecord;
+  const tenant = currentTenant();
+  if (record.workspaceId !== tenant.workspaceId || record.brandId !== tenant.brandId) {
+    throw new Error("production outbox tenant mismatch");
+  }
+  checkedDocumentId("production outbox id", record.id);
+  checkedDocumentId("production plan id", record.planId);
+  checkedDocumentId("production job id", record.jobId);
+  if (!Number.isSafeInteger(record.planRevision) || record.planRevision < 1) throw new Error("invalid production outbox revision");
+  if (!/^[a-f0-9]{64}$/.test(record.planDigest)) throw new Error("invalid production outbox digest");
+  if (!["pending", "publishing", "published", "completed", "superseded"].includes(record.state)) {
+    throw new Error("invalid production outbox state");
+  }
+  return record;
+}
+
+export async function listDispatchableProductionOutbox(
+  limit = 20,
+  now = new Date(),
+): Promise<ProductionOperationOutboxRecord[]> {
+  const tenant = currentTenant();
+  requireService(tenant);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error("invalid production outbox limit");
+  const [readySnaps, abandonedSnaps] = await Promise.all([
+    productionOutbox()
+      .where("state", "in", ["pending", "published"])
+      .where("availableAt", "<=", now.toISOString())
+      .orderBy("availableAt", "asc")
+      .limit(limit)
+      .get(),
+    productionOutbox()
+      .where("state", "==", "publishing")
+      .where("publishLeaseExpiresAt", "<=", now.toISOString())
+      .orderBy("publishLeaseExpiresAt", "asc")
+      .limit(limit)
+      .get(),
+  ]);
+  const records = [...readySnaps.docs, ...abandonedSnaps.docs]
+    .map((doc) => assertProductionOutboxRecord(doc.data()));
+  return [...new Map(records.map((record) => [record.id, record])).values()]
+    .sort((left, right) => Date.parse(
+      left.state === "publishing" ? left.publishLeaseExpiresAt ?? left.updatedAt : left.availableAt,
+    ) - Date.parse(
+      right.state === "publishing" ? right.publishLeaseExpiresAt ?? right.updatedAt : right.availableAt,
+    ))
+    .slice(0, limit);
+}
+
+export type ProductionOutboxClaimResult =
+  | { outcome: "publish"; record: ProductionOperationOutboxRecord }
+  | { outcome: "in_progress" | "already_published"; record: ProductionOperationOutboxRecord };
+
+export async function claimProductionOutbox(
+  id: string,
+  publishTokenDigest: string,
+): Promise<ProductionOutboxClaimResult> {
+  const tenant = currentTenant();
+  requireService(tenant);
+  if (!/^[a-f0-9]{64}$/.test(publishTokenDigest)) throw new Error("invalid production outbox publish token");
+  const ref = productionOutboxRef(id);
+  return db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error("production outbox record not found");
+    const record = assertProductionOutboxRecord(snap.data());
+    if (["completed", "superseded"].includes(record.state)) {
+      return { outcome: "already_published", record };
+    }
+    const now = new Date();
+    if (record.state === "publishing" && Date.parse(record.publishLeaseExpiresAt ?? "") > now.getTime()) {
+      return { outcome: "in_progress", record };
+    }
+    if ((record.state === "pending" || record.state === "published") && Date.parse(record.availableAt) > now.getTime()) {
+      return { outcome: "in_progress", record };
+    }
+    const updated: ProductionOperationOutboxRecord = {
+      ...record,
+      state: "publishing",
+      publishAttempt: record.publishAttempt + 1,
+      publishTokenDigest,
+      publishLeaseExpiresAt: new Date(now.getTime() + 60_000).toISOString(),
+      updatedAt: now.toISOString(),
+    };
+    tx.set(ref, updated);
+    return { outcome: "publish", record: updated };
+  });
+}
+
+export async function finalizeProductionOutboxPublish(
+  id: string,
+  publishTokenDigest: string,
+  pubsubMessageId: string,
+): Promise<ProductionOperationOutboxRecord> {
+  const tenant = currentTenant();
+  requireService(tenant);
+  const ref = productionOutboxRef(id);
+  return db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error("production outbox record not found");
+    const record = assertProductionOutboxRecord(snap.data());
+    if (record.state === "published" && record.pubsubMessageId === pubsubMessageId) return record;
+    if (record.state !== "publishing" || record.publishTokenDigest !== publishTokenDigest) {
+      throw new Error("production outbox publish ownership mismatch");
+    }
+    const now = new Date();
+    const updated: ProductionOperationOutboxRecord = {
+      ...record,
+      state: "published",
+      pubsubMessageId,
+      availableAt: new Date(now.getTime() + 6 * 60 * 1000).toISOString(),
+      updatedAt: now.toISOString(),
+    };
+    tx.set(ref, updated);
+    return updated;
+  });
+}
+
+export async function releaseProductionOutbox(id: string, publishTokenDigest: string): Promise<void> {
+  const tenant = currentTenant();
+  requireService(tenant);
+  const ref = productionOutboxRef(id);
+  await db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new Error("production outbox record not found");
+    const record = assertProductionOutboxRecord(snap.data());
+    if (record.state !== "publishing" || record.publishTokenDigest !== publishTokenDigest) return;
+    const { publishTokenDigest: _token, publishLeaseExpiresAt: _lease, ...released } = record;
+    void _token;
+    void _lease;
+    tx.set(ref, {
+      ...released,
+      state: "pending",
+      updatedAt: new Date().toISOString(),
+    });
   });
 }

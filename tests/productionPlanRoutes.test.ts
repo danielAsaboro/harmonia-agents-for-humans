@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const store = vi.hoisted(() => ({
   approveProductionPlan: vi.fn(),
   claimPaidProductionOperation: vi.fn(),
+  completePaidProductionOperation: vi.fn(),
   getProductionPlan: vi.fn(),
   getProductionPlanRevision: vi.fn(),
   proposeProductionPlan: vi.fn(),
   rejectProductionPlan: vi.fn(),
+  recordProductionProviderOperation: vi.fn(),
   sealProductionPlan: vi.fn(),
 }));
 vi.mock("@/lib/productionPlanStore", () => store);
@@ -14,12 +16,15 @@ vi.mock("@/lib/auth", () => ({
   administratorTenantHandler: (handler: unknown) => handler,
   operatorTenantHandler: (handler: unknown) => handler,
 }));
+vi.mock("@/lib/storage", () => ({ putDurableArtifactObject: vi.fn() }));
 
 import { POST as propose } from "@/app/api/production-plans/route";
 import { POST as revise } from "@/app/api/production-plans/[id]/revisions/route";
 import { POST as seal } from "@/app/api/production-plans/[id]/seal/route";
 import { POST as decide } from "@/app/api/production-plans/[id]/decision/route";
 import { POST as claimInternal } from "@/app/api/internal/production-plans/[id]/operations/[operationId]/claim/route";
+import { POST as recordProviderInternal } from "@/app/api/internal/production-plans/[id]/operations/[operationId]/provider/route";
+import { POST as uploadArtifactInternal } from "@/app/api/internal/production-plans/[id]/operations/[operationId]/artifact/route";
 
 const plan = {
   id: "plan-1", jobId: "job-1", workspaceId: "workspace-1", brandId: "brand-1", revision: 1,
@@ -48,6 +53,8 @@ describe("production plan routes", () => {
     store.approveProductionPlan.mockResolvedValue({ id: "plan-1:mandate:v1" });
     store.rejectProductionPlan.mockResolvedValue({ id: "plan-1", state: "rejected" });
     store.claimPaidProductionOperation.mockResolvedValue({ outcome: "execute", claim: { id: "claim-1" } });
+    store.recordProductionProviderOperation.mockResolvedValue({ id: "claim-1", state: "waiting_provider" });
+    store.completePaidProductionOperation.mockResolvedValue({ id: "claim-1", state: "succeeded" });
   });
 
   it("exposes distinct propose and revise mutations bound to the path plan id", async () => {
@@ -107,5 +114,62 @@ describe("production plan routes", () => {
     }), { params: Promise.resolve({ id: "plan-1", operationId: "operation-1" }) });
     expect(authorized.status).toBe(200);
     expect(store.claimPaidProductionOperation).toHaveBeenCalledWith("plan-1", "operation-1", claim);
+  });
+
+  it("records the provider identity through a distinct service-only transition", async () => {
+    const body = {
+      claimId: "claim-1",
+      claimToken: "worker-claim-1",
+      provider: "veo",
+      providerOperationId: "projects/p/locations/us-central1/operations/1",
+      nextPollAt: "2026-08-31T12:00:00.000Z",
+    };
+    const response = await recordProviderInternal(jsonRequest(
+      "http://localhost/api/internal/production-plans/plan-1/operations/operation-1/provider",
+      body,
+      {
+        authorization: "Bearer test-internal-token",
+        "x-workspace-id": "workspace-1",
+        "x-brand-id": "brand-1",
+      },
+    ), { params: Promise.resolve({ id: "plan-1", operationId: "operation-1" }) });
+    expect(response.status).toBe(200);
+    expect(store.recordProductionProviderOperation).toHaveBeenCalledWith("plan-1", "operation-1", body);
+  });
+
+  it("accepts only digest-matching production bytes and completes the owned claim", async () => {
+    const bytes = new TextEncoder().encode("video");
+    const digest = "0cab1c9617404faf2b24e221e189ca5945813e14d3f766345b09ca13bbe28ffc";
+    const request = new Request(
+      "http://localhost/api/internal/production-plans/plan-1/operations/operation-1/artifact",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test-internal-token",
+          "x-workspace-id": "workspace-1",
+          "x-brand-id": "brand-1",
+          "x-claim-id": "claim-1",
+          "x-claim-token": "worker-claim-1",
+          "x-artifact-mime": "video/mp4",
+          "x-artifact-digest": digest,
+          "x-provider-metadata": JSON.stringify({ model: "veo-3.1-fast-generate-001" }),
+        },
+        body: bytes,
+      },
+    );
+    const response = await uploadArtifactInternal(request, {
+      params: Promise.resolve({ id: "plan-1", operationId: "operation-1" }),
+    });
+    expect(response.status).toBe(200);
+    expect(store.completePaidProductionOperation).toHaveBeenCalledWith(
+      "plan-1",
+      "operation-1",
+      expect.objectContaining({
+        claimId: "claim-1",
+        claimToken: "worker-claim-1",
+        artifact: expect.objectContaining({ mime: "video/mp4", digest, sizeBytes: 5 }),
+        providerMetadata: { model: "veo-3.1-fast-generate-001" },
+      }),
+    );
   });
 });

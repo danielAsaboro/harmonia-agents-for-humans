@@ -17,8 +17,8 @@ VEO_MODEL = "veo-3.1-fast-generate-001"
 LYRIA_MODEL = "lyria-3-clip-preview"
 
 VEO_CAPABILITIES: dict[str, dict[str, Any]] = {
-    "veo-3.1-fast": {"model": "veo-3.1-fast-generate-001", "durations": {4, 6, 8}, "resolutions": {"720p", "1080p"}, "modes": {"text_to_video", "image_to_video", "first_last_frame", "reference_images", "extend_video"}, "usdPerSecond": "0.080000"},
-    "veo-3.1": {"model": "veo-3.1-generate-001", "durations": {4, 6, 8}, "resolutions": {"720p", "1080p", "4k"}, "modes": {"text_to_video", "image_to_video", "first_last_frame", "reference_images", "extend_video"}, "usdPerSecond": None},
+    "veo-3.1-fast": {"model": "veo-3.1-fast-generate-001", "durations": {4, 6, 8}, "resolutions": {"720p", "1080p"}, "modes": {"text_to_video"}, "usdPerSecond": "0.080000"},
+    "veo-3.1": {"model": "veo-3.1-generate-001", "durations": {4, 6, 8}, "resolutions": {"720p", "1080p", "4k"}, "modes": {"text_to_video"}, "usdPerSecond": None},
 }
 LYRIA_CAPABILITIES: dict[str, dict[str, Any]] = {
     "lyria-3-clip": {"model": "lyria-3-clip-preview", "maximumDurationSec": 30, "imageConditioning": True, "vocals": True, "structure": True, "fixedCostUsd": None},
@@ -69,6 +69,11 @@ def validate_veo_request(request: dict[str, Any]) -> dict[str, Any]:
     for field in required:
         if not value.get(field):
             raise MediaProtocolError(f"{field} is required for {mode}")
+    if any(value.get(field) for field in (
+        "negativePrompt", "sourceImageArtifactId", "lastFrameArtifactId",
+        "referenceImageArtifactIds", "sourceVideoArtifactId",
+    )):
+        raise MediaProtocolError("Veo conditioning controls are unavailable")
     if value.get("aspectRatio") not in {"16:9", "9:16"}:
         raise MediaProtocolError("unsupported Veo aspect ratio")
     value["providerModel"] = capability["model"]
@@ -94,6 +99,15 @@ def validate_lyria_request(request: dict[str, Any]) -> dict[str, Any]:
         raise MediaProtocolError("image conditioning is unsupported")
     if not value.get("instrumental") and not capability["vocals"]:
         raise MediaProtocolError("vocals are unsupported")
+    if (
+        value.get("conditioningImageArtifactId")
+        or not value.get("instrumental")
+        or value.get("lyricsMode") != "none"
+        or any(value.get(field) is not None for field in (
+            "genre", "mood", "instrumentation", "bpm", "intensity", "structure", "seed",
+        ))
+    ):
+        raise MediaProtocolError("advanced Lyria conditioning and music controls are unavailable")
     value["providerModel"] = capability["model"]
     value["mediaKind"] = "music"
     return value
@@ -133,7 +147,7 @@ class GeneratedMedia:
 class MediaTransport(Protocol):
     def start_veo(self, **kwargs: Any) -> dict[str, Any]: ...
 
-    def poll_veo(self, operation_name: str) -> dict[str, Any]: ...
+    def poll_veo(self, operation_name: str, model: str) -> dict[str, Any]: ...
 
     def generate_lyria(self, **kwargs: Any) -> dict[str, Any]: ...
 
@@ -191,10 +205,10 @@ class GoogleMediaTransport:
             },
         }, timeout=60)
 
-    def poll_veo(self, operation_name: str) -> dict[str, Any]:
+    def poll_veo(self, operation_name: str, model: str) -> dict[str, Any]:
         url = (
             f"https://{self.location}-aiplatform.googleapis.com/v1/projects/{self.project}"
-            f"/locations/{self.location}/publishers/google/models/{VEO_MODEL}:fetchPredictOperation"
+            f"/locations/{self.location}/publishers/google/models/{model}:fetchPredictOperation"
         )
         return self._post(url, {"operationName": operation_name}, timeout=60)
 
@@ -260,7 +274,7 @@ class VeoGenerator:
                 if not isinstance(operation_name, str) or not operation_name:
                     raise MediaProtocolError("Veo did not return an operation name")
                 persist_operation(operation_name)
-            polled = self.transport.poll_veo(operation_name)
+            polled = self.transport.poll_veo(operation_name, str(request["providerModel"]))
             if polled.get("done") is not True:
                 raise MediaOperationPending(operation_name)
             if polled.get("error"):

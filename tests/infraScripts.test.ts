@@ -9,6 +9,8 @@ describe("cloud infrastructure scripts", () => {
   it("updates an existing push subscription instead of silently keeping stale settings", () => {
     expect(deploy).toContain("subscriptions describe harmonia-stages-agent-push");
     expect(deploy).toContain("subscriptions update harmonia-stages-agent-push");
+    expect(deploy).toContain("subscriptions describe harmonia-production-agent-push");
+    expect(deploy).toContain("subscriptions update harmonia-production-agent-push");
     expect(deploy).not.toContain('2>/dev/null || echo "subscription exists"');
   });
 
@@ -22,6 +24,7 @@ describe("cloud infrastructure scripts", () => {
     expect(deploy).toContain(serviceAgent);
     expect(deploy).toMatch(/topics add-iam-policy-binding harmonia-stages-dlq[\s\S]*roles\/pubsub\.publisher/);
     expect(deploy).toMatch(/subscriptions add-iam-policy-binding harmonia-stages-agent-push[\s\S]*service-\$\{PROJECT_NUMBER\}[\s\S]*roles\/pubsub\.subscriber/);
+    expect(deploy).toMatch(/subscriptions add-iam-policy-binding harmonia-production-agent-push[\s\S]*service-\$\{PROJECT_NUMBER\}[\s\S]*roles\/pubsub\.subscriber/);
   });
 
   it("does not grant the worker direct object-admin access it does not use", () => {
@@ -39,8 +42,25 @@ describe("cloud infrastructure scripts", () => {
         { fieldPath: "id", order: "ASCENDING" },
       ],
     });
+    expect(indexes.indexes).toContainEqual({
+      collectionGroup: "production_operation_outbox",
+      queryScope: "COLLECTION",
+      fields: [
+        { fieldPath: "state", order: "ASCENDING" },
+        { fieldPath: "availableAt", order: "ASCENDING" },
+      ],
+    });
+    expect(indexes.indexes).toContainEqual({
+      collectionGroup: "production_operation_outbox",
+      queryScope: "COLLECTION",
+      fields: [
+        { fieldPath: "state", order: "ASCENDING" },
+        { fieldPath: "publishLeaseExpiresAt", order: "ASCENDING" },
+      ],
+    });
     expect(setup).toContain("firestore indexes composite create");
     expect(setup).toContain("--collection-group=operations");
+    expect(setup).toContain("--collection-group=production_operation_outbox");
   });
 
   it("bounds redelivery and runs recovery on its own authenticated wake", () => {

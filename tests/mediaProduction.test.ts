@@ -69,6 +69,17 @@ describe("media production contracts", () => {
     })).toThrow(/conditioning|control/i);
   });
 
+  it("blocks source-backed scenes until verified source materialization is implemented", () => {
+    expect(() => videoProductionPlanSchema.parse({
+      ...basePlan,
+      scenes: [{ ...basePlan.scenes[0], sourceArtifactIds: ["artifact-1"] }],
+    })).toThrow(/source artifact.*unavailable/i);
+    expect(() => videoProductionPlanSchema.parse({
+      ...basePlan,
+      scenes: [{ ...basePlan.scenes[0], video: undefined, sourceArtifactIds: [] }],
+    })).toThrow(/generated video.*required/i);
+  });
+
   it("rejects Lyria lyrics when instrumental mode is selected", () => {
     expect(() => generatedMusicSpecSchema.parse({
       modelCapability: "lyria-3-clip", prompt: "bright pop",
@@ -218,6 +229,9 @@ describe("media production contracts", () => {
       "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production", "assemble_export",
     ]);
     expect(operations[2].dependsOn).toEqual([operations[0].id, operations[1].id]);
+    expect(operations.at(-1)?.dependsOn).toEqual([
+      "plan-1:ffmpeg_finalize", "plan-1:evaluate_production",
+    ]);
     expect(operations.slice(0, 2).map((operation) => operation.estimatedCostUsd)).toEqual(["0.320000", "0.120000"]);
   });
 

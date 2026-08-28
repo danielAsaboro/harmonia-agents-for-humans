@@ -290,7 +290,7 @@ def upload_production_artifact(
     mime: str,
     digest: str,
     data: bytes,
-    provider_metadata: dict[str, Any],
+    operation_metadata: dict[str, Any],
 ) -> dict[str, Any]:
     with _client() as c:
         res = c.post(
@@ -302,7 +302,7 @@ def upload_production_artifact(
                 "x-claim-token": claim_token,
                 "x-artifact-mime": mime,
                 "x-artifact-digest": digest,
-                "x-provider-metadata": json.dumps(provider_metadata, separators=(",", ":")),
+                "x-operation-metadata": json.dumps(operation_metadata, separators=(",", ":")),
             },
         )
     if res.status_code >= 300:
@@ -311,6 +311,19 @@ def upload_production_artifact(
             res.status_code,
         )
     return dict(res.json()["claim"])
+
+
+def download_production_artifact(plan_id: str, operation_id: str) -> tuple[bytes, str, str]:
+    with _client() as c:
+        res = c.get(f"/api/internal/production-plans/{plan_id}/operations/{operation_id}/artifact")
+    if res.status_code != 200:
+        raise WebApiError(
+            f"production artifact download failed: {res.status_code} {res.text}", res.status_code,
+        )
+    digest = res.headers.get("x-artifact-digest") or ""
+    if not digest or hashlib.sha256(res.content).hexdigest() != digest:
+        raise WebApiError("production artifact download digest mismatch")
+    return res.content, res.headers.get("content-type") or "application/octet-stream", digest
 
 
 def get_insights() -> dict[str, Any]:

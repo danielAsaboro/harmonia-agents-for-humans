@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import html
+import io
 import json
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
+import zipfile
 
 
 class CompositionCompileError(ValueError):
@@ -19,10 +21,69 @@ class MediaInspectionError(RuntimeError):
     """ffprobe could not establish the integrity of a media artifact."""
 
 
+def create_deterministic_archive(workspace: Path) -> bytes:
+    """Freeze a composition workspace without timestamps, symlinks, or path ambiguity."""
+    root = workspace.resolve()
+    if not root.is_dir():
+        raise CompositionCompileError("composition workspace is missing")
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+        for path in sorted(root.rglob("*"), key=lambda value: value.relative_to(root).as_posix()):
+            if path.is_symlink():
+                raise CompositionCompileError("composition archive cannot contain symlinks")
+            if not path.is_file():
+                continue
+            relative = path.relative_to(root).as_posix()
+            info = zipfile.ZipInfo(relative, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o100644 << 16
+            archive.writestr(info, path.read_bytes())
+    return output.getvalue()
+
+
+def extract_verified_archive(data: bytes, destination: Path) -> list[str]:
+    """Extract only bounded regular files beneath the selected workspace."""
+    root = destination.resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data), "r")
+    except zipfile.BadZipFile as exc:
+        raise CompositionCompileError("composition archive is malformed") from exc
+    names: list[str] = []
+    total = 0
+    with archive:
+        entries = archive.infolist()
+        if not entries or len(entries) > 500:
+            raise CompositionCompileError("composition archive file count is invalid")
+        for entry in entries:
+            relative = Path(entry.filename)
+            target = (root / relative).resolve()
+            if relative.is_absolute() or ".." in relative.parts or (target != root and root not in target.parents):
+                raise CompositionCompileError("composition archive path escapes its workspace")
+            if entry.is_dir():
+                continue
+            total += entry.file_size
+            if total > 1024 * 1024 * 1024:
+                raise CompositionCompileError("composition archive expands beyond its size limit")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(archive.read(entry))
+            names.append(relative.as_posix())
+    return names
+
+
 def _number(value: Any, name: str, *, minimum: float = 0) -> float:
     if not isinstance(value, (int, float)) or isinstance(value, bool) or value < minimum:
         raise CompositionCompileError(f"{name} must be a number >= {minimum}")
     return float(value)
+
+
+def _safe_id(value: Any, name: str) -> str:
+    identifier = str(value or "")
+    if not identifier or len(identifier) > 128 or not all(
+        character.isalnum() or character in "-_" for character in identifier
+    ):
+        raise CompositionCompileError(f"{name} must contain only letters, numbers, hyphens, and underscores")
+    return identifier
 
 
 def _media_path(workspace: Path, raw: Any) -> str:
@@ -59,7 +120,7 @@ def compile_hyperframes_composition(plan: dict[str, Any], workspace: Path) -> di
     for index, scene in enumerate(scenes):
         if not isinstance(scene, dict):
             raise CompositionCompileError("scene must be an object")
-        scene_id = str(scene.get("id") or f"scene-{index + 1}")
+        scene_id = _safe_id(scene.get("id") or f"scene-{index + 1}", "scene id")
         start = _number(scene.get("startSec"), "scene.startSec")
         scene_duration = _number(scene.get("durationSec"), "scene.durationSec", minimum=0.01)
         if start + scene_duration > duration + 0.001:
@@ -84,7 +145,7 @@ def compile_hyperframes_composition(plan: dict[str, Any], workspace: Path) -> di
     for index, voice in enumerate(narration):
         source = _media_path(workspace, voice.get("path"))
         inputs.add(source)
-        voice_id = str(voice.get("id") or f"voice-{index + 1}")
+        voice_id = _safe_id(voice.get("id") or f"voice-{index + 1}", "narration id")
         start = _number(voice.get("startSec"), "narration.startSec")
         voice_duration = _number(voice.get("durationSec"), "narration.durationSec", minimum=0.01)
         audio_markup.append(
@@ -114,7 +175,7 @@ def compile_hyperframes_composition(plan: dict[str, Any], workspace: Path) -> di
     index_html = f'''<!doctype html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width={width}, height={height}">
 <title>Harmonia production {html.escape(plan_id)}</title><script src="vendor/gsap.min.js"></script>
-<style>html,body{{margin:0;width:{width}px;height:{height}px;background:#070b14;color:white;overflow:hidden}}#root{{position:relative;width:{width}px;height:{height}px;overflow:hidden}}.clip{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}}.title{{display:grid;place-items:end start;padding:8%;box-sizing:border-box}}h2{{font:700 64px/1.05 Inter,system-ui,sans-serif;margin:0;max-width:80%}}</style></head>
+<style>html,body{{margin:0;width:{width}px;height:{height}px;background:#070b14;color:white;overflow:hidden}}#root{{position:relative;width:{width}px;height:{height}px;overflow:hidden}}.clip{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}}.title{{display:grid;place-items:end start;padding:8%;box-sizing:border-box}}h2{{font:700 clamp(24px,6vw,64px)/1.05 Inter,system-ui,sans-serif;margin:0;max-width:100%;overflow-wrap:anywhere}}</style></head>
 <body><div id="root" data-composition-id="{composition_id}" data-start="0" data-width="{width}" data-height="{height}" data-duration="{duration:g}">
 {''.join(scene_markup)}{''.join(audio_markup)}</div>
 <script>window.__timelines=window.__timelines||{{}};const tl=gsap.timeline({{paused:true}});window.__timelines["{composition_id}"]=tl;</script></body></html>'''
@@ -249,3 +310,109 @@ def render_hyperframes_composition(
     if not output.is_file() or output.stat().st_size == 0:
         raise MediaInspectionError("HyperFrames reported success without a rendered artifact")
     return output
+
+
+def finalize_media(
+    source: Path,
+    output: Path,
+    *,
+    width: int,
+    height: int,
+    frame_rate: int,
+) -> Path:
+    """Normalize a rendered artifact to the sealed delivery shape."""
+    if width < 2 or height < 2 or width % 2 or height % 2:
+        raise CompositionCompileError("delivery dimensions must be positive even integers")
+    if frame_rate < 1 or frame_rate > 120:
+        raise CompositionCompileError("delivery frame rate is outside the supported range")
+    inspected = inspect_media(source)
+    if not inspected.get("video"):
+        raise MediaInspectionError("finalization input has no video stream")
+    output = output.resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    filter_graph = (
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,format=yuv420p"
+    )
+    command = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
+        "-vf", filter_graph, "-r", str(frame_rate), "-c:v", "libx264", "-pix_fmt", "yuv420p",
+    ]
+    if inspected.get("audio"):
+        command += [
+            "-c:a", "aac", "-ar", "48000", "-ac", "2",
+            "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+        ]
+    else:
+        command += ["-an"]
+    command += ["-movflags", "+faststart", str(output)]
+    try:
+        subprocess.run(command, check=True, timeout=900)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise MediaInspectionError("ffmpeg finalization failed") from exc
+    inspect_media(output)
+    return output
+
+
+def mix_media_audio(source: Path, output: Path) -> Path:
+    """Apply the deterministic delivery loudness target without changing video frames."""
+    inspected = inspect_media(source)
+    if not inspected.get("video"):
+        raise MediaInspectionError("audio mix input has no video stream")
+    output = output.resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source), "-c:v", "copy"]
+    if inspected.get("audio"):
+        command += [
+            "-c:a", "aac", "-ar", "48000", "-ac", "2",
+            "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+        ]
+    else:
+        command += ["-an"]
+    command.append(str(output))
+    try:
+        subprocess.run(command, check=True, timeout=900)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise MediaInspectionError("ffmpeg audio mix failed") from exc
+    inspect_media(output)
+    return output
+
+
+def evaluate_media_quality(inspection: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
+    """Apply deterministic delivery checks; failed checks never become success."""
+    issues: list[str] = []
+    video = inspection.get("video")
+    audio = inspection.get("audio")
+    if not isinstance(video, dict):
+        issues.append("missing_video_stream")
+    else:
+        if video.get("codec") != "h264":
+            issues.append("video_codec_not_h264")
+        if video.get("width") != target.get("width") or video.get("height") != target.get("height"):
+            issues.append("video_dimensions_mismatch")
+        if abs(float(video.get("frameRate") or 0) - float(target.get("frameRate") or 0)) > 0.05:
+            issues.append("frame_rate_mismatch")
+    duration = float(inspection.get("durationSec") or 0)
+    expected_duration = float(target.get("durationSec") or 0)
+    if duration <= 0 or expected_duration <= 0 or abs(duration - expected_duration) > max(0.25, expected_duration * 0.02):
+        issues.append("duration_mismatch")
+    if audio:
+        streams = audio if isinstance(audio, list) else [audio]
+        if len(streams) != 1:
+            issues.append("audio_stream_count_mismatch")
+        else:
+            if streams[0].get("sampleRate") != 48000:
+                issues.append("audio_sample_rate_mismatch")
+            if streams[0].get("channels") != 2:
+                issues.append("audio_channel_count_mismatch")
+    return {
+        "schemaVersion": 1,
+        "passed": not issues,
+        "issues": issues,
+        "checks": {
+            "integrity": bool(inspection.get("sha256") and inspection.get("bytes")),
+            "duration": duration,
+            "video": video,
+            "audio": audio,
+        },
+    }

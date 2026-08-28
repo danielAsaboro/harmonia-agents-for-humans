@@ -29,7 +29,7 @@ from .telemetry import configure_telemetry, extract_context
 from .tenant_context import tenant_scope
 from .durable_tick import run_durable_tick
 from .operation_context import operation_scope
-from .production_executor import execute_paid_production_operation
+from .production_executor import execute_production_operation
 from .web_client import claim_event_inbox, claim_operation, complete_event_inbox
 
 configure_telemetry()
@@ -146,7 +146,7 @@ def _valid_production_wake(body: Any) -> dict[str, str] | None:
 async def _run_production_wake(body: dict[str, str]) -> dict[str, Any]:
     with tenant_scope(body["workspaceId"], body["brandId"]):
         return await asyncio.to_thread(
-            execute_paid_production_operation,
+            execute_production_operation,
             body["planId"],
             body["operationId"],
         )

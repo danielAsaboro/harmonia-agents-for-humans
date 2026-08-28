@@ -6,8 +6,10 @@ import { compileProductionOperations, createProductionMandate, generatedMusicSpe
 import {
   approveProductionPlan,
   claimPaidProductionOperation,
+  claimProductionOperation,
   claimProductionOutbox,
   completePaidProductionOperation,
+  completeInternalProductionOperation,
   finalizeProductionOutboxPublish,
   getProductionPlan,
   getProductionPlanRevision,
@@ -68,6 +70,126 @@ const basePlan = videoProductionPlanSchema.parse({
 });
 
 describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
+  it("atomically schedules and claims a cost-free composition after paid dependencies succeed", async () => {
+    const internalJobId = `production-internal-${Date.now()}`;
+    const { soundtrack: _soundtrack, ...planWithoutSoundtrack } = basePlan;
+    void _soundtrack;
+    const internalPlan = videoProductionPlanSchema.parse({
+      ...planWithoutSoundtrack,
+      id: "plan-internal",
+      jobId: internalJobId,
+      operationCostsUsd: { "plan-internal:generate_video:scene-1": "0.320000" },
+      estimatedCostUsd: "0.320000",
+    });
+    await db().doc(`workspaces/${workspaceId}`).set({ defaultBrandId: brandId });
+    await db().doc(`workspaces/${workspaceId}/jobs/${internalJobId}`).set({
+      workspaceId, brandId, status: "running", stage: "draft",
+      createdAt: "2026-08-31T09:00:00.000Z", updatedAt: "2026-08-31T09:00:00.000Z",
+    });
+    await runWithTenant(serviceScope, () => proposeProductionPlan(internalPlan));
+    await runWithTenant(operatorScope, () => sealProductionPlan(internalPlan.id, {
+      planDigest: productionPlanDigest(internalPlan),
+    }));
+    await runWithTenant(operatorScope, () => approveProductionPlan(internalPlan.id, {
+      planDigest: productionPlanDigest(internalPlan),
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    }));
+    const paid = compileProductionOperations(internalPlan).find((item) => item.type === "generate_video")!;
+    const paidClaim = await runWithTenant(serviceScope, () => claimProductionOperation(
+      internalPlan.id, paid.id, { claimToken: "internal-paid-worker" },
+    ));
+    expect(paidClaim).toMatchObject({ outcome: "execute", claim: { kind: "paid" } });
+    await runWithTenant(serviceScope, () => startProductionProviderSubmission(
+      internalPlan.id, paid.id, {
+        claimId: paidClaim.claim.id, claimToken: "internal-paid-worker", provider: "veo",
+      },
+    ));
+    await runWithTenant(serviceScope, () => recordProductionProviderOperation(
+      internalPlan.id, paid.id, {
+        claimId: paidClaim.claim.id,
+        claimToken: "internal-paid-worker",
+        provider: "veo",
+        providerOperationId: "operations/internal-video",
+        nextPollAt: "2098-01-01T00:00:00.000Z",
+      },
+    ));
+    await runWithTenant(serviceScope, () => completePaidProductionOperation(
+      internalPlan.id, paid.id, {
+        claimId: paidClaim.claim.id,
+        claimToken: "internal-paid-worker",
+        artifact: {
+          objectKey: `durable-artifacts/${workspaceId}/${brandId}/production/plan-internal/video.mp4`,
+          mime: "video/mp4",
+          digest: "e".repeat(64),
+          sizeBytes: 100,
+        },
+        providerMetadata: { provider: "veo", providerOperationId: "operations/internal-video" },
+      },
+    ));
+    const build = compileProductionOperations(internalPlan).find((item) => item.type === "build_composition")!;
+    expect(await runWithTenant(serviceScope, () => listDispatchableProductionOutbox(
+      100, new Date("2098-01-02T00:00:00.000Z"),
+    ))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ planId: internalPlan.id, operationId: build.id, state: "pending" }),
+    ]));
+    const buildClaim = await runWithTenant(serviceScope, () => claimProductionOperation(
+      internalPlan.id, build.id, { claimToken: "internal-build-worker" },
+    ));
+    expect(buildClaim).toMatchObject({
+      outcome: "execute",
+      claim: { kind: "internal", operationId: build.id },
+      operation: { type: "build_composition" },
+      plan: { id: internalPlan.id },
+      inputs: [{ operationId: paid.id, artifact: { digest: "e".repeat(64) } }],
+    });
+    await runWithTenant(serviceScope, () => completeInternalProductionOperation(
+      internalPlan.id, build.id, {
+        claimId: buildClaim.claim.id,
+        claimToken: "internal-build-worker",
+        artifact: {
+          objectKey: `durable-artifacts/${workspaceId}/${brandId}/production/plan-internal/composition.zip`,
+          mime: "application/zip", digest: "1".repeat(64), sizeBytes: 100,
+        },
+        operationMetadata: { kind: "composition_workspace" },
+      },
+    ));
+    for (const [index, type] of [
+      "render_composition", "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production",
+    ].entries()) {
+      const operation = compileProductionOperations(internalPlan).find((item) => item.type === type)!;
+      const token = `internal-chain-worker-${index}`;
+      const claimed = await runWithTenant(serviceScope, () => claimProductionOperation(
+        internalPlan.id, operation.id, { claimToken: token },
+      ));
+      expect(claimed).toMatchObject({ outcome: "execute", claim: { kind: "internal" } });
+      const json = type === "inspect_media" || type === "evaluate_production";
+      await runWithTenant(serviceScope, () => completeInternalProductionOperation(
+        internalPlan.id, operation.id, {
+          claimId: claimed.claim.id,
+          claimToken: token,
+          artifact: {
+            objectKey: `durable-artifacts/${workspaceId}/${brandId}/production/plan-internal/${type}.${json ? "json" : "mp4"}`,
+            mime: json ? "application/json" : "video/mp4",
+            digest: String(index + 2).repeat(64),
+            sizeBytes: 100,
+          },
+          operationMetadata: { kind: type },
+        },
+      ));
+    }
+    const assemble = compileProductionOperations(internalPlan).find((item) => item.type === "assemble_export")!;
+    const assembleClaim = await runWithTenant(serviceScope, () => claimProductionOperation(
+      internalPlan.id, assemble.id, { claimToken: "internal-export-worker" },
+    ));
+    expect(assembleClaim).toMatchObject({
+      outcome: "execute",
+      inputs: [
+        { operationId: "plan-internal:ffmpeg_finalize" },
+        { operationId: "plan-internal:evaluate_production" },
+      ],
+    });
+  });
+
   it("rejects a claimed operation if its revision is superseded before provider submission", async () => {
     const raceJobId = `production-race-${Date.now()}`;
     const racePlan = videoProductionPlanSchema.parse({

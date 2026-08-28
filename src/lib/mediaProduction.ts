@@ -3,6 +3,7 @@ import { z } from "zod";
 
 const usd = z.string().regex(/^\d+\.\d{6}$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
+const identifier = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 
 export const VEO_CAPABILITIES = {
   "veo-3.1-fast": { model: "veo-3.1-fast-generate-001", resolutions: ["720p", "1080p"], durations: [4, 6, 8], modes: ["text_to_video"], usdPerSecond: "0.080000", preview: false },
@@ -83,13 +84,20 @@ export const generatedMusicSpecSchema = z.object({
 });
 
 const sceneSchema = z.object({
-  id: z.string().min(1), order: z.number().int().positive(), startSec: z.number().nonnegative(), durationSec: z.number().positive(),
+  id: identifier, order: z.number().int().positive(), startSec: z.number().nonnegative(), durationSec: z.number().positive(),
   purpose: z.string().min(1), sourceArtifactIds: z.array(z.string().min(1)), video: generatedVideoSpecSchema.optional(),
   overlays: z.array(z.record(z.string(), z.unknown())), captions: z.array(z.record(z.string(), z.unknown())), transitions: z.array(z.record(z.string(), z.unknown())),
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (value.sourceArtifactIds.length > 0) {
+    context.addIssue({ code: "custom", path: ["sourceArtifactIds"], message: "source artifact materialization is unavailable" });
+  }
+  if (!value.video) {
+    context.addIssue({ code: "custom", path: ["video"], message: "generated video is required until source materialization is implemented" });
+  }
+});
 
 export const videoProductionPlanSchema = z.object({
-  id: z.string().min(1), jobId: z.string().min(1), workspaceId: z.string().min(1), brandId: z.string().min(1), revision: z.number().int().positive(),
+  id: identifier, jobId: identifier, workspaceId: identifier, brandId: identifier, revision: z.number().int().positive(),
   goal: z.string().min(1), audience: z.string().min(1), tone: z.array(z.string().min(1)).min(1),
   target: z.object({ platform: z.string().min(1), durationSec: z.number().positive(), aspectRatio: z.enum(["16:9", "9:16"]), resolution: z.enum(["720p", "1080p", "4k"]), frameRate: z.union([z.literal(24), z.literal(25), z.literal(30), z.literal(60)]), format: z.literal("mp4") }).strict(),
   scenes: z.array(sceneSchema).min(1), soundtrack: generatedMusicSpecSchema.optional(),
@@ -293,10 +301,22 @@ export function compileProductionOperations(plan: VideoProductionPlan): Producti
   const chain: ProductionOperation[] = [
     { id: buildId, jobId: plan.jobId, type: "build_composition", dependsOn: paid.map((item) => item.id), payload: { planDigest: productionPlanDigest(plan) }, requestDigest: sha({ planDigest: productionPlanDigest(plan) }), executionAuthority: "internal" },
   ];
-  for (const type of ["render_composition", "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production", "assemble_export"] as const) {
+  for (const type of ["render_composition", "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production"] as const) {
     const previous = chain.at(-1)!.id;
     const id = `${plan.id}:${type}`;
     chain.push({ id, jobId: plan.jobId, type, dependsOn: [previous], payload: { planDigest: productionPlanDigest(plan) }, requestDigest: sha({ type, planDigest: productionPlanDigest(plan) }), executionAuthority: "internal" });
   }
+  const finalId = `${plan.id}:ffmpeg_finalize`;
+  const evaluationId = `${plan.id}:evaluate_production`;
+  const exportType = "assemble_export" as const;
+  chain.push({
+    id: `${plan.id}:${exportType}`,
+    jobId: plan.jobId,
+    type: exportType,
+    dependsOn: [finalId, evaluationId],
+    payload: { planDigest: productionPlanDigest(plan) },
+    requestDigest: sha({ type: exportType, planDigest: productionPlanDigest(plan) }),
+    executionAuthority: "internal",
+  });
   return [...paid, ...chain];
 }

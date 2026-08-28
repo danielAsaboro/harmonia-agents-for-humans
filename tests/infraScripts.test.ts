@@ -6,6 +6,11 @@ const setup = readFileSync(new URL("../infra/setup.sh", import.meta.url), "utf8"
 const indexes = JSON.parse(readFileSync(new URL("../firestore.indexes.json", import.meta.url), "utf8"));
 
 describe("cloud infrastructure scripts", () => {
+  it("allows a production operation to outlive the worker's longest media subprocess", () => {
+    expect(deploy).toContain("--timeout 1200");
+    expect(deploy).not.toContain("--timeout 300");
+  });
+
   it("updates an existing push subscription instead of silently keeping stale settings", () => {
     expect(deploy).toContain("subscriptions describe harmonia-stages-agent-push");
     expect(deploy).toContain("subscriptions update harmonia-stages-agent-push");

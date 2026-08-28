@@ -1,10 +1,12 @@
-"""Executor for sealed, mandate-authorized paid production operations."""
+"""Executor for sealed paid generation and cost-free production operations."""
 
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import secrets
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
@@ -22,9 +24,21 @@ from .generative_media import (
 )
 from .usage import InvocationContext, media_usage_record
 from .telemetry import current_trace_id
-from .production_media import inspect_media
+from .production_media import (
+    CompositionCompileError,
+    MediaInspectionError,
+    compile_hyperframes_composition,
+    create_deterministic_archive,
+    evaluate_media_quality,
+    extract_verified_archive,
+    finalize_media,
+    inspect_media,
+    mix_media_audio,
+    render_hyperframes_composition,
+)
 from .web_client import (
     claim_production_operation,
+    download_production_artifact,
     record_production_provider_operation,
     record_production_operation_failure,
     report_usage,
@@ -62,7 +76,237 @@ def inspect_generated_media_bytes(data: bytes, mime: str) -> dict[str, Any]:
     return inspection
 
 
-def execute_paid_production_operation(
+def _target_dimensions(plan: dict[str, Any]) -> tuple[int, int]:
+    target = plan.get("target")
+    if not isinstance(target, dict):
+        raise ProductionExecutionProtocolError("production plan target is missing")
+    aspect = target.get("aspectRatio")
+    resolution = target.get("resolution")
+    base = {
+        "9:16": (1080, 1920),
+        "16:9": (1920, 1080),
+        "1:1": (1080, 1080),
+        "4:5": (1080, 1350),
+    }.get(str(aspect))
+    if base is None:
+        raise ProductionExecutionProtocolError("production target aspect ratio is unsupported")
+    multiplier = 2 if resolution == "4k" else 1
+    return base[0] * multiplier, base[1] * multiplier
+
+
+def _json_bytes(value: Any) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _artifact_extension(mime: str) -> str:
+    return {
+        "video/mp4": ".mp4",
+        "audio/mpeg": ".mp3",
+        "audio/wav": ".wav",
+        "application/zip": ".zip",
+        "application/json": ".json",
+    }.get(mime, ".bin")
+
+
+def _download_inputs(plan_id: str, inputs: list[dict[str, Any]]) -> dict[str, tuple[bytes, str, str]]:
+    downloaded: dict[str, tuple[bytes, str, str]] = {}
+    for value in inputs:
+        operation_id = value.get("operationId")
+        artifact = value.get("artifact")
+        if not isinstance(operation_id, str) or not isinstance(artifact, dict):
+            raise ProductionExecutionProtocolError("internal production input is malformed")
+        data, mime, digest = download_production_artifact(plan_id, operation_id)
+        if digest != artifact.get("digest") or mime.split(";", 1)[0] != artifact.get("mime"):
+            raise ProductionExecutionProtocolError("downloaded production input binding mismatch")
+        downloaded[operation_id] = (data, mime.split(";", 1)[0], digest)
+    return downloaded
+
+
+def _upload_internal_result(
+    plan_id: str,
+    operation_id: str,
+    claim: dict[str, Any],
+    token: str,
+    data: bytes,
+    mime: str,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    return upload_production_artifact(
+        plan_id,
+        operation_id,
+        claim_id=str(claim["id"]),
+        claim_token=token,
+        mime=mime,
+        digest=hashlib.sha256(data).hexdigest(),
+        data=data,
+        operation_metadata=metadata,
+    )
+
+
+def _execute_internal_operation(
+    plan_id: str,
+    operation_id: str,
+    token: str,
+    decision: dict[str, Any],
+) -> dict[str, Any]:
+    claim = decision["claim"]
+    operation = decision.get("operation")
+    plan = decision.get("plan")
+    inputs = decision.get("inputs")
+    if not isinstance(operation, dict) or operation.get("executionAuthority") != "internal":
+        raise ProductionExecutionProtocolError("internal production authority binding is invalid")
+    if not isinstance(plan, dict) or not isinstance(inputs, list):
+        raise ProductionExecutionProtocolError("internal production execution context is incomplete")
+    downloaded = _download_inputs(plan_id, inputs)
+    operation_type = operation.get("type")
+    with tempfile.TemporaryDirectory() as directory:
+        workspace = Path(directory)
+        if operation_type == "build_composition":
+            assets = workspace / "assets"
+            assets.mkdir()
+            scenes: list[dict[str, Any]] = []
+            for scene in sorted(plan.get("scenes") or [], key=lambda value: value.get("order", 0)):
+                spec = scene.get("video")
+                if not isinstance(spec, dict):
+                    raise ProductionExecutionProtocolError("source-only scenes are not materialized for composition")
+                generated_type = "extend_video" if spec.get("mode") == "extend_video" else "generate_video"
+                source_id = f"{plan_id}:{generated_type}:{scene['id']}"
+                if source_id not in downloaded:
+                    raise ProductionExecutionProtocolError("generated scene artifact is missing")
+                data, mime, digest = downloaded[source_id]
+                if mime != "video/mp4":
+                    raise ProductionExecutionProtocolError("scene input is not verified MP4 video")
+                relative = f"assets/{digest}.mp4"
+                (workspace / relative).write_bytes(data)
+                scenes.append({
+                    "id": scene["id"],
+                    "startSec": scene["startSec"],
+                    "durationSec": scene["durationSec"],
+                    "videoPath": relative,
+                    "title": scene.get("purpose") or "",
+                })
+            music = None
+            music_id = f"{plan_id}:generate_music"
+            if music_id in downloaded:
+                data, mime, digest = downloaded[music_id]
+                relative = f"assets/{digest}{_artifact_extension(mime)}"
+                (workspace / relative).write_bytes(data)
+                music = {"path": relative, "volume": 0.8}
+            width, height = _target_dimensions(plan)
+            manifest = compile_hyperframes_composition({
+                "id": plan_id,
+                "durationSec": plan["target"]["durationSec"],
+                "width": width,
+                "height": height,
+                "scenes": scenes,
+                "narration": [],
+                **({"music": music} if music else {}),
+            }, workspace)
+            try:
+                version = subprocess.run(
+                    ["hyperframes", "--version"], check=True, capture_output=True, text=True, timeout=30,
+                ).stdout.strip()
+            except (OSError, subprocess.SubprocessError) as exc:
+                raise ProductionExecutionProtocolError("pinned HyperFrames CLI is unavailable") from exc
+            manifest.update({
+                "planDigest": claim["planDigest"],
+                "operationId": operation_id,
+                "inputDigests": claim["inputDigests"],
+                "hyperframesVersion": version,
+            })
+            (workspace / "composition-manifest.json").write_bytes(_json_bytes(manifest))
+            data = create_deterministic_archive(workspace)
+            mime = "application/zip"
+            metadata = {"kind": "composition_workspace", "manifest": manifest}
+        elif operation_type == "render_composition":
+            source = next(iter(downloaded.values()), None)
+            if source is None or source[1] != "application/zip":
+                raise ProductionExecutionProtocolError("render input is not a composition archive")
+            extract_verified_archive(source[0], workspace)
+            output = render_hyperframes_composition(workspace, workspace / "render.mp4")
+            data = output.read_bytes()
+            mime = "video/mp4"
+            metadata = {"kind": "hyperframes_render", "inspection": inspect_media(output)}
+        elif operation_type in {"mix_audio", "ffmpeg_finalize"}:
+            source = next(iter(downloaded.values()), None)
+            if source is None or source[1] != "video/mp4":
+                raise ProductionExecutionProtocolError("ffmpeg input is not verified MP4 video")
+            source_path = workspace / "input.mp4"
+            source_path.write_bytes(source[0])
+            output = workspace / "output.mp4"
+            if operation_type == "mix_audio":
+                mix_media_audio(source_path, output)
+                kind = "ffmpeg_audio_mix"
+            else:
+                width, height = _target_dimensions(plan)
+                finalize_media(
+                    source_path,
+                    output,
+                    width=width,
+                    height=height,
+                    frame_rate=int(plan["target"]["frameRate"]),
+                )
+                kind = "ffmpeg_final"
+            data = output.read_bytes()
+            mime = "video/mp4"
+            metadata = {"kind": kind, "inspection": inspect_media(output)}
+        elif operation_type == "inspect_media":
+            source = next(iter(downloaded.values()), None)
+            if source is None or source[1] != "video/mp4":
+                raise ProductionExecutionProtocolError("inspection input is not verified MP4 video")
+            path = workspace / "final.mp4"
+            path.write_bytes(source[0])
+            report = inspect_media(path)
+            data = _json_bytes(report)
+            mime = "application/json"
+            metadata = {"kind": "ffprobe_inspection", "report": report}
+        elif operation_type == "evaluate_production":
+            source = next(iter(downloaded.values()), None)
+            if source is None or source[1] != "application/json":
+                raise ProductionExecutionProtocolError("QA input is not an inspection receipt")
+            inspection = json.loads(source[0])
+            width, height = _target_dimensions(plan)
+            report = evaluate_media_quality(inspection, {
+                "durationSec": plan["target"]["durationSec"],
+                "width": width,
+                "height": height,
+                "frameRate": plan["target"]["frameRate"],
+            })
+            if not report["passed"]:
+                raise ProductionExecutionProtocolError(
+                    "production QA failed: " + ",".join(report["issues"])
+                )
+            data = _json_bytes(report)
+            mime = "application/json"
+            metadata = {"kind": "production_qa", "report": report}
+        elif operation_type == "assemble_export":
+            final_input = next((value for key, value in downloaded.items() if key.endswith(":ffmpeg_finalize")), None)
+            qa_input = next((value for key, value in downloaded.items() if key.endswith(":evaluate_production")), None)
+            if final_input is None or final_input[1] != "video/mp4" or qa_input is None or qa_input[1] != "application/json":
+                raise ProductionExecutionProtocolError("content pack inputs are incomplete")
+            pack = workspace / "pack"
+            pack.mkdir()
+            (pack / "final.mp4").write_bytes(final_input[0])
+            (pack / "qa.json").write_bytes(qa_input[0])
+            receipt = {
+                "schemaVersion": 1,
+                "planId": plan_id,
+                "planDigest": claim["planDigest"],
+                "artifacts": {key: value[2] for key, value in sorted(downloaded.items())},
+            }
+            (pack / "export-receipt.json").write_bytes(_json_bytes(receipt))
+            data = create_deterministic_archive(pack)
+            mime = "application/zip"
+            metadata = {"kind": "content_pack", "receipt": receipt}
+        else:
+            raise ProductionExecutionProtocolError(f"unsupported internal production operation: {operation_type}")
+    completed = _upload_internal_result(
+        plan_id, operation_id, claim, token, data, mime, metadata,
+    )
+    return {"outcome": "succeeded", "claim": completed}
+
+
+def execute_production_operation(
     plan_id: str,
     operation_id: str,
     *,
@@ -78,6 +322,27 @@ def execute_paid_production_operation(
         return {"outcome": outcome, "artifact": claim.get("artifact")}
     if outcome != "execute":
         return {"outcome": outcome}
+
+    if claim.get("kind") == "internal":
+        try:
+            return _execute_internal_operation(plan_id, operation_id, token, decision)
+        except (
+            ProductionExecutionProtocolError,
+            CompositionCompileError,
+            MediaInspectionError,
+            json.JSONDecodeError,
+        ) as exc:
+            record_production_operation_failure(
+                plan_id,
+                operation_id,
+                claim_id=claim["id"],
+                claim_token=token,
+                outcome="failed",
+                reason=f"{type(exc).__name__}: {exc}"[:2000],
+            )
+            raise
+    if claim.get("kind") != "paid":
+        raise ProductionExecutionProtocolError("production claim kind is invalid")
 
     operation = decision.get("operation")
     if not isinstance(operation, dict):
@@ -255,7 +520,7 @@ def execute_paid_production_operation(
             mime=generated.mime,
             digest=digest,
             data=generated.data,
-            provider_metadata=provider_metadata,
+            operation_metadata=provider_metadata,
         )
     except Exception as exc:
         quarantine(exc, "failed")

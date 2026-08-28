@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from pathlib import Path
+import json
 
 from harmonia_agent import production_executor
 from harmonia_agent.generative_media import GeneratedMedia, MediaOperationPending, MediaProviderError
@@ -34,6 +36,7 @@ def _operation() -> dict:
 
 def _claim(*, provider_operation_id: str | None = None) -> dict:
     claim = {
+        "kind": "paid",
         "id": "claim-1",
         "planId": "plan-1",
         "jobId": "job-1",
@@ -80,14 +83,14 @@ def test_executor_claims_sealed_operation_before_provider_and_uploads_verified_b
     monkeypatch.setattr(production_executor, "inspect_generated_media_bytes", lambda data, mime: inspected.append((data, mime)) or {"durationSec": 4.0, "video": {"codec": "h264"}})
     monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: order.append("submission"))
 
-    result = production_executor.execute_paid_production_operation("plan-1", _operation()["id"], claim_token="worker-1")
+    result = production_executor.execute_production_operation("plan-1", _operation()["id"], claim_token="worker-1")
 
     assert result["outcome"] == "succeeded"
     assert order[:3] == ["claim", "budget:0.320000", "submission"]
     assert provider_records[0]["provider_operation_id"].endswith("veo-1")
     assert uploads[0]["data"] == b"real-video-bytes"
-    assert uploads[0]["provider_metadata"]["estimatedCostUsd"] == "0.320000"
-    assert uploads[0]["provider_metadata"]["inspection"]["video"]["codec"] == "h264"
+    assert uploads[0]["operation_metadata"]["estimatedCostUsd"] == "0.320000"
+    assert uploads[0]["operation_metadata"]["inspection"]["video"]["codec"] == "h264"
     assert inspected == [(b"real-video-bytes", "video/mp4")]
 
 
@@ -106,7 +109,7 @@ def test_executor_resumes_persisted_veo_identity_without_duplicate_submission(mo
     monkeypatch.setattr(production_executor.VeoGenerator, "generate", pending)
     monkeypatch.setattr(production_executor, "record_production_provider_operation", lambda *_args, **_kwargs: None)
 
-    result = production_executor.execute_paid_production_operation("plan-1", _operation()["id"], claim_token="worker-2")
+    result = production_executor.execute_production_operation("plan-1", _operation()["id"], claim_token="worker-2")
 
     assert result == {"outcome": "waiting_provider", "providerOperationId": "operations/existing"}
 
@@ -118,7 +121,7 @@ def test_executor_returns_terminal_duplicate_without_invoking_provider(monkeypat
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: duplicate)
     monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("provider must not run")))
 
-    result = production_executor.execute_paid_production_operation("plan-1", _operation()["id"], claim_token="worker-3")
+    result = production_executor.execute_production_operation("plan-1", _operation()["id"], claim_token="worker-3")
 
     assert result == {"outcome": "already_succeeded", "artifact": {"digest": "b" * 64}}
 
@@ -136,7 +139,7 @@ def test_executor_quarantines_ambiguous_provider_failure_without_resubmission(mo
     monkeypatch.setattr(production_executor, "resolve_budget_reservation", resolutions.append)
 
     try:
-        production_executor.execute_paid_production_operation("plan-1", _operation()["id"], claim_token="worker-4")
+        production_executor.execute_production_operation("plan-1", _operation()["id"], claim_token="worker-4")
     except TimeoutError as exc:
         assert str(exc) == "provider timeout"
     else:
@@ -167,7 +170,7 @@ def test_executor_requeues_transient_veo_poll_failure_after_provider_identity_is
 
     monkeypatch.setattr(production_executor.VeoGenerator, "generate", transient_poll)
 
-    result = production_executor.execute_paid_production_operation(
+    result = production_executor.execute_production_operation(
         "plan-1", _operation()["id"], claim_token="worker-transient",
     )
 
@@ -182,7 +185,7 @@ def test_executor_persists_budget_rejection_as_terminal_failure_before_provider(
     monkeypatch.setattr(production_executor, "record_production_operation_failure", lambda *args, **kwargs: failures.append(kwargs) or {"state": "failed"})
     monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("provider must not run")))
 
-    result = production_executor.execute_paid_production_operation(
+    result = production_executor.execute_production_operation(
         "plan-1", _operation()["id"], claim_token="worker-budget-rejected",
     )
 
@@ -205,7 +208,7 @@ def test_executor_releases_budget_when_predispatch_authorization_is_revoked(monk
     monkeypatch.setattr(production_executor, "resolve_budget_reservation", resolutions.append)
     monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("provider must not run")))
 
-    result = production_executor.execute_paid_production_operation(
+    result = production_executor.execute_production_operation(
         "plan-1", _operation()["id"], claim_token="worker-revoked",
     )
 
@@ -229,10 +232,95 @@ def test_executor_surfaces_failed_veo_poll_rearm_for_pubsub_retry(monkeypatch):
     monkeypatch.setattr(production_executor, "record_production_operation_failure", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("transient persisted poll must not be terminal")))
 
     try:
-        production_executor.execute_paid_production_operation(
+        production_executor.execute_production_operation(
             "plan-1", _operation()["id"], claim_token="worker-rearm-failure",
         )
     except WebApiError as exc:
         assert exc.status == 503
     else:
         raise AssertionError("failed durable re-arm must remain retryable")
+
+
+def test_internal_build_compiles_verified_inputs_to_a_durable_composition_archive(monkeypatch, tmp_path: Path):
+    operation_id = "plan-1:build_composition"
+    video_operation_id = _operation()["id"]
+    decision = {
+        "outcome": "execute",
+        "claim": {
+            "kind": "internal", "id": "internal-claim", "planId": "plan-1",
+            "planDigest": "f" * 64, "operationId": operation_id,
+            "inputDigests": [{"operationId": video_operation_id, "digest": "e" * 64}],
+        },
+        "operation": {
+            "id": operation_id, "type": "build_composition", "executionAuthority": "internal",
+        },
+        "plan": {
+            "id": "plan-1",
+            "target": {"durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p", "frameRate": 30},
+            "scenes": [{
+                "id": "scene-1", "order": 1, "startSec": 0, "durationSec": 4,
+                "purpose": "Launch", "video": _operation()["payload"],
+            }],
+        },
+        "inputs": [{
+            "operationId": video_operation_id,
+            "artifact": {"mime": "video/mp4", "digest": "e" * 64},
+        }],
+    }
+    uploads: list[dict] = []
+    monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: decision)
+    monkeypatch.setattr(production_executor, "download_production_artifact", lambda *_args: (b"verified-video", "video/mp4", "e" * 64))
+    monkeypatch.setattr(production_executor, "upload_production_artifact", lambda *args, **kwargs: uploads.append(kwargs) or {"state": "succeeded"})
+    monkeypatch.setattr(production_executor.subprocess, "run", lambda *_args, **_kwargs: SimpleNamespace(stdout="0.8.20\n"))
+
+    result = production_executor.execute_production_operation(
+        "plan-1", operation_id, claim_token="internal-worker",
+    )
+
+    assert result == {"outcome": "succeeded", "claim": {"state": "succeeded"}}
+    assert uploads[0]["mime"] == "application/zip"
+    extracted = tmp_path / "composition"
+    production_executor.extract_verified_archive(uploads[0]["data"], extracted)
+    manifest = json.loads((extracted / "composition-manifest.json").read_text())
+    assert manifest["hyperframesVersion"] == "0.8.20"
+    assert manifest["inputDigests"] == decision["claim"]["inputDigests"]
+    assert (extracted / "assets" / f"{'e' * 64}.mp4").read_bytes() == b"verified-video"
+
+
+def test_internal_media_failure_is_persisted_as_terminal(monkeypatch):
+    operation_id = "plan-1:render_composition"
+    decision = {
+        "outcome": "execute",
+        "claim": {"kind": "internal", "id": "claim-internal", "operationId": operation_id},
+        "operation": {"id": operation_id, "type": "render_composition", "executionAuthority": "internal"},
+        "plan": {},
+        "inputs": [],
+    }
+    failures: list[dict] = []
+    monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: decision)
+    monkeypatch.setattr(
+        production_executor,
+        "_execute_internal_operation",
+        lambda *_args: (_ for _ in ()).throw(production_executor.MediaInspectionError("strict render failed")),
+    )
+    monkeypatch.setattr(
+        production_executor,
+        "record_production_operation_failure",
+        lambda *args, **kwargs: failures.append(kwargs) or {"state": "failed"},
+    )
+
+    try:
+        production_executor.execute_production_operation(
+            "plan-1", operation_id, claim_token="worker-internal",
+        )
+    except production_executor.MediaInspectionError as exc:
+        assert str(exc) == "strict render failed"
+    else:
+        raise AssertionError("deterministic media failure must remain visible")
+
+    assert failures == [{
+        "claim_id": "claim-internal",
+        "claim_token": "worker-internal",
+        "outcome": "failed",
+        "reason": "MediaInspectionError: strict render failed",
+    }]

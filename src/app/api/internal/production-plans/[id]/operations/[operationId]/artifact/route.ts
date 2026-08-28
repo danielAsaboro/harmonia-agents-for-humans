@@ -3,12 +3,12 @@ import { z } from "zod";
 
 import { internalTenantHandler } from "@/lib/internalAuth";
 import { productionPlanError } from "@/lib/productionPlanHttp";
-import { completePaidProductionOperation } from "@/lib/productionPlanStore";
-import { putDurableArtifactObject } from "@/lib/storage";
+import { completeProductionOperation, getProductionOperationArtifact } from "@/lib/productionPlanStore";
+import { getDurableArtifactObject, putDurableArtifactObject } from "@/lib/storage";
 import { currentTenant } from "@/lib/tenancy";
 
 const MAX_BYTES = 64 * 1024 * 1024;
-const mimeSchema = z.enum(["video/mp4", "audio/mpeg", "audio/wav"]);
+const mimeSchema = z.enum(["video/mp4", "audio/mpeg", "audio/wav", "application/zip", "application/json"]);
 const metadataSchema = z.record(z.string(), z.unknown());
 
 async function post(
@@ -20,7 +20,7 @@ async function post(
   const claimToken = request.headers.get("x-claim-token") ?? "";
   const expectedDigest = request.headers.get("x-artifact-digest") ?? "";
   const parsedMime = mimeSchema.safeParse(request.headers.get("x-artifact-mime"));
-  const metadataText = request.headers.get("x-provider-metadata") ?? "";
+  const metadataText = request.headers.get("x-operation-metadata") ?? "";
   let metadataJson: unknown = null;
   try {
     if (metadataText.length <= 8192) metadataJson = JSON.parse(metadataText || "null");
@@ -47,14 +47,17 @@ async function post(
   }
   try {
     const tenant = currentTenant();
-    const extension = parsedMime.data === "video/mp4" ? "mp4" : parsedMime.data === "audio/mpeg" ? "mp3" : "wav";
+    const extension = parsedMime.data === "video/mp4" ? "mp4"
+      : parsedMime.data === "audio/mpeg" ? "mp3"
+        : parsedMime.data === "audio/wav" ? "wav"
+          : parsedMime.data === "application/zip" ? "zip" : "json";
     const objectKey = `durable-artifacts/${tenant.workspaceId}/${tenant.brandId}/production/${id}/${claimId}/${digest}.${extension}`;
     await putDurableArtifactObject(objectKey, bytes, parsedMime.data);
-    const claim = await completePaidProductionOperation(id, operationId, {
+    const claim = await completeProductionOperation(id, operationId, {
       claimId,
       claimToken,
       artifact: { objectKey, mime: parsedMime.data, digest, sizeBytes: bytes.byteLength },
-      providerMetadata: parsedMetadata.data,
+      operationMetadata: parsedMetadata.data,
     });
     return Response.json({ claim });
   } catch (error) {
@@ -62,4 +65,28 @@ async function post(
   }
 }
 
+async function get(
+  _request: Request,
+  { params }: { params: Promise<{ id: string; operationId: string }> },
+) {
+  const { id, operationId } = await params;
+  try {
+    const artifact = await getProductionOperationArtifact(id, operationId);
+    const bytes = await getDurableArtifactObject(artifact.objectKey);
+    if (!bytes || createHash("sha256").update(bytes).digest("hex") !== artifact.digest) {
+      return Response.json({ error: "production artifact bytes failed verification" }, { status: 409 });
+    }
+    return new Response(new Uint8Array(bytes), {
+      headers: {
+        "content-type": artifact.mime,
+        "content-length": String(bytes.byteLength),
+        "x-artifact-digest": artifact.digest,
+      },
+    });
+  } catch (error) {
+    return productionPlanError(error);
+  }
+}
+
 export const POST = internalTenantHandler(post);
+export const GET = internalTenantHandler(get);

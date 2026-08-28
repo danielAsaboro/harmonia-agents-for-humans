@@ -16,4 +16,9 @@ describe("agent image dependency contract", () => {
     expect(dockerfile).toContain("pip install --no-cache-dir -r requirements.lock");
     expect(lock).toContain("google-adk==2.7.1");
   });
+
+  it("installs a build-time browser for unprivileged HyperFrames rendering", () => {
+    expect(dockerfile).toMatch(/apt-get install[^\n]*chromium/);
+    expect(dockerfile).toContain('HYPERFRAMES_BROWSER_PATH="/usr/bin/chromium"');
+  });
 });

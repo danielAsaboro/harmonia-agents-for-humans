@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { internalTenantHandler } from "@/lib/internalAuth";
 import { productionPlanError } from "@/lib/productionPlanHttp";
-import { claimPaidProductionOperation } from "@/lib/productionPlanStore";
+import { claimProductionOperation } from "@/lib/productionPlanStore";
 
 const bodySchema = z.object({ claimToken: z.string().min(1).max(512) }).strict();
 
@@ -14,7 +14,7 @@ async function post(
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "invalid production operation claim" }, { status: 400 });
   try {
-    return Response.json(await claimPaidProductionOperation(id, operationId, parsed.data));
+    return Response.json(await claimProductionOperation(id, operationId, parsed.data));
   } catch (error) {
     return productionPlanError(error);
   }

@@ -195,7 +195,7 @@ gcloud run deploy harmonia-agent \
   --service-account "harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
   --no-allow-unauthenticated \
   --min-instances 1 --max-instances 1 --no-cpu-throttling \
-  --timeout 300 \
+  --timeout 1200 \
   --set-env-vars "${AGENT_ENV}" \
   --set-secrets "${AGENT_SECRETS}" \
   --project "${PROJECT_ID}"

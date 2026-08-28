@@ -6,6 +6,10 @@ from harmonia_agent.production_media import (
     CompositionCompileError,
     apply_voiceover_carve,
     compile_hyperframes_composition,
+    create_deterministic_archive,
+    evaluate_media_quality,
+    extract_verified_archive,
+    finalize_media,
     inspect_media,
     render_hyperframes_composition,
 )
@@ -30,6 +34,8 @@ def test_compiler_emits_deterministic_hyperframes_timeline_and_grouped_voice_car
     assert 'data-audio-group="voiceover"' in html
     assert 'data-fx-carve=' in html and '&quot;voiceover&quot;' in html
     assert "Launch &lt;now&gt;" in html
+    assert "font:700 clamp(24px,6vw,64px)/1.05" in html
+    assert "overflow-wrap:anywhere" in html
     assert manifest["inputs"] == ["assets/music.mp3", "assets/shot.mp4", "assets/voice.wav"]
     assert manifest["voiceoverCarve"]["sources"] == ["voiceover"]
 
@@ -39,6 +45,19 @@ def test_compiler_rejects_paths_outside_its_workspace(tmp_path: Path):
         compile_hyperframes_composition({
             "id": "plan-1", "durationSec": 4, "width": 1080, "height": 1920,
             "scenes": [{"id": "scene-1", "startSec": 0, "durationSec": 4, "videoPath": "../secret.mp4"}],
+            "narration": [],
+        }, tmp_path)
+
+
+def test_compiler_rejects_untrusted_scene_ids_before_html_generation(tmp_path: Path):
+    (tmp_path / "shot.mp4").write_bytes(b"video")
+    with pytest.raises(CompositionCompileError, match="scene id"):
+        compile_hyperframes_composition({
+            "id": "plan-1", "durationSec": 4, "width": 1080, "height": 1920,
+            "scenes": [{
+                "id": 'scene\" onload=\"alert(1)', "startSec": 0, "durationSec": 4,
+                "videoPath": "shot.mp4",
+            }],
             "narration": [],
         }, tmp_path)
 
@@ -106,3 +125,47 @@ def test_voiceover_carve_runs_analysis_and_requires_render_attributes(tmp_path: 
     assert result["applied"] is True
     assert "data-fx-chain=" in (tmp_path / "index.html").read_text()
     assert "data-automation=" in (tmp_path / "index.html").read_text()
+
+
+def test_composition_archive_is_deterministic_and_rejects_traversal(tmp_path: Path):
+    import io
+    import zipfile
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "index.html").write_text("<html>safe</html>")
+    (workspace / "asset.bin").write_bytes(b"asset")
+    first = create_deterministic_archive(workspace)
+    second = create_deterministic_archive(workspace)
+    assert first == second
+    extracted = tmp_path / "extracted"
+    extract_verified_archive(first, extracted)
+    assert (extracted / "index.html").read_text() == "<html>safe</html>"
+
+    malicious = io.BytesIO()
+    with zipfile.ZipFile(malicious, "w") as archive:
+        archive.writestr("../escape.txt", "no")
+    with pytest.raises(CompositionCompileError, match="archive path"):
+        extract_verified_archive(malicious.getvalue(), tmp_path / "malicious")
+
+
+def test_ffmpeg_finalization_and_qa_enforce_delivery_shape(tmp_path: Path):
+    import subprocess
+
+    source = tmp_path / "source.mp4"
+    subprocess.run([
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "color=c=blue:s=320x240:r=24:d=1",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=1",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(source),
+    ], check=True)
+    finalized = finalize_media(source, tmp_path / "final.mp4", width=270, height=480, frame_rate=30)
+    inspection = inspect_media(finalized)
+    assert inspection["video"] == {"codec": "h264", "width": 270, "height": 480, "frameRate": 30.0}
+    assert inspection["audio"]["sampleRate"] == 48000
+    assert inspection["audio"]["channels"] == 2
+    qa = evaluate_media_quality(inspection, {
+        "durationSec": 1, "width": 270, "height": 480, "frameRate": 30,
+    })
+    assert qa["passed"] is True
+    assert qa["issues"] == []

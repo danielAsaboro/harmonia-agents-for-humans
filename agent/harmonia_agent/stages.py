@@ -20,6 +20,7 @@ from opentelemetry.trace import Status, StatusCode
 from pydantic import ValidationError
 
 from . import clipper, content, x_client, youtube
+from .linkedin_client import LinkedInClient
 from .agent_models import (
     SourceAnalysis,
     AnalystInput,
@@ -758,11 +759,16 @@ async def run_publish(job_id: str) -> None:
             "payload": command["payload"],
         }
         key = command["payloadDigest"]
-        if action["type"] == "publish_x_post":
-            connection = get_connection("x")
+        if action["type"] in {"publish_x_post", "publish_linkedin_post"}:
+            connection_kind = "x" if action["type"] == "publish_x_post" else "linkedin"
+            connection = get_connection(connection_kind)
+            adapters = production_adapters(
+                x_access_token=str(connection.get("accessToken") or "") if connection_kind == "x" else "",
+                linkedin_access_token=str(connection.get("accessToken") or "") if connection_kind == "linkedin" else "",
+            )
             result = execute_effect_command(
                 command,
-                adapters=production_adapters(str(connection.get("accessToken") or "")),
+                adapters=adapters,
             )
             if result.outcome == "in_progress":
                 raise EffectClaimInProgress("another worker currently owns this effect")
@@ -1105,6 +1111,19 @@ async def run_verify(job_id: str) -> None:
                     if not post else
                     "X readback content digest does not match the receipted approved content"
                 ),
+            })
+        elif action["type"] == "publish_linkedin_post" and detail.get("id"):
+            connection = get_connection("linkedin")
+            payload = action.get("payload") or {}
+            post = LinkedInClient(str(connection.get("accessToken") or "")).get_post(str(detail["id"]), payload.get("destination") or {})
+            observed_digest = hashlib.sha256(post["text"].encode()).hexdigest()
+            expected_digest = (receipt.get("artifact") or {}).get("digest")
+            matches = bool(expected_digest and observed_digest == expected_digest)
+            results.append({
+                "target": f"linkedin:{detail['id']}", "actionId": action["id"],
+                "verified": matches, "method": "official_api_readback", **lineage,
+                "evidence": {"kind": "linkedin_api", "url": post["url"], "fetchedAt": _now(), "digest": observed_digest},
+                "note": "LinkedIn readback content and destination match the approved artifact" if matches else "LinkedIn readback content digest mismatch",
             })
         elif action["type"] == "export_content_pack" and job.get("contentPack"):
             pack = job["contentPack"]

@@ -211,6 +211,7 @@ export const evidenceRefSchema = z.object({
     "media_file",
     "gemini_call",
     "x_api",
+    "linkedin_api",
     "firestore_doc",
     "http_probe",
     "asset_store",

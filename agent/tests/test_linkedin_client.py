@@ -3,6 +3,7 @@ import httpx
 import pytest
 
 from harmonia_agent.linkedin_client import LinkedInClient, LinkedInError
+from harmonia_agent.effect_executor import linkedin_publish_adapter
 
 
 def test_publish_binds_exact_author_and_reads_post_back():
@@ -25,3 +26,11 @@ def test_readback_rejects_author_mismatch():
     client = LinkedInClient("token", transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={"author": "urn:li:person:other", "commentary": "Body"})))
     with pytest.raises(LinkedInError, match="author mismatch"):
         client.get_post("urn:li:share:123", {"kind": "linkedin_member", "id": "me"})
+
+
+def test_effect_adapter_receipts_exact_body_digest(monkeypatch):
+    monkeypatch.setattr(LinkedInClient, "publish_post", lambda self, body, destination: {"id": "urn:li:share:123", "url": "https://www.linkedin.com/feed/update/urn:li:share:123/"})
+    result = linkedin_publish_adapter({"body": "Exact approved body", "destination": {"kind": "linkedin_member", "id": "me"}}, "token")
+    assert result["outcome"] == "applied"
+    assert result["detail"]["id"] == "urn:li:share:123"
+    assert result["artifact"]["digest"] == "be2201c66cb053fa0485169bcc35d1b4e94e261ed4b1d41c32f1001cfbe80f5c"

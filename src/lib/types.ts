@@ -483,6 +483,7 @@ export interface EvidenceRef {
     | "media_file"
     | "gemini_call"
     | "x_api"
+    | "linkedin_api"
     | "http_probe"
     | "firestore_doc"
     | "asset_store";

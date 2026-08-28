@@ -377,7 +377,7 @@ def test_publish_uses_immutable_command_payload_not_mutable_job_action(monkeypat
     monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [command])
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
     monkeypatch.setattr(stages, "get_connection", lambda _platform: {"accessToken": "fresh"})
-    monkeypatch.setattr(stages, "production_adapters", lambda _token: {"publish_x_post": lambda payload: posted.append(payload["text"]) or {"outcome": "applied", "detail": {"id": "post-1"}}})
+    monkeypatch.setattr(stages, "production_adapters", lambda **_tokens: {"publish_x_post": lambda payload: posted.append(payload["text"]) or {"outcome": "applied", "detail": {"id": "post-1"}}})
     monkeypatch.setattr("harmonia_agent.web_client.claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
     monkeypatch.setattr("harmonia_agent.web_client.transition_effect_command", lambda _phase, _payload: {})
     monkeypatch.setattr("harmonia_agent.web_client.post", lambda path, payload: receipts.append((path, payload)))
@@ -400,8 +400,8 @@ def test_x_connection_is_refreshed_before_the_effect_claim(monkeypatch):
     monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [command])
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
     monkeypatch.setattr(stages, "get_connection", lambda _platform: order.append("connection") or {"accessToken": "fresh"})
-    monkeypatch.setattr(stages, "production_adapters", lambda token: {
-        "publish_x_post": lambda _payload: order.append(f"provider:{token}") or {"outcome": "applied", "detail": {"id": "post-1"}},
+    monkeypatch.setattr(stages, "production_adapters", lambda **tokens: {
+        "publish_x_post": lambda _payload: order.append(f"provider:{tokens['x_access_token']}") or {"outcome": "applied", "detail": {"id": "post-1"}},
     })
     monkeypatch.setattr("harmonia_agent.web_client.claim_effect", lambda _payload: order.append("claim") or {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
     monkeypatch.setattr("harmonia_agent.web_client.transition_effect_command", lambda _phase, _payload: None)
@@ -421,7 +421,7 @@ def test_x_unknown_outcome_enters_the_existing_uncertain_control_path(monkeypatc
     monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [command])
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
     monkeypatch.setattr(stages, "get_connection", lambda _platform: {"accessToken": "fresh"})
-    monkeypatch.setattr(stages, "production_adapters", lambda _token: {})
+    monkeypatch.setattr(stages, "production_adapters", lambda **_tokens: {})
     monkeypatch.setattr(stages, "execute_effect_command", lambda *_args, **_kwargs: ExecutionResult("unknown"))
 
     with pytest.raises(EffectClaimUncertain, match="no final receipt"):

@@ -42,8 +42,27 @@ def x_publish_adapter(payload: dict[str, Any], bearer_token: str | None = None) 
     }
 
 
-def production_adapters(x_access_token: str) -> dict[str, Adapter]:
-    return {"publish_x_post": lambda payload: x_publish_adapter(payload, x_access_token)}
+def linkedin_publish_adapter(payload: dict[str, Any], access_token: str) -> dict[str, Any]:
+    from .linkedin_client import LinkedInClient
+
+    body, destination = payload.get("body"), payload.get("destination")
+    if not isinstance(body, str) or not body or not isinstance(destination, dict):
+        raise ValueError("LinkedIn effect command requires exact body and destination")
+    posted = LinkedInClient(access_token).publish_post(body, destination)
+    return {
+        "outcome": "applied",
+        "artifact": {"kind": "linkedin_api", "url": posted["url"], "fetchedAt": datetime.now(timezone.utc).isoformat(), "digest": hashlib.sha256(body.encode()).hexdigest()},
+        "detail": dict(posted),
+    }
+
+
+def production_adapters(x_access_token: str = "", linkedin_access_token: str = "") -> dict[str, Adapter]:
+    adapters: dict[str, Adapter] = {}
+    if x_access_token:
+        adapters["publish_x_post"] = lambda payload: x_publish_adapter(payload, x_access_token)
+    if linkedin_access_token:
+        adapters["publish_linkedin_post"] = lambda payload: linkedin_publish_adapter(payload, linkedin_access_token)
+    return adapters
 
 
 def execute_effect_command(

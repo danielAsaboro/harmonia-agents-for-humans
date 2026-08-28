@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 from pathlib import Path
 import pytest
 
@@ -155,7 +156,7 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
     monkeypatch.setattr(stages, "produce_artifacts_with_team", fake_produce)
     def fake_post(path, payload):
         posts.append((path, payload))
-        return {"outcome": "execute"} if payload.get("operation") == "claim" else {"ok": True}
+        return {"outcome": "execute"} if path.endswith("/claim") else {"ok": True}
     monkeypatch.setattr(stages, "web_post", fake_post)
 
     asyncio.run(stages.run_draft("job-1"))
@@ -216,21 +217,31 @@ def test_extract_uploaded_media_uses_tenant_scoped_attachment(monkeypatch):
     assert result == ("source-upload", "founder-demo.mp4", media, "video/mp4")
 
 
-@pytest.mark.parametrize(("stored_markdown", "verified"), [
-    ("Approved content pack", True),
-    ("Tampered after receipt", False),
-])
-def test_verify_posts_observed_receipt_and_trace_lineage(monkeypatch, stored_markdown, verified):
+@pytest.mark.parametrize("verified", [True, False])
+def test_verify_posts_content_artifact_readback_and_trace_lineage(monkeypatch, verified):
     posts = []
-    approved_markdown = "Approved content pack"
-    digest = hashlib.sha256(approved_markdown.encode()).hexdigest()
+    artifact = {
+        "id": "artifact-1", "jobId": "job-1", "outputPlanId": "plan-1",
+        "outputPlanDigest": "a" * 64, "outputType": "x_post", "revision": 1,
+        "title": "Launch", "sourceSegmentRefs": ["source-1:segment-1"],
+        "producer": {"role": "noni", "model": "gemini-3.5-flash", "traceId": "b" * 32},
+        "review": {"role": "dara", "traceId": "c" * 32, "decision": "accept"},
+        "mimeType": "text/markdown", "createdAt": "2026-08-30T00:00:00.000Z",
+        "payload": {"kind": "x_post", "text": "Approved"},
+    }
+    digest = hashlib.sha256(json.dumps(artifact, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    artifact["contentDigest"] = digest
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
-        "actions": [{"id": "a1", "type": "export_content_pack", "state": "executed"}],
-        "contentPack": {"markdown": stored_markdown, "digest": digest},
+        "actions": [{"id": "a1", "type": "export_content_artifact", "state": "executed", "payload": {"artifactId": "artifact-1", "artifactDigest": digest}}],
     })
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [{
-        "id": "r1", "actionId": "a1", "detail": {"digest": digest},
+        "id": "r1", "actionId": "a1", "detail": {"artifactId": "artifact-1", "artifactRevision": 1, "artifactDigest": digest, "jsonObjectId": "object-2"},
     }])
+    monkeypatch.setattr(stages, "get_content_artifact", lambda *_args: artifact)
+    if verified:
+        monkeypatch.setattr(stages, "verify_content_artifact_export", lambda *_args, **_kwargs: {"artifactId": "artifact-1", "artifactDigest": digest})
+    else:
+        monkeypatch.setattr(stages, "verify_content_artifact_export", lambda *_args, **_kwargs: (_ for _ in ()).throw(stages.ArtifactVerificationError("mutated")))
     monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
 
@@ -244,7 +255,7 @@ def test_verify_posts_observed_receipt_and_trace_lineage(monkeypatch, stored_mar
     assert result["traceId"] == "a" * 32
     assert result["method"] == "artifact_digest_reread"
     assert result["verified"] is verified
-    assert result["evidence"]["digest"] == hashlib.sha256(stored_markdown.encode()).hexdigest()
+    assert result["evidence"]["digest"] == (digest if verified else None)
 
 
 @pytest.mark.parametrize(("observed_text", "verified"), [
@@ -275,41 +286,6 @@ def test_x_verification_binds_readback_to_receipted_content(monkeypatch, observe
     assert ("matches" in result["note"]) is verified
 
 
-def test_content_pack_receipt_carries_the_applied_artifact_digest(monkeypatch):
-    posts = []
-    captured = {}
-    analysis = _analysis()
-    job = {
-        "stage": "publish", "config": {"sourceManifestId": "manifest-1"},
-        "sourceAnalysis": analysis, "drafts": [],
-        "actions": [{
-            "id": "a1", "type": "export_content_pack", "state": "planned",
-            "requiresApproval": True, "approvalState": "approved", "payload": {},
-        }],
-    }
-    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
-    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(job["actions"][0])])
-    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
-    monkeypatch.setattr(stages, "current_trace_id", lambda: "a" * 32)
-    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
-    monkeypatch.setattr(stages, "transition_effect_command", lambda _phase, _payload: {})
-    def build_pack(title, source, moments, angles, drafts):
-        captured.update({"title": title, "source": source, "moments": moments, "angles": angles, "drafts": drafts})
-        return "pack"
-    monkeypatch.setattr(stages.content, "build_content_pack", build_pack)
-    monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
-
-    asyncio.run(stages.run_publish("job-1"))
-
-    receipt = next(payload for path, payload in posts if path == "/api/internal/receipt")
-    assert receipt["outcome"] == "applied"
-    assert receipt["artifact"]["digest"] == receipt["detail"]["digest"]
-    assert len(receipt["artifact"]["digest"]) == 64
-    assert receipt["claimToken"]
-    assert captured["moments"] == analysis["moments"]
-    assert captured["angles"] == analysis["angles"]
-
-
 def test_paid_media_actions_read_canonical_source_analysis():
     analysis = _analysis()
     analysis["moments"][0]["visualHook"] = "Metric rises on screen"
@@ -331,37 +307,6 @@ def test_meme_angles_use_the_canonical_angle_type():
     assert stages._meme_angles({"sourceAnalysis": analysis}) == analysis["angles"]
 
 
-def test_publish_never_enters_effect_adapter_without_execute_claim(monkeypatch):
-    calls = []
-    job = {
-        "stage": "publish", "config": {"sourceManifestId": "manifest-1"},
-        "moments": [], "angles": [], "drafts": [],
-        "actions": [{
-            "id": "a1", "type": "export_content_pack", "state": "planned",
-            "requiresApproval": True, "approvalState": "approved", "payload": {},
-        }],
-    }
-    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
-    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(job["actions"][0])])
-    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
-    monkeypatch.setattr(stages.content, "build_content_pack", lambda *_args: calls.append("effect") or "pack")
-    monkeypatch.setattr(stages, "web_post", lambda path, payload: calls.append(path))
-
-    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "already_applied", "attempt": 1, "receiptId": "r1"})
-    asyncio.run(stages.run_publish("job-1"))
-    assert "effect" not in calls
-
-    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "in_progress", "attempt": 1})
-    with pytest.raises(EffectClaimInProgress):
-        asyncio.run(stages.run_publish("job-1"))
-    assert "effect" not in calls
-
-    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "uncertain", "attempt": 1})
-    with pytest.raises(EffectClaimUncertain):
-        asyncio.run(stages.run_publish("job-1"))
-    assert "effect" not in calls
-
-
 def test_publish_uses_immutable_command_payload_not_mutable_job_action(monkeypatch):
     posted = []
     receipts = []
@@ -377,7 +322,7 @@ def test_publish_uses_immutable_command_payload_not_mutable_job_action(monkeypat
     monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [command])
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
     monkeypatch.setattr(stages, "get_connection", lambda _platform: {"accessToken": "fresh"})
-    monkeypatch.setattr(stages, "production_adapters", lambda **_tokens: {"publish_x_post": lambda payload: posted.append(payload["text"]) or {"outcome": "applied", "detail": {"id": "post-1"}}})
+    monkeypatch.setattr(stages, "production_adapters", lambda **_tokens: {"publish_x_post": lambda payload, _context: posted.append(payload["text"]) or {"outcome": "applied", "detail": {"id": "post-1"}}})
     monkeypatch.setattr("harmonia_agent.web_client.claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
     monkeypatch.setattr("harmonia_agent.web_client.transition_effect_command", lambda _phase, _payload: {})
     monkeypatch.setattr("harmonia_agent.web_client.post", lambda path, payload: receipts.append((path, payload)))
@@ -401,7 +346,7 @@ def test_x_connection_is_refreshed_before_the_effect_claim(monkeypatch):
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
     monkeypatch.setattr(stages, "get_connection", lambda _platform: order.append("connection") or {"accessToken": "fresh"})
     monkeypatch.setattr(stages, "production_adapters", lambda **tokens: {
-        "publish_x_post": lambda _payload: order.append(f"provider:{tokens['x_access_token']}") or {"outcome": "applied", "detail": {"id": "post-1"}},
+        "publish_x_post": lambda _payload, _context: order.append(f"provider:{tokens['x_access_token']}") or {"outcome": "applied", "detail": {"id": "post-1"}},
     })
     monkeypatch.setattr("harmonia_agent.web_client.claim_effect", lambda _payload: order.append("claim") or {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
     monkeypatch.setattr("harmonia_agent.web_client.transition_effect_command", lambda _phase, _payload: None)

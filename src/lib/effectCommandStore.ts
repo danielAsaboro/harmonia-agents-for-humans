@@ -6,7 +6,7 @@ import {
   markEffectClaimObserved, markEffectClaimUnknown, restoreEffectClaimForRetry,
 } from "./effectClaims";
 import {
-  effectCommandDigest, markEffectDispatched, markEffectObserved,
+  effectCommandDigest, markEffectDispatched, markEffectObserved, markEffectProgress,
   markEffectUnknown, restoreEffectPrepared, type EffectCommand,
   type EffectObservedOutcome,
 } from "./effectCommands";
@@ -180,6 +180,7 @@ export async function claimCommandEffect(
 
 export type EffectDispatchTransition =
   | { phase: "dispatched"; claimToken: string; attempt: number }
+  | { phase: "progress"; claimToken: string; progress: { kind: "x_thread"; confirmedPostIds: string[] } }
   | { phase: "provider_not_started"; claimToken: string }
   | { phase: "observed"; claimToken: string; outcome: EffectObservedOutcome; artifact?: unknown; detail: Record<string, unknown> }
   | { phase: "unknown"; claimToken: string; reason: string };
@@ -220,6 +221,12 @@ export async function transitionCommandEffect(
         claimToken: input.claimToken, operationEpoch: fence.epoch,
         goalDigest: operation.goal.digest, now: fence.now,
       });
+    } else if (input.phase === "progress") {
+      nextCommand = markEffectProgress(command, {
+        operationId: fence.operationId, operationEpoch: fence.epoch,
+        progress: input.progress, now: fence.now,
+      });
+      nextClaim = claim;
     } else if (input.phase === "observed") {
       nextCommand = markEffectObserved(command, {
         operationId: fence.operationId, operationEpoch: fence.epoch,

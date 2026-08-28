@@ -507,15 +507,3 @@ def test_temi_run_output_rejects_an_unknown_brief():
         _validate_run_output(
             "temi_editorial_planner", supplied, {"editorial_plan": invalid},
         )
-
-
-def test_mock_team_routes_all_roles_and_returns_validated_shapes(monkeypatch, capsys):
-    monkeypatch.setenv("HARMONIA_MOCK_AI", "1")
-    analysis = asyncio.run(analyze_with_team(_analyst_input()))
-    assert analysis.analysis.summary
-    assert analysis.searchEvidence == {}
-    assert analysis.groundingMetadata is None
-    with pytest.raises(RuntimeError, match="no mock editorial-plan path"):
-        asyncio.run(plan_with_team(EditorialPlannerInput.model_validate(_planner_input())))
-    trace = capsys.readouterr().out
-    assert "[MOCK-AI] coordinator -> nimi_analyst" in trace

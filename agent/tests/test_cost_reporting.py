@@ -184,7 +184,6 @@ def test_transcription_reserves_before_provider_and_reports_tokens(monkeypatch):
                 ),
             )
 
-    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
     monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=Models()))
 
     result = content.transcribe_audio(
@@ -221,7 +220,6 @@ def test_large_transcription_uses_files_api_instead_of_inline_base64(monkeypatch
                 usage_metadata=SimpleNamespace(prompt_token_count=120, candidates_token_count=30),
             )
 
-    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
     monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(files=Files(), models=Models()))
 
     content.transcribe_audio(
@@ -242,7 +240,6 @@ def test_large_transcription_uses_files_api_instead_of_inline_base64(monkeypatch
 
 def test_transcription_releases_when_client_fails_before_dispatch(monkeypatch):
     resolutions: list[dict] = []
-    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
     monkeypatch.setattr(content, "_client", lambda: (_ for _ in ()).throw(RuntimeError("client unavailable")))
 
     with pytest.raises(RuntimeError):
@@ -266,7 +263,6 @@ def test_transcription_quarantines_timeout_after_dispatch(monkeypatch):
         def generate_content(self, **_kwargs):
             raise TimeoutError("timeout")
 
-    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
     monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=Models()))
     with pytest.raises(TimeoutError):
         content.transcribe_audio(
@@ -288,7 +284,6 @@ def test_image_generation_uses_explicit_maximum_cost_reservation(monkeypatch):
     image = SimpleNamespace(image_bytes=b"png", mime_type="image/png")
     response = SimpleNamespace(generated_images=[SimpleNamespace(image=image)])
     models = SimpleNamespace(generate_images=lambda **_kwargs: response)
-    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
     monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=models))
 
     generated, mime = content.generate_image(
@@ -309,7 +304,6 @@ def test_image_generation_uses_explicit_maximum_cost_reservation(monkeypatch):
 
 def test_image_generation_releases_reservation_when_client_fails_before_dispatch(monkeypatch):
     resolutions: list[dict] = []
-    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
     monkeypatch.setattr(content, "_client", lambda: (_ for _ in ()).throw(RuntimeError("client unavailable")))
 
     with pytest.raises(content.ImageGenError):
@@ -328,7 +322,6 @@ def test_image_generation_releases_reservation_when_client_fails_before_dispatch
 
 def test_image_generation_marks_reservation_uncertain_after_provider_dispatch(monkeypatch):
     resolutions: list[dict] = []
-    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
     models = SimpleNamespace(generate_images=lambda **_kwargs: (_ for _ in ()).throw(TimeoutError("timeout")))
     monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=models))
 
@@ -348,7 +341,6 @@ def test_image_generation_marks_reservation_uncertain_after_provider_dispatch(mo
 
 def test_image_generation_marks_empty_provider_response_uncertain(monkeypatch):
     resolutions: list[dict] = []
-    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
     models = SimpleNamespace(generate_images=lambda **_kwargs: SimpleNamespace(generated_images=[]))
     monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=models))
 

@@ -10,7 +10,6 @@ import type {
   JobBudget,
   PlannedAction,
   Receipt,
-  PostDraft,
   Stage,
   StageEvent,
   VerificationResult,
@@ -20,7 +19,6 @@ import type {
   EffectClaim,
   EffectClaimInput,
   EffectClaimOutcome,
-  DraftWorkflowResult,
 } from "./types";
 import { applyFinalizedUsage, applyReleasedReservation, applyReservation, canReserve, exceedsApprovalThreshold } from "./costs";
 import { markReservationFinalized, markReservationReleased, markReservationUncertain, type CostReservationState } from "./costReservations";
@@ -28,7 +26,7 @@ import { parseBudgetConfig } from "./config";
 import { actionPayloadDigest, newId } from "./idempotency";
 import type { ApprovalActor } from "./decisions";
 import { applyStrategyDecision, assertStrategyProposalRevision, validatePersistedStrategy, validateStrategySearchGrounding, type StrategyDecisionInput } from "./strategyApproval";
-import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialDraftCompletionPatch, editorialPlanDigest, editorialPlanEvidenceLineage, editorialPlanningSnapshotDigest, isMatchingCompletedProduction } from "./editorialPlan";
+import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialDraftCompletionPatch, editorialPlanDigest, editorialPlanEvidenceLineage, editorialPlanningSnapshotDigest } from "./editorialPlan";
 import { buildEditorialPlanningSnapshot } from "./editorialPlanning";
 import {
   assertResourceWorkspace,
@@ -167,10 +165,6 @@ export async function listWorkspaceScopes(): Promise<WorkspaceScopeDoc[]> {
 }
 
 interface JobDoc extends Omit<Job, "id"> {
-  drafts?: PostDraft[];
-  productionTrace?: DraftWorkflowResult;
-  productionTraceDigest?: string;
-  contentPack?: { markdown: string; digest: string; generatedAt: string };
   actions?: PlannedAction[];
   verifications?: VerificationResult[];
   packet?: EvidencePacket;
@@ -234,6 +228,30 @@ function stageOutboxDurability(
 
 function stageOutboxRef(id: string) {
   return tenantCollection(STAGE_OUTBOX).doc(id);
+}
+
+export function createStageOutboxInTransaction(
+  transaction: FirebaseFirestore.Transaction,
+  jobId: string,
+  stage: Stage,
+  attempt: number,
+  metadata: { completedStage?: Stage; note?: string } = {},
+): string {
+  const id = stageOutboxId(jobId, stage, attempt);
+  const tenant = currentTenant();
+  transaction.create(stageOutboxRef(id), {
+    id,
+    workspaceId: tenant.workspaceId,
+    brandId: tenant.brandId,
+    jobId,
+    stage,
+    attempt,
+    ...metadata,
+    ...stageOutboxDurability(id, jobId, stage, metadata.completedStage),
+    state: "pending",
+    createdAt: new Date().toISOString(),
+  } satisfies StageOutboxRecord);
+  return id;
 }
 
 export async function enqueueStageTrigger(
@@ -1085,8 +1103,6 @@ function jobRef(jobId: string) {
 }
 
 function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
-  drafts: PostDraft[];
-  contentPack?: { markdown: string; digest: string; generatedAt: string };
   actions: PlannedAction[];
   verifications: VerificationResult[];
   packet?: EvidencePacket;
@@ -1136,8 +1152,6 @@ function requireJobDoc(snap: FirebaseFirestore.DocumentSnapshot): Job & {
     analysisResearchRequest: data.analysisResearchRequest,
     analysisSearchEvidence: data.analysisSearchEvidence,
     analysisGroundingMetadata: data.analysisGroundingMetadata,
-    drafts: data.drafts ?? [],
-    contentPack: data.contentPack,
     actions: data.actions ?? [],
     verifications: data.verifications ?? [],
     packet: data.packet,
@@ -1758,47 +1772,6 @@ export async function claimSelectedEditorialItem(
   });
 }
 
-export async function finalizeEditorialItemDraft(
-  jobId: string,
-  lineage: { editorialPlanId: string; editorialPlanDigest: string; editorialItemId: string; briefId: string },
-  productionTrace: DraftWorkflowResult,
-  actions: PlannedAction[],
-  needsApproval: boolean,
-) {
-  const traceDigest = createHash("sha256").update(canonicalJson(productionTrace), "utf8").digest("hex");
-  return db().runTransaction(async (tx) => {
-    const ref = jobRef(jobId);
-    const snap = await tx.get(ref);
-    const job = requireJobDoc(snap);
-    const active = job.activeProductionLineage;
-    if (isMatchingCompletedProduction(job, lineage, needsApproval)) {
-      if (job.productionTraceDigest !== traceDigest) throw new Error("completed production trace digest mismatch");
-      return { outcome: "already_applied" as const, productionTrace: job.productionTrace, actions: job.actions };
-    }
-    assertSelectedProductionAuthority(job, lineage, "drafting");
-    if (!active || active.editorialPlanId !== lineage.editorialPlanId || active.editorialPlanDigest !== lineage.editorialPlanDigest || active.editorialItemId !== lineage.editorialItemId || active.briefId !== lineage.briefId) throw new Error("production lineage mismatch");
-    const linkedActions = actions.map((action) => ({ ...action, ...lineage }));
-    const updatedAt = new Date().toISOString();
-    tx.update(ref, {
-      productionTrace, productionTraceDigest: traceDigest, actions: linkedActions,
-      ...editorialDraftCompletionPatch(lineage.editorialItemId, updatedAt, needsApproval),
-    });
-    for (const action of linkedActions) {
-      if (action.type !== "publish_x_post") continue;
-      const text = String((action.payload as { text?: unknown }).text ?? "");
-      if (!text) continue;
-      tx.set(contentItemRef(`item-${action.id}`), {
-        id: `item-${action.id}`, jobId, ...lineage,
-        draftId: productionTrace.acceptedDraft.id,
-        draftRevision: productionTrace.acceptedDraft.revision,
-        text, platforms: ["x"],
-        status: "draft", publishMode: "approval", createdAt: updatedAt, updatedAt,
-      } satisfies import("./types").ContentItem);
-    }
-    return { outcome: "execute" as const, productionTrace, actions: linkedActions };
-  });
-}
-
 export async function finalizeArtifactProduction(
   jobId: string,
   lineage: { editorialPlanId: string; editorialPlanDigest: string; editorialItemId: string; briefId: string },
@@ -1810,12 +1783,12 @@ export async function finalizeArtifactProduction(
   const traceDigest = createHash("sha256").update(canonicalJson(productionResult), "utf8").digest("hex");
   return db().runTransaction(async (tx) => {
     const ref = jobRef(jobId); const snap = await tx.get(ref); const job = requireJobDoc(snap);
-    if (job.artifactProductionResult && job.productionTraceDigest === traceDigest) return { outcome: "already_applied" as const };
+    if (job.artifactProductionResult && job.artifactProductionDigest === traceDigest) return { outcome: "already_applied" as const };
     assertSelectedProductionAuthority(job, lineage, "drafting");
     const active = job.activeProductionLineage;
     if (!active || active.editorialPlanId !== lineage.editorialPlanId || active.editorialPlanDigest !== lineage.editorialPlanDigest || active.editorialItemId !== lineage.editorialItemId || active.briefId !== lineage.briefId) throw new Error("production lineage mismatch");
     const linkedActions = actions.map((action) => ({ ...action, ...lineage })); const updatedAt = new Date().toISOString();
-    tx.update(ref, { artifactProductionResult: productionResult, contentArtifacts: artifacts, productionTraceDigest: traceDigest, actions: linkedActions, ...editorialDraftCompletionPatch(lineage.editorialItemId, updatedAt, needsApproval) });
+    tx.update(ref, { artifactProductionResult: productionResult, contentArtifacts: artifacts, artifactProductionDigest: traceDigest, actions: linkedActions, ...editorialDraftCompletionPatch(lineage.editorialItemId, updatedAt, needsApproval) });
     for (const artifact of artifacts) {
       const revisionRef = ref.collection("content_artifacts").doc(artifact.id).collection("revisions").doc(String(artifact.revision));
       tx.create(revisionRef, artifact);
@@ -1866,26 +1839,6 @@ export async function decideStrategy(jobId: string, input: StrategyDecisionInput
       } satisfies StageOutboxRecord);
     }
     return { ...result, outboxId };
-  });
-}
-
-export async function saveDrafts(jobId: string, drafts: PostDraft[]) {
-  await jobRef(jobId).update({
-    drafts,
-    updatedAt: new Date().toISOString(),
-  });
-}
-
-export async function saveContentPack(
-  jobId: string,
-  markdown: string,
-  digest: string,
-) {
-  const observedDigest = createHash("sha256").update(markdown).digest("hex");
-  if (observedDigest !== digest) throw new Error("content pack digest mismatch");
-  await jobRef(jobId).update({
-    contentPack: { markdown, digest, generatedAt: new Date().toISOString() },
-    updatedAt: new Date().toISOString(),
   });
 }
 
@@ -2024,7 +1977,7 @@ export interface VerifiedPublication {
   publicationId: string;
   jobId: string;
   actionId: string;
-  platform: "x";
+  platform: string;
   text: string;
   canonicalUrl: string;
   publishedAt: string;
@@ -2042,7 +1995,6 @@ export async function listVerifiedPublications(
   const publications: VerifiedPublication[] = [];
   for (const job of jobs) {
     const jobData = job as Job & {
-      drafts?: PostDraft[];
       actions: PlannedAction[];
       verifications: VerificationResult[];
     };
@@ -2059,14 +2011,13 @@ export async function listVerifiedPublications(
       const actionText = action && typeof (action.payload as { text?: unknown }).text === "string"
         ? (action.payload as { text: string }).text
         : "";
-      const draft = jobData.drafts?.find((candidate) => candidate.text === actionText);
-      const text = actionText || draft?.text || action?.title || "";
+      const text = actionText || action?.title || "";
       if (!text.toLowerCase().includes(normalized)) continue;
       publications.push({
         publicationId: String(receipt.detail.id ?? receipt.id),
         jobId: job.id,
         actionId: receipt.actionId,
-        platform: "x",
+        platform: ("x"),
         text,
         canonicalUrl,
         publishedAt: receipt.performedAt,
@@ -2259,13 +2210,12 @@ export async function listRecentEngagement(limit = 20): Promise<PriorInsight[]> 
     .get();
   const out: PriorInsight[] = [];
   for (const doc of snaps.docs) {
-    const data = doc.data() as JobDoc & { engagement?: Engagement[]; drafts?: PostDraft[] };
+    const data = doc.data() as JobDoc & { engagement?: Engagement[] };
     for (const e of data.engagement ?? []) {
-      const draft = (data.drafts ?? []).find((d) => d.id === e.actionId);
       const action = (data.actions ?? []).find((a) => a.id === e.actionId);
       out.push({
         jobId: doc.id,
-        text: draft?.text ?? action?.title ?? e.postId,
+        text: action?.title ?? e.postId,
         likes: e.likes,
         reposts: e.reposts,
         replies: e.replies,

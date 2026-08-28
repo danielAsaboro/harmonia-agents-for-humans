@@ -35,6 +35,8 @@ export interface EffectCommand {
   observationDigest?: string;
   observation?: { outcome: EffectObservedOutcome; artifact?: unknown; detail: Record<string, unknown> };
   unknownReason?: string;
+  progress?: { kind: "x_thread"; confirmedPostIds: string[] };
+  progressUpdatedAt?: string;
 }
 
 export interface EffectCommandInput {
@@ -164,6 +166,31 @@ export function markEffectObserved(
     observedOutcome: input.outcome,
     observationDigest: createHash("sha256").update(canonicalJson(observation)).digest("hex"),
     observation, updatedAt: input.now,
+  };
+}
+
+export function markEffectProgress(
+  command: EffectCommand,
+  input: EffectFence & {
+    progress: { kind: "x_thread"; confirmedPostIds: string[] };
+    now: string;
+  },
+): EffectCommand {
+  if (command.state !== "dispatched") throw new Error(`cannot progress ${command.state} effect command`);
+  assertEffectFence(command, input);
+  const ids = input.progress.confirmedPostIds;
+  if (ids.length < 1 || ids.some((id) => !id.trim()) || new Set(ids).size !== ids.length) {
+    throw new Error("X thread progress requires unique confirmed post IDs");
+  }
+  const prior = command.progress?.confirmedPostIds ?? [];
+  if (ids.length < prior.length || prior.some((id, index) => ids[index] !== id)) {
+    throw new Error("X thread progress cannot discard or rewrite confirmed posts");
+  }
+  return {
+    ...command,
+    progress: structuredClone(input.progress),
+    progressUpdatedAt: input.now,
+    updatedAt: input.now,
   };
 }
 

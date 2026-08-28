@@ -70,12 +70,10 @@ export function buildUiContext(input: BuildUiContextInput): UiContext {
       ...(responseJob.title ? { title: responseJob.title.slice(0, 300) } : {}),
       sourceKind: "mixed" as const,
     } : null,
-    drafts: (job?.drafts ?? response.drafts ?? []).slice(0, 20).map((draft) => ({
-      id: draft.id,
-      platform: draft.platform,
-      valid: draft.valid,
-      ...(draft.momentId ? { momentId: draft.momentId } : {}),
-      ...(draft.angleId ? { angleId: draft.angleId } : {}),
+    drafts: (job?.contentArtifacts ?? response.artifacts ?? []).slice(0, 20).map((artifact) => ({
+      id: artifact.id,
+      platform: artifact.outputType,
+      valid: true,
     })),
     moments: (job?.sourceAnalysis?.moments ?? []).slice(0, 20).map((moment) => ({
       id: moment.id,

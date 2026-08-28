@@ -31,7 +31,7 @@ describe("job effect command materialization", () => {
   });
 
   it("preserves bounded autonomy for policy-safe actions through a mandate snapshot", () => {
-    const safe = { ...action, type: "export_content_pack" as const, requiresApproval: false, approvalState: "not_required" as const };
+    const safe = { ...action, type: "export_content_artifact" as const, requiresApproval: false, approvalState: "not_required" as const };
     const command = buildJobActionCommand(job, safe, null);
     expect(command.authorization).toMatchObject({ kind: "mandate", mandateId: "job:job-1" });
   });

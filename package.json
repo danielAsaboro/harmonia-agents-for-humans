@@ -13,8 +13,7 @@
     "verify:evidence": "tsx scripts/verify-vertical-slice-evidence.ts",
     "verify:durable-runtime": "tsx scripts/verify-durable-runtime.ts",
     "replay:record": "tsx scripts/record-authenticated-run.ts",
-    "security:sbom": "bash scripts/generate-sbom.sh",
-    "seed": "node scripts/seed-demo.mjs"
+    "security:sbom": "bash scripts/generate-sbom.sh"
   },
   "dependencies": {
     "@a2ui/react": "0.10.2",

@@ -7,7 +7,7 @@ import type { JobFull } from "../src/components/jobTypes";
 const job: JobFull = {
   id: "job-1", status: "waiting_for_approval", stage: "awaiting_approval", createdAt: "2026-08-23T00:00:00.000Z", updatedAt: "2026-08-23T00:01:00.000Z",
   config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, normalizedSources: [],
-  drafts: [{ id: "draft-1", platform: "x", text: "This full draft must not reach the planner.", valid: true }],
+  contentArtifacts: [{ id: "draft-1", jobId: "job-1", outputPlanId: "plan-1", outputPlanDigest: "a".repeat(64), outputType: "x_post", revision: 1, title: "Launch", sourceSegmentRefs: ["segment-1"], producer: { role: "noni", model: "gemini-3.5-flash", traceId: "b".repeat(32) }, review: { role: "dara", traceId: "c".repeat(32), decision: "accept" }, mimeType: "text/markdown", createdAt: "2026-08-30T00:00:00.000Z", payload: { kind: "x_post", text: "This full draft must not reach the planner." }, contentDigest: "d".repeat(64) }],
   actions: [], assets: [],
 };
 
@@ -47,7 +47,7 @@ describe("Harmonia A2UI surfaces", () => {
     const surfaces = await generateResponseSurfaces({
       runId: "run-1",
       message: "Compare the drafts",
-      response: { intent: "list_drafts", reply: "One draft is ready.", jobId: "job-1" },
+      response: { intent: "list_artifacts", reply: "One artifact is ready.", jobId: "job-1" },
       job,
       receipts: [],
       planner,
@@ -65,7 +65,7 @@ describe("Harmonia A2UI surfaces", () => {
       energy: "active",
       revision: 1,
     });
-    expect(planner).toHaveBeenCalledWith(expect.objectContaining({ intent: "list_drafts" }));
+    expect(planner).toHaveBeenCalledWith(expect.objectContaining({ intent: "list_artifacts" }));
     expect(JSON.stringify(planner.mock.calls[0][0])).not.toContain("full draft");
   });
 
@@ -122,7 +122,7 @@ describe("Harmonia A2UI surfaces", () => {
   test("rejects a model-invented reference before hydration or persistence", async () => {
     await expect(generateResponseSurfaces({
       runId: "run-3", message: "Compare drafts",
-      response: { intent: "list_drafts", reply: "Ready.", jobId: "job-1" }, job, receipts: [],
+      response: { intent: "list_artifacts", reply: "Ready.", jobId: "job-1" }, job, receipts: [],
       planner: vi.fn().mockResolvedValue({ version: "harmonia.ui/v1", surfaces: [{ slot: "canvas", revision: 1,
         rootId: "drafts", nodes: [{ id: "drafts", component: "DraftComparison",
           refs: { jobId: "job-1", draftIds: ["invented"] }, children: [] }] }] }),

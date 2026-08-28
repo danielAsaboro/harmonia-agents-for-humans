@@ -7,8 +7,7 @@ describe("authenticated evidence runbook", () => {
   const runbook = readFileSync(join(process.cwd(), "docs/evidence-runbook.mdx"), "utf8");
 
   it.each([
-    "HARMONIA_MOCK_AI",
-    "HARMONIA_MOCK_X",
+    "emulator",
     "awaiting_approval",
     "already_applied",
     "Agent Engine",

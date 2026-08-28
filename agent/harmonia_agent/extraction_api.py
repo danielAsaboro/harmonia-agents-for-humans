@@ -7,6 +7,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from .config import settings
 from .extraction import extract_docx, extract_media, extract_pdf, extract_text
+from .extraction.preflight import ExtractionLimits, estimate_extraction
 from .tenant_context import tenant_scope
 from .usage import InvocationContext
 
@@ -15,11 +16,12 @@ class ExtractionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     sourceId: str = Field(min_length=1); title: str = Field(min_length=1, max_length=500); mimeType: str = Field(min_length=1)
     bodyBase64: str = Field(min_length=1, max_length=30_000_000); receiptId: str = Field(min_length=1)
+    limits: ExtractionLimits
 
 def _extract(value: ExtractionRequest, invocation: InvocationContext):
     body = base64.b64decode(value.bodyBase64, validate=True)
-    if not body or len(body) > 20 * 1024 * 1024: raise ValueError("library source must be between 1 byte and 20 MiB")
     mime = value.mimeType.split(";", 1)[0].lower()
+    estimate_extraction(body, mime, value.limits)
     if mime == "application/pdf": return extract_pdf(value.sourceId, value.title, body, receipt_id=value.receiptId)
     if mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document": return extract_docx(value.sourceId, value.title, body, receipt_id=value.receiptId)
     if mime.startswith("text/"): return extract_text(value.sourceId, value.title, body.decode("utf-8"), mime, receipt_id=value.receiptId)

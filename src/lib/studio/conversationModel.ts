@@ -64,7 +64,7 @@ export function chapterForExchange(
     Boolean(data?.pendingActions?.length) ||
     Boolean(assistant?.run?.confirmations.length)
   ) return "approval";
-  if (data?.intent === "list_drafts" || Boolean(data?.drafts?.length)) return "narrative";
+  if (data?.intent === "list_artifacts" || Boolean(data?.artifacts?.length)) return "narrative";
   if (
     data?.intent === "create_job" ||
     Boolean(data?.assets?.length) ||

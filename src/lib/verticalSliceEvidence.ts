@@ -103,7 +103,7 @@ const effectSchema = z.object({
   operationId: z.string().min(1),
   idempotencyKey: sha256,
   receiptId: z.string().min(1),
-  kind: z.enum(["export_content_pack", "publish_post"]),
+  kind: z.enum(["export_content_artifact", "publish_post"]),
   outcome: z.literal("applied"),
   executedAt: timestamp,
   artifactDigest: sha256,

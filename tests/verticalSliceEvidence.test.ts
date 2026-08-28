@@ -80,7 +80,7 @@ function validBundle() {
     },
     effect: {
       actionId: "action-1", operationId: "job-1:publish:action-1",
-      idempotencyKey: digest, receiptId: "receipt-1", kind: "export_content_pack",
+      idempotencyKey: digest, receiptId: "receipt-1", kind: "export_content_artifact",
       outcome: "applied", executedAt: "2026-08-24T12:11:00.000Z",
       artifactDigest: digest, traceId: approvalTraceId,
     },

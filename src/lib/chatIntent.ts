@@ -1,33 +1,36 @@
 import { getConfig } from "./config";
 import type { OutputKind } from "./types";
-
-export function isMockAi(): boolean { return process.env.HARMONIA_MOCK_AI === "1"; }
+import { outputKindSchema } from "./contracts";
+import { OUTPUT_CAPABILITIES } from "./outputCapabilities";
 
 const URL_RE = /https?:\/\/[^\s<>"]+/gi;
 const YOUTUBE_RE = /(?:youtube\.com\/(?:watch\?\S*v=|shorts\/)|youtu\.be\/)/i;
 
 function extractJobId(message: string): string | undefined {
-  for (const pattern of [/\b(?:job|drafts?)\s+(?:for\s+|of\s+)?([\w][\w.:-]*)/i, /\b(?:for|of)\s+(?:the\s+)?(?:job\s+)?([\w][\w.:-]*)/i]) {
+  for (const pattern of [/\b(?:job|artifacts?)\s+(?:for\s+|of\s+)?([\w][\w.:-]*)/i, /\b(?:for|of)\s+(?:the\s+)?(?:job\s+)?([\w][\w.:-]*)/i]) {
     const id = message.match(pattern)?.[1];
     if (id && !/^(the|a|an|it|this|that|please|job)$/i.test(id)) return id;
   }
   return undefined;
 }
 
-export type ChatIntent = "create_job" | "status" | "list_drafts" | "approve" | "unknown";
+export type ChatIntent = "create_job" | "status" | "list_artifacts" | "approve" | "unknown";
 export type ChatSourceDescriptor = { kind: "youtube" | "web"; url: string } | { kind: "pasted_text"; title: string; text: string };
 export interface ParsedIntent { intent: ChatIntent; sources?: ChatSourceDescriptor[]; desiredOutputs?: OutputKind[]; libraryName?: string; jobId?: string }
 
-function offline(message: string): ParsedIntent {
+export function parseLocalIntent(message: string): ParsedIntent {
   const trimmed = message.trim();
   const lower = trimmed.toLowerCase();
   const jobId = extractJobId(trimmed);
   if (/\bapprove\b/.test(lower)) return { intent: "approve", jobId };
-  if (/\bdrafts?\b/.test(lower)) return { intent: "list_drafts", jobId };
+  if (/\bartifacts?\b/.test(lower)) return { intent: "list_artifacts", jobId };
   if (/\bstatus\b/.test(lower)) return { intent: "status", jobId };
   const libraryName = trimmed.match(/\b(?:brand\s+)?library\s+["“]([^"”]+)["”]/i)?.[1]?.trim();
   const desiredLine = trimmed.match(/Desired outputs:\s*([^\n.]+)/i)?.[1];
-  const desiredOutputs = desiredLine?.split(",").map((item) => item.trim() as OutputKind).filter(Boolean);
+  const desiredOutputs = desiredLine?.split(",").flatMap((item) => {
+    const parsed = outputKindSchema.safeParse(item.trim());
+    return parsed.success && OUTPUT_CAPABILITIES[parsed.data].state !== "unavailable" ? [parsed.data] : [];
+  });
   const urls = trimmed.match(URL_RE) ?? [];
   if (urls.length || libraryName || trimmed.length >= 20) {
     const sources: ChatSourceDescriptor[] = urls.map((url) => ({ kind: YOUTUBE_RE.test(url) ? "youtube" : "web", url }));
@@ -39,15 +42,14 @@ function offline(message: string): ParsedIntent {
 }
 
 const schema = { type: "object", properties: {
-  intent: { type: "string", enum: ["create_job", "status", "list_drafts", "approve", "unknown"] },
+  intent: { type: "string", enum: ["create_job", "status", "list_artifacts", "approve", "unknown"] },
   sources: { type: "array", maxItems: 10, items: { type: "object", properties: { kind: { type: "string", enum: ["youtube", "web", "pasted_text"] }, url: { type: "string" }, title: { type: "string" }, text: { type: "string" } }, required: ["kind"] } },
   desiredOutputs: { type: "array", items: { type: "string" } }, libraryName: { type: "string" }, jobId: { type: "string" },
 }, required: ["intent"] } as const;
 
-const prompt = `Classify Harmonia operator requests. A create_job request may contain YouTube URLs, public web URLs, pasted factual context, and the exact name of an existing brand library. Return sources as typed descriptors, libraryName only when explicitly named, and desired output types. Never invent URLs, source text, library names, identifiers, or approval. Status, draft listing, and approval commands may include a jobId. Return JSON only.`;
+const prompt = `Classify Harmonia operator requests. A create_job request may contain YouTube URLs, public web URLs, pasted factual context, and the exact name of an existing brand library. Return sources as typed descriptors, libraryName only when explicitly named, and desired output types. Never invent URLs, source text, library names, identifiers, or approval. Status, content-artifact listing, and approval commands may include a jobId. Return JSON only.`;
 
 export async function parseIntent(message: string): Promise<ParsedIntent> {
-  if (isMockAi()) return offline(message);
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured for chat intent parsing");
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${getConfig().MODEL_ID}:generateContent`, { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": apiKey }, body: JSON.stringify({ systemInstruction: { parts: [{ text: prompt }] }, contents: [{ role: "user", parts: [{ text: message }] }], generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0 } }), signal: AbortSignal.timeout(20_000) });
@@ -56,6 +58,10 @@ export async function parseIntent(message: string): Promise<ParsedIntent> {
   const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("");
   if (!text) throw new Error("Gemini returned no intent payload");
   const parsed = JSON.parse(text) as ParsedIntent;
-  const intents: ChatIntent[] = ["create_job", "status", "list_drafts", "approve", "unknown"];
-  return { intent: intents.includes(parsed.intent) ? parsed.intent : "unknown", sources: parsed.sources, desiredOutputs: parsed.desiredOutputs, libraryName: typeof parsed.libraryName === "string" ? parsed.libraryName : undefined, jobId: typeof parsed.jobId === "string" ? parsed.jobId : undefined };
+  const intents: ChatIntent[] = ["create_job", "status", "list_artifacts", "approve", "unknown"];
+  const desiredOutputs = parsed.desiredOutputs?.flatMap((item) => {
+    const result = outputKindSchema.safeParse(item);
+    return result.success && OUTPUT_CAPABILITIES[result.data].state !== "unavailable" ? [result.data] : [];
+  });
+  return { intent: intents.includes(parsed.intent) ? parsed.intent : "unknown", sources: parsed.sources, desiredOutputs, libraryName: typeof parsed.libraryName === "string" ? parsed.libraryName : undefined, jobId: typeof parsed.jobId === "string" ? parsed.jobId : undefined };
 }

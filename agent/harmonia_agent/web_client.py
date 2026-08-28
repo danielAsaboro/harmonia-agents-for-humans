@@ -139,6 +139,14 @@ def get_effect_commands(job_id: str) -> list[dict[str, Any]]:
     return list(res.json().get("commands") or [])
 
 
+def get_receipts(job_id: str) -> list[dict[str, Any]]:
+    with _client() as c:
+        res = c.get(f"/api/internal/job/{job_id}/receipts")
+    if res.status_code != 200:
+        raise WebApiError(f"receipt feed failed: {res.status_code} {res.text}", res.status_code)
+    return list(res.json().get("receipts") or [])
+
+
 def get_effect_command(command_id: str) -> dict[str, Any]:
     with _client() as c:
         res = c.get(f"/api/internal/effect-command/{command_id}")
@@ -328,7 +336,7 @@ def claim_effect(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def transition_effect_command(phase: str, payload: dict[str, Any]) -> dict[str, Any]:
-    if phase not in {"dispatched", "provider_not_started", "observed", "unknown"}:
+    if phase not in {"dispatched", "progress", "provider_not_started", "observed", "unknown"}:
         raise ValueError(f"invalid effect transition: {phase}")
     command_id = str(payload.get("commandId") or "")
     if not command_id:
@@ -430,6 +438,24 @@ def read_artifact(
             f"artifact read failed: {res.status_code} {res.text}", res.status_code
         )
     return dict(res.json())
+
+
+def get_content_artifact(
+    job_id: str, artifact_id: str, content_digest: str,
+) -> dict[str, Any]:
+    with _client() as c:
+        res = c.get(
+            f"/api/internal/content-artifacts/{artifact_id}",
+            params={"jobId": job_id, "digest": content_digest},
+        )
+    if res.status_code != 200:
+        raise WebApiError(
+            f"content artifact read failed: {res.status_code} {res.text}", res.status_code
+        )
+    artifact = dict(res.json()["artifact"])
+    if artifact.get("id") != artifact_id or artifact.get("contentDigest") != content_digest:
+        raise WebApiError("content artifact identity mismatch")
+    return artifact
 
 
 def save_context_projection(

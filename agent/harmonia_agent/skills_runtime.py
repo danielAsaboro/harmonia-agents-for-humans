@@ -17,7 +17,6 @@ from google.adk.skills import load_skill_from_dir
 from google.adk.tools import FunctionTool, skill_toolset
 
 from . import signals, web_client
-from .mock_ai import mock_ai_enabled
 from .telemetry import safe_attributes, tracer
 from .tool_contracts import ToolContract, error, evidence, provider_error, success
 
@@ -31,25 +30,6 @@ _SKILL_NAMES = (
     "engagement-insights",
 )
 
-_MOCK_INSIGHTS = {
-    "topPosts": [
-        {"postId": "1901", "text": "We cut onboarding from nine days to forty hours.", "likes": 214, "publishedAt": "2026-08-20T14:05:00Z"},
-        {"postId": "1887", "text": "Agents act. Humans approve. That is the whole product.", "likes": 96, "publishedAt": "2026-08-18T09:30:00Z"},
-        {"postId": "1802", "text": "Shipping weekly beats shipping perfect.", "likes": 51, "publishedAt": "2026-08-15T14:40:00Z"},
-    ],
-    "takeaways": {"topPostId": "1901", "pattern": "specific numbers outperform slogans"},
-}
-
-_MOCK_FEED = {
-    "pendingItems": [],
-    "jobHealth": {"active": 1, "failed": 0},
-    "recentPublished": [
-        {"postId": "1901", "publishedAt": "2026-08-20T14:05:00Z"},
-        {"postId": "1887", "publishedAt": "2026-08-18T09:30:00Z"},
-        {"postId": "1802", "publishedAt": "2026-08-15T14:40:00Z"},
-    ],
-}
-
 
 # ---------- trend / watch tools ----------
 
@@ -58,7 +38,7 @@ def fetch_trend_signals(limit: int = 6) -> dict[str, Any]:
     try:
         with tracer().start_as_current_span("harmonia.skill.fetch_signals"):
             found = signals.fetch_signals(limit=max(1, min(int(limit), 10)))
-        provenance = "mock" if mock_ai_enabled() else "live"
+        provenance = "live"
         items = [evidence("hacker_news_algolia", provenance=provenance)]
         items.extend(evidence("hacker_news_story", provenance=provenance, reference=item["url"]) for item in found)
         return success({"signals": found, "count": len(found)}, evidence_items=items)
@@ -75,7 +55,7 @@ def search_trend_signals(query: str, limit: int = 5) -> dict[str, Any]:
         with tracer().start_as_current_span("harmonia.skill.search_signals") as span:
             span.set_attributes(safe_attributes({"query.length": len(normalized)}))
             found = signals.search_signals(normalized, limit=max(1, min(int(limit), 10)))
-        provenance = "mock" if mock_ai_enabled() else "live"
+        provenance = "live"
         items = [evidence("hacker_news_algolia", provenance=provenance)]
         items.extend(evidence("hacker_news_story", provenance=provenance, reference=item["url"]) for item in found)
         return success({"query": normalized, "signals": found, "count": len(found)}, evidence_items=items)
@@ -83,28 +63,12 @@ def search_trend_signals(query: str, limit: int = 5) -> dict[str, Any]:
         return provider_error(exc)
 
 
-def _mock_insights() -> dict[str, Any]:
-    import copy
-
-    return copy.deepcopy(_MOCK_INSIGHTS)
-
-
-def _mock_feed() -> dict[str, Any]:
-    import copy
-
-    return copy.deepcopy(_MOCK_FEED)
-
-
 def _engagement_data() -> tuple[dict[str, Any], str]:
-    if mock_ai_enabled():
-        return _mock_insights(), "mock"
     data = web_client.get_insights()
     return {"topPosts": list(data.get("topPosts") or []), **{k: v for k, v in data.items() if k != "topPosts"}}, "live"
 
 
 def _feed_data() -> tuple[dict[str, Any], str]:
-    if mock_ai_enabled():
-        return _mock_feed(), "mock"
     return web_client.get_feed(), "live"
 
 
@@ -136,7 +100,7 @@ def get_operator_feed() -> dict[str, Any]:
 _JOB_STATUS_FIELDS = (
     "id", "stage", "status", "error", "createdAt", "updatedAt",
     "strategyApprovalState", "strategyRevision", "editorialPlanRevision",
-    "selectedNextItemId", "productionTraceDigest",
+    "selectedNextItemId",
 )
 
 
@@ -145,11 +109,11 @@ def _summarize_job(job: dict[str, Any]) -> dict[str, Any]:
     config = job.get("config") or {}; analysis = job.get("sourceAnalysis") or {}
     summary["title"] = analysis.get("summary") or f"Source bundle {str(config.get('sourceManifestId') or '')[:12]}"
     summary["sourceKind"] = "source_manifest"
-    drafts = job.get("drafts") or []
+    artifacts = job.get("contentArtifacts") or []
     actions = job.get("actions") or []
     verifications = job.get("verifications") or []
     receipts = job.get("receipts") or []
-    summary["draftCount"] = len(drafts)
+    summary["artifactCount"] = len(artifacts)
     summary["actions"] = [
         {
             "id": a.get("id"),
@@ -177,22 +141,6 @@ def get_job_status(job_id: str) -> dict[str, Any]:
     job_id = str(job_id or "").strip()
     if not job_id:
         return error("invalid_job_id", "Provide one job ID.", category="validation", retryable=False)
-    if mock_ai_enabled():
-        data = {"found": True, "job": _summarize_job({
-            "id": job_id,
-            "sourceAnalysis": {"summary": "Mock launch source bundle"},
-            "config": {"sourceManifestId": "mock-manifest"},
-            "stage": "awaiting_approval",
-            "status": "active",
-            "drafts": [{"id": "d1"}],
-            "actions": [{
-                "id": "act1", "type": "publish_x_post",
-                "state": "planned", "approvalState": "pending", "risk": "high",
-                "requiresApproval": True,
-            }],
-            "verifications": [], "receipts": [],
-        })}
-        return success(data, evidence_items=[evidence("harmonia_firestore_job", provenance="mock", reference=job_id)])
     try:
         job = web_client.get_job(job_id)
     except web_client.WebApiError as exc:
@@ -219,17 +167,12 @@ def suggest_posting_windows() -> dict[str, Any]:
     Returns windows only when at least three timestamped measured posts exist;
     otherwise returns an explicit insufficient-data result.
     """
-    if mock_ai_enabled():
-        insights = _mock_insights()
-        feed = _mock_feed()
-        provenance = "mock"
-    else:
-        try:
-            insights, _ = _engagement_data()
-            feed, _ = _feed_data()
-            provenance = "live"
-        except Exception as exc:  # noqa: BLE001
-            return provider_error(exc)
+    try:
+        insights, _ = _engagement_data()
+        feed, _ = _feed_data()
+        provenance = "live"
+    except Exception as exc:  # noqa: BLE001
+        return provider_error(exc)
 
     samples: list[dict[str, Any]] = []
     for post in insights.get("topPosts") or []:

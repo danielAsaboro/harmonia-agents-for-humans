@@ -37,7 +37,7 @@ export async function POST(req: Request) {
     const packet = assemblePacket({
       jobId: body.jobId,
       config: job.config,
-      drafts: job.drafts,
+      artifacts: job.contentArtifacts ?? [],
       actions: job.actions,
       receipts,
       verifications: results,

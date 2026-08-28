@@ -44,11 +44,6 @@ from .agent_errors import AgentContractError
 from .config import settings
 from .generation_policy import generation_config
 from .model_catalog import PRICING_VERSION, estimate_text_cost
-from .mock_ai import (
-    mock_ai_enabled,
-    mock_analyze,
-    mock_ask,
-)
 from .memory_bank import MemoryBank, MemoryScope, VertexMemoryBank
 from .memory_bank import MemoryFact as RetrievedMemoryFact
 from .agent_models import MemoryFact as StrategyMemoryFact
@@ -2221,15 +2216,6 @@ async def analyze_with_team(
                 ) for fact in facts),
             ][:5],
         })
-    if mock_ai_enabled():
-        print("[MOCK-AI] coordinator -> nimi_analyst", flush=True)
-        raw = mock_analyze(input)
-        return AnalysisRunResult(
-            analysis=validate_source_analysis(
-                input, SourceAnalysis.model_validate({k: v for k, v in raw.items() if k != "mock"}),
-            ),
-            searchEvidence={}, groundingMetadata=None,
-        )
     state = await _run_coordinator("nimi_analyst", input, invocation=invocation)
     research_evidence = state.get("_nimi_search_evidence") or {}
     if not isinstance(research_evidence, dict):
@@ -2632,9 +2618,6 @@ async def strategize_with_team(
     input = StrategistInput.model_validate(input)
     if not prepared:
         input = await prepare_strategist_input(input, invocation=invocation, memory=memory)
-    if mock_ai_enabled():
-        print("[MOCK-AI] coordinator -> ryan_strategist", flush=True)
-        raise RuntimeError("Ryan has no mock strategy path; inject a TeamRuntime in tests")
     state = await _run_coordinator("ryan_strategist", input, invocation=invocation)
     result = _validated_state(state, "strategist_result", StrategistResult)
     research_evidence = state.get("_ryan_search_evidence") or {}
@@ -2656,8 +2639,6 @@ async def plan_with_team(
 ) -> EditorialPlan:
     """Run Temi and fail closed against the approved planning boundary."""
     input = EditorialPlannerInput.model_validate(input)
-    if mock_ai_enabled():
-        raise RuntimeError("Temi has no mock editorial-plan path; inject a TeamRuntime in tests")
     state = await _run_coordinator("temi_editorial_planner", input, invocation=invocation)
     plan = _validated_state(state, "editorial_plan", EditorialPlan)
     return validate_editorial_plan(input, plan)
@@ -2667,8 +2648,6 @@ async def draft_with_team(
     input: CopywriterInput, *, invocation: InvocationContext | None = None,
 ) -> DraftWorkflowResult:
     input = CopywriterInput.model_validate(input)
-    if mock_ai_enabled():
-        raise RuntimeError("Noni has no mock production path; inject a TeamRuntime in tests")
 
     async def noni(writer_input: CopywriterInput, pass_number: int) -> ContentDraft:
         pass_invocation = invocation.model_copy(update={
@@ -2717,8 +2696,6 @@ async def produce_artifacts_with_team(
 ) -> ProductionResult:
     """Run one bounded Noni/Dara batch with at most one issue-bound revision."""
     input = ArtifactProductionInput.model_validate(input)
-    if mock_ai_enabled():
-        raise RuntimeError("Noni has no mock artifact-production path; inject a TeamRuntime in tests")
 
     async def noni(value: ArtifactProductionInput, pass_number: int) -> ProductionBatch:
         pass_invocation = invocation.model_copy(update={"operation_id": f"{invocation.operation_id}:noni:{pass_number}"}) if invocation else None
@@ -2747,9 +2724,6 @@ async def ask_with_team(
 ) -> str:
     """Answer a free-form operator question via the skill-enabled liaison."""
     input = LiaisonInput(question=question)
-    if mock_ai_enabled():
-        print("[MOCK-AI] coordinator -> nova_liaison", flush=True)
-        return mock_ask(input.question)
     state = await _run_coordinator("nova_liaison", input, invocation=invocation)
     return _validated_liaison_state(state).answer
 
@@ -2759,8 +2733,6 @@ async def ask_with_team_detailed(
 ) -> tuple[str, list[dict[str, Any]]]:
     """Return Nova's answer plus content-free activity derived from its validated trace."""
     input = LiaisonInput(question=question)
-    if mock_ai_enabled():
-        return mock_ask(input.question), []
     state = await _run_coordinator("nova_liaison", input, invocation=invocation)
     answer = _validated_liaison_state(state)
     trace = state.get(LIAISON_TRACE_KEY) or []

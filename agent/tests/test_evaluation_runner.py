@@ -176,7 +176,6 @@ def test_private_evalset_still_rejects_embedded_credentials(tmp_path):
 
 def test_live_eval_requires_private_output_root(monkeypatch, tmp_path):
     monkeypatch.setenv("HARMONIA_REAL_EVAL", "1")
-    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
     monkeypatch.delenv("HARMONIA_EVAL_EVIDENCE_ROOT", raising=False)
 
     with pytest.raises(RuntimeError, match="HARMONIA_EVAL_EVIDENCE_ROOT"):
@@ -192,7 +191,6 @@ def test_live_eval_refuses_output_outside_private_root(monkeypatch, tmp_path):
     evidence = tmp_path / "evidence"
     evidence.mkdir()
     monkeypatch.setenv("HARMONIA_REAL_EVAL", "1")
-    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
     monkeypatch.setenv("HARMONIA_EVAL_EVIDENCE_ROOT", str(evidence))
 
     with pytest.raises(RuntimeError, match="private evidence root"):
@@ -206,7 +204,6 @@ def test_live_eval_refuses_output_outside_private_root(monkeypatch, tmp_path):
 
 def test_live_eval_refuses_relative_private_root(monkeypatch, tmp_path):
     monkeypatch.setenv("HARMONIA_REAL_EVAL", "1")
-    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
     monkeypatch.setenv("HARMONIA_EVAL_EVIDENCE_ROOT", "relative/evidence")
 
     with pytest.raises(RuntimeError, match="must be absolute"):
@@ -227,7 +224,6 @@ def test_live_eval_awaits_adk_with_explicit_config(monkeypatch, tmp_path):
         calls.append(kwargs)
 
     monkeypatch.setenv("HARMONIA_REAL_EVAL", "1")
-    monkeypatch.delenv("HARMONIA_MOCK_AI", raising=False)
     monkeypatch.setenv("HARMONIA_EVAL_EVIDENCE_ROOT", str(evidence))
     monkeypatch.setattr(
         "harmonia_agent.evaluation_runner.AgentEvaluator.evaluate_eval_set",

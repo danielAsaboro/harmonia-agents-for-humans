@@ -4,8 +4,6 @@ import { applyPolicy, approvedPendingExecution, evaluateActionPolicy, validateDr
 describe("evaluateActionPolicy", () => {
   it.each([
     ["publish_linkedin_post", "LinkedIn"],
-    ["publish_instagram_post", "Instagram"],
-    ["publish_youtube_video", "YouTube"],
   ] as const)("requires approval for %s", (type, provider) => {
     expect(evaluateActionPolicy(type, {})).toEqual({
       risk: "high",
@@ -28,7 +26,7 @@ describe("evaluateActionPolicy", () => {
   });
 
   it("allows content-pack export without approval", () => {
-    const d = evaluateActionPolicy("export_content_pack", {});
+    const d = evaluateActionPolicy("export_content_artifact", {});
     expect(d.risk).toBe("low");
     expect(d.requiresApproval).toBe(false);
   });

@@ -1,4 +1,5 @@
-import type { JobFull, PlannedAction, PostDraft, Receipt } from "@/components/jobTypes";
+import type { JobFull, PlannedAction, Receipt } from "@/components/jobTypes";
+import type { ContentArtifact } from "@/lib/contentArtifacts/contracts";
 import type { Angle, Moment } from "@/lib/types";
 
 export type StudioMediaKind = "visual" | "motion" | "audio";
@@ -20,7 +21,7 @@ export interface StudioAsset {
 }
 
 export interface TraceLink {
-  draftId?: string;
+  artifactId?: string;
   actionId?: string;
   momentId?: string;
   angleId?: string;
@@ -38,7 +39,7 @@ export interface StudioWorkspaceSources {
 }
 
 export interface StudioWorkspaceModel {
-  written: PostDraft[];
+  written: ContentArtifact[];
   visual: StudioAsset[];
   motion: StudioAsset[];
   audio: StudioAsset[];
@@ -126,11 +127,13 @@ export function buildStudioWorkspace(job: JobFull, receipts: Receipt[]): StudioW
     if (kind === "audio") audio.push(studioAsset);
   }
 
+  const knownSegments = new Set((job.normalizedSources ?? []).flatMap((source) => source.segments.flatMap((segment) => [segment.id, `${source.sourceId}:${segment.id}`])));
   const traceLinks = [
-    ...job.drafts.map((draft) => traceForReference(job, {
-      draftId: draft.id,
-      ...(draft.momentId ? { momentId: draft.momentId } : {}),
-      ...(draft.angleId ? { angleId: draft.angleId } : {}),
+    ...(job.contentArtifacts ?? []).map((artifact) => ({
+      artifactId: artifact.id,
+      sourceSegmentIds: artifact.sourceSegmentRefs,
+      valid: artifact.sourceSegmentRefs.length > 0 && artifact.sourceSegmentRefs.every((id) => knownSegments.has(id)),
+      ...(!artifact.sourceSegmentRefs.length ? { error: `artifact ${artifact.id} has no source lineage` } : artifact.sourceSegmentRefs.some((id) => !knownSegments.has(id)) ? { error: `source segment ${artifact.sourceSegmentRefs.find((id) => !knownSegments.has(id))} not found` } : {}),
     })),
     ...job.actions
       .filter((action) => action.momentId || action.angleId)
@@ -142,7 +145,7 @@ export function buildStudioWorkspace(job: JobFull, receipts: Receipt[]): StudioW
   ];
 
   return {
-    written: job.drafts,
+    written: job.contentArtifacts ?? [],
     visual,
     motion,
     audio,

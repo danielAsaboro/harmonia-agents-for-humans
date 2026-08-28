@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { contentArtifactPreview } from "@/lib/contentArtifacts/presentation";
 import type { Dispatch, SetStateAction } from "react";
 import type { ComposerAttachment } from "@/components/a2ui/AttachmentComposer";
 import type { ChatRunState } from "@/lib/a2ui/chatReducer";
@@ -35,7 +36,7 @@ export function ConversationPane(props: ConversationPaneProps) {
     const needle = query.trim().toLowerCase();
     if (!needle) return props.chapters;
     return props.chapters.flatMap((chapter) => {
-      const messages = chapter.messages.filter((message) => `${message.text} ${message.data?.drafts?.map((draft) => draft.text).join(" ") ?? ""}`.toLowerCase().includes(needle));
+      const messages = chapter.messages.filter((message) => `${message.text} ${message.data?.artifacts?.map((artifact) => contentArtifactPreview(artifact)).join(" ") ?? ""}`.toLowerCase().includes(needle));
       return messages.length ? [{ ...chapter, messages }] : [];
     });
   }, [props.chapters, query]);

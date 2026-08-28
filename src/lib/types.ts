@@ -261,106 +261,6 @@ export interface EditorialPlanningSnapshot {
   provenanceIds: string[];
 }
 
-export interface ContentClaim {
-  text: string;
-  evidenceRefs: string[];
-}
-
-export interface ContentDraft {
-  id: string;
-  planId: string;
-  planDigest: string;
-  strategyDigest: string;
-  editorialItemId: string;
-  briefId: string;
-  revision: 1 | 2;
-  platform: "x";
-  format: "text_post";
-  audienceId: string;
-  objective: string;
-  funnelStage: "awareness" | "consideration" | "conversion" | "retention" | "advocacy";
-  ctaIntent: string;
-  text: string;
-  ctaTreatment: string;
-  intendedConversion: string;
-  evidenceRefs: string[];
-  claims: ContentClaim[];
-  assumptions: string[];
-  confidence: "low" | "medium" | "high";
-  appliedConstraints: string[];
-  priorDraftId: string | null;
-  addressedIssueIds: string[];
-}
-
-export interface EditorialReviewIssue {
-  id: string;
-  category: "grounding" | "brief_alignment" | "brand_voice" | "platform_constraints" | "cta" | "safety" | "clarity";
-  severity: "low" | "medium" | "high";
-  fieldPath: "text" | "ctaTreatment" | "claims" | "assumptions" | "evidenceRefs" | "appliedConstraints" | "audienceId" | "objective" | "funnelStage" | "intendedConversion" | "platform" | "format";
-  instruction: string;
-  evidenceRefs: string[];
-  constraintRefs: string[];
-}
-
-export type EditorialDimension = "grounding" | "brief_alignment" | "brand_voice" | "platform_constraints" | "cta" | "safety" | "clarity";
-
-export interface EditorialCheck {
-  dimension: EditorialDimension;
-  status: "pass" | "fail";
-  rationale: string;
-  evidenceRefs: string[];
-  constraintRefs: string[];
-}
-
-export interface EditorialAssessment {
-  verdict: "accepted" | "revise";
-  checks: EditorialCheck[];
-  issues: EditorialReviewIssue[];
-  resolvedIssueIds: string[];
-}
-
-export interface EditorialReview {
-  id: string;
-  planId: string;
-  planDigest: string;
-  strategyDigest: string;
-  editorialItemId: string;
-  briefId: string;
-  draftId: string;
-  revision: 1 | 2;
-  verdict: "accepted" | "revise";
-  reviewedAt: string;
-  checks: EditorialCheck[];
-  issues: EditorialReviewIssue[];
-  resolvedIssueIds: string[];
-}
-
-export interface DraftWorkflowResult {
-  originalDraft: ContentDraft;
-  reviews: EditorialReview[];
-  revisionDraft: ContentDraft | null;
-  acceptedDraft: ContentDraft;
-}
-
-export interface CopywriterInput {
-  planId: string;
-  planDigest: string;
-  strategyDigest: string;
-  editorialItemId: string;
-  briefId: string;
-  editorialItem: EditorialPlanItem;
-  brief: ContentStrategy["briefs"][number];
-  referencedMoments: Moment[];
-  referencedAngles: Angle[];
-  brandContext: string;
-  constraints: string[];
-  platform: "x";
-  format: "text_post";
-  passType: "original" | "revision";
-  priorDraft: ContentDraft | null;
-  priorReview: EditorialReview | null;
-}
-
 export interface StrategyInvocationContext {
   revision: number; sourceIds: string[]; operatorContextIds: string[];
   performance: Array<{ id: string; firestoreEvidenceRef: string }>;
@@ -415,8 +315,7 @@ export interface Job {
   selectedNextItemId?: string;
   editorialItemStates?: Record<string, { status: "planned" | "selected" | "drafting" | "reviewed" | "awaiting_approval"; updatedAt: string }>;
   activeProductionLineage?: { editorialPlanId: string; editorialPlanDigest: string; editorialItemId: string; briefId: string };
-  productionTrace?: DraftWorkflowResult;
-  productionTraceDigest?: string;
+  artifactProductionDigest?: string;
   editorialPlanHistory?: Record<string, { plan: EditorialPlan; digest: string; revision: number; strategyId: string; strategyDigest: string; evidenceLineage: string[]; selectedNextItemId: string; acceptedAt: string }>;
   budget?: JobBudget;
   failure?: {
@@ -430,10 +329,6 @@ export interface Job {
     attempt: number;
     maxAttempts: number;
     details: Record<string, string | number | boolean>;
-    /** Compatibility display alias for publicMessage. */
-    error: string;
-    /** Compatibility display alias for !retryable. */
-    permanent: boolean;
     at: string;
   };
 }
@@ -496,12 +391,9 @@ export type RiskLevel = "low" | "medium" | "high";
 
 export type ActionType =
   | "export_content_artifact"
-  | "export_content_pack"
   | "publish_x_post"
   | "publish_x_thread"
   | "publish_linkedin_post"
-  | "publish_instagram_post"
-  | "publish_youtube_video"
   | "generate_image"
   | "generate_veo_broll"
   | "generate_lyria_soundtrack"
@@ -677,24 +569,11 @@ export interface SourceAnalysis {
   confidence: "low" | "medium" | "high";
 }
 
-export interface PostDraft {
-  id: string;
-  platform: string;
-  momentId?: string;
-  angleId?: string;
-  editorialPlanId?: string;
-  editorialItemId?: string;
-  briefId?: string;
-  text: string;
-  valid: boolean;
-  validationNote?: string;
-}
-
 export interface EvidencePacket {
   jobId: string;
   generatedAt: string;
   config: JobConfig;
-  drafts: PostDraft[];
+  artifacts: Array<{ id: string; outputType: string; revision: number; contentDigest: string }>;
   verifications: VerificationResult[];
   unresolved: string[];
 }

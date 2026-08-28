@@ -6,6 +6,8 @@ import {
   type ArtDirectedComponentName,
   type PresentationLifecycle,
 } from "./presentationPolicy";
+import { contentArtifactPreview } from "@/lib/contentArtifacts/presentation";
+import type { ContentArtifact } from "@/lib/contentArtifacts/contracts";
 
 export interface HydratedSurfaceSet {
   canvas: Record<string, unknown>[];
@@ -41,23 +43,15 @@ function selected<T extends { id: string }>(values: T[], ids: string[], limit: n
   return values.filter((value) => wanted.has(value.id)).slice(0, limit);
 }
 
-function sourceCount(job: JobFull, momentId?: string, angleId?: string): number {
-  const moment = momentId ? job.sourceAnalysis?.moments.find((candidate) => candidate.id === momentId) : undefined;
-  return (moment?.sourceSegmentRefs.length ?? 0)
-    + (angleId && job.sourceAnalysis?.angles.some((angle) => angle.id === angleId) ? 1 : 0);
-}
-
-function hydratedDraft(job: JobFull, draft: JobFull["drafts"][number], selectedDraft: boolean) {
+function hydratedDraft(_job: JobFull, artifact: ContentArtifact, selectedDraft: boolean) {
   return {
-    id: draft.id,
-    platform: draft.platform,
-    text: draft.text,
-    valid: draft.valid,
-    ...(draft.validationNote ? { validationNote: draft.validationNote } : {}),
-    ...(draft.momentId ? { momentId: draft.momentId } : {}),
-    ...(draft.angleId ? { angleId: draft.angleId } : {}),
+    id: artifact.id,
+    platform: artifact.outputType,
+    text: contentArtifactPreview(artifact),
+    valid: true,
+    validationNote: `accepted revision ${artifact.revision} · ${artifact.contentDigest}`,
     selected: selectedDraft,
-    sourceCount: sourceCount(job, draft.momentId, draft.angleId),
+    sourceCount: artifact.sourceSegmentRefs.length,
   };
 }
 
@@ -71,7 +65,9 @@ function actionPreview(action: JobFull["actions"][number]): string | undefined {
 
 function actionDestination(type: JobFull["actions"][number]["type"]): string {
   if (type === "publish_x_post") return "X";
-  if (type === "export_content_pack") return "Content pack export";
+  if (type === "publish_x_thread") return "X";
+  if (type === "publish_linkedin_post") return "LinkedIn";
+  if (type === "export_content_artifact") return "Verified Harmonia artifact store";
   if (type === "render_clip" || type === "render_reel") return "Harmonia asset library";
   return "Harmonia working set";
 }
@@ -109,7 +105,7 @@ function missingReferences(node: PlannedNode, job: JobFull | null | undefined, r
   const missing: string[] = [];
   if (node.refs.jobId && node.refs.jobId !== job.id) missing.push(node.refs.jobId);
   const maps = {
-    draftIds: new Set(job.drafts.map((value) => value.id)),
+    draftIds: new Set((job.contentArtifacts ?? []).map((value) => value.id)),
     momentIds: new Set((job.sourceAnalysis?.moments ?? []).map((value) => value.id)),
     sourceIds: new Set([
       ...(job.normalizedSources ?? []).flatMap((source) => [source.sourceId, ...source.segments.map((segment) => `${source.sourceId}:${segment.id}`)]),
@@ -204,7 +200,7 @@ function hydrateNode(surface: PlannedSurface, node: PlannedNode, job: JobFull | 
       }) as CatalogRecord;
     }
     case "DraftComparison": {
-      const drafts = selected(job.drafts, node.refs.draftIds, 20);
+      const drafts = selected(job.contentArtifacts ?? [], node.refs.draftIds, 20);
       return parseCatalogComponent({
         ...base,
         component: node.component,
@@ -213,12 +209,12 @@ function hydrateNode(surface: PlannedSurface, node: PlannedNode, job: JobFull | 
       }) as CatalogRecord;
     }
     case "PlatformPreview": {
-      const draft = selected(job.drafts, node.refs.draftIds, 1)[0];
+      const draft = selected(job.contentArtifacts ?? [], node.refs.draftIds, 1)[0];
       const assets = (job.assets ?? []).filter((asset) => node.refs.assetActionIds.includes(asset.actionId)).slice(0, 20);
       return parseCatalogComponent({
         ...base,
         component: node.component,
-        ...framing(surface, node, `${draft.platform.toUpperCase()} preview`),
+        ...framing(surface, node, `${draft.outputType.replaceAll("_", " ").toUpperCase()} preview`),
         draft: hydratedDraft(job, draft, true),
         assets: assets.map((asset) => ({
           actionId: asset.actionId,
@@ -240,9 +236,9 @@ function hydrateNode(surface: PlannedSurface, node: PlannedNode, job: JobFull | 
         component: node.component,
         ...framing(surface, node, "Source evidence"),
         sources,
-        links: job.drafts.flatMap((draft) => draft.momentId
-          ? [{ fromId: draft.id, toId: draft.momentId, label: "grounded in moment" }]
-          : []).slice(0, 200),
+        links: (job.contentArtifacts ?? []).flatMap((artifact) => artifact.sourceSegmentRefs.map((sourceRef) => ({
+          fromId: artifact.id, toId: sourceRef, label: "grounded in source segment",
+        }))).slice(0, 200),
       }) as CatalogRecord;
     }
     case "ApprovalReview": {

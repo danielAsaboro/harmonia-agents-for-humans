@@ -48,24 +48,6 @@ export function evaluateActionPolicy(
         requiresApproval: true,
         reason: "posts live content to LinkedIn",
       };
-    case "publish_instagram_post":
-      return {
-        risk: "high",
-        requiresApproval: true,
-        reason: "posts live content to Instagram",
-      };
-    case "publish_youtube_video":
-      return {
-        risk: "high",
-        requiresApproval: true,
-        reason: "posts live content to YouTube",
-      };
-    case "export_content_pack":
-      return {
-        risk: "low",
-        requiresApproval: false,
-        reason: "assembles a local content pack; no external side effect",
-      };
     case "generate_image":
       return {
         risk: "low",

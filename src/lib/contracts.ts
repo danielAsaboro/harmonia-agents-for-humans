@@ -473,230 +473,6 @@ export const editorialPlanSchema = z.object({
   "selectedNextItemId must identify exactly one plan item",
 );
 
-const strictIdentifierSchema = z.string().min(1).max(100);
-const constraintTextSchema = z.string().min(1).max(300);
-const assumptionTextSchema = z.string().min(1).max(500);
-const confidenceSchema = z.enum(["low", "medium", "high"]);
-
-export const contentClaimSchema = z.object({
-  text: z.string().min(1).max(600),
-  evidenceRefs: z.array(strictIdentifierSchema).min(1).max(12),
-}).strict();
-
-export const contentDraftSchema = z.object({
-  id: strictIdentifierSchema,
-  planId: strictIdentifierSchema,
-  planDigest: z.string().regex(/^[0-9a-f]{64}$/),
-  strategyDigest: z.string().regex(/^[0-9a-f]{64}$/),
-  editorialItemId: strictIdentifierSchema,
-  briefId: strictIdentifierSchema,
-  revision: z.union([z.literal(1), z.literal(2)]),
-  platform: z.literal("x"),
-  format: z.literal("text_post"),
-  audienceId: strictIdentifierSchema,
-  objective: z.string().min(1).max(300),
-  funnelStage: z.enum(["awareness", "consideration", "conversion", "retention", "advocacy"]),
-  ctaIntent: z.string().min(1).max(300),
-  text: z.string().min(1).max(280),
-  ctaTreatment: z.string().min(1).max(300),
-  intendedConversion: z.string().min(1).max(300),
-  evidenceRefs: z.array(strictIdentifierSchema).min(1).max(12),
-  claims: z.array(contentClaimSchema).max(12),
-  assumptions: z.array(assumptionTextSchema).max(8),
-  confidence: confidenceSchema,
-  appliedConstraints: z.array(constraintTextSchema).min(1).max(24),
-  priorDraftId: strictIdentifierSchema.nullable(),
-  addressedIssueIds: z.array(strictIdentifierSchema).max(12),
-}).strict().superRefine((draft, context) => {
-  if (draft.revision === 1 && (draft.priorDraftId !== null || draft.addressedIssueIds.length > 0)) {
-    context.addIssue({ code: "custom", message: "original draft cannot contain revision linkage" });
-  }
-  if (draft.revision === 2 && (draft.priorDraftId === null || draft.addressedIssueIds.length === 0)) {
-    context.addIssue({ code: "custom", message: "revision draft requires prior draft linkage and addressed issue ids" });
-  }
-  if (draft.revision === 2 && draft.id === draft.priorDraftId) {
-    context.addIssue({ code: "custom", message: "revision draft id must be distinct from its prior draft and cannot self-link" });
-  }
-  if (new Set(draft.evidenceRefs).size !== draft.evidenceRefs.length) {
-    context.addIssue({ code: "custom", message: "draft evidence references must be unique" });
-  }
-  if (new Set(draft.addressedIssueIds).size !== draft.addressedIssueIds.length) {
-    context.addIssue({ code: "custom", message: "addressed issue ids must be unique" });
-  }
-});
-
-export const editorialReviewIssueSchema = z.object({
-  id: strictIdentifierSchema,
-  category: z.enum(["grounding", "brief_alignment", "brand_voice", "platform_constraints", "cta", "safety", "clarity"]),
-  severity: confidenceSchema,
-  fieldPath: z.enum(["text", "ctaTreatment", "claims", "assumptions", "evidenceRefs", "appliedConstraints", "audienceId", "objective", "funnelStage", "intendedConversion", "platform", "format"]),
-  instruction: z.string().min(1).max(1000),
-  evidenceRefs: z.array(strictIdentifierSchema).max(12),
-  constraintRefs: z.array(constraintTextSchema).max(24),
-}).strict();
-
-const editorialDimensions = ["grounding", "brief_alignment", "brand_voice", "platform_constraints", "cta", "safety", "clarity"] as const;
-export const editorialCheckSchema = z.object({
-  dimension: z.enum(editorialDimensions),
-  status: z.enum(["pass", "fail"]),
-  rationale: z.string().min(1).max(1000),
-  evidenceRefs: z.array(strictIdentifierSchema).max(12),
-  constraintRefs: z.array(constraintTextSchema).max(24),
-}).strict();
-
-function validateAssessmentShape(
-  assessment: { verdict: "accepted" | "revise"; checks: z.infer<typeof editorialCheckSchema>[]; issues: z.infer<typeof editorialReviewIssueSchema>[]; resolvedIssueIds: string[] },
-  context: z.RefinementCtx,
-) {
-  const dimensions = assessment.checks.map((check) => check.dimension);
-  if (dimensions.length !== editorialDimensions.length || new Set(dimensions).size !== editorialDimensions.length || editorialDimensions.some((dimension) => !dimensions.includes(dimension))) {
-    context.addIssue({ code: "custom", message: "assessment must contain every editorial dimension exactly once" });
-  }
-  const failed = new Set(assessment.checks.filter((check) => check.status === "fail").map((check) => check.dimension));
-  const categories = new Set(assessment.issues.map((issue) => issue.category));
-  if (assessment.verdict === "accepted" && (failed.size > 0 || assessment.issues.length > 0)) context.addIssue({ code: "custom", message: "accepted assessment requires all checks to pass and no issues" });
-  if (assessment.verdict === "revise" && (failed.size === 0 || assessment.issues.length === 0)) context.addIssue({ code: "custom", message: "revise assessment requires failed checks and issues" });
-  if (assessment.verdict === "revise" && (failed.size !== categories.size || [...failed].some((dimension) => !categories.has(dimension)))) context.addIssue({ code: "custom", message: "failed assessment dimensions must match issue categories" });
-  if (new Set(assessment.issues.map((issue) => issue.id)).size !== assessment.issues.length) context.addIssue({ code: "custom", message: "assessment issue ids must be unique" });
-  if (new Set(assessment.resolvedIssueIds).size !== assessment.resolvedIssueIds.length) context.addIssue({ code: "custom", message: "resolved issue ids must be unique" });
-}
-
-export const editorialAssessmentSchema = z.object({
-  verdict: z.enum(["accepted", "revise"]),
-  checks: z.array(editorialCheckSchema).length(7),
-  issues: z.array(editorialReviewIssueSchema).max(12),
-  resolvedIssueIds: z.array(strictIdentifierSchema).max(12),
-}).strict().superRefine(validateAssessmentShape);
-
-export const editorialReviewSchema = z.object({
-  id: strictIdentifierSchema,
-  planId: strictIdentifierSchema,
-  planDigest: z.string().regex(/^[0-9a-f]{64}$/),
-  strategyDigest: z.string().regex(/^[0-9a-f]{64}$/),
-  editorialItemId: strictIdentifierSchema,
-  briefId: strictIdentifierSchema,
-  draftId: strictIdentifierSchema,
-  revision: z.union([z.literal(1), z.literal(2)]),
-  verdict: z.enum(["accepted", "revise"]),
-  reviewedAt: utcTimestampSchema,
-  checks: z.array(editorialCheckSchema).length(7),
-  issues: z.array(editorialReviewIssueSchema).max(12),
-  resolvedIssueIds: z.array(strictIdentifierSchema).max(12),
-}).strict().superRefine((review, context) => {
-  validateAssessmentShape(review, context);
-});
-
-function structurallyEqual(left: unknown, right: unknown): boolean {
-  if (Object.is(left, right)) return true;
-  if (typeof left !== typeof right || left === null || right === null) return false;
-  if (Array.isArray(left) || Array.isArray(right)) {
-    return Array.isArray(left) && Array.isArray(right)
-      && left.length === right.length
-      && left.every((value, index) => structurallyEqual(value, right[index]));
-  }
-  if (typeof left !== "object") return false;
-  const leftRecord = left as Record<string, unknown>;
-  const rightRecord = right as Record<string, unknown>;
-  const leftKeys = Object.keys(leftRecord).sort();
-  const rightKeys = Object.keys(rightRecord).sort();
-  return leftKeys.length === rightKeys.length
-    && leftKeys.every((key, index) => key === rightKeys[index]
-      && structurallyEqual(leftRecord[key], rightRecord[key]));
-}
-
-export const draftWorkflowResultSchema = z.object({
-  originalDraft: contentDraftSchema,
-  reviews: z.array(editorialReviewSchema).min(1).max(2),
-  revisionDraft: contentDraftSchema.nullable(),
-  acceptedDraft: contentDraftSchema,
-}).strict().superRefine((trace, context) => {
-  const original = trace.originalDraft;
-  const first = trace.reviews[0];
-  const lineage = [original.planId, original.planDigest, original.strategyDigest, original.editorialItemId, original.briefId].join("\0");
-  const reviewLineage = (review: z.infer<typeof editorialReviewSchema>) => [review.planId, review.planDigest, review.strategyDigest, review.editorialItemId, review.briefId].join("\0");
-  if (original.revision !== 1 || first?.draftId !== original.id || first?.revision !== 1) context.addIssue({ code: "custom", message: "first review must bind the revision-1 original" });
-  if (trace.reviews.some((review) => reviewLineage(review) !== lineage)) context.addIssue({ code: "custom", message: "reviews must preserve production lineage" });
-  if (first?.verdict === "accepted") {
-    if (trace.reviews.length !== 1 || trace.revisionDraft !== null || !structurallyEqual(trace.acceptedDraft, original)) context.addIssue({ code: "custom", message: "accepted original cannot contain a revision trace or differ from the reviewed draft" });
-    return;
-  }
-  const revision = trace.revisionDraft;
-  const final = trace.reviews[1];
-  const revisionLineage = revision
-    ? [revision.planId, revision.planDigest, revision.strategyDigest, revision.editorialItemId, revision.briefId].join("\0")
-    : null;
-  if (!revision || trace.reviews.length !== 2 || revisionLineage !== lineage || revision.revision !== 2 || revision.priorDraftId !== original.id || final?.draftId !== revision?.id || final?.verdict !== "accepted" || !structurallyEqual(trace.acceptedDraft, revision)) {
-    context.addIssue({ code: "custom", message: "revision trace must contain exactly one accepted revision" });
-  }
-});
-
-export const copywriterInputSchema = z.object({
-  planId: strictIdentifierSchema,
-  planDigest: z.string().regex(/^[0-9a-f]{64}$/),
-  strategyDigest: z.string().regex(/^[0-9a-f]{64}$/),
-  editorialItemId: strictIdentifierSchema,
-  briefId: strictIdentifierSchema,
-  editorialItem: editorialPlanItemSchema,
-  brief: contentStrategySchema.shape.briefs.element,
-  referencedMoments: z.array(momentSchema).max(12),
-  referencedAngles: z.array(angleSchema).max(12),
-  brandContext: z.string().min(1).max(4000),
-  constraints: z.array(constraintTextSchema).max(24),
-  platform: z.literal("x"),
-  format: z.literal("text_post"),
-  passType: z.enum(["original", "revision"]),
-  priorDraft: contentDraftSchema.nullable(),
-  priorReview: editorialReviewSchema.nullable(),
-}).strict().superRefine((input, context) => {
-  const issue = (message: string) => context.addIssue({ code: "custom", message });
-  if (input.brief.id !== input.editorialItem.briefId) {
-    issue("copywriter input must contain the exact selected brief");
-  }
-  if (input.editorialItemId !== input.editorialItem.id || input.briefId !== input.brief.id) {
-    issue("copywriter input ids must match the exact selected item and brief");
-  }
-  const exactFields = ["objective", "audienceId", "funnelStage", "intendedConversion", "ctaIntent", "kpi"] as const;
-  if (exactFields.some((field) => input.brief[field] !== input.editorialItem[field])) {
-    issue("copywriter input brief does not match the selected editorial item");
-  }
-  if ([...input.brief.evidenceRefs].sort().join("\0") !== [...input.editorialItem.evidenceRefs].sort().join("\0")) {
-    issue("copywriter input brief evidence does not match the selected editorial item");
-  }
-  const supplied = [...input.referencedMoments, ...input.referencedAngles].map((item) => item.id);
-  if (
-    [...supplied].sort().join("\0") !== [...input.editorialItem.evidenceRefs].sort().join("\0")
-    || new Set(supplied).size !== supplied.length
-  ) {
-    issue("copywriter input evidence must exactly match selected evidence");
-  }
-  if (input.editorialItem.channel !== input.platform || input.editorialItem.format !== input.format) {
-    issue("copywriter platform and format must match the selected item");
-  }
-  if (!input.brief.channelCandidates.includes(input.platform) || !input.brief.formatCandidates.includes(input.format)) {
-    issue("copywriter platform and format must be supported by the selected brief");
-  }
-  if (input.passType === "original" && (input.priorDraft !== null || input.priorReview !== null)) {
-    issue("original pass cannot contain revision context");
-  }
-  if (input.passType === "revision") {
-    if (input.priorDraft === null) issue("revision pass requires a prior draft");
-    if (input.priorReview === null) issue("revision pass requires a prior review");
-    if (input.priorDraft !== null && input.priorReview !== null) {
-      if (input.priorReview.verdict !== "revise") issue("revision pass requires a revise review");
-      if (input.priorDraft.revision !== 1 || input.priorReview.revision !== 1) {
-        issue("revision pass must target the original revision-1 draft and review");
-      }
-      if (input.priorReview.draftId !== input.priorDraft.id || input.priorReview.revision !== input.priorDraft.revision) {
-        issue("revision context must review the exact prior draft");
-      }
-      const lineage = [input.planId, input.planDigest, input.strategyDigest, input.editorialItemId, input.briefId].join("\0");
-      const priorLineage = [input.priorDraft.planId, input.priorDraft.planDigest, input.priorDraft.strategyDigest, input.priorDraft.editorialItemId, input.priorDraft.briefId].join("\0");
-      const reviewLineage = [input.priorReview.planId, input.priorReview.planDigest, input.priorReview.strategyDigest, input.priorReview.editorialItemId, input.priorReview.briefId].join("\0");
-      if (lineage !== priorLineage || lineage !== reviewLineage) issue("revision context must preserve exact lineage");
-    }
-  }
-});
-
 const strategySearchEvidenceSchema = z.object({
   evidenceId: z.string().regex(/^search-[A-Za-z0-9][A-Za-z0-9._:-]{0,92}$/),
   supportedText: z.string().min(1).max(1000), title: z.string().min(1).max(300),
@@ -734,98 +510,15 @@ export const strategyInvocationContextSchema = z.object({
   searchEvidence: z.array(strategySearchEvidenceSchema).max(8),
 }).strict();
 
-export const draftClaimSubmissionSchema = z.object({
-  jobId: z.string().min(1), stage: z.literal("draft"), operation: z.literal("claim"),
-  editorialPlanId: z.string().min(1).max(100), editorialPlanDigest: z.string().regex(/^[0-9a-f]{64}$/),
-  editorialItemId: z.string().min(1).max(100), briefId: z.string().min(1).max(100),
-}).strict();
-
-export const draftCompletionSubmissionSchema = z.object({
-  jobId: z.string().min(1),
-  stage: z.literal("draft"),
-  operation: z.literal("complete"),
-  editorialPlanId: z.string().min(1).max(100),
-  editorialPlanDigest: z.string().regex(/^[0-9a-f]{64}$/),
-  editorialItemId: z.string().min(1).max(100),
-  briefId: z.string().min(1).max(100),
-  productionTrace: draftWorkflowResultSchema,
-  proposedActions: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        type: z.enum([
-          "publish_x_post",
-          "export_content_pack",
-          "generate_image",
-          "generate_veo_broll",
-          "generate_lyria_soundtrack",
-          "render_clip",
-          "render_reel",
-        ]),
-        title: z.string().min(1),
-        description: z.string().min(1),
-        momentId: z.string().optional(),
-        angleId: z.string().optional(),
-        payload: z.union([
-          z.object({
-            type: z.literal("publish_x_post"),
-            text: z.string().min(1),
-          }),
-          z.object({ type: z.literal("export_content_pack") }),
-          z.object({
-            type: z.literal("generate_image"),
-            prompt: z.string().min(1).max(4000),
-          }),
-          z.object({
-            type: z.literal("generate_veo_broll"),
-            prompt: z.string().min(1).max(2000),
-            durationSec: z.literal(4),
-            aspectRatio: z.enum(["16:9", "9:16"]),
-          }),
-          z.object({
-            type: z.literal("generate_lyria_soundtrack"),
-            prompt: z.string().min(1).max(2000),
-            durationSec: z.literal(30),
-          }),
-          z.object({
-            type: z.literal("render_clip"),
-            momentId: z.string().min(1),
-            format: z.enum(["vertical", "square", "native"]).default("vertical"),
-            captions: z.boolean().default(true),
-          }),
-          z.object({
-            type: z.literal("render_reel"),
-            momentIds: z.array(z.string().min(1)).min(2).max(6),
-            format: z.enum(["vertical", "square", "native"]).default("vertical"),
-            captions: z.boolean().default(true),
-          }),
-        ]),
-      }),
-    )
-    .max(20)
-    .default([]),
-}).strict().superRefine((submission, context) => {
-  const publish = submission.proposedActions.filter((action) => action.type === "publish_x_post");
-  if (submission.proposedActions.some((action) => action.type !== action.payload.type)) {
-    context.addIssue({ code: "custom", path: ["proposedActions"], message: "action type must match payload type" });
-  }
-  if (publish.length !== 1 || publish[0]?.payload.type !== "publish_x_post" || publish[0].payload.text !== submission.productionTrace.acceptedDraft.text) {
-    context.addIssue({ code: "custom", path: ["proposedActions"], message: "one publish action must contain the exact accepted draft text" });
-  }
-});
-
 export const receiptSubmissionSchema = z.object({
   commandId: z.string().min(1).optional(),
   jobId: z.string().min(1),
   actionId: z.string().min(1),
   actionType: z.enum([
     "export_content_artifact",
-    "export_content_pack",
     "publish_x_post",
     "publish_x_thread",
     "publish_linkedin_post",
-    "publish_instagram_post",
-    "publish_youtube_video",
     "generate_image",
     "generate_veo_broll",
     "generate_lyria_soundtrack",
@@ -846,8 +539,7 @@ export const effectClaimSubmissionSchema = z.object({
   jobId: z.string().min(1),
   actionId: z.string().min(1),
   actionType: z.enum([
-    "export_content_artifact", "export_content_pack", "publish_x_post", "publish_x_thread", "publish_linkedin_post",
-    "publish_instagram_post", "publish_youtube_video", "generate_image",
+    "export_content_artifact", "publish_x_post", "publish_x_thread", "publish_linkedin_post", "generate_image",
     "generate_veo_broll", "generate_lyria_soundtrack", "render_clip", "render_reel",
   ]),
   idempotencyKey: z.string().regex(/^[a-f0-9]{64}$/),
@@ -979,9 +671,5 @@ export const agentActivitySchema = z.object({
 });
 
 export type AgentActivity = z.infer<typeof agentActivitySchema>;
-
-export const draftsSubmissionSchema = z.discriminatedUnion("operation", [
-  draftClaimSubmissionSchema, draftCompletionSubmissionSchema,
-]);
 
 export type FailureSubmission = z.infer<typeof failureSubmissionSchema>;

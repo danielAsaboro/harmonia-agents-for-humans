@@ -7,7 +7,7 @@ Harmonia exposes the same job submission, status, drafting, and approval surface
 
 ## Dashboard
 
-- **Console** — conversational home; create jobs, check status, list drafts, approve
+- **Console** — conversational home; create jobs, check status, list typed artifacts, approve
 - **Proposals** — inbox for the proactive agent's autonomous topic ideas
 - **Editorial plan** — the complete persisted Temi plan and exact deterministic item lifecycle: planned → selected → drafting → reviewed → awaiting_approval. Approval, scheduling, external calendar synchronization, and publishing are downstream effects; they are not Temi plan-item states. Google Calendar Add/Update/Remove remains an explicit operator action available only after content is separately scheduled and the scoped connection is active.
 - **Monitoring** — searchable event log, job table, asset gallery, receipts ledger
@@ -27,12 +27,12 @@ Natural-language control:
 | "turn \<youtube url\> into clips" | `create_job` from video |
 | "make posts about our billing launch" (≥20 chars) | `create_job` from topic brief |
 | "status" / "status of job \<id\>" | `status` |
-| "show drafts for \<id\>" | `list_drafts` |
+| "show artifacts for \<id\>" | `list_artifacts` |
 | "approve [job \<id\>]" | `approve` |
 
 Existing action confirmations call the same `/api/jobs/{jobId}/actions/{actionId}/decision` endpoint as the dashboard. A generic A2UI confirmation can reference only a server-created, tenant-scoped, expiring `pending_operation`; unknown handlers, stale decisions, and replays fail closed.
 
-Intent parsing uses Gemini structured output in production; keyword rules offline under `HARMONIA_MOCK_AI=1`. Conversations persist per surface so history renders in the console.
+Intent parsing uses Gemini structured output. Conversations persist per surface so history renders in the console.
 
 ### Agent-answered questions
 

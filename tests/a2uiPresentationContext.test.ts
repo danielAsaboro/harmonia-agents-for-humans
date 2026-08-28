@@ -11,7 +11,7 @@ const job: JobFull = {
   config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] },
   normalizedSources: [{ sourceId: "source-1", sourceKind: "video", title: "Interview", mimeType: "video/mp4", contentDigest: "c".repeat(64), extractorVersion: "media-v1", extractedAt: "2026-08-23T00:00:00.000Z", extractionReceiptId: "receipt-1", metadata: {}, segments: [{ id: "segment-1", text: "private transcript text", digest: "d".repeat(64), locator: { kind: "time_range", startMs: 10000, endMs: 20000 } }] }],
   sourceAnalysis: { sourceDigest: "a".repeat(64), summary: "Outcome proof.", moments: [{ id: "moment-1", title: "Outcome proof", startSec: 10, endSec: 20, hook: "Proof", quote: "We cut setup time.", sourceSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }], angles: [{ id: "angle-1", angleType: "source_insight", evidenceKind: "source", title: "Outcome-led launch", rationale: "Lead with proof.", evidenceRefs: ["moment-1"], assumptions: [], confidence: "high" }], assumptions: [], confidence: "high" },
-  drafts: [{ id: "draft-1", platform: "x", text: "full draft text must stay server-side", valid: true, momentId: "moment-1" }],
+  contentArtifacts: [{ id: "draft-1", jobId: "job-1", outputPlanId: "plan-1", outputPlanDigest: "a".repeat(64), outputType: "x_post", revision: 1, title: "Launch", sourceSegmentRefs: ["segment-1"], producer: { role: "noni", model: "gemini-3.5-flash", traceId: "b".repeat(32) }, review: { role: "dara", traceId: "c".repeat(32), decision: "accept" }, mimeType: "text/markdown", createdAt: "2026-08-30T00:00:00.000Z", payload: { kind: "x_post", text: "full draft text must stay server-side" }, contentDigest: "d".repeat(64) }],
   actions: [{
     id: "publish-1",
     jobId: "job-1",
@@ -32,12 +32,12 @@ describe("A2UI presentation context", () => {
     const context = buildUiContext({
       runId: "run-1",
       message: "Show drafts",
-      response: { intent: "list_drafts", reply: "Drafts ready.", jobId: "job-1" },
+      response: { intent: "list_artifacts", reply: "Artifacts ready.", jobId: "job-1" },
       job,
       receipts: [],
     });
 
-    expect(context.drafts).toEqual([{ id: "draft-1", platform: "x", valid: true, momentId: "moment-1" }]);
+    expect(context.drafts).toEqual([{ id: "draft-1", platform: "x_post", valid: true }]);
     expect(context.actions).toEqual([{ id: "publish-1", type: "publish_x_post", pending: true }]);
     expect(context.sources).toEqual(expect.arrayContaining([
       { id: "source-1", kind: "video", label: "Interview" },
@@ -52,17 +52,12 @@ describe("A2UI presentation context", () => {
   });
 
   it("bounds every entity collection before schema validation", () => {
-    const manyDrafts = Array.from({ length: 30 }, (_, index) => ({
-      id: `draft-${index}`,
-      platform: "x",
-      text: `Draft ${index}`,
-      valid: true,
-    }));
+    const manyDrafts = Array.from({ length: 30 }, (_, index) => ({ ...job.contentArtifacts![0], id: `draft-${index}` }));
     const context = buildUiContext({
       runId: "run-2",
       message: "Compare everything",
-      response: { intent: "list_drafts", reply: "Ready.", jobId: "job-1" },
-      job: { ...job, drafts: manyDrafts },
+      response: { intent: "list_artifacts", reply: "Ready.", jobId: "job-1" },
+      job: { ...job, contentArtifacts: manyDrafts },
       receipts: [],
     });
 

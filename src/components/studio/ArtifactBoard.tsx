@@ -1,14 +1,16 @@
 /* eslint-disable @next/next/no-img-element */
 import type { JobFull } from "@/components/jobTypes";
 import type { StudioWorkspaceModel } from "@/lib/studio/workspaceModel";
+import { contentArtifactPreview } from "@/lib/contentArtifacts/presentation";
 
 function directionFor(job: JobFull): string {
-  return job.sourceAnalysis?.angles[0]?.title || job.sourceAnalysis?.moments[0]?.hook || job.drafts[0]?.text.split(/[.!?]/)[0] || job.sourceAnalysis?.summary || "Content direction in progress";
+  const artifact = job.contentArtifacts?.[0];
+  return job.sourceAnalysis?.angles[0]?.title || job.sourceAnalysis?.moments[0]?.hook || (artifact ? contentArtifactPreview(artifact).split(/[.!?]/)[0] : "") || job.sourceAnalysis?.summary || "Content direction in progress";
 }
 
 export function ArtifactBoard({ job, model, onSelect }: { job: JobFull; model: StudioWorkspaceModel; onSelect: (artifactId: string, view?: string) => void }) {
   const invalidTraces = model.traceLinks.filter((trace) => !trace.valid);
-  const draft = model.written.find((candidate) => candidate.valid) ?? model.written[0];
+  const artifact = model.written[0];
   const visual = model.visual[0];
   const audio = model.audio[0];
   const decisions = [
@@ -16,7 +18,7 @@ export function ArtifactBoard({ job, model, onSelect }: { job: JobFull; model: S
     ...(job.sourceAnalysis?.moments ?? []).slice(0, 3).map((moment) => ({ label: moment.hook || moment.title, source: `${moment.startSec}s` })),
   ].slice(0, 3);
 
-  if (invalidTraces.length) return <section role="alert" className="rounded-[18px] border-2 border-red-600 bg-red-50 p-4"><strong className="text-sm text-red-800">Source trace protocol error</strong><ul className="mt-2 list-disc pl-5 text-xs text-red-700">{invalidTraces.map((trace, index) => <li key={`${trace.draftId ?? trace.actionId}-${index}`}>{trace.error}</li>)}</ul></section>;
+  if (invalidTraces.length) return <section role="alert" className="rounded-[18px] border-2 border-red-600 bg-red-50 p-4"><strong className="text-sm text-red-800">Source trace protocol error</strong><ul className="mt-2 list-disc pl-5 text-xs text-red-700">{invalidTraces.map((trace, index) => <li key={`${trace.artifactId ?? trace.actionId}-${index}`}>{trace.error}</li>)}</ul></section>;
 
   return (
     <div className="grid gap-3 xl:grid-cols-[1.08fr_.92fr] xl:grid-rows-[230px_190px]">
@@ -34,9 +36,9 @@ export function ArtifactBoard({ job, model, onSelect }: { job: JobFull; model: S
         </div>
       </article>
 
-      <button type="button" onClick={() => draft && onSelect(`draft:${draft.id}`, "written")} className="overflow-hidden rounded-[18px] border border-black/10 bg-white p-[14px] text-left transition hover:-translate-y-0.5 hover:border-[#5165ff] disabled:cursor-default" disabled={!draft}>
-        <div className="flex items-center font-mono text-[8px] uppercase tracking-[0.1em]">Written · X draft <span className="ml-auto rounded-full bg-[#efffb6] px-2 py-1 text-black">{draft ? (draft.valid ? "reviewed" : "needs attention") : "not created"}</span></div>
-        {draft ? <><blockquote className="my-5 line-clamp-4 text-[17px] font-bold leading-[1.25] tracking-[-0.03em]">“{draft.text}”</blockquote><div className="flex gap-2 font-mono text-[7px]"><span className="flex-1 rounded-lg border border-black/10 p-2 text-[#777]">{draft.platform.toUpperCase()} · {draft.text.length}/280</span><span className="flex-1 rounded-lg border border-[#758636] bg-[#f2ffc0] p-2 text-[#414822]">{model.traceLinks.find((trace) => trace.draftId === draft.id)?.sourceSegmentIds.length ?? 0} sources linked</span></div></> : <p className="mt-8 text-sm text-black/45">No persisted written draft exists yet.</p>}
+      <button type="button" onClick={() => artifact && onSelect(`artifact:${artifact.id}`, "written")} className="overflow-hidden rounded-[18px] border border-black/10 bg-white p-[14px] text-left transition hover:-translate-y-0.5 hover:border-[#5165ff] disabled:cursor-default" disabled={!artifact}>
+        <div className="flex items-center font-mono text-[8px] uppercase tracking-[0.1em]">Content artifact <span className="ml-auto rounded-full bg-[#efffb6] px-2 py-1 text-black">{artifact ? `revision ${artifact.revision}` : "not created"}</span></div>
+        {artifact ? <><blockquote className="my-5 line-clamp-4 whitespace-pre-wrap text-[17px] font-bold leading-[1.25] tracking-[-0.03em]">{contentArtifactPreview(artifact)}</blockquote><div className="flex gap-2 font-mono text-[7px]"><span className="flex-1 rounded-lg border border-black/10 p-2 text-[#777]">{artifact.outputType.replaceAll("_", " ")}</span><span className="flex-1 rounded-lg border border-[#758636] bg-[#f2ffc0] p-2 text-[#414822]">{artifact.sourceSegmentRefs.length} sources · {artifact.contentDigest.slice(0, 12)}</span></div></> : <p className="mt-8 text-sm text-black/45">No persisted content artifact exists yet.</p>}
       </button>
 
       <article className="grid min-h-[190px] grid-cols-2 gap-2 rounded-[18px] border border-black/10 bg-white p-[14px]">

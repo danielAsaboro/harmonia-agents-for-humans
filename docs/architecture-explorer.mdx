@@ -21,13 +21,13 @@ Edge semantics never rely on color alone. Labels, marker words, and line pattern
 
 ## Agent hierarchy and authority
 
-Harmonia delegates bounded evidence analysis to Nimi, strategy to Ryan, and editorial operationalization to Temi. Nimi loads one allow-listed filesystem analysis skill; when an exact research request exists, public Google Search or private Vertex AI Search runs in an isolated child agent and retains native grounding metadata. Deterministic code validates and persists Temi's complete plan, selects one eligible item, and runs separate typed Noni and Dara calls with at most one issue-bound revision. Maya provides bounded A2UI presentation and Nova provides skill-first read-only answers. The coordinator delegates; it cannot approve or publish. No cognitive role can approve, publish, mutate credentials or external calendars, perform destructive work, or execute a paid effect.
+Harmonia delegates bounded evidence analysis to Nimi, strategy to Ryan, and editorial operationalization to Temi. Nimi loads one allow-listed filesystem analysis skill; when an exact research request exists, public Google Search or private Vertex AI Search runs in an isolated child agent and retains native grounding metadata. Deterministic code validates the approved output plan, then runs separate typed Noni production and Dara review batches with at most one issue-bound revision before sealing immutable artifacts. Maya provides bounded A2UI presentation and Nova provides skill-first read-only answers. The coordinator delegates; it cannot approve or publish. No cognitive role can approve, publish, mutate credentials or external calendars, perform destructive work, or execute a paid effect.
 
 See [ADK agent platform](./agent-platform) and [tool contracts](./tool-contracts).
 
 ## Workflow and state ownership
 
-The workflow is collect_sources → extract_sources → understand with Nimi → strategize with Ryan → await strategy approval → plan with Temi → persist/select deterministically → Noni/Dara draft → await effect approval → publish/export/render → verify → learn. Firestore is the durable source of truth and Pub/Sub owns asynchronous delivery and retry. Agent Engine sessions are ephemeral cognition; Memory Bank stores only exact-scope eligible facts and never authority.
+The workflow is collect_sources → extract_sources → understand with Nimi → strategize with Ryan → await strategy approval → plan with Temi → Noni/Dara typed artifact production → await effect approval → publish/export/render → verify → learn. Firestore is the durable source of truth and Pub/Sub owns asynchronous delivery and retry. Agent Engine sessions are ephemeral cognition; Memory Bank stores only exact-scope eligible facts and never authority.
 
 See [pipeline](/pipeline), the [system architecture guide](/architecture/overview), and [state ownership](/state-ownership).
 

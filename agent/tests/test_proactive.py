@@ -1,14 +1,6 @@
-"""Proactive agent unit tests: proposals, outlier detection, mock routing."""
-
-import pytest
+"""Proactive agent unit tests: proposals and outlier detection."""
 
 from harmonia_agent import proactive
-from harmonia_agent.mock_ai import MOCK_FLAG
-
-
-@pytest.fixture(autouse=True)
-def _mock_on(monkeypatch):
-    monkeypatch.setenv(MOCK_FLAG, "1")
 
 
 def test_proposal_ids_deterministic_and_unique():
@@ -31,14 +23,6 @@ def test_build_proposals_caps_and_cleans():
     for p in props:
         assert len(p["sources"]) <= 5
         assert set(p) == {"id", "source", "topic", "angle", "reason", "sources", "suggestedPost"}
-
-
-def test_fetch_signals_mock_needs_no_network():
-    signals = proactive.fetch_signals()
-    assert len(signals) >= 3
-    for s in signals:
-        assert {"title", "url", "points", "comments"} <= set(s)
-        assert s["url"].startswith("http")
 
 
 def test_watch_engagement_flags_outliers(monkeypatch):

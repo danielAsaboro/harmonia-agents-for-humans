@@ -15,10 +15,10 @@ Harmonia uses **bounded agency inside a durable workflow**. Gemini/ADK handles a
 | strategize | agentic cognition | Ryan's four-week strategy and source-grounded briefs | strict context/evidence IDs, provenance validation, and a fail-closed allow-listed strategy-skill trace |
 | awaiting_strategy_approval | deterministic authority | exact strategy decision | authenticated actor, canonical digest, expiry, and one-revision limit |
 | plan | agentic cognition inside deterministic workflow | Temi's skill-guided sequencing, cadence, supported channel/format, windows, deadlines, dependencies, and priorities using request-bound snapshot reads | deterministic snapshot assembly/persistence, strict trace and plan validation, canonical digests, deterministic eligible-item selection; no mutation or effect authority |
-| draft | separate agentic Noni and Dara calls inside a deterministic bounded loop | platform-native language and structured editorial judgment | selected item only; one original plus at most one issue-bound revision; exact lineage and evidence; final review must accept; no effect authority |
+| draft | separate agentic Noni and Dara batch calls inside a deterministic bounded loop | typed multi-format content and structured editorial judgment | exact approved output plan; one original batch plus at most one issue-bound revision; exact lineage and evidence; every artifact must pass review; no effect authority |
 | awaiting approval | human authority | approve or reject each proposed action | no external effect until a durable human decision exists |
-| publish/export | deterministic workflow | provider response | exact approved payload, idempotency key, bounded retry, immutable receipt |
-| verify | deterministic workflow | observed external/stored state | fresh official API read or digest reread; never trust executor/model assertion |
+| publish/export | deterministic workflow | provider response | official X post/thread or LinkedIn publication requires exact approval; internal artifact export is digest-bound and idempotent |
+| verify | deterministic workflow | observed external/stored state | fresh official API read or dual-object byte reread; content packs require already-verified constituents |
 | learn/memory | deterministic eligibility plus bounded context | eligible preference/outcome facts | evidence-linked workspace/brand scope; failure cannot erase an effect receipt |
 
 Chat and Telegram are control surfaces, not the autonomous core. The asynchronous pipeline continues in the background and every surface reaches the same policy and approval boundary.

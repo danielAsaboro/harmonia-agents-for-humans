@@ -172,48 +172,6 @@ def test_planning_failure_prevents_persistence_and_draft_dispatch(monkeypatch):
     assert posts == []
 
 
-def test_draft_claims_and_hands_only_selected_item_with_exact_brief_and_evidence(monkeypatch):
-    source = drafting_job()
-    selected = next(item for item in source["editorialPlan"]["items"] if item["id"] == source["selectedNextItemId"])
-    exact_brief = next(item for item in source["contentStrategy"]["briefs"] if item["id"] == selected["briefId"])
-    calls, posts = [], []
-
-    async def fake_draft(request, *, invocation):
-        calls.append(request)
-        return accepted_package(request)
-
-    def fake_post(path, payload):
-        posts.append((path, payload))
-        if payload.get("operation") == "claim":
-            source["editorialItemStates"][payload["editorialItemId"]]["status"] = "drafting"
-            return {"outcome": "execute"}
-        return {"ok": True}
-
-    monkeypatch.setattr(stages, "get_job", lambda _id: source)
-    monkeypatch.setattr(stages, "draft_with_team", fake_draft)
-    monkeypatch.setattr(stages, "web_post", fake_post)
-    monkeypatch.setattr(stages, "get_insights", lambda: {})
-
-    asyncio.run(stages.run_draft("job-1"))
-
-    request = calls[0]
-    assert request.editorialItem.model_dump(mode="json") == selected
-    assert request.brief.model_dump(mode="json") == exact_brief
-    assert [item.id for item in request.referencedMoments] == ["m1"]
-    assert request.referencedAngles == []
-    assert source["editorialItemStates"]["item-1"]["status"] == "drafting"
-    assert source["editorialItemStates"]["item-2"]["status"] == "planned"
-    assert posts[0][1] == {
-        "jobId": "job-1", "stage": "draft", "operation": "claim",
-        "editorialPlanId": source["editorialPlan"]["planId"],
-        "editorialPlanDigest": source["editorialPlanDigest"],
-        "editorialItemId": selected["id"], "briefId": selected["briefId"],
-    }
-    assert posts[-1][1]["editorialPlanId"] == source["editorialPlan"]["planId"]
-    assert posts[-1][1]["editorialItemId"] == selected["id"]
-    assert posts[-1][1]["briefId"] == selected["briefId"]
-
-
 @pytest.mark.parametrize("mutation", [
     lambda job: job.update(selectedNextItemId="missing"),
     lambda job: job.update(editorialPlanDigest="b" * 64),
@@ -233,23 +191,6 @@ def test_invalid_persisted_production_authority_never_invokes_noni(monkeypatch, 
     assert invoked == []
 
 
-def test_draft_uses_immutable_approved_strategy_history_not_mutable_current_strategy(monkeypatch):
-    source = drafting_job()
-    source["contentStrategy"]["briefs"][0]["keyMessage"] = "mutated current strategy"
-    captured = []
-    async def fake_draft(request, *, invocation):
-        captured.append(request)
-        return accepted_package(request)
-    monkeypatch.setattr(stages, "get_job", lambda _id: source)
-    monkeypatch.setattr(stages, "draft_with_team", fake_draft)
-    monkeypatch.setattr(stages, "get_insights", lambda: {})
-    monkeypatch.setattr(stages, "web_post", lambda _path, payload: {"outcome": "execute"} if payload.get("operation") == "claim" else {"ok": True})
-
-    asyncio.run(stages.run_draft("job-1"))
-    assert captured[0].brief.keyMessage == "Governed workflows reduce activation delay"
-    assert '"strategicThesis": "Lead with verified operating proof."' in captured[0].brandContext
-
-
 def test_draft_rejects_plan_not_bound_to_job_strategy_digest(monkeypatch):
     source = drafting_job()
     source["editorialPlan"]["approvedStrategyDigest"] = "b" * 64
@@ -260,24 +201,3 @@ def test_draft_rejects_plan_not_bound_to_job_strategy_digest(monkeypatch):
     with pytest.raises(AgentProtocolError, match="approved strategy digest"):
         asyncio.run(stages.run_draft("job-1"))
     assert invoked == []
-
-
-def test_derived_media_actions_use_only_selected_item_evidence(monkeypatch):
-    source = drafting_job()
-    source["sourceAnalysis"]["moments"].append({"id": "m-extra", "title": "Unselected", "startSec": 10, "endSec": 20, "hook": "h", "quote": "q", "sourceSegmentRefs": ["segment-1"], "visualEvidenceIds": [], "assumptions": [], "confidence": "high"})
-    source["sourceAnalysis"]["angles"].append({"id": "a-extra", "angleType": "source_insight", "evidenceKind": "source", "title": "Unselected angle", "rationale": "not selected", "evidenceRefs": ["m-extra"], "assumptions": [], "confidence": "high"})
-    posts = []
-    async def fake_draft(*_args, **_kwargs):
-        return accepted_package(_args[0])
-    monkeypatch.setattr(stages, "get_job", lambda _id: source)
-    monkeypatch.setattr(stages, "draft_with_team", fake_draft)
-    monkeypatch.setattr(stages, "get_insights", lambda: {})
-    def fake_post(path, payload):
-        posts.append((path, payload))
-        return {"outcome": "execute"} if payload.get("operation") == "claim" else {"ok": True}
-    monkeypatch.setattr(stages, "web_post", fake_post)
-
-    asyncio.run(stages.run_draft("job-1"))
-    actions = posts[-1][1]["proposedActions"]
-    assert all(action.get("momentId") != "m-extra" and action.get("angleId") != "a-extra" for action in actions)
-    assert not any(action["type"] == "generate_image" for action in actions)

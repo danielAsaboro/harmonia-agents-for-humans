@@ -15,7 +15,6 @@ from google import genai
 
 from .config import settings
 from .model_catalog import PRICING_VERSION, estimate_text_cost
-from .mock_ai import mock_ai_enabled, mock_generate_image, mock_transcribe
 from .telemetry import current_trace_id, safe_attributes, tracer
 from .usage import InvocationContext, UsageAccumulator, UsageRecord, estimate_request_tokens
 from .web_client import report_usage, reserve_budget, resolve_budget_reservation
@@ -54,8 +53,7 @@ def _parse_json(text: str) -> Any:
 
 
 def model_used() -> str:
-    """Label recorded in persisted docs; honest about offline mode."""
-    return "mock-local (HARMONIA_MOCK_AI)" if mock_ai_enabled() else MODEL
+    return MODEL
 
 
 def transcribe_audio(
@@ -67,9 +65,6 @@ def transcribe_audio(
     budget_resolver: Callable[[dict[str, object]], None] = resolve_budget_reservation,
     usage_reporter: Callable[[dict[str, object]], None] = report_usage,
 ) -> dict:
-    if mock_ai_enabled():
-        print("[MOCK-AI] transcribe_audio: returning deterministic local fixture", flush=True)
-        return mock_transcribe(len(audio))
     if invocation is None:
         raise ValueError("real transcription requires invocation context")
     role = "transcriber"
@@ -169,9 +164,6 @@ def generate_image(
     usage_reporter: Callable[[dict[str, object]], None] = report_usage,
 ) -> tuple[bytes, str]:
     """Generate an image with Gemini and return its bytes and MIME type."""
-    if mock_ai_enabled():
-        print("[MOCK-AI] generate_image: rendering real local PNG via ffmpeg lavfi", flush=True)
-        return mock_generate_image(prompt)
     if invocation is None:
         raise ValueError("real image generation requires invocation context")
     role = "image_generator"

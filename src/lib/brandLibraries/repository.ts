@@ -1,13 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
+import { FieldValue } from "@google-cloud/firestore";
 import { db } from "../firestore";
 import { currentTenant } from "../tenancy";
 import { brandLibraryConnectionSchema, brandLibrarySnapshotSchema, type BrandLibraryConnection, type BrandLibrarySnapshot, type LibraryFileVersion } from "./contracts";
 
 const root = () => db().collection(`workspaces/${currentTenant().workspaceId}/brands/${currentTenant().brandId}/brand_libraries`);
 
-export async function createLibraryConnection(input: Omit<BrandLibraryConnection, "id" | "workspaceId" | "brandId" | "revision" | "createdAt" | "updatedAt" | "lastSyncStatus">): Promise<BrandLibraryConnection> {
+export async function createLibraryConnection(input: Omit<BrandLibraryConnection, "id" | "workspaceId" | "brandId" | "revision" | "createdAt" | "updatedAt" | "lastSyncStatus" | "retryCount">): Promise<BrandLibraryConnection> {
   const tenant = currentTenant(); const now = new Date().toISOString();
-  const connection = brandLibraryConnectionSchema.parse({ ...input, id: randomUUID(), workspaceId: tenant.workspaceId, brandId: tenant.brandId, revision: 1, lastSyncStatus: "never", createdAt: now, updatedAt: now });
+  const connection = brandLibraryConnectionSchema.parse({ ...input, id: randomUUID(), workspaceId: tenant.workspaceId, brandId: tenant.brandId, revision: 1, lastSyncStatus: "never", retryCount: 0, createdAt: now, updatedAt: now });
   await root().doc(connection.id).create(connection); return connection;
 }
 
@@ -26,7 +27,7 @@ export async function beginLibrarySync(connectionId: string, expectedRevision: n
   const ref = root().doc(connectionId); const operationId = randomUUID(); const now = new Date().toISOString(); let connection!: BrandLibraryConnection;
   await db().runTransaction(async (transaction) => {
     const snapshot = await transaction.get(ref); connection = brandLibraryConnectionSchema.parse(snapshot.data());
-    if (connection.revision !== expectedRevision || connection.revokedAt || connection.cadence === "paused") throw new Error("library connection cannot be synchronized at this revision");
+    if (connection.revision !== expectedRevision || connection.revokedAt || connection.cadence === "paused" || connection.lastSyncStatus === "reconnection_required" || connection.lastSyncStatus === "permanent_failure" || (connection.nextEligibleRetryAt && Date.parse(connection.nextEligibleRetryAt) > Date.now())) throw new Error("library connection cannot be synchronized at this revision");
     if (connection.lastSyncStatus === "running") throw new Error("library sync already running");
     transaction.create(ref.collection("sync_operations").doc(operationId), { id: operationId, connectionId, expectedConnectionRevision: expectedRevision, status: "claimed", startedAt: now });
     transaction.update(ref, { lastSyncStatus: "running", updatedAt: now });
@@ -52,15 +53,15 @@ export async function promoteHealthySnapshot(connectionId: string, expectedRevis
     if (!current.exists || current.get("revision") !== expectedRevision || current.get("revokedAt")) throw new Error("stale or revoked library connection");
     const snapshotRef = connectionRef.collection("snapshots").doc(snapshotId);
     transaction.create(snapshotRef, snapshot);
-    transaction.update(connectionRef, { currentHealthySnapshotId: snapshotId, lastSyncStatus: "healthy", revision: expectedRevision + 1, updatedAt: now });
+    transaction.update(connectionRef, { currentHealthySnapshotId: snapshotId, lastSyncStatus: "healthy", retryCount: 0, nextEligibleRetryAt: FieldValue.delete(), revision: expectedRevision + 1, updatedAt: now });
   });
   return snapshot;
 }
 
-export async function failLibrarySync(connectionId: string, expectedRevision: number): Promise<void> {
+export async function failLibrarySync(connectionId: string, expectedRevision: number, failure: { category: "transient" | "reconnection_required" | "permanent"; retryCount: number; nextEligibleRetryAt?: string }): Promise<void> {
   const ref = root().doc(connectionId); const current = await ref.get();
   if (!current.exists || current.get("revision") !== expectedRevision) throw new Error("stale library connection");
-  await ref.update({ lastSyncStatus: "failed", revision: expectedRevision + 1, updatedAt: new Date().toISOString() });
+  await ref.update({ lastSyncStatus: failure.category === "transient" ? "transient_failure" : failure.category, retryCount: failure.retryCount, nextEligibleRetryAt: failure.nextEligibleRetryAt ?? FieldValue.delete(), revision: expectedRevision + 1, updatedAt: new Date().toISOString() });
 }
 
-export async function finalizeLibrarySyncOperation(connectionId: string, operationId: string, status: "healthy" | "failed", failure?: { code: string; publicMessage: string }): Promise<void> { const now = new Date().toISOString(); await root().doc(connectionId).collection("sync_operations").doc(operationId).update({ status, completedAt: now, ...(failure ? { failure } : {}) }); }
+export async function finalizeLibrarySyncOperation(connectionId: string, operationId: string, status: "healthy" | "failed", failure?: { code: string; category: "transient" | "reconnection_required" | "permanent"; publicMessage: string; retryCount: number; nextEligibleRetryAt?: string }): Promise<void> { const now = new Date().toISOString(); await root().doc(connectionId).collection("sync_operations").doc(operationId).update({ status, completedAt: now, ...(failure ? { failure } : {}) }); }

@@ -15,10 +15,10 @@ describe("studio conversation elements", () => {
 
   it("renders artifact references as real canvas targets", () => {
     const html = renderToStaticMarkup(createElement(ConversationTurn, {
-      message: { role: "assistant", text: "Draft ready", data: { intent: "list_drafts", reply: "", jobId: "job-1", drafts: [{ id: "d1", platform: "x", text: "Ship it", valid: true }] } },
+      message: { role: "assistant", text: "Artifact ready", data: { intent: "list_artifacts", reply: "", jobId: "job-1", artifacts: [{ id: "d1", jobId: "job-1", outputPlanId: "p1", outputPlanDigest: "a".repeat(64), outputType: "x_post", revision: 1, title: "Launch", sourceSegmentRefs: ["s:1"], producer: { role: "noni", model: "gemini-3.5-flash", traceId: "b".repeat(32) }, review: { role: "dara", traceId: "c".repeat(32), decision: "accept" }, mimeType: "text/markdown", createdAt: "2026-08-30T00:00:00.000Z", payload: { kind: "x_post", text: "Ship it" }, contentDigest: "d".repeat(64) }] } },
       onActivateArtifact: () => {},
     }));
-    expect(html).toContain('data-artifact-id="draft:d1"');
+    expect(html).toContain('data-artifact-id="artifact:d1"');
     expect(html).toContain("Ship it");
   });
 });

@@ -43,18 +43,6 @@ The script sources `.env.local` if present. The web and worker must share a non-
 INTERNAL_API_TOKEN=local-dev-token
 ```
 
-## Inspect persisted fixtures
-
-With the stack running:
-
-```bash
-node scripts/seed-demo.mjs
-```
-
-This populates clearly labeled fixture jobs in several states, content items, chat history, and locally rendered ffmpeg assets. Everything lives only in the emulator. The records demonstrate rendering and UI contracts; they are not evidence that Gemini, Agent Engine, Memory Bank, Pub/Sub in Google Cloud, or an external publishing API ran.
-
-> **Note:** re-seeding wipes existing `content_items` and `notifications` in the emulator.
-
 ## Run an authenticated cognitive job
 
 Before this path can succeed, configure the values documented in [Configuration](/configuration), including Google Identity Platform, application credentials, `AGENT_SERVICE_URL`, the shared `INTERNAL_API_TOKEN`, `AGENT_ENGINE_RESOURCE`, and the exact regional model and memory resources used by the worker. There is no in-process ADK fallback.

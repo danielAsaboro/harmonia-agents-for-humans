@@ -1,9 +1,16 @@
+import hashlib
 import json
 
 import pytest
 
-from harmonia_agent.artifact_export import render_json, render_markdown
-from harmonia_agent.content_artifacts import ContentArtifactDraft
+from harmonia_agent.artifact_export import (
+    ArtifactVerificationError,
+    export_content_artifact,
+    render_json,
+    render_markdown,
+    verify_content_artifact_export,
+)
+from harmonia_agent.content_artifacts import ContentArtifactDraft, ContentArtifactRecord
 
 
 @pytest.mark.parametrize(
@@ -37,3 +44,68 @@ def test_markdown_escapes_untrusted_heading_markup():
     rendered = render_markdown(artifact).decode()
     assert "javascript:" not in rendered
     assert "\\# Injected" in rendered
+
+
+def _sealed_artifact() -> ContentArtifactRecord:
+    value = {
+        "id": "artifact-1", "jobId": "job-1", "outputPlanId": "plan-1",
+        "outputPlanDigest": "a" * 64, "outputType": "linkedin_post", "revision": 2,
+        "title": "Launch", "sourceSegmentRefs": ["source-1:segment-1"],
+        "producer": {"role": "noni", "model": "gemini-3.5-flash", "traceId": "b" * 32},
+        "review": {"role": "dara", "traceId": "c" * 32, "decision": "accept"},
+        "mimeType": "text/markdown", "createdAt": "2026-08-30T00:00:00Z",
+        "payload": {"kind": "linkedin_post", "body": "Operational proof", "cta": "Read more"},
+    }
+    meaning = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    return ContentArtifactRecord.model_validate({
+        **value, "contentDigest": hashlib.sha256(meaning).hexdigest(),
+    })
+
+
+def test_export_stores_immutable_markdown_and_json_objects_and_verifies_exact_bytes():
+    objects: dict[str, bytes] = {}
+
+    def store(content: bytes, content_type: str) -> dict:
+        object_id = f"object-{len(objects) + 1}"
+        objects[object_id] = content
+        return {"id": object_id, "sha256": hashlib.sha256(content).hexdigest(), "bytes": len(content), "contentType": content_type}
+
+    artifact = _sealed_artifact()
+    detail = export_content_artifact(artifact, store=store)
+
+    assert detail == {
+        "artifactId": "artifact-1", "artifactRevision": 2,
+        "artifactDigest": artifact.contentDigest,
+        "markdownObjectId": "object-1", "markdownSha256": hashlib.sha256(objects["object-1"]).hexdigest(),
+        "markdownBytes": len(objects["object-1"]),
+        "jsonObjectId": "object-2", "jsonSha256": hashlib.sha256(objects["object-2"]).hexdigest(),
+        "jsonBytes": len(objects["object-2"]),
+    }
+    verified = verify_content_artifact_export(
+        artifact, detail, read=lambda object_id, expected_bytes: objects[object_id],
+    )
+    assert verified["artifactId"] == artifact.id
+    assert verified["artifactDigest"] == artifact.contentDigest
+
+
+@pytest.mark.parametrize("failure", ["missing", "mutated"])
+def test_verification_fails_closed_for_missing_or_mutated_object_bytes(failure):
+    objects: dict[str, bytes] = {}
+
+    def store(content: bytes, content_type: str) -> dict:
+        object_id = f"object-{len(objects) + 1}"
+        objects[object_id] = content
+        return {"id": object_id, "sha256": hashlib.sha256(content).hexdigest(), "bytes": len(content), "contentType": content_type}
+
+    artifact = _sealed_artifact()
+    detail = export_content_artifact(artifact, store=store)
+    if failure == "missing":
+        del objects[detail["markdownObjectId"]]
+    else:
+        objects[detail["jsonObjectId"]] = b"{}"
+
+    with pytest.raises(ArtifactVerificationError):
+        verify_content_artifact_export(
+            artifact, detail,
+            read=lambda object_id, expected_bytes: objects.get(object_id),
+        )

@@ -7,18 +7,18 @@ import { isReplayableAction } from "@/lib/replayEligibility";
 import type { EffectClaim, Job, PlannedAction, Receipt } from "@/lib/types";
 
 const action: PlannedAction = {
-  id: "action-1", jobId: "job-1", type: "export_content_pack", title: "Export",
+  id: "action-1", jobId: "job-1", type: "export_content_artifact", title: "Export",
   description: "", risk: "low", requiresApproval: true, approvalState: "approved",
   payload: {}, state: "executed",
 };
 const job = { id: "job-1", actions: [action] } as Job & { actions: PlannedAction[] };
 const receipt: Receipt = {
-  id: "receipt-1", jobId: "job-1", actionId: "action-1", actionType: "export_content_pack",
+  id: "receipt-1", jobId: "job-1", actionId: "action-1", actionType: "export_content_artifact",
   idempotencyKey: "a".repeat(64), operationId: "effect-op", traceId: "b".repeat(32),
   performedAt: "2026-08-25T01:00:00Z", outcome: "applied", detail: {},
 };
 const appliedClaim: EffectClaim = {
-  id: receipt.idempotencyKey, jobId: "job-1", actionId: "action-1", actionType: "export_content_pack",
+  id: receipt.idempotencyKey, jobId: "job-1", actionId: "action-1", actionType: "export_content_artifact",
   idempotencyKey: receipt.idempotencyKey, operationId: receipt.operationId, traceId: receipt.traceId,
   claimToken: "private-owner-token", state: "applied", attempt: 1,
   claimedAt: "2026-08-25T00:59:00Z", leaseExpiresAt: "2026-08-25T01:04:00Z",
@@ -59,7 +59,7 @@ describe("operator replay authority", () => {
     expect(publicClaim).not.toHaveProperty("claimToken");
     expect(publicClaim).not.toHaveProperty("leaseExpiresAt");
     expect(effectClaimResponse({ outcome: "already_applied", claim: appliedClaim, receiptId: receipt.id }, {
-      jobId: "job-1", actionId: "action-1", actionType: "export_content_pack",
+      jobId: "job-1", actionId: "action-1", actionType: "export_content_artifact",
       idempotencyKey: receipt.idempotencyKey, operationId: "replay-op", traceId: "c".repeat(32), claimToken: "new-token",
     })).toEqual({
       outcome: "already_applied", attempt: 1, receiptId: receipt.id,

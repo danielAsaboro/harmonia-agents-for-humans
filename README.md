@@ -1,6 +1,6 @@
 # Harmonia
 
-**Harmonia is an asynchronous social media content agent for startups.** Give it authorized source material and it creates a durable content job: Nimi extracts evidence, Ryan proposes a four-week strategy for human approval, Temi operationalizes approved briefs, Noni and Dara produce reviewed drafts, and deterministic code authorizes and verifies exact effects.
+**Harmonia is an asynchronous social media content agent for startups.** Give it authorized source material and it creates a durable content job: Nimi extracts evidence, Ryan proposes a four-week strategy for human approval, Temi operationalizes approved briefs, Noni and Dara produce reviewed typed artifacts, and deterministic code authorizes and verifies exact effects.
 
 The dashboard and authenticated web chat are active operator surfaces. Telegram’s official Bot API integration routes ordinary allow-listed messages through the canonical chat router, configures its webhook through `setWebhook`, and retains the nonce-bound inline-button approval boundary. Those paths are covered locally but are not live-evidenced against a real bot, so Telegram is not yet claimed as a production-verified equivalent surface.
 
@@ -10,7 +10,7 @@ The repository also implements governed resident autonomy: an hourly Heartbeat, 
 
 ## Why Harmonia is an agent—and where it deliberately is not
 
-Harmonia is agentic where the problem is ambiguous: Gemini/ADK specialists interpret multimodal source material, identify grounded moments and angles, create platform-native drafts, revise them, and propose bounded actions. It is deliberately deterministic where mistakes have consequences: Firestore/Pub/Sub progression, schema validation, cost reservation, policy, approval, idempotent execution, receipts, and independent verification. Humans retain final publishing authority. This is bounded agency inside a durable workflow, not an unrestricted model loop; the full stage/authority and KPI contract is in [`docs/operational-model.mdx`](./docs/operational-model.mdx).
+Harmonia is agentic where the problem is ambiguous: Gemini/ADK specialists interpret multimodal source material, identify grounded moments and angles, produce and review typed content artifacts, and propose bounded actions. It is deliberately deterministic where mistakes have consequences: Firestore/Pub/Sub progression, schema validation, cost reservation, policy, approval, idempotent execution, receipts, and independent verification. Humans retain final publishing authority. This is bounded agency inside a durable workflow, not an unrestricted model loop; the full stage/authority and KPI contract is in [`docs/operational-model.mdx`](./docs/operational-model.mdx).
 
 ## The pipeline
 
@@ -25,9 +25,9 @@ collect_sources → extract_sources → understand → strategize → awaiting_s
 - **Understand**: Nimi receives the typed normalized source bundle and returns strict source analysis with exact segment/frame references, evidence-kind provenance, assumptions, and confidence. Deterministic code validates quotes, time bounds, references, and authority; then persists the complete analysis and canonical digest.
 - **Strategize**: Ryan uses typed company, campaign, audience, performance, and eligible Memory Bank context to propose a provenance-linked four-week strategy and complete content briefs. A human must approve the exact strategy digest before Temi runs.
 - **Plan**: deterministic code persists a tenant-scoped planning snapshot, then Temi loads `temi-editorial-planning-skills` and uses only request-bound read views over that immutable snapshot to operationalize the approved Ryan strategy. Deterministic code validates both snapshot and plan digests, persists the complete four-week plan, and selects exactly one supported, eligible item; Temi cannot search, write final copy, mutate calendars, or authorize effects.
-- **Draft**: Noni receives the selected item, exact Ryan brief, and referenced Nimi evidence; its bounded reads may add verified prior-publication links and brief-scoped public-source provenance. Dara returns seven grounded editorial checks plus a bounded accept/revise assessment; deterministic code assigns review metadata, permits at most one issue-bound revision, persists the full trace, and derives effect proposals only from the exact accepted text.
-- **Awaiting approval**: X publishing and paid Veo/Lyria actions wait for exact operator approval. Deterministically safe content-pack, image, and ffmpeg artifact actions do not pretend to have human approval; none publishes externally.
-- **Publish**: executable actions run idempotently (stable idempotency keys from `jobId + actionId + contentHash`); X posts use the official X API v2, while internal artifact actions remain separate from publication.
+- **Draft**: Noni receives the approved output plan and exact referenced evidence, then produces the requested typed artifact batch. Dara applies seven format-aware checks; deterministic code permits at most one issue-bound revision, seals immutable accepted artifacts, and derives effects from their exact digests.
+- **Awaiting approval**: X and LinkedIn publishing and paid Veo/Lyria actions wait for exact operator approval. Immutable content-artifact export, image generation, and ffmpeg rendering are internal actions and never imply publication.
+- **Publish**: executable actions run idempotently. Official publishers currently cover X posts, resumable X threads, and LinkedIn posts. Every accepted written/spec artifact is exportable as canonical JSON plus deterministic Markdown; a content-pack manifest runs only after every constituent export independently rereads and verifies.
 - **Verify**: provider effects are confirmed by fresh independent API reads and internal artifacts by digest read-back — never because a model said so.
 
 ## Architecture
@@ -92,12 +92,12 @@ flowchart LR
 | Concern | Where | Interface |
 |---|---|---|
 | Collection and extraction | source registry + `agent/harmonia_agent/extraction/` | immutable manifests, scheduled library snapshots, bounded normalization, and authorized media download |
-| Understanding / drafting | `agent/harmonia_agent/content.py`, `agents.py`, `noni_skills.py` | Gemini media extraction, multimodal Nimi, Ryan strategy, Temi planning, skill-backed Noni writing, and Dara review |
+| Understanding / artifact production | `agent/harmonia_agent/content.py`, `content_artifacts.py`, `agents.py` | Gemini media extraction, multimodal Nimi, Ryan strategy, Temi planning, typed multi-format Noni production, and Dara review |
 | Intent parsing (chat + Telegram) | web `src/lib/chatIntent.ts` | Gemini structured output: `{intent, youtubeUrl?, jobId?}` |
 | Generative interface composition | ADK `maya_presenter` + web `src/lib/a2ui/` | exact-context, reference-only `SurfacePlan`; deterministic validation and server hydration from authenticated Firestore records |
 | Approval gate | web `src/lib/policy.ts`, `src/lib/decisions.ts` | deterministic risk rules; single decision writer shared by REST, chat, and Telegram |
-| Publishing | `agent/harmonia_agent/x_client.py` | official X API v2, idempotent |
-| Verification | `agent/harmonia_agent/stages.py` | fresh GET of the published artifact |
+| Effects | `agent/harmonia_agent/effect_executor.py` | immutable export plus official X post/thread and LinkedIn publishers, all idempotent |
+| Verification | `agent/harmonia_agent/stages.py`, `artifact_export.py` | fresh provider reads and exact dual-object byte verification |
 | Operator surfaces | dashboard UI, `/api/chat`, `telegram_bot.py` | identical grammar; Google session or workspace-scoped Telegram identity; shared approval gate |
 
 ## Technology
@@ -150,7 +150,7 @@ Click the chat bubble on the dashboard (or `POST /api/chat` with `{message}`):
 ```
 "create a job from https://youtu.be/<id>"
 "status of job <id>"          # or just "status"
-"show drafts for <id>"
+"show artifacts for <id>"
 "approve job <id>"            # opens deterministic confirmation; text is not authority
 ```
 

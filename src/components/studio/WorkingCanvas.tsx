@@ -39,7 +39,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
   const [view, setView] = useState<CanvasView>("board");
   const [a2uiActionError, setA2uiActionError] = useState<string | null>(null);
   const model = job ? buildStudioWorkspace(job, receipts) : null;
-  const selectedView: CanvasView | null = selectedArtifactId?.startsWith("draft:") ? "written"
+  const selectedView: CanvasView | null = selectedArtifactId?.startsWith("artifact:") ? "written"
     : selectedArtifactId?.startsWith("visual:") ? "visual"
       : selectedArtifactId?.startsWith("motion:") ? "motion"
         : selectedArtifactId?.startsWith("audio:") ? "audio"
@@ -96,7 +96,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
             }
             const actionJobId = String(action.context.jobId ?? "");
             const draftId = String(action.context.draftId ?? "");
-            if (!job || actionJobId !== job.id || !job.drafts.some((draft) => draft.id === draftId) || !onRequestSurfaceRevision) {
+            if (!job || actionJobId !== job.id || !(job.contentArtifacts ?? []).some((artifact) => artifact.id === draftId) || !onRequestSurfaceRevision) {
               setA2uiActionError("The generated revision request did not match the active persisted draft.");
               return;
             }

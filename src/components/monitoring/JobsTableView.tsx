@@ -98,8 +98,8 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
                 <td className="ops-table__muted">
                   {new Date(j.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                 </td>
-                <td className={j.failure ? "ops-table__danger" : "ops-table__muted"} title={j.failure?.error}>
-                  {j.failure ? `${j.failure.stage}: ${j.failure.error.slice(0, 60)}` : "—"}
+                <td className={j.failure ? "ops-table__danger" : "ops-table__muted"} title={j.failure?.publicMessage}>
+                  {j.failure ? `${j.failure.stage}: ${j.failure.publicMessage.slice(0, 60)}` : "—"}
                 </td>
               </tr>
             ))}

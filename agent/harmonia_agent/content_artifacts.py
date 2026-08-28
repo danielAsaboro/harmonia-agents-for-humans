@@ -1,8 +1,9 @@
-"""Strict, authority-free artifacts proposed by Noni before host sealing."""
+"""Strict authority-free drafts and immutable host-sealed content artifacts."""
 
-from datetime import datetime
+import hashlib
+import json
 from typing import Annotated, Literal
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from .agent_models import StrictModel
 
 
@@ -105,9 +106,17 @@ class CalendarEntry(StrictModel):
     id: str = Field(min_length=1)
     artifactId: str = Field(min_length=1)
     channel: str = Field(min_length=1)
-    intendedAt: datetime
+    intendedAt: str = Field(min_length=1)
     purpose: str = Field(min_length=1)
     dependencyArtifactIds: list[str] = Field(default_factory=list)
+
+    @field_validator("intendedAt")
+    @classmethod
+    def valid_timestamp(cls, value: str) -> str:
+        from datetime import datetime
+
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return value
 
 class CalendarPayload(StrictModel):
     kind: Literal["editorial_calendar"]
@@ -137,6 +146,56 @@ class ContentArtifactDraft(StrictModel):
     def matching_kind(self):
         if self.outputType != self.payload.kind:
             raise ValueError("payload kind must match output type")
+        return self
+
+
+class ArtifactProducer(StrictModel):
+    role: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+    traceId: str = Field(pattern=r"^[0-9a-f]{32}$")
+
+
+class ArtifactReviewIdentity(StrictModel):
+    role: str = Field(min_length=1)
+    traceId: str = Field(pattern=r"^[0-9a-f]{32}$")
+    decision: Literal["accept"]
+
+
+class ContentArtifactRecord(StrictModel):
+    """Exact immutable artifact envelope sealed by the TypeScript authority boundary."""
+
+    id: str = Field(min_length=1)
+    jobId: str = Field(min_length=1)
+    outputPlanId: str = Field(min_length=1)
+    outputPlanDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    outputType: Literal["x_post", "x_thread", "linkedin_post", "blog_article", "newsletter", "caption", "carousel_spec", "quote_card", "diagram", "editorial_calendar", "content_pack"]
+    revision: int = Field(gt=0)
+    title: str = Field(min_length=1, max_length=300)
+    sourceSegmentRefs: list[str] = Field(min_length=1, max_length=100)
+    producer: ArtifactProducer
+    review: ArtifactReviewIdentity
+    mimeType: Literal["text/markdown", "application/json"]
+    createdAt: str = Field(min_length=1)
+    payload: ArtifactPayload
+    contentDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @field_validator("createdAt")
+    @classmethod
+    def valid_created_at(cls, value: str) -> str:
+        from datetime import datetime
+
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return value
+
+    @model_validator(mode="after")
+    def validate_identity(self):
+        if self.outputType != self.payload.kind:
+            raise ValueError("payload kind must match output type")
+        value = self.model_dump(mode="json", by_alias=True, exclude_none=True)
+        digest = value.pop("contentDigest")
+        canonical = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+        if hashlib.sha256(canonical).hexdigest() != digest:
+            raise ValueError("content artifact canonical digest mismatch")
         return self
 
 

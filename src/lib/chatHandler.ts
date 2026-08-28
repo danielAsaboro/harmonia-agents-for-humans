@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { requestAgentAnswer } from "@/lib/agentAskClient";
-import { answerFromContext, fetchContextRecord, isValidContext, mockContextAnswer } from "@/lib/contextAnswer";
-import { isMockAi } from "@/lib/chatIntent";
+import { answerFromContext, fetchContextRecord, isValidContext } from "@/lib/contextAnswer";
 import {
   appendEvent,
   getJob,
@@ -12,7 +11,8 @@ import {
 import { currentTenant } from "@/lib/tenancy";
 import { parseIntent } from "@/lib/chatIntent";
 import { queueStageTrigger } from "@/lib/stageTrigger";
-import type { Job, PlannedAction, PostDraft, SourceInput, Stage } from "@/lib/types";
+import type { Job, PlannedAction, SourceInput, Stage } from "@/lib/types";
+import type { ContentArtifact } from "@/lib/contentArtifacts/contracts";
 import { requireReadyAttachments, type ChatAttachment } from "@/lib/chatAttachments";
 import { actionPayloadDigest } from "@/lib/idempotency";
 import { createPendingOperation, type PendingOperation } from "@/lib/pendingOperations";
@@ -70,7 +70,7 @@ export interface ChatResponse {
   reply: string;
   job?: JobCard;
   jobs?: JobCard[];
-  drafts?: PostDraft[];
+  artifacts?: ContentArtifact[];
   pendingActions?: PendingActionSummary[];
   /** Media produced by the referenced job, so conversations render richly. */
   assets?: ChatAsset[];
@@ -92,7 +92,7 @@ function toCard(job: AnyJob): JobCard {
     status: job.status,
     title: job.sourceAnalysis?.summary,
     failure: job.failure
-      ? { stage: job.failure.stage, error: job.failure.error, permanent: job.failure.permanent }
+      ? { stage: job.failure.stage, error: job.failure.publicMessage, permanent: !job.failure.retryable }
       : undefined,
   };
 }
@@ -267,9 +267,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
     }
     let reply: string;
     try {
-      reply = isMockAi()
-        ? mockContextAnswer(message, record, context.kind)
-        : await answerFromContext(message, record);
+      reply = await answerFromContext(message, record);
     } catch (e) {
       return { payload: {
         intent: "context_qa",
@@ -339,7 +337,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
       if (intent.jobId) {
         const job = await getJob(intent.jobId);
         const reply = job.failure
-          ? `Job ${job.id} failed at '${job.failure.stage}' (${job.failure.permanent ? "permanent" : "transient"}): ${job.failure.error}`
+          ? `Job ${job.id} failed at '${job.failure.stage}' (${job.failure.retryable ? "transient" : "permanent"}): ${job.failure.publicMessage}`
           : job.stage === "awaiting_strategy_approval"
             ? `Job ${job.id} is waiting for approval of Ryan's strategy digest ${job.strategyDigest ?? "(missing)"}.`
             : job.stage === "awaiting_approval"
@@ -364,7 +362,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
       } satisfies ChatResponse };
     }
 
-    case "list_drafts": {
+    case "list_artifacts": {
       if (!intent.jobId) {
         const jobs = await listJobs();
         return { payload: {
@@ -374,20 +372,21 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
         } satisfies ChatResponse };
       }
       const job = await getJob(intent.jobId);
-      if (job.drafts.length === 0) {
+      const artifacts = job.contentArtifacts ?? [];
+      if (artifacts.length === 0) {
         return { payload: {
           intent: intent.intent,
-          reply: `Job ${job.id} has no drafts yet (stage: ${job.stage}).`,
+          reply: `Job ${job.id} has no content artifacts yet (stage: ${job.stage}).`,
           jobId: job.id,
           job: toCard(job),
         } satisfies ChatResponse };
       }
       return { payload: {
         intent: intent.intent,
-        reply: `${job.drafts.length} drafted post(s) for "${job.sourceAnalysis?.summary ?? job.id}":`,
+        reply: `${artifacts.length} immutable content artifact(s) for "${job.sourceAnalysis?.summary ?? job.id}":`,
         jobId: job.id,
         job: toCard(job),
-        drafts: job.drafts,
+        artifacts,
         assets: await assetsOf(job.id),
       } satisfies ChatResponse };
     }
@@ -420,7 +419,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
     }
 
     default: {
-      if (!isMockAi()) {
+      {
         try {
           const result = await requestAgentAnswer(message);
           const askJobId = result.operationId;
@@ -455,7 +454,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
           "I can run your Harmonia content pipeline. Try:\n" +
           "- \"make a job from https://youtu.be/<id>\"\n" +
           "- \"status of job <id>\" or \"status\"\n" +
-          "- \"show drafts for <id>\"\n" +
+          "- \"show artifacts for <id>\"\n" +
           "- \"approve job <id>\" (strategy and publication effects have separate explicit approvals)",
       } satisfies ChatResponse };
     }

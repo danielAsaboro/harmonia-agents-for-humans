@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/clientApi";
 import type { ChatResponse } from "@/app/api/chat/route";
-import type { PostDraft } from "@/lib/types";
+import { contentArtifactPreview } from "@/lib/contentArtifacts/presentation";
 import { AttachmentCard, ConfirmationCard, MessageContent } from "@/components/a2ui/HarmoniaElements";
 
 interface ChatMessage {
@@ -177,10 +177,11 @@ export default function ChatDrawer({ onJobCreated }: { onJobCreated?: (id: strin
                     ))}
                     {m.data.job && <JobCardView job={m.data.job} />}
                     {m.data.jobs?.map((j) => <JobCardView key={j.id} job={j} />)}
-                    {m.data.drafts?.map((d: PostDraft) => (
-                      <div key={d.id} className="rounded-lg border border-zinc-200 px-3 py-2 text-xs dark:border-zinc-800">
-                        <div className="mb-1 font-medium uppercase tracking-wide text-zinc-400">{d.platform}{d.valid ? "" : " · invalid"}</div>
-                        {d.text}
+                    {m.data.artifacts?.map((artifact) => (
+                      <div key={artifact.id} className="rounded-lg border border-zinc-200 px-3 py-2 text-xs dark:border-zinc-800">
+                        <div className="mb-1 font-medium uppercase tracking-wide text-zinc-400">{artifact.outputType.replaceAll("_", " ")} · revision {artifact.revision}</div>
+                        {contentArtifactPreview(artifact)}
+                        <div className="mt-1 truncate font-mono text-[9px] text-zinc-400">{artifact.contentDigest}</div>
                       </div>
                     ))}
                     {m.data.pendingActions && m.data.job && m.data.pendingActions.map((a) => (

@@ -49,11 +49,11 @@ Temi receives its exact ID and digest alongside the unchanged approved strategy 
 After validating and persisting Temi's plan, deterministic code selects one eligible item for
 production. Temi never mutates an external calendar. See [Temi](/agents/temi).
 
-## draft
+## draft (typed artifact production)
 
 Noni receives only the selected editorial item, exact Ryan brief, and referenced Nimi evidence. Dara
-reviews the exact draft against immutable input. Deterministic code permits at most one issue-bound
-Noni revision, validates the complete trace, and prepares effect proposals from accepted content. See
+reviews every requested typed artifact against immutable input. Deterministic code permits at most one issue-bound
+Noni revision, validates the complete batch, and prepares effect proposals from accepted content. See
 [Noni](/agents/noni) and [Dara](/agents/dara); the full skills and tools inventory is
 [here](/reference/agent-runtime-inventory).
 
@@ -61,7 +61,7 @@ Every action lands with `requiresApproval`, risk level, and its own idempotency 
 
 ## awaiting_approval
 
-Hard gate for X publishing and paid Veo/Lyria generation. Approvals arrive through the dashboard queue, chat ("approve job \<id\>"), or a Telegram inline-button callback — all through the same decision engine, which records who approved what and when. Content-pack export, Gemini image generation, and local ffmpeg rendering are internal artifact actions with `approvalState: not_required`; they never inherit a fictional human decision and do not publish anything.
+Hard gate for X and LinkedIn publishing and paid Veo/Lyria generation. Approvals arrive through the dashboard queue, chat ("approve job \<id\>"), or a Telegram inline-button callback — all through the same decision engine. Verified content-artifact export, Gemini image generation, and local ffmpeg rendering are internal actions with `approvalState: not_required`.
 
 ## publish
 
@@ -70,7 +70,9 @@ Executes policy-authorized actions in order, checking effect claims and receipts
 | Action | Effect |
 |---|---|
 | `publish_x_post` | POST to X API v2 `/2/tweets`; receipt carries post id + URL |
-| `export_content_pack` | Markdown bundle of moments, angles, drafts stored with a digest |
+| `publish_x_thread` | Ordered, resumable X reply chain with each confirmed post id durably checkpointed |
+| `publish_linkedin_post` | Official LinkedIn API post to an exact connected destination |
+| `export_content_artifact` | Immutable canonical JSON plus deterministic Markdown; both byte streams are hash-verified |
 | `generate_image` | Gemini image bytes into the asset store |
 | `render_clip` / `render_reel` | Real ffmpeg cuts/captions/reframes into the asset store |
 
@@ -78,7 +80,7 @@ Failures are classified: permanent errors stop the job visibly, transient errors
 
 ## verify
 
-Independent re-fetch of every executed action: tweets re-read from X by id, pack digests compared against Firestore, asset digests re-checked from the store. Results are immutable verification records — the receipt says what we *did*, verification says what is *true*.
+Independent re-fetch of every executed action: X posts and threads re-read by id, LinkedIn posts re-read through the official API, and both exported artifact byte streams re-read and hash-checked. Results are immutable verification records — the receipt says what we *did*, verification says what is *true*.
 
 ## learn
 

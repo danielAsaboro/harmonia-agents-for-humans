@@ -198,8 +198,6 @@ def _private_output_path(output_path: Path) -> Path:
 async def run_live_eval(
     *, evalset_path: Path, output_path: Path, agent_module: str, num_runs: int,
 ) -> None:
-    if os.environ.get("HARMONIA_MOCK_AI") == "1":
-        raise RuntimeError("refusing real evaluation while HARMONIA_MOCK_AI=1")
     if os.environ.get("HARMONIA_REAL_EVAL") != "1":
         raise RuntimeError("set HARMONIA_REAL_EVAL=1 to authorize a live model evaluation")
     output_path = _private_output_path(output_path)

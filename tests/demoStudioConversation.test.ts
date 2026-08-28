@@ -7,7 +7,7 @@ describe("studio demo conversation", () => {
     expect(messages.length).toBeGreaterThanOrEqual(24);
     expect(messages.filter((message: { role: string }) => message.role === "user").length).toBeGreaterThanOrEqual(12);
     expect(messages.some((message: { data?: { intent?: string } }) => message.data?.intent === "create_job")).toBe(true);
-    expect(messages.some((message: { data?: { intent?: string } }) => message.data?.intent === "list_drafts")).toBe(true);
+    expect(messages.some((message: { data?: { intent?: string } }) => message.data?.intent === "list_artifacts")).toBe(true);
     expect(messages.some((message: { data?: { pendingActions?: unknown[] } }) => message.data?.pendingActions?.length)).toBe(true);
     expect(JSON.stringify(messages)).toContain("Local demo fixture");
     expect(JSON.stringify(messages)).not.toContain("Veo generated successfully");

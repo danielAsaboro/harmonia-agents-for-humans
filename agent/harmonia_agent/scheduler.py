@@ -19,7 +19,7 @@ import threading
 import time
 
 from .effect_executor import execute_effect_command, production_adapters
-from .web_client import get_due_effect_command_ids, get_effect_command, get_workspaces, run_library_sync_tick
+from .web_client import get_connection, get_due_effect_command_ids, get_effect_command, get_workspaces, run_library_sync_tick
 from .tenant_context import tenant_scope
 
 logger = logging.getLogger("harmonia.scheduler")
@@ -32,7 +32,14 @@ async def _tenant_tick() -> None:
     for command_id in get_due_effect_command_ids():
         try:
             command = get_effect_command(command_id)
-            result = execute_effect_command(command, adapters=production_adapters())
+            kind = str(command["actionType"])
+            connection_kind = "x" if kind in {"publish_x_post", "publish_x_thread"} else "linkedin" if kind == "publish_linkedin_post" else None
+            connection = get_connection(connection_kind) if connection_kind else {}
+            result = execute_effect_command(command, adapters=production_adapters(
+                x_access_token=str(connection.get("accessToken") or "") if connection_kind == "x" else "",
+                linkedin_access_token=str(connection.get("accessToken") or "") if connection_kind == "linkedin" else "",
+                job_id=str(command["jobId"]),
+            ))
             if result.outcome in {"in_progress", "already_applied"}:
                 logger.info("scheduled command %s: %s", command_id, result.outcome)
             elif result.outcome == "uncertain":

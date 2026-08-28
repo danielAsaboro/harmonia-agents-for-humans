@@ -34,7 +34,8 @@ from .agent_models import (
     PerformanceObservation,
     StrategistInput,
 )
-from .content_artifacts import ArtifactProductionInput
+from .content_artifacts import ArtifactProductionInput, ContentArtifactRecord
+from .artifact_export import ArtifactVerificationError, verify_content_artifact_export
 from .agents import (
     AgentProtocolError,
     analyze_with_team,
@@ -86,6 +87,8 @@ from .web_client import (
     get_source,
     get_source_manifest,
     get_chat_attachment,
+    get_content_artifact,
+    read_artifact,
     post as web_post,
     patch as web_patch,
     report_usage,
@@ -597,14 +600,14 @@ async def run_draft(job_id: str) -> None:
     }
     if source_ids != expected_source_ids or not source_ids:
         raise AgentProtocolError("selected brief source evidence is missing")
-    claim = web_post("/api/internal/drafts", {
-        "jobId": job_id, "stage": "draft", "operation": "claim",
+    claim = web_post("/api/internal/content-artifacts/claim", {
+        "jobId": job_id,
         "editorialPlanId": editorial_plan.planId, "editorialPlanDigest": stored_digest,
         "editorialItemId": selected.id, "briefId": selected.briefId,
     })
     if claim.get("outcome") != "execute":
         raise AgentProtocolError("selected editorial item drafting claim was not granted")
-    artifact_output_types = {"x_post", "x_thread", "linkedin_post", "blog_article", "newsletter", "caption", "carousel_spec", "quote_card", "diagram", "editorial_calendar"}
+    artifact_output_types = {"x_post", "x_thread", "linkedin_post", "blog_article", "newsletter", "caption", "carousel_spec", "quote_card", "diagram", "editorial_calendar", "content_pack"}
     output_plan = job.get("campaignOutputPlan") or {}
     requested = [item for item in (output_plan.get("outputs") or []) if item.get("outputType") in artifact_output_types]
     if requested:
@@ -626,101 +629,7 @@ async def run_draft(job_id: str) -> None:
         result = await produce_artifacts_with_team(production_input, invocation=InvocationContext(job_id=job_id, workspace_id=job["workspaceId"], brand_id=job["brandId"], user_id=job["createdByUserId"], stage="draft", operation_id=f"{job_id}:draft:artifacts:0"))
         web_post("/api/internal/content-artifacts", {"jobId": job_id, "stage": "draft", "operation": "complete", "editorialPlanId": editorial_plan.planId, "editorialPlanDigest": stored_digest, "editorialItemId": selected.id, "briefId": selected.briefId, "result": result.model_dump(mode="json", by_alias=True)})
         return
-    brand_context = json.dumps({
-        "strategicThesis": strategy.get("thesis"),
-        "differentiatedNarrative": strategy.get("differentiatedNarrative"),
-        "brandSafety": strategy.get("brandSafety") or [],
-    }, sort_keys=True)[:4000]
-    package = await draft_with_team(CopywriterInput(
-        planId=editorial_plan.planId, planDigest=stored_digest,
-        strategyDigest=job["strategyDigest"], editorialItemId=selected.id,
-        briefId=selected.briefId,
-        editorialItem=selected, brief=brief,
-        referencedMoments=moments, referencedAngles=angles,
-        brandContext=brand_context,
-        constraints=[*selected.constraints, *strategy.get("brandSafety", []), *[str(item.get("instruction"))[:300] for item in (job.get("steeringInstructions") or []) if item.get("instruction")]],
-        platform="x", format="text_post", passType="original",
-        priorDraft=None, priorReview=None,
-    ), invocation=InvocationContext(
-        job_id=job_id,
-        workspace_id=job["workspaceId"],
-        brand_id=job["brandId"],
-        user_id=job["createdByUserId"],
-        stage="draft", operation_id=f"{job_id}:draft:0",
-    ))
-    accepted = package.acceptedDraft
-    planned_outputs = {str(item.get("outputType")) for item in ((job.get("campaignOutputPlan") or {}).get("outputs") or [])}
-    action_id = f"act-{hashlib.sha256(accepted.text.encode()).hexdigest()[:12]}"
-    actions = [{
-        "id": action_id, "type": "publish_x_post", "title": accepted.text[:48],
-        "description": "Publish the exact Dara-accepted X draft after operator approval.",
-        "payload": {"type": "publish_x_post", "text": accepted.text},
-    }] if "x_post" in planned_outputs else []
-    if "content_pack" in planned_outputs: actions.append({
-        "id": "act-content-pack", "type": "export_content_pack",
-        "title": "Assemble content pack",
-        "description": "Bundle moments, angles and drafts into an exportable markdown pack.",
-        "payload": {"type": "export_content_pack"},
-    })
-
-    # Propose image assets for the top meme angles (capped to bound cost).
-    meme_angles = [a for a in angles if a.get("angleType") == "meme"] or angles
-    visual_outputs = [item for item in ("social_image", "quote_card", "diagram") if item in planned_outputs]
-    for index, angle in enumerate(meme_angles[:len(visual_outputs)]):
-        output_type = visual_outputs[index]
-        prompt_text = (
-            f"Social media meme image for a startup. Concept: {angle['title']}. "
-            f"Rationale: {angle['rationale']}. Context: {(job.get('sourceAnalysis') or {}).get('summary', 'source bundle')}. "
-            "Clean, shareable, platform-friendly composition, no text artifacts or watermarks."
-        )
-        aid = f"act-img-{hashlib.sha256(prompt_text.encode()).hexdigest()[:12]}"
-        actions.append({
-            "id": aid, "type": "generate_image",
-            "title": f"Generate {output_type.replace('_', ' ')}: {angle['title'][:40]}",
-            "description": "Generates an internal image asset with Gemini; review before any use.",
-            "angleId": angle["id"],
-            "payload": {"type": "generate_image", "prompt": prompt_text},
-        })
-
-    # Propose captioned vertical clips from the strongest moments (video jobs only).
-    moments = [m for m in moments if m.get("endSec", 0) > m.get("startSec", 0)]
-    has_video_evidence = any(moment.get("endSec", 0) > moment.get("startSec", 0) and moment.get("sourceSegmentRefs") for moment in moments)
-    if has_video_evidence and {"short_clip", "reel"}.intersection(planned_outputs):
-        for moment in moments[:2] if "short_clip" in planned_outputs else []:
-            cid = f"act-clip-{hashlib.sha256(moment['id'].encode()).hexdigest()[:12]}"
-            actions.append({
-                "id": cid, "type": "render_clip",
-                "title": f"Cut clip: {moment['title'][:40]}",
-                "description": "Renders a captioned vertical short from this moment with ffmpeg; internal asset.",
-                "momentId": moment["id"],
-                "payload": {"type": "render_clip", "momentId": moment["id"], "format": "vertical", "captions": True},
-            })
-        if len(moments) >= 2 and "reel" in planned_outputs:
-            actions.append({
-                "id": "act-reel-top2",
-                "type": "render_reel",
-                "title": "Stitch highlight reel (top 2 moments)",
-                "description": "Concatenates the top moments into one vertical reel with ffmpeg; internal asset.",
-                "payload": {
-                    "type": "render_reel",
-                    "momentIds": [m["id"] for m in moments[:2]],
-                    "format": "vertical",
-                    "captions": True,
-                },
-            })
-
-    if settings().generative_media_enabled:
-        media_actions = deterministic_generative_media_actions({**job, "moments": moments, "angles": angles})
-        actions.extend(action for action in media_actions if (action["type"] == "generate_veo_broll" and "generated_broll" in planned_outputs) or (action["type"] == "generate_lyria_soundtrack" and "generated_audio" in planned_outputs))
-
-    web_post("/api/internal/drafts", {
-        "jobId": job_id, "stage": "draft",
-        "productionTrace": package.model_dump(mode="json"),
-        "operation": "complete", "editorialPlanId": editorial_plan.planId,
-        "editorialPlanDigest": stored_digest,
-        "editorialItemId": selected.id, "briefId": selected.briefId,
-        "proposedActions": actions,
-    })
+    raise AgentProtocolError("campaign output plan contains no supported typed content artifacts")
 
 
 def _idempotency_key(job_id: str, action: dict) -> str:
@@ -759,12 +668,20 @@ async def run_publish(job_id: str) -> None:
             "payload": command["payload"],
         }
         key = command["payloadDigest"]
-        if action["type"] in {"publish_x_post", "publish_linkedin_post"}:
-            connection_kind = "x" if action["type"] == "publish_x_post" else "linkedin"
-            connection = get_connection(connection_kind)
+        if action["type"] in {
+            "export_content_artifact", "publish_x_post", "publish_x_thread",
+            "publish_linkedin_post",
+        }:
+            connection_kind = (
+                "x" if action["type"] in {"publish_x_post", "publish_x_thread"}
+                else "linkedin" if action["type"] == "publish_linkedin_post"
+                else None
+            )
+            connection = get_connection(connection_kind) if connection_kind else {}
             adapters = production_adapters(
                 x_access_token=str(connection.get("accessToken") or "") if connection_kind == "x" else "",
                 linkedin_access_token=str(connection.get("accessToken") or "") if connection_kind == "linkedin" else "",
+                job_id=job_id,
             )
             result = execute_effect_command(
                 command,
@@ -816,22 +733,7 @@ async def run_publish(job_id: str) -> None:
         budget_operation_id: str | None = None
         budget_dispatched = False
         try:
-            if action["type"] == "export_content_pack":
-                pack = content.build_content_pack(
-                    str((job.get("sourceAnalysis") or {}).get("summary") or "Source bundle"),
-                    f"manifest:{job['config']['sourceManifestId']}",
-                    _source_moments(job), _source_angles(job), job.get("drafts", []),
-                )
-                digest = hashlib.sha256(pack.encode()).hexdigest()
-                web_post("/api/internal/pack", {"jobId": job_id, "markdown": pack, "digest": digest})
-                outcome = "already_applied" if key in done_keys else "applied"
-                artifact = {
-                    "kind": "firestore_doc",
-                    "url": f"{os.environ.get('WEB_INTERNAL_URL', '')}/api/internal/job/{job_id}",
-                    "fetchedAt": _now(), "digest": digest,
-                }
-                detail["digest"] = digest
-            elif action["type"] == "generate_image":
+            if action["type"] == "generate_image":
                 if key in done_keys:
                     outcome, detail["note"] = "already_applied", "receipt exists; skipped"
                 else:
@@ -1093,7 +995,43 @@ async def run_verify(job_id: str) -> None:
             "operationId": f"{job_id}:verify:{action['id']}",
             "traceId": trace_id,
         }
-        if action["type"] == "publish_x_post" and detail.get("id"):
+        if action["type"] == "export_content_artifact":
+            payload = action.get("payload") or {}
+            artifact_id = str(payload.get("artifactId") or "")
+            artifact_digest = str(payload.get("artifactDigest") or "")
+            try:
+                artifact_record = ContentArtifactRecord.model_validate(
+                    get_content_artifact(job_id, artifact_id, artifact_digest)
+                )
+
+                def read_exported(object_id: str, expected_bytes: int) -> bytes | None:
+                    page = read_artifact(object_id, offset=0, length=expected_bytes)
+                    import base64
+
+                    if not page.get("complete"):
+                        raise ArtifactVerificationError("exported object exceeds its receipted byte length")
+                    return base64.b64decode(str(page["dataBase64"]), validate=True)
+
+                verified_identity = verify_content_artifact_export(
+                    artifact_record, detail, read=read_exported,
+                )
+                verified = True
+                note = "stored Markdown and canonical JSON bytes match the immutable content artifact"
+                observed_digest = verified_identity["artifactDigest"]
+            except (ArtifactVerificationError, ValidationError, WebApiError, ValueError) as exc:
+                verified = False
+                note = f"content artifact export verification failed: {exc}"
+                observed_digest = None
+            results.append({
+                "target": f"content-artifact:{artifact_id}", "actionId": action["id"],
+                "verified": verified, "method": "artifact_digest_reread", **lineage,
+                "evidence": {
+                    "kind": "asset_store", "url": f"/api/internal/artifacts/{detail.get('jsonObjectId', '')}",
+                    "fetchedAt": _now(), "digest": observed_digest,
+                },
+                "note": note,
+            })
+        elif action["type"] == "publish_x_post" and detail.get("id"):
             connection = get_connection("x")
             post = x_client.get_post(str(detail["id"]), connection.get("accessToken"))
             observed_digest = hashlib.sha256(str(post.get("text", "")).encode()).hexdigest() if post else None
@@ -1112,6 +1050,25 @@ async def run_verify(job_id: str) -> None:
                     "X readback content digest does not match the receipted approved content"
                 ),
             })
+        elif action["type"] == "publish_x_thread" and detail.get("postIds"):
+            connection = get_connection("x")
+            posts = action.get("payload", {}).get("posts") or []
+            provider_ids = detail.get("postIds") or []
+            observed = [
+                x_client.get_post(str(post_id), connection.get("accessToken"))
+                for post_id in provider_ids
+            ]
+            expected_texts = [str(post.get("text") or "") for post in posts]
+            observed_texts = [str(post.get("text") or "") if post else "" for post in observed]
+            observed_digest = hashlib.sha256("\n".join(observed_texts).encode()).hexdigest()
+            expected_digest = (receipt.get("artifact") or {}).get("digest")
+            matches = len(provider_ids) == len(posts) and observed_texts == expected_texts and observed_digest == expected_digest
+            results.append({
+                "target": f"x-thread:{provider_ids[0]}", "actionId": action["id"],
+                "verified": matches, "method": "official_api_readback", **lineage,
+                "evidence": {"kind": "x_api", "url": detail.get("url", ""), "fetchedAt": _now(), "digest": observed_digest},
+                "note": "every X thread post was independently read and matched in order" if matches else "X thread readback mismatch",
+            })
         elif action["type"] == "publish_linkedin_post" and detail.get("id"):
             connection = get_connection("linkedin")
             payload = action.get("payload") or {}
@@ -1124,19 +1081,6 @@ async def run_verify(job_id: str) -> None:
                 "verified": matches, "method": "official_api_readback", **lineage,
                 "evidence": {"kind": "linkedin_api", "url": post["url"], "fetchedAt": _now(), "digest": observed_digest},
                 "note": "LinkedIn readback content and destination match the approved artifact" if matches else "LinkedIn readback content digest mismatch",
-            })
-        elif action["type"] == "export_content_pack" and job.get("contentPack"):
-            pack = job["contentPack"]
-            expected = detail.get("digest", "")
-            declared = pack.get("digest", "")
-            actual = hashlib.sha256(str(pack.get("markdown", "")).encode()).hexdigest()
-            verified = bool(expected and actual == expected and declared == actual)
-            results.append({
-                "target": "content-pack", "actionId": action["id"],
-                "verified": verified,
-                "method": "artifact_digest_reread", **lineage,
-                "evidence": {"kind": "firestore_doc", "url": "", "fetchedAt": _now(), "digest": actual},
-                "note": "pack bytes and stored digest match receipt" if verified else "pack digest mismatch",
             })
         elif action["type"] in (
             "generate_image", "generate_veo_broll", "generate_lyria_soundtrack",

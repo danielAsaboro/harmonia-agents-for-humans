@@ -7,6 +7,7 @@ import {
   invalidateEffectCommand,
   markEffectDispatched,
   markEffectObserved,
+  markEffectProgress,
   markEffectUnknown,
   restoreEffectPrepared,
   type EffectCommandInput,
@@ -106,6 +107,28 @@ describe("immutable effect commands", () => {
     });
     expect(observed).toMatchObject({ state: "observed", observedOutcome: "applied" });
     expect(observed.observationDigest).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("durably records ordered provider progress while the logical effect remains dispatched", () => {
+    const draft = { ...input(), actionType: "publish_x_thread" as const, payload: { posts: [{ id: "p1", text: "One" }, { id: "p2", text: "Two" }] } };
+    const prepared = createEffectCommand({
+      ...draft,
+      authorization: { kind: "approval", approvalId: "approval-1", approvedPayloadDigest: effectCommandDigest(draft) },
+    });
+    const dispatched = markEffectDispatched(prepared, {
+      operationId: "job:job-1:effect:command-1", operationEpoch: 1, attempt: 1,
+      now: "2026-08-27T09:00:00.000Z",
+    });
+    const progressed = markEffectProgress(dispatched, {
+      operationId: dispatched.operationId!, operationEpoch: 1,
+      progress: { kind: "x_thread", confirmedPostIds: ["x-1"] },
+      now: "2026-08-27T09:00:01.000Z",
+    });
+    expect(progressed).toMatchObject({
+      state: "dispatched",
+      progress: { kind: "x_thread", confirmedPostIds: ["x-1"] },
+      progressUpdatedAt: "2026-08-27T09:00:01.000Z",
+    });
   });
 
   it("fails closed after dispatch and permits reset only with not-started proof", () => {

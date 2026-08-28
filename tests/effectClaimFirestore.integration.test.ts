@@ -14,7 +14,7 @@ const scope = {
 };
 const jobId = `claim-${Date.now()}`;
 const action: PlannedAction = {
-  id: "action-1", jobId, type: "export_content_pack", title: "Export", description: "",
+  id: "action-1", jobId, type: "export_content_artifact", title: "Export", description: "",
   risk: "low", requiresApproval: true, approvalState: "approved", payload: {}, state: "planned",
 };
 const jobPath = `workspaces/${scope.workspaceId}/jobs/${jobId}`;

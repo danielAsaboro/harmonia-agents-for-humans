@@ -1,4 +1,5 @@
-import type { AnalysisResearchRequest, AnalysisSearchEvidence, ApprovalDecision, CampaignOutputPlan, EvidenceRef, Angle, ContentStrategy, DraftWorkflowResult, EditorialPlan, EditorialPlanningSnapshot, EffectClaimSummary, JobConfig, JobSourceManifest, Moment, NormalizedSource, PlannedAction, PostDraft, Receipt, SourceAnalysis, SourceRecord, Stage, StrategyApproval } from "@/lib/types";
+import type { AnalysisResearchRequest, AnalysisSearchEvidence, ApprovalDecision, CampaignOutputPlan, EvidenceRef, Angle, ContentStrategy, EditorialPlan, EditorialPlanningSnapshot, EffectClaimSummary, Job, JobConfig, JobSourceManifest, Moment, NormalizedSource, PlannedAction, Receipt, SourceAnalysis, SourceRecord, Stage, StrategyApproval } from "@/lib/types";
+import type { ContentArtifact } from "@/lib/contentArtifacts/contracts";
 
 export interface JobSummary {
   id: string;
@@ -10,7 +11,7 @@ export interface JobSummary {
   sourceAnalysis?: SourceAnalysis;
   controlEpoch?: number;
   controlState?: "running" | "paused" | "cancelled";
-  failure?: { stage: Stage; error: string; permanent: boolean; at: string };
+  failure?: Job["failure"];
   learnings?: { summary: string; notes: string[] };
 }
 
@@ -31,8 +32,6 @@ export interface JobFull extends JobSummary {
   editorialPlanningSnapshotDigest?: string;
   selectedNextItemId?: string;
   editorialItemStates?: Record<string, { status: "planned" | "selected" | "drafting" | "reviewed" | "awaiting_approval"; updatedAt: string }>;
-  productionTrace?: DraftWorkflowResult;
-  productionTraceDigest?: string;
   sourceManifest?: JobSourceManifest;
   sourceRecords?: SourceRecord[];
   normalizedSources?: NormalizedSource[];
@@ -40,8 +39,7 @@ export interface JobFull extends JobSummary {
   analysisResearchRequest?: AnalysisResearchRequest | null;
   analysisSearchEvidence?: AnalysisSearchEvidence[];
   analysisGroundingMetadata?: Record<string, unknown> | null;
-  drafts: PostDraft[];
-  contentPack?: { markdown: string; digest: string; generatedAt: string };
+  contentArtifacts?: ContentArtifact[];
   actions: PlannedAction[];
   engagement?: Array<{
     actionId: string;
@@ -78,4 +76,4 @@ export interface JobFull extends JobSummary {
   decisions?: ApprovalDecision[];
 }
 
-export type { Angle, Moment, PlannedAction, PostDraft, Receipt, Stage };
+export type { Angle, Moment, PlannedAction, Receipt, Stage };

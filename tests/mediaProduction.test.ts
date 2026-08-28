@@ -1,0 +1,115 @@
+import { describe, expect, it } from "vitest";
+import {
+  compileProductionOperations,
+  createProductionMandate,
+  estimateGeneratedMediaCost,
+  generatedMusicSpecSchema,
+  generatedVideoSpecSchema,
+  mediaOperationSchema,
+  productionApprovalStillValid,
+  productionPlanDigest,
+  transitionMediaOperation,
+  videoProductionPlanSchema,
+} from "@/lib/mediaProduction";
+
+const basePlan = {
+  id: "plan-1",
+  jobId: "job-1",
+  workspaceId: "workspace-1",
+  brandId: "brand-1",
+  revision: 1,
+  goal: "Create a product launch reel",
+  audience: "technical startup founders",
+  tone: ["confident", "clear"],
+  target: { platform: "linkedin", durationSec: 30, aspectRatio: "9:16", resolution: "1080p", frameRate: 30, format: "mp4" },
+  scenes: [{
+    id: "scene-1", order: 1, startSec: 0, durationSec: 4,
+    purpose: "establish the product", sourceArtifactIds: [],
+    video: { modelCapability: "veo-3.1-fast", mode: "text_to_video", prompt: "Abstract data streams forming a calm blue network", durationSec: 4, aspectRatio: "9:16", resolution: "1080p", generateAudio: false, enhancePrompt: true, outputCount: 1 },
+    overlays: [], captions: [], transitions: [],
+  }],
+  soundtrack: { modelCapability: "lyria-3-clip", prompt: "Warm minimal electronic soundtrack, 100 BPM", instrumental: true, lyricsMode: "none", language: "en", bpm: 100, intensity: 0.45, structure: ["intro", "build"], targetDurationSec: 30, outputCount: 1 },
+  constraints: { allowLikeness: false, allowGeneratedVocals: false, requireLicensedSources: true },
+  pricingVersion: "2026-08-31",
+  estimatedCostUsd: "0.320000",
+  maximumCostUsd: "0.500000",
+} as const;
+
+describe("media production contracts", () => {
+  it("rejects a Veo capability combination the selected model cannot execute", () => {
+    expect(() => generatedVideoSpecSchema.parse({
+      modelCapability: "veo-3.1-fast", mode: "extend_video", prompt: "continue",
+      sourceVideoArtifactId: "asset-1", durationSec: 4, aspectRatio: "9:16",
+      resolution: "4k", generateAudio: false, enhancePrompt: true, outputCount: 1,
+    })).toThrow(/resolution/i);
+  });
+
+  it("rejects Lyria lyrics when instrumental mode is selected", () => {
+    expect(() => generatedMusicSpecSchema.parse({
+      modelCapability: "lyria-3-clip", prompt: "bright pop",
+      instrumental: true, lyricsMode: "provided", providedLyrics: "hello",
+      language: "en", targetDurationSec: 30, outputCount: 1,
+    })).toThrow(/lyrics/i);
+  });
+
+  it("produces a stable digest and invalidates approval after a material revision", () => {
+    const parsed = videoProductionPlanSchema.parse(basePlan);
+    const digest = productionPlanDigest(parsed);
+    const reordered = Object.fromEntries(Object.entries(basePlan).reverse());
+    expect(productionPlanDigest(videoProductionPlanSchema.parse(reordered))).toBe(digest);
+    expect(productionApprovalStillValid({ planDigest: digest, planRevision: 1, expiresAt: "2099-01-01T00:00:00.000Z" }, parsed, new Date("2026-08-31T00:00:00.000Z"))).toBe(true);
+    expect(productionApprovalStillValid({ planDigest: digest, planRevision: 1, expiresAt: "2099-01-01T00:00:00.000Z" }, { ...parsed, revision: 2 }, new Date("2026-08-31T00:00:00.000Z"))).toBe(false);
+  });
+
+  it("seals exact paid calls, scope, operator identity, and maximum cost", () => {
+    const parsed = videoProductionPlanSchema.parse(basePlan);
+    const mandate = createProductionMandate(parsed, {
+      operatorSubjectId: "operator-1",
+      authenticationId: "session-1",
+      approvedAt: "2026-08-31T10:00:00.000Z",
+      expiresAt: "2026-08-31T11:00:00.000Z",
+    });
+    expect(mandate).toMatchObject({
+      jobId: parsed.jobId,
+      workspaceId: parsed.workspaceId,
+      brandId: parsed.brandId,
+      maximumCostUsd: parsed.maximumCostUsd,
+      operatorSubjectId: "operator-1",
+    });
+    expect(mandate.paidOperationDigests).toEqual(
+      compileProductionOperations(parsed)
+        .filter((operation) => operation.executionAuthority === "production_mandate")
+        .map((operation) => operation.requestDigest),
+    );
+    expect(productionApprovalStillValid(mandate, parsed, new Date("2026-08-31T10:30:00.000Z"))).toBe(true);
+    expect(productionApprovalStillValid({ ...mandate, paidOperationDigests: [] }, parsed, new Date("2026-08-31T10:30:00.000Z"))).toBe(false);
+  });
+
+  it("prices Veo from duration and rejects unpriced preview Lyria without an override", () => {
+    const plan = videoProductionPlanSchema.parse(basePlan);
+    expect(estimateGeneratedMediaCost(plan.scenes[0].video!)).toBe("0.320000");
+    expect(() => estimateGeneratedMediaCost(plan.soundtrack!)).toThrow(/pricing unavailable/i);
+    expect(estimateGeneratedMediaCost(plan.soundtrack!, { "lyria-3-clip": "0.120000" })).toBe("0.120000");
+  });
+
+  it("compiles paid media before composition and finalization", () => {
+    const operations = compileProductionOperations(videoProductionPlanSchema.parse(basePlan));
+    expect(operations.map((operation) => operation.type)).toEqual([
+      "generate_video", "generate_music", "build_composition", "render_composition",
+      "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production", "assemble_export",
+    ]);
+    expect(operations[2].dependsOn).toEqual([operations[0].id, operations[1].id]);
+  });
+
+  it("models provider pending as a durable nonterminal state", () => {
+    const operation = mediaOperationSchema.parse({
+      id: "media-1", jobId: "job-1", actionId: "action-1", provider: "veo",
+      state: "provider_pending", providerOperationId: "operations/123", attempt: 1,
+      requestDigest: "a".repeat(64), estimatedCostUsd: "0.320000",
+      createdAt: "2026-08-31T00:00:00.000Z", updatedAt: "2026-08-31T00:00:10.000Z",
+    });
+    expect(operation.state).toBe("provider_pending");
+    expect(transitionMediaOperation(operation, "provider_succeeded", "2026-08-31T00:01:00.000Z").state).toBe("provider_succeeded");
+    expect(() => transitionMediaOperation(operation, "prepared", "2026-08-31T00:01:00.000Z")).toThrow(/transition/i);
+  });
+});

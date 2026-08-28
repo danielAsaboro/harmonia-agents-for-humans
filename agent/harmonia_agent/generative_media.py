@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Protocol
 
 import google.auth
@@ -14,6 +15,16 @@ from .telemetry import safe_attributes, tracer
 
 VEO_MODEL = "veo-3.1-fast-generate-001"
 LYRIA_MODEL = "lyria-3-clip-preview"
+
+VEO_CAPABILITIES: dict[str, dict[str, Any]] = {
+    "veo-3.1-fast": {"model": "veo-3.1-fast-generate-001", "durations": {4, 6, 8}, "resolutions": {"720p", "1080p"}, "modes": {"text_to_video", "image_to_video", "first_last_frame", "reference_images", "extend_video"}, "usdPerSecond": "0.080000"},
+    "veo-3.1": {"model": "veo-3.1-generate-001", "durations": {4, 6, 8}, "resolutions": {"720p", "1080p", "4k"}, "modes": {"text_to_video", "image_to_video", "first_last_frame", "reference_images", "extend_video"}, "usdPerSecond": None},
+}
+LYRIA_CAPABILITIES: dict[str, dict[str, Any]] = {
+    "lyria-3-clip": {"model": "lyria-3-clip-preview", "maximumDurationSec": 30, "imageConditioning": True, "vocals": True, "structure": True, "fixedCostUsd": None},
+    "lyria-3-pro": {"model": "lyria-3-pro-preview", "maximumDurationSec": 184, "imageConditioning": True, "vocals": True, "structure": True, "fixedCostUsd": None},
+    "lyria-2": {"model": "lyria-002", "maximumDurationSec": 30, "imageConditioning": False, "vocals": False, "structure": False, "fixedCostUsd": "0.060000"},
+}
 
 
 class MediaProtocolError(RuntimeError):
@@ -32,6 +43,81 @@ class MediaOperationPending(MediaProviderError):
     def __init__(self, operation_name: str) -> None:
         super().__init__(f"media operation is still pending: {operation_name}")
         self.operation_name = operation_name
+
+
+def validate_veo_request(request: dict[str, Any]) -> dict[str, Any]:
+    value = dict(request)
+    capability_name = value.get("modelCapability")
+    capability = VEO_CAPABILITIES.get(str(capability_name))
+    if capability is None:
+        raise MediaProtocolError("unsupported Veo model capability")
+    if value.get("outputCount") != 1:
+        raise MediaProtocolError("Veo outputCount must be exactly one")
+    if value.get("durationSec") not in capability["durations"]:
+        raise MediaProtocolError("duration is unsupported by the selected Veo model")
+    if value.get("resolution") not in capability["resolutions"]:
+        raise MediaProtocolError("resolution is unsupported by the selected Veo model")
+    mode = value.get("mode")
+    if mode not in capability["modes"]:
+        raise MediaProtocolError("mode is unsupported by the selected Veo model")
+    required = {
+        "image_to_video": ("sourceImageArtifactId",),
+        "first_last_frame": ("sourceImageArtifactId", "lastFrameArtifactId"),
+        "reference_images": ("referenceImageArtifactIds",),
+        "extend_video": ("sourceVideoArtifactId",),
+    }.get(str(mode), ())
+    for field in required:
+        if not value.get(field):
+            raise MediaProtocolError(f"{field} is required for {mode}")
+    if value.get("aspectRatio") not in {"16:9", "9:16"}:
+        raise MediaProtocolError("unsupported Veo aspect ratio")
+    value["providerModel"] = capability["model"]
+    value["mediaKind"] = "video"
+    return value
+
+
+def validate_lyria_request(request: dict[str, Any]) -> dict[str, Any]:
+    value = dict(request)
+    capability_name = value.get("modelCapability")
+    capability = LYRIA_CAPABILITIES.get(str(capability_name))
+    if capability is None:
+        raise MediaProtocolError("unsupported Lyria model capability")
+    if value.get("outputCount") != 1:
+        raise MediaProtocolError("Lyria outputCount must be exactly one")
+    if int(value.get("targetDurationSec") or 0) > capability["maximumDurationSec"]:
+        raise MediaProtocolError("duration exceeds the selected Lyria model")
+    if value.get("instrumental") and value.get("lyricsMode") != "none":
+        raise MediaProtocolError("instrumental music cannot include lyrics")
+    if value.get("lyricsMode") == "provided" and not value.get("providedLyrics"):
+        raise MediaProtocolError("provided lyrics are required")
+    if value.get("conditioningImageArtifactId") and not capability["imageConditioning"]:
+        raise MediaProtocolError("image conditioning is unsupported")
+    if not value.get("instrumental") and not capability["vocals"]:
+        raise MediaProtocolError("vocals are unsupported")
+    value["providerModel"] = capability["model"]
+    value["mediaKind"] = "music"
+    return value
+
+
+def estimate_media_cost(request: dict[str, Any], overrides: dict[str, str] | None = None) -> str:
+    capability_name = str(request.get("modelCapability") or "")
+    configured = (overrides or {}).get(capability_name)
+    if request.get("mediaKind") == "video":
+        capability = VEO_CAPABILITIES[capability_name]
+        configured = configured or capability["usdPerSecond"]
+        if configured is None:
+            raise MediaProtocolError(f"pricing unavailable for {capability_name}")
+        amount = Decimal(configured) * Decimal(int(request["durationSec"]))
+    else:
+        capability = LYRIA_CAPABILITIES[capability_name]
+        configured = configured or capability["fixedCostUsd"]
+        if configured is None:
+            raise MediaProtocolError(f"pricing unavailable for {capability_name}")
+        try:
+            amount = Decimal(configured)
+        except InvalidOperation as exc:
+            raise MediaProtocolError(f"invalid pricing for {capability_name}") from exc
+    return f"{amount:.6f}"
 
 
 @dataclass(frozen=True)
@@ -90,14 +176,17 @@ class GoogleMediaTransport:
             f"https://{self.location}-aiplatform.googleapis.com/v1/projects/{self.project}"
             f"/locations/{self.location}/publishers/google/models/{model}:predictLongRunning"
         )
+        instance: dict[str, Any] = {"prompt": kwargs["prompt"]}
         return self._post(url, {
-            "instances": [{"prompt": kwargs["prompt"]}],
+            "instances": [instance],
             "parameters": {
                 "durationSeconds": kwargs["duration_sec"],
                 "aspectRatio": kwargs["aspect_ratio"],
-                "resolution": "720p",
+                "resolution": kwargs["resolution"],
                 "sampleCount": 1,
-                "generateAudio": False,
+                "generateAudio": kwargs["generate_audio"],
+                "enhancePrompt": kwargs["enhance_prompt"],
+                **({"seed": kwargs["seed"]} if kwargs.get("seed") is not None else {}),
                 "personGeneration": "disallow",
             },
         }, timeout=60)
@@ -139,26 +228,33 @@ class VeoGenerator:
     def generate(
         self,
         *,
-        prompt: str,
-        duration_sec: int,
-        aspect_ratio: str,
+        request: dict[str, Any],
         existing_operation: str | None,
         persist_operation: Callable[[str], None],
     ) -> GeneratedMedia:
-        if duration_sec != 4 or aspect_ratio not in {"16:9", "9:16"}:
-            raise MediaProtocolError("Veo action must request 4 seconds and a supported aspect ratio")
+        request = validate_veo_request(request)
+        duration_sec = int(request["durationSec"])
         with tracer().start_as_current_span("harmonia.media.generate") as span:
             span.set_attributes(safe_attributes({
-                "provider": "vertex_ai", "model": VEO_MODEL,
+                "provider": "vertex_ai", "model": request["providerModel"],
                 "media.kind": "video", "media.duration_sec": duration_sec,
             }))
             operation_name = existing_operation
             if operation_name is None:
                 started = self.transport.start_veo(
-                    model=VEO_MODEL,
-                    prompt=prompt,
+                    model=request["providerModel"],
+                    mode=request["mode"],
+                    prompt=request["prompt"],
                     duration_sec=duration_sec,
-                    aspect_ratio=aspect_ratio,
+                    aspect_ratio=request["aspectRatio"],
+                    resolution=request["resolution"],
+                    generate_audio=request["generateAudio"],
+                    seed=request.get("seed"),
+                    enhance_prompt=request["enhancePrompt"],
+                    source_image_artifact_id=request.get("sourceImageArtifactId"),
+                    last_frame_artifact_id=request.get("lastFrameArtifactId"),
+                    reference_image_artifact_ids=request.get("referenceImageArtifactIds"),
+                    source_video_artifact_id=request.get("sourceVideoArtifactId"),
                 )
                 operation_name = started.get("name")
                 if not isinstance(operation_name, str) or not operation_name:
@@ -180,10 +276,10 @@ class VeoGenerator:
             return GeneratedMedia(
                 data=data,
                 mime=str(video.get("mimeType") or video.get("mime_type") or "video/mp4"),
-                model=VEO_MODEL,
+                model=request["providerModel"],
                 provider_id=operation_name,
                 duration_sec=duration_sec,
-                estimated_cost_usd="0.080000",
+                estimated_cost_usd=estimate_media_cost(request),
             )
 
 
@@ -191,15 +287,16 @@ class LyriaGenerator:
     def __init__(self, *, transport: MediaTransport) -> None:
         self.transport = transport
 
-    def generate(self, *, prompt: str, duration_sec: int) -> GeneratedMedia:
-        if duration_sec != 30:
-            raise MediaProtocolError("Lyria clip action must request exactly 30 seconds")
+    def generate(self, *, request: dict[str, Any], estimated_cost_usd: str) -> GeneratedMedia:
+        request = validate_lyria_request(request)
+        duration_sec = int(request["targetDurationSec"])
+        model = str(request["providerModel"])
         with tracer().start_as_current_span("harmonia.media.generate") as span:
             span.set_attributes(safe_attributes({
-                "provider": "vertex_ai", "model": LYRIA_MODEL,
+                "provider": "vertex_ai", "model": model,
                 "media.kind": "audio", "media.duration_sec": duration_sec,
             }))
-            response = self.transport.generate_lyria(model=LYRIA_MODEL, prompt=prompt)
+            response = self.transport.generate_lyria(model=model, prompt=request["prompt"], request=request)
             if response.get("status") != "completed":
                 raise MediaProtocolError("Lyria interaction did not complete")
             output = next(
@@ -214,9 +311,8 @@ class LyriaGenerator:
             return GeneratedMedia(
                 data=_decode(output.get("data"), media="audio"),
                 mime=str(output.get("mime_type") or "audio/mpeg"),
-                model=LYRIA_MODEL,
+                model=model,
                 provider_id=provider_id,
                 duration_sec=duration_sec,
-                estimated_cost_usd="0.040000",
+                estimated_cost_usd=estimated_cost_usd,
             )
-

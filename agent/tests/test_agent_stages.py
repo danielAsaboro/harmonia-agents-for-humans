@@ -49,6 +49,14 @@ def _effect_command(action: dict) -> dict:
     }
 
 
+def _veo_action() -> dict:
+    return {"id": "veo-1", "type": "generate_video", "payload": {
+        "modelCapability": "veo-3.1-fast", "mode": "text_to_video", "prompt": "city",
+        "durationSec": 4, "aspectRatio": "9:16", "resolution": "720p",
+        "generateAudio": False, "enhancePrompt": True, "outputCount": 1,
+    }}
+
+
 def test_understand_written_source_routes_through_nimi_without_fake_timestamps(monkeypatch):
     requests = []
     posts = []
@@ -295,7 +303,7 @@ def test_paid_media_actions_read_canonical_source_analysis():
     })
 
     assert [action["type"] for action in actions] == [
-        "generate_veo_broll", "generate_lyria_soundtrack",
+        "generate_video", "generate_music",
     ]
     assert actions[0]["momentId"] == "m1"
 
@@ -395,19 +403,16 @@ def test_paid_media_actions_are_deterministic_and_reference_reviewed_evidence_on
     })
 
     assert [action["type"] for action in actions] == [
-        "generate_veo_broll", "generate_lyria_soundtrack",
+        "generate_video", "generate_music",
     ]
     assert actions[0]["momentId"] == "m1"
     assert actions[0]["payload"]["durationSec"] == 4
-    assert actions[1]["payload"]["durationSec"] == 30
+    assert actions[1]["payload"]["targetDurationSec"] == 30
     assert all("requiresApproval" not in action for action in actions)
 
 
 def test_paid_media_releases_budget_when_state_lookup_fails_before_dispatch(monkeypatch):
-    action = {
-        "id": "veo-1", "type": "generate_veo_broll",
-        "payload": {"prompt": "city", "durationSec": 4, "aspectRatio": "9:16"},
-    }
+    action = _veo_action()
     job = {
         "stage": "publish", "workspaceId": "w1", "brandId": "b1",
         "createdByUserId": "u1", "actions": [action],
@@ -429,10 +434,7 @@ def test_paid_media_releases_budget_when_state_lookup_fails_before_dispatch(monk
 
 
 def test_paid_media_quarantines_budget_when_provider_times_out(monkeypatch):
-    action = {
-        "id": "veo-1", "type": "generate_veo_broll",
-        "payload": {"prompt": "city", "durationSec": 4, "aspectRatio": "9:16"},
-    }
+    action = _veo_action()
     job = {
         "stage": "publish", "workspaceId": "w1", "brandId": "b1",
         "createdByUserId": "u1", "actions": [action],
@@ -454,3 +456,28 @@ def test_paid_media_quarantines_budget_when_provider_times_out(monkeypatch):
         asyncio.run(stages.run_publish("job-1"))
 
     assert resolutions[0]["outcome"] == "uncertain"
+
+
+def test_veo_pending_requeues_without_uncertain_budget_or_publish_completion(monkeypatch):
+    action = _veo_action()
+    job = {"stage": "publish", "workspaceId": "w1", "brandId": "b1", "createdByUserId": "u1", "actions": [action]}
+    transitions, resolutions, posts = [], [], []
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(action)])
+    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
+    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
+    monkeypatch.setattr(stages, "transition_effect_command", lambda phase, payload: transitions.append((phase, payload)) or {})
+    monkeypatch.setattr(stages, "reserve_budget", lambda _payload: None)
+    monkeypatch.setattr(stages, "get_media_operation", lambda *_args: {"operationName": "operations/123"})
+    monkeypatch.setattr(stages, "get_asset", lambda *_args: None)
+    monkeypatch.setattr(stages, "GoogleMediaTransport", lambda **_kwargs: object())
+    monkeypatch.setattr(stages.VeoGenerator, "generate", lambda *_args, **_kwargs: (_ for _ in ()).throw(stages.MediaOperationPending("operations/123")))
+    monkeypatch.setattr(stages, "resolve_budget_reservation", resolutions.append)
+    monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)) or {})
+
+    asyncio.run(stages.run_publish("job-1"))
+
+    assert [phase for phase, _ in transitions] == ["dispatched", "provider_pending"]
+    assert transitions[-1][1]["providerOperationId"] == "operations/123"
+    assert resolutions == []
+    assert not any(path.endswith("/complete") for path, _ in posts)

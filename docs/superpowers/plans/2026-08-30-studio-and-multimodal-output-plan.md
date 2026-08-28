@@ -48,7 +48,7 @@ it("rejects a source clip without video time-range evidence", () => {
 });
 
 it("keeps generated video distinct from a source clip", () => {
-  expect(outputTypeSchema.parse("generated_broll")).toBe("generated_broll");
+  expect(outputTypeSchema.parse("generated_video")).toBe("generated_video");
   expect(outputTypeSchema.parse("short_clip")).toBe("short_clip");
 });
 ```
@@ -69,7 +69,7 @@ Expected: FAIL because agent models and prompts do not expose the plan.
 
 - [ ] **Step 5: Implement contracts, deterministic eligibility, and Ryan proposal schema**
 
-Output types: `x_post`, `x_thread`, `linkedin_post`, `blog_article`, `newsletter`, `caption`, `carousel_spec`, `social_image`, `quote_card`, `diagram`, `short_clip`, `reel`, `generated_broll`, `generated_audio`, `editorial_calendar`, and `content_pack`.
+Output types: `x_post`, `x_thread`, `linkedin_post`, `blog_article`, `newsletter`, `caption`, `carousel_spec`, `social_image`, `quote_card`, `diagram`, `short_clip`, `reel`, `generated_video`, `generated_music`, `editorial_calendar`, and `content_pack`.
 
 - [ ] **Step 6: Run targeted tests and verify GREEN**
 

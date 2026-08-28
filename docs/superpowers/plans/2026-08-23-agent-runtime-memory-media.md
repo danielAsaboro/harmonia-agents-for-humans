@@ -26,7 +26,7 @@ Add an explicit Vertex AI Agent Engine execution option for the ADK cognitive te
 
 ## Task 3: Approval-gated Veo and Lyria actions
 
-- Add contract and policy tests for `generate_veo_broll` and `generate_lyria_soundtrack` actions.
+- Add contract and policy tests for `generate_video` and `generate_music` actions.
 - Deterministically propose these actions from reviewed moments/angles, never from an agent planner, and always require operator approval.
 - Add provider adapters with injectable transports, long-running operation IDs, polling/resume support, bounded duration, and typed permanent/transient failures.
 - Persist operation IDs before polling; upload completed media through the existing asset boundary; derive receipts and verification using existing action IDs and idempotency rules.

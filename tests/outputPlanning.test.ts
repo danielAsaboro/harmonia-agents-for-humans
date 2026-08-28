@@ -7,8 +7,8 @@ const plan = (outputs: OutputKind[]) => ({ allowedOutputs: outputs, outputs: out
 describe("output modality eligibility", () => {
   it("allows text and image outputs from document evidence", () => expect(validateOutputEligibility(plan(["x_post", "linkedin_post", "social_image"]), [document])).toEqual([]));
   it("rejects source clips without video time evidence", () => expect(validateOutputEligibility(plan(["short_clip"]), [document])).toContainEqual(expect.objectContaining({ code: "video_evidence_required" })));
-  it("keeps generated video distinct from source clips", () => { expect(outputKindSchema.parse("generated_broll")).toBe("generated_broll"); expect(outputKindSchema.parse("short_clip")).toBe("short_clip"); });
+  it("keeps generated video distinct from source clips", () => { expect(outputKindSchema.parse("generated_video")).toBe("generated_video"); expect(outputKindSchema.parse("short_clip")).toBe("short_clip"); });
   it("rejects an unavailable desired output instead of silently dropping it", () => {
-    expect(() => proposeOutputPlan("job-1", ["generated_audio"], ["generated_audio"], { sourceDigest: "a".repeat(64), summary: "Proof", moments: [{ id: "m1", title: "Proof", startSec: 0, endSec: 1, hook: "Hook", quote: "Proof", sourceSegmentRefs: ["s1:p1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }], angles: [], assumptions: [], confidence: "high" })).toThrow("unavailable output");
+    expect(() => proposeOutputPlan("job-1", ["generated_music"], ["generated_music"], { sourceDigest: "a".repeat(64), summary: "Proof", moments: [{ id: "m1", title: "Proof", startSec: 0, endSec: 1, hook: "Hook", quote: "Proof", sourceSegmentRefs: ["s1:p1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }], angles: [], assumptions: [], confidence: "high" })).toThrow("unavailable output");
   });
 });

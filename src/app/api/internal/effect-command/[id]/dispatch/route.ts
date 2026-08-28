@@ -27,6 +27,7 @@ const schema = z.discriminatedUnion("phase", [
     }).strict(),
   }).strict(),
   z.object({ ...identity, phase: z.literal("provider_not_started") }).strict(),
+  z.object({ ...identity, phase: z.literal("provider_pending"), providerOperationId: z.string().min(1).max(1000), nextPollAt: z.string().datetime({ offset: true }) }).strict(),
   z.object({
     ...identity, phase: z.literal("observed"),
     outcome: z.enum(["applied", "already_applied", "rejected", "failed"]),
@@ -53,6 +54,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         ? { phase: body.phase, claimToken: body.claimToken, progress: body.progress }
       : body.phase === "observed"
         ? { phase: body.phase, claimToken: body.claimToken, outcome: body.outcome, artifact: body.artifact, detail: body.detail }
+        : body.phase === "provider_pending"
+          ? { phase: body.phase, claimToken: body.claimToken, providerOperationId: body.providerOperationId, nextPollAt: body.nextPollAt }
         : body.phase === "unknown"
           ? { phase: body.phase, claimToken: body.claimToken, reason: body.reason }
           : { phase: body.phase, claimToken: body.claimToken }, {

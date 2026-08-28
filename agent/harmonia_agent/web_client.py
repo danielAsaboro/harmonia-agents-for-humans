@@ -336,7 +336,7 @@ def claim_effect(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def transition_effect_command(phase: str, payload: dict[str, Any]) -> dict[str, Any]:
-    if phase not in {"dispatched", "progress", "provider_not_started", "observed", "unknown"}:
+    if phase not in {"dispatched", "progress", "provider_not_started", "provider_pending", "observed", "unknown"}:
         raise ValueError(f"invalid effect transition: {phase}")
     command_id = str(payload.get("commandId") or "")
     if not command_id:

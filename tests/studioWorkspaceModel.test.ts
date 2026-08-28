@@ -8,7 +8,7 @@ describe("studio workspace model", () => {
       config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, normalizedSources: [],
       actions: [
         { id: "img", jobId: "job-1", type: "generate_image", title: "Launch visual", description: "", risk: "low", requiresApproval: false, approvalState: "not_required", payload: {}, state: "executed" },
-        { id: "sound", jobId: "job-1", type: "generate_lyria_soundtrack", title: "Launch score", description: "", risk: "low", requiresApproval: false, approvalState: "not_required", payload: {}, state: "executed" },
+        { id: "sound", jobId: "job-1", type: "generate_music", title: "Launch score", description: "", risk: "low", requiresApproval: false, approvalState: "not_required", payload: {}, state: "executed" },
       ],
       assets: [
         { actionId: "img", mime: "image/png", sizeBytes: 1200, digest: "a" },

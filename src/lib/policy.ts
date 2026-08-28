@@ -54,8 +54,8 @@ export function evaluateActionPolicy(
         requiresApproval: false,
         reason: "generates an internal image asset with Gemini; nothing is published",
       };
-    case "generate_veo_broll":
-    case "generate_lyria_soundtrack":
+    case "generate_video":
+    case "generate_music":
       return {
         risk: "medium",
         requiresApproval: true,

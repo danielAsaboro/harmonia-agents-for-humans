@@ -53,9 +53,13 @@ from .generative_media import (
     VEO_MODEL,
     GoogleMediaTransport,
     LyriaGenerator,
+    MediaOperationPending,
     MediaProtocolError,
     MediaProviderError,
     VeoGenerator,
+    estimate_media_cost,
+    validate_lyria_request,
+    validate_veo_request,
 )
 from .memory_bank import (
     MemoryProtocolError,
@@ -179,13 +183,15 @@ def deterministic_generative_media_actions(job: dict[str, Any]) -> list[dict[str
         digest = hashlib.sha256(f"veo|{moment['id']}|{prompt}".encode()).hexdigest()[:12]
         actions.append({
             "id": f"act-veo-{digest}",
-            "type": "generate_veo_broll",
-            "title": f"Generate Veo b-roll: {str(moment.get('title') or title)[:36]}",
-            "description": "Generate one 4-second 720p vertical b-roll asset with Veo 3.1 Fast (estimated $0.08).",
+            "type": "generate_video",
+            "title": f"Generate Veo video: {str(moment.get('title') or title)[:36]}",
+            "description": "Generate one 4-second 720p vertical video asset with Veo 3.1 Fast (estimated $0.32).",
             "momentId": moment["id"],
             "payload": {
-                "type": "generate_veo_broll", "prompt": prompt,
-                "durationSec": 4, "aspectRatio": "9:16",
+                "type": "generate_video", "modelCapability": "veo-3.1-fast",
+                "mode": "text_to_video", "prompt": prompt, "durationSec": 4,
+                "aspectRatio": "9:16", "resolution": "720p", "generateAudio": False,
+                "enhancePrompt": True, "outputCount": 1,
             },
         })
     angle = angles[0] if angles else None
@@ -197,12 +203,14 @@ def deterministic_generative_media_actions(job: dict[str, Any]) -> list[dict[str
     digest = hashlib.sha256(f"lyria|{music_concept}|{prompt}".encode()).hexdigest()[:12]
     actions.append({
         "id": f"act-lyria-{digest}",
-        "type": "generate_lyria_soundtrack",
+        "type": "generate_music",
         "title": f"Generate Lyria soundtrack: {music_concept[:34]}",
-        "description": "Generate one 30-second instrumental clip with Lyria 3 (estimated $0.04).",
+        "description": "Generate one 30-second instrumental clip with Lyria 3; deployment pricing must be configured before approval.",
         **({"angleId": angle["id"]} if angle else {}),
         "payload": {
-            "type": "generate_lyria_soundtrack", "prompt": prompt, "durationSec": 30,
+            "type": "generate_music", "modelCapability": "lyria-3-clip", "prompt": prompt,
+            "instrumental": True, "lyricsMode": "none", "language": "en",
+            "targetDurationSec": 30, "outputCount": 1,
         },
     })
     return actions
@@ -649,10 +657,15 @@ def _receipts_for_job(job_id: str) -> list[dict[str, Any]]:
 
 async def run_publish(job_id: str) -> None:
     job = get_job(job_id)
+    now = datetime.now(timezone.utc)
     commands = [
         command for command in get_effect_commands(job_id)
-        if command.get("state") == "prepared"
+        if command.get("state") == "prepared" or (
+            command.get("state") == "waiting_provider"
+            and datetime.fromisoformat(str(command.get("nextPollAt")).replace("Z", "+00:00")) <= now
+        )
     ]
+    has_pending_provider = False
     done_keys = {
         r["idempotencyKey"] for r in _receipts_for_job(job_id)
         if r["outcome"] in ("applied", "already_applied")
@@ -767,15 +780,27 @@ async def run_publish(job_id: str) -> None:
                         "fetchedAt": _now(), "digest": digest,
                     }
                     detail.update({"digest": digest, "mime": mime, "bytes": len(img_bytes)})
-            elif action["type"] in ("generate_veo_broll", "generate_lyria_soundtrack"):
+            elif action["type"] in ("generate_video", "generate_music"):
                 if key in done_keys:
                     outcome, detail["note"] = "already_applied", "receipt exists; skipped"
                 else:
                     cfg = settings()
                     payload = action["payload"]
-                    model_id = VEO_MODEL if action["type"] == "generate_veo_broll" else LYRIA_MODEL
-                    cost = "0.080000" if action["type"] == "generate_veo_broll" else "0.040000"
-                    role = "veo_generator" if action["type"] == "generate_veo_broll" else "lyria_generator"
+                    media_request = (
+                        validate_veo_request(payload)
+                        if action["type"] == "generate_video"
+                        else validate_lyria_request(payload)
+                    )
+                    pricing_overrides = {
+                        name: value for name, value in {
+                            "veo-3.1": os.environ.get("VEO_3_1_COST_PER_SECOND_USD"),
+                            "lyria-3-clip": os.environ.get("LYRIA_3_CLIP_COST_USD"),
+                            "lyria-3-pro": os.environ.get("LYRIA_3_PRO_COST_USD"),
+                        }.items() if value
+                    }
+                    model_id = str(media_request["providerModel"])
+                    cost = estimate_media_cost(media_request, pricing_overrides)
+                    role = "veo_generator" if action["type"] == "generate_video" else "lyria_generator"
                     invocation = InvocationContext(
                         job_id=job_id,
                         workspace_id=job["workspaceId"],
@@ -834,12 +859,10 @@ async def run_publish(job_id: str) -> None:
                         project=cfg.gcp_project, location=cfg.vertex_media_location,
                     )
                     budget_dispatched = recorded is not None
-                    if action["type"] == "generate_veo_broll":
+                    if action["type"] == "generate_video":
                         budget_dispatched = True
                         generated = VeoGenerator(transport=transport).generate(
-                            prompt=payload["prompt"],
-                            duration_sec=int(payload["durationSec"]),
-                            aspect_ratio=payload["aspectRatio"],
+                            request=media_request,
                             existing_operation=(recorded or {}).get("operationName"),
                             persist_operation=lambda operation_name: save_media_operation(
                                 job_id, action["id"], "veo", operation_name,
@@ -848,8 +871,8 @@ async def run_publish(job_id: str) -> None:
                     else:
                         budget_dispatched = True
                         generated = LyriaGenerator(transport=transport).generate(
-                            prompt=payload["prompt"],
-                            duration_sec=int(payload["durationSec"]),
+                            request=media_request,
+                            estimated_cost_usd=cost,
                         )
                         save_media_operation(
                             job_id, action["id"], "lyria", generated.provider_id,
@@ -940,6 +963,15 @@ async def run_publish(job_id: str) -> None:
                         "bytes": len(video_bytes), "format": fmt,
                         **({"notes": render_notes} if render_notes else {}),
                     })
+        except MediaOperationPending as exc:
+            has_pending_provider = True
+            budget_operation_id = None  # reservation remains live across the durable poll
+            transition_effect_command("provider_pending", {
+                **effect_identity,
+                "providerOperationId": exc.operation_name,
+                "nextPollAt": (datetime.now(timezone.utc) + timedelta(seconds=10)).isoformat(),
+            })
+            continue
         except (x_client.XError, content.ImageGenError, ClipRenderError) as exc:
             outcome, detail["error"] = "failed", str(exc)
         except Exception as exc:
@@ -976,7 +1008,7 @@ async def run_publish(job_id: str) -> None:
             })
 
     refreshed = get_job(job_id)
-    if refreshed["stage"] == "publish":
+    if refreshed["stage"] == "publish" and not has_pending_provider:
         web_post(f"/api/internal/publish/{job_id}/complete", {"stage": "publish"})
 
 
@@ -1087,7 +1119,7 @@ async def run_verify(job_id: str) -> None:
                 "note": "LinkedIn readback content and destination match the approved artifact" if matches else "LinkedIn readback content digest mismatch",
             })
         elif action["type"] in (
-            "generate_image", "generate_veo_broll", "generate_lyria_soundtrack",
+            "generate_image", "generate_video", "generate_music",
             "render_clip", "render_reel",
         ) and detail.get("digest"):
             stored = get_asset(job_id, action["id"])

@@ -9,7 +9,7 @@ export const sourceInputSchema = z.discriminatedUnion("kind", [
 
 export const OUTPUT_KINDS = [
   "x_post", "x_thread", "linkedin_post", "blog_article", "newsletter", "caption", "carousel_spec", "social_image",
-  "quote_card", "diagram", "short_clip", "reel", "generated_broll", "generated_audio", "editorial_calendar", "content_pack",
+  "quote_card", "diagram", "short_clip", "reel", "generated_video", "generated_music", "editorial_calendar", "content_pack",
 ] as const;
 export const outputKindSchema = z.enum(OUTPUT_KINDS);
 
@@ -522,8 +522,8 @@ export const receiptSubmissionSchema = z.object({
     "publish_x_thread",
     "publish_linkedin_post",
     "generate_image",
-    "generate_veo_broll",
-    "generate_lyria_soundtrack",
+    "generate_video",
+    "generate_music",
     "render_clip",
     "render_reel",
   ]),
@@ -542,7 +542,7 @@ export const effectClaimSubmissionSchema = z.object({
   actionId: z.string().min(1),
   actionType: z.enum([
     "export_content_artifact", "publish_x_post", "publish_x_thread", "publish_linkedin_post", "generate_image",
-    "generate_veo_broll", "generate_lyria_soundtrack", "render_clip", "render_reel",
+    "generate_video", "generate_music", "render_clip", "render_reel",
   ]),
   idempotencyKey: z.string().regex(/^[a-f0-9]{64}$/),
   operationId: z.string().min(1).max(240),

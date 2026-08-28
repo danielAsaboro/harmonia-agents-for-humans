@@ -37,8 +37,10 @@ CATALOG = {
 }
 
 MEDIA_CATALOG = {
-    "veo-3.1-fast-generate-001": Decimal("0.080000"),
-    "lyria-3-clip-preview": Decimal("0.040000"),
+    "veo-3.1-fast-generate-001": {"unit": "second", "price": Decimal("0.080000")},
+    "lyria-002": {"unit": "generation", "price": Decimal("0.060000")},
+    "lyria-3-clip-preview": {"unit": "generation", "price": None},
+    "lyria-3-pro-preview": {"unit": "generation", "price": None},
 }
 
 
@@ -60,8 +62,17 @@ def estimate_text_cost(model_id: str, input_tokens: int, output_tokens: int) -> 
     return total.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
 
 
-def lookup_media_price(model_id: str) -> Decimal:
+def lookup_media_price(
+    model_id: str, *, duration_sec: int, configured_price: str | None = None,
+) -> Decimal:
     try:
-        return MEDIA_CATALOG[model_id]
+        entry = MEDIA_CATALOG[model_id]
     except KeyError as exc:
         raise UnknownModelPrice(f"no media price configured for model: {model_id}") from exc
+    price = Decimal(configured_price) if configured_price is not None else entry["price"]
+    if price is None:
+        raise UnknownModelPrice(f"deployment price is required for preview model: {model_id}")
+    if duration_sec <= 0:
+        raise ValueError("media duration must be positive")
+    amount = price * duration_sec if entry["unit"] == "second" else price
+    return amount.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)

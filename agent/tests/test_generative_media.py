@@ -9,6 +9,9 @@ from harmonia_agent.generative_media import (
     MediaOperationPending,
     MediaProtocolError,
     VeoGenerator,
+    estimate_media_cost,
+    validate_lyria_request,
+    validate_veo_request,
 )
 from harmonia_agent.stages import classify_failure
 
@@ -42,9 +45,7 @@ def test_veo_persists_operation_before_polling_and_returns_typed_media():
     order: list[str] = []
 
     result = VeoGenerator(transport=transport).generate(
-        prompt="abstract startup dashboard motion",
-        duration_sec=4,
-        aspect_ratio="9:16",
+        request=validate_veo_request({"modelCapability": "veo-3.1-fast", "mode": "text_to_video", "prompt": "abstract startup dashboard motion", "durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p", "generateAudio": False, "enhancePrompt": True, "outputCount": 1}),
         existing_operation=None,
         persist_operation=lambda name: order.append(f"persist:{name}"),
     )
@@ -61,9 +62,7 @@ def test_veo_resumes_existing_operation_without_starting_a_duplicate():
     transport.veo_done = False
     with pytest.raises(MediaOperationPending, match="op-1"):
         VeoGenerator(transport=transport).generate(
-            prompt="abstract startup dashboard motion",
-            duration_sec=4,
-            aspect_ratio="9:16",
+            request=validate_veo_request({"modelCapability": "veo-3.1-fast", "mode": "text_to_video", "prompt": "abstract startup dashboard motion", "durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p", "generateAudio": False, "enhancePrompt": True, "outputCount": 1}),
             existing_operation="operations/op-1",
             persist_operation=lambda _: pytest.fail("must not persist twice"),
         )
@@ -72,7 +71,8 @@ def test_veo_resumes_existing_operation_without_starting_a_duplicate():
 
 def test_lyria_returns_one_bounded_audio_clip_and_provider_interaction_id():
     result = LyriaGenerator(transport=FakeTransport()).generate(
-        prompt="instrumental optimistic technology pulse", duration_sec=30,
+        request=validate_lyria_request({"modelCapability": "lyria-3-clip", "prompt": "instrumental optimistic technology pulse", "instrumental": True, "lyricsMode": "none", "language": "en", "targetDurationSec": 30, "outputCount": 1}),
+        estimated_cost_usd="0.120000",
     )
     assert result.data == b"audio"
     assert result.mime == "audio/mpeg"
@@ -86,9 +86,42 @@ def test_media_generators_reject_malformed_success_without_fallback():
             return {"status": "completed", "outputs": []}
 
     with pytest.raises(MediaProtocolError, match="audio"):
-        LyriaGenerator(transport=EmptyLyria()).generate(prompt="pulse", duration_sec=30)
+        LyriaGenerator(transport=EmptyLyria()).generate(request=validate_lyria_request({"modelCapability": "lyria-3-clip", "prompt": "pulse", "instrumental": True, "lyricsMode": "none", "language": "en", "targetDurationSec": 30, "outputCount": 1}), estimated_cost_usd="0.120000")
 
 
 def test_media_pending_is_retryable_but_malformed_output_is_permanent():
     assert classify_failure(MediaOperationPending("operations/op-1")) is False
     assert classify_failure(MediaProtocolError("bad media")) is True
+
+
+def test_catalog_validates_provider_capabilities_before_spend():
+    request = validate_veo_request({
+        "modelCapability": "veo-3.1-fast", "mode": "text_to_video", "prompt": "blue network",
+        "durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p",
+        "generateAudio": False, "enhancePrompt": True, "outputCount": 1,
+    })
+    assert estimate_media_cost(request) == "0.320000"
+    with pytest.raises(MediaProtocolError, match="resolution"):
+        validate_veo_request({**request, "resolution": "4k"})
+
+
+def test_preview_lyria_requires_deployment_pricing_and_rejects_invalid_instrumental_lyrics():
+    request = validate_lyria_request({
+        "modelCapability": "lyria-3-clip", "prompt": "warm minimal pulse", "instrumental": True,
+        "lyricsMode": "none", "language": "en", "targetDurationSec": 30, "outputCount": 1,
+    })
+    with pytest.raises(MediaProtocolError, match="pricing unavailable"):
+        estimate_media_cost(request)
+    assert estimate_media_cost(request, {"lyria-3-clip": "0.120000"}) == "0.120000"
+    with pytest.raises(MediaProtocolError, match="lyrics"):
+        validate_lyria_request({**request, "lyricsMode": "provided", "providedLyrics": "hello"})
+
+
+def test_veo_forwards_validated_advanced_controls_to_transport():
+    transport = FakeTransport()
+    VeoGenerator(transport=transport).generate(
+        request=validate_veo_request({"modelCapability": "veo-3.1-fast", "mode": "text_to_video", "prompt": "blue network", "durationSec": 6, "aspectRatio": "16:9", "resolution": "1080p", "generateAudio": True, "seed": 7, "enhancePrompt": False, "outputCount": 1}),
+        existing_operation=None, persist_operation=lambda _name: None,
+    )
+    sent = transport.calls[0][1]
+    assert sent == {"model": "veo-3.1-fast-generate-001", "mode": "text_to_video", "prompt": "blue network", "duration_sec": 6, "aspect_ratio": "16:9", "resolution": "1080p", "generate_audio": True, "seed": 7, "enhance_prompt": False, "source_image_artifact_id": None, "last_frame_artifact_id": None, "reference_image_artifact_ids": None, "source_video_artifact_id": None}

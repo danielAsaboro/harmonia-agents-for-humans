@@ -332,8 +332,8 @@ Rules:
 
 Two additive action types are introduced:
 
-- `generate_veo_broll`
-- `generate_lyria_soundtrack`
+- `generate_video`
+- `generate_music`
 
 Both are proposed by deterministic stage logic from reviewed content and analyst production guidance. The planner may identify suitability but cannot directly dispatch either model.
 

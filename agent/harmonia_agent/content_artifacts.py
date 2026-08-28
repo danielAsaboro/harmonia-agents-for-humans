@@ -190,3 +190,44 @@ class ArtifactReviewBatch(StrictModel):
         if [review.artifactId for review in self.reviews] != artifact_ids:
             raise ValueError("review coverage must exactly match artifact order")
         return [review.artifactId for review in self.reviews if review.decision == "accept"]
+
+
+class ArtifactEvidence(StrictModel):
+    id: str = Field(min_length=3)
+    text: str = Field(min_length=1, max_length=20_000)
+
+
+class ArtifactRequest(StrictModel):
+    id: str = Field(min_length=1)
+    outputType: Literal["x_post", "x_thread", "linkedin_post", "blog_article", "newsletter", "caption", "carousel_spec", "quote_card", "diagram", "editorial_calendar", "content_pack"]
+    evidenceRefs: list[str] = Field(min_length=1, max_length=100)
+
+
+class ArtifactProductionInput(StrictModel):
+    outputPlanId: str = Field(min_length=1)
+    outputPlanDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    requests: list[ArtifactRequest] = Field(min_length=1, max_length=30)
+    evidence: list[ArtifactEvidence] = Field(min_length=1, max_length=500)
+    brandContext: str = Field(min_length=1, max_length=4_000)
+    constraints: list[str] = Field(default_factory=list, max_length=30)
+    passType: Literal["original", "revision"]
+    priorBatch: ProductionBatch | None
+    priorReview: ArtifactReviewBatch | None
+
+    @model_validator(mode="after")
+    def validate_authority(self):
+        evidence = {item.id for item in self.evidence}
+        if any(ref not in evidence for request in self.requests for ref in request.evidenceRefs):
+            raise ValueError("artifact request references evidence outside supplied evidence")
+        if len({item.id for item in self.requests}) != len(self.requests):
+            raise ValueError("artifact request ids must be unique")
+        if self.passType == "original" and (self.priorBatch is not None or self.priorReview is not None):
+            raise ValueError("original production cannot contain revision context")
+        if self.passType == "revision" and (self.priorBatch is None or self.priorReview is None):
+            raise ValueError("revision production requires prior batch and review")
+        return self
+
+
+class ArtifactReviewInput(StrictModel):
+    productionInput: ArtifactProductionInput
+    batch: ProductionBatch

@@ -3,6 +3,13 @@ import type {
   SurfaceComponentName,
 } from "./presentationContracts";
 
+export type ArtDirectedComponentName =
+  | SurfaceComponentName
+  | "SurfaceLoading"
+  | "SurfaceEmpty"
+  | "SurfaceUnresolved"
+  | "SurfaceFailure";
+
 export interface PresentationLifecycle {
   failed?: boolean;
   verified?: boolean;
@@ -11,12 +18,12 @@ export interface PresentationLifecycle {
 }
 
 interface ResolveArtDirectionInput {
-  component: SurfaceComponentName;
+  component: ArtDirectedComponentName;
   requested?: NodeArtDirection;
   lifecycle?: PresentationLifecycle;
 }
 
-const DEFAULTS: Record<SurfaceComponentName, NodeArtDirection> = {
+const DEFAULTS: Record<ArtDirectedComponentName, NodeArtDirection> = {
   CampaignBrief: { tone: "ink", role: "hero", density: "airy", motion: "reveal" },
   JobProgress: { tone: "ink", role: "strip", density: "compact", motion: "pulse" },
   MomentExplorer: { tone: "blue", role: "feature", density: "balanced", motion: "trace" },
@@ -31,7 +38,7 @@ const DEFAULTS: Record<SurfaceComponentName, NodeArtDirection> = {
   SurfaceFailure: { tone: "coral", role: "feature", density: "balanced", motion: "none" },
 };
 
-const ALLOWED_TONES: Record<SurfaceComponentName, ReadonlySet<NodeArtDirection["tone"]>> = {
+const ALLOWED_TONES: Record<ArtDirectedComponentName, ReadonlySet<NodeArtDirection["tone"]>> = {
   CampaignBrief: new Set(["paper", "ink", "violet"]),
   JobProgress: new Set(["paper", "ink", "blue", "coral"]),
   MomentExplorer: new Set(["paper", "ink", "blue", "violet"]),

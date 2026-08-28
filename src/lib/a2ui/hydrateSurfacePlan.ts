@@ -1,7 +1,11 @@
 import type { JobFull, Receipt } from "@/components/jobTypes";
 import { HARMONIA_CATALOG_ID, parseCatalogComponent } from "./contracts";
-import { surfacePlanSchema, type SurfaceComponentName, type SurfacePlan, type SurfaceSlot } from "./presentationContracts";
-import { resolveNodeArtDirection, type PresentationLifecycle } from "./presentationPolicy";
+import { surfacePlanSchema, type SurfacePlan, type SurfaceSlot } from "./presentationContracts";
+import {
+  resolveNodeArtDirection,
+  type ArtDirectedComponentName,
+  type PresentationLifecycle,
+} from "./presentationPolicy";
 
 export interface HydratedSurfaceSet {
   canvas: Record<string, unknown>[];
@@ -84,7 +88,7 @@ function framing(
   surface: PlannedSurface,
   node: PlannedNode,
   fallbackTitle: string,
-  component: SurfaceComponentName = node.component,
+  component: ArtDirectedComponentName = node.component,
   lifecycle: PresentationLifecycle = {},
 ) {
   return {

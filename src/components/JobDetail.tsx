@@ -125,8 +125,8 @@ export default function JobDetail({
     <div className="flex flex-col gap-4">
       <section className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="max-w-md truncate font-mono text-sm font-semibold" title={job.config.youtubeUrl ?? job.config.brief}>
-            {(job.config.youtubeUrl ?? `brief: ${job.config.brief ?? ""}`).replace(/^https?:\/\//, "").slice(0, 60)}
+          <h2 className="max-w-md truncate font-mono text-sm font-semibold" title={job.config.sourceManifestId}>
+            {job.ingestedTitle ?? `Source bundle ${job.config.sourceManifestId.slice(0, 12)}`}
           </h2>
           <div className="flex items-center gap-2">
             {job.status === "complete" && <Chip tone="green">complete</Chip>}
@@ -134,7 +134,7 @@ export default function JobDetail({
             {job.status === "waiting_for_approval" && <Chip tone="amber">awaiting approval</Chip>}
             {job.status === "running" && <Chip tone="blue">running</Chip>}
             <span className="font-mono text-xs text-zinc-400">{job.id.slice(0, 8)}</span>
-            <AskAiButton kind="job" id={job.id} label={(job.config.youtubeUrl ?? job.config.brief ?? job.id).slice(0, 60)} />
+            <AskAiButton kind="job" id={job.id} label={(job.ingestedTitle ?? `Source bundle ${job.config.sourceManifestId}`).slice(0, 60)} />
           </div>
         </div>
 
@@ -260,16 +260,16 @@ export default function JobDetail({
         <div className="p-4">
           {tab === "overview" && (
             <>
-              {job.transcriptSegments.length > 0 && (
+              {(job.normalizedSources?.length ?? 0) > 0 && (
                 <details open>
-                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-zinc-500">Transcript ({job.transcriptSegments.length})</summary>
+                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-zinc-500">Normalized sources ({job.normalizedSources?.length ?? 0})</summary>
                   <ol className="mt-2 max-h-56 space-y-1 overflow-y-auto text-xs leading-5">
-                    {job.transcriptSegments.map((seg) => (
-                      <li key={seg.id}>
-                        <span className="mr-2 font-mono text-[10px] text-zinc-400">{Math.floor(seg.startSec / 60)}:{String(Math.round(seg.startSec % 60)).padStart(2, "0")}</span>
-                        {seg.text}
+                    {(job.normalizedSources ?? []).flatMap((source) => source.segments.map((segment) => (
+                      <li key={`${source.sourceId}:${segment.id}`}>
+                        <span className="mr-2 font-mono text-[10px] text-zinc-400">{source.title} · {segment.locator.kind}</span>
+                        {segment.text}
                       </li>
-                    ))}
+                    )))}
                   </ol>
                 </details>
               )}
@@ -303,8 +303,8 @@ export default function JobDetail({
                   </ul>
                 </div>
               )}
-              {!job.sourceAnalysis && job.transcriptSegments.length === 0 && (
-                <Empty text="Transcript and analysis appear after the transcribe and understand stages." />
+              {!job.sourceAnalysis && !(job.normalizedSources?.length) && (
+                <Empty text="Normalized evidence and analysis appear after source extraction and understanding." />
               )}
             </>
           )}

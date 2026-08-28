@@ -29,7 +29,7 @@ const claim: EffectClaim = {
 };
 const job = {
   id: "job-1", workspaceId: "workspace-1", brandId: "brand-1", createdByUserId: "operator-1",
-  createdAt: now, updatedAt: now, status: "running", stage: "publish", config: { platforms: ["x"] },
+  createdAt: now, updatedAt: now, status: "running", stage: "publish", config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] },
   actions: [{
     id: "action-1", jobId: "job-1", type: "publish_x_post", title: "Post", description: "",
     risk: "high", requiresApproval: true, approvalState: "approved", payload: { text: "Launch" }, state: "planned",

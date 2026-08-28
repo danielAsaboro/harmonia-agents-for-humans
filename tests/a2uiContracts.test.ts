@@ -75,7 +75,7 @@ describe("Harmonia A2UI contracts", () => {
       jobId: "job-1",
       title: "Campaign direction",
       brief: "Lead with measurable outcomes.",
-      sourceKind: "written",
+      sourceKind: "text",
       platforms: ["x"],
       angles: [],
       children: [],

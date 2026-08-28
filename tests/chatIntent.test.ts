@@ -11,9 +11,9 @@ describe("parseIntent (HARMONIA_MOCK_AI=1)", () => {
 
   it("routes youtube urls to create_job", async () => {
     expect(await parseIntent("make a job from https://youtu.be/jNQXAC9IVRw please"))
-      .toMatchObject({ intent: "create_job", youtubeUrl: "https://youtu.be/jNQXAC9IVRw" });
+      .toMatchObject({ intent: "create_job", sources: [{ kind: "youtube", url: "https://youtu.be/jNQXAC9IVRw" }] });
     expect(await parseIntent("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
-      .toMatchObject({ intent: "create_job", youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" });
+      .toMatchObject({ intent: "create_job", sources: [{ kind: "youtube", url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }] });
   });
 
   it("detects approve with optional job id", async () => {
@@ -34,11 +34,11 @@ describe("parseIntent (HARMONIA_MOCK_AI=1)", () => {
     });
   });
 
-  it("treats longer topic text as a brief job", async () => {
+  it("treats longer operator context as a pasted-text source", async () => {
     const res = await parseIntent("Announce our usage-based billing launch for AI agent workloads today");
     expect(res.intent).toBe("create_job");
-    expect(res.topic?.length).toBeGreaterThanOrEqual(20);
-    expect(res.topic).not.toMatch(/^announce our usage-based billing launch/i);
+    expect(res.sources).toEqual([expect.objectContaining({ kind: "pasted_text" })]);
+    expect(res.sources?.[0]).toMatchObject({ text: expect.stringContaining("usage-based billing") });
   });
 
   it("returns unknown for short smalltalk", async () => {

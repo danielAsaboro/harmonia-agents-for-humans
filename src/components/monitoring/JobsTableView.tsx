@@ -34,8 +34,8 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
       out = out.filter(
         (j) =>
           j.id.toLowerCase().includes(needle) ||
-          (j.config.youtubeUrl ?? "").toLowerCase().includes(needle) ||
-          (j.config.brief ?? "").toLowerCase().includes(needle),
+          j.config.sourceManifestId.toLowerCase().includes(needle) ||
+          j.config.desiredOutputs.some((output) => output.includes(needle)),
       );
     }
     return [...out].sort((a, b) =>
@@ -51,7 +51,7 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
         <TextInput aria-label="Search jobs"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search url, brief, or job id…"
+          placeholder="Search job, manifest, or output…"
         />
         <Select aria-label="Filter jobs by status"
           value={statusFilter}
@@ -87,7 +87,7 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
               >
                 <td className="px-3 py-2 font-mono">{j.id.slice(0, 16)}</td>
                 <td className="max-w-[220px] truncate px-3 py-2">
-                  {j.config.youtubeUrl ?? `brief: ${(j.config.brief ?? "").slice(0, 40)}`.replace(/^https?:\/\//, "")}
+                  {j.ingestedTitle ?? `Bundle ${j.config.sourceManifestId.slice(0, 12)}`}
                 </td>
                 <td className="px-3 py-2 capitalize">{j.stage.replace("_", " ")}</td>
                 <td className="px-3 py-2">

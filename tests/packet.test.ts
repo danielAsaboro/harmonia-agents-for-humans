@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { assemblePacket } from "@/lib/packet";
-import type { PlannedAction, PostDraft, VerificationResult } from "@/lib/types";
+import type { JobConfig, PlannedAction, PostDraft, VerificationResult } from "@/lib/types";
 
-const config = { youtubeUrl: "https://youtu.be/dQw4w9WgXcQ", platforms: ["x"] };
+const config: JobConfig = { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] };
 
 const draft: PostDraft = { id: "d1", platform: "x", text: "hi", valid: true };
 const publishAction: PlannedAction = {

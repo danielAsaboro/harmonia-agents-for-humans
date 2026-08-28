@@ -17,8 +17,8 @@ export const createJobInputSchema = z.object({
   directSources: z.array(sourceInputSchema).max(10).default([]),
   desiredOutputs: z.array(outputKindSchema).min(1),
   allowedOutputs: z.array(outputKindSchema).min(1).optional(),
-  strategyContext: z.unknown().optional(),
-  analysisResearchRequest: z.unknown().optional(),
+  strategyContext: z.lazy(() => strategyContextSchema).optional(),
+  analysisResearchRequest: z.lazy(() => analysisResearchRequestSchema).optional(),
   platforms: z.array(z.string().min(1)).default([]),
 }).strict().superRefine((value, context) => {
   if (!value.librarySnapshotId && value.directSources.length === 0) {

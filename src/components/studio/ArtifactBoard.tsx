@@ -3,7 +3,7 @@ import type { JobFull } from "@/components/jobTypes";
 import type { StudioWorkspaceModel } from "@/lib/studio/workspaceModel";
 
 function directionFor(job: JobFull): string {
-  return job.sourceAnalysis?.angles[0]?.title || job.sourceAnalysis?.moments[0]?.hook || job.drafts[0]?.text.split(/[.!?]/)[0] || job.config.brief || job.ingestedTitle || "Content direction in progress";
+  return job.sourceAnalysis?.angles[0]?.title || job.sourceAnalysis?.moments[0]?.hook || job.drafts[0]?.text.split(/[.!?]/)[0] || job.ingestedTitle || "Content direction in progress";
 }
 
 export function ArtifactBoard({ job, model, onSelect }: { job: JobFull; model: StudioWorkspaceModel; onSelect: (artifactId: string, view?: string) => void }) {
@@ -28,7 +28,7 @@ export function ArtifactBoard({ job, model, onSelect }: { job: JobFull; model: S
           {decisions.length ? decisions.map((decision, index) => <div key={`${decision.source}-${index}`} className="grid grid-cols-[20px_1fr_auto] items-center gap-2 border-t border-[#33332e] py-2 text-[9px]"><i className="grid h-[18px] w-[18px] place-items-center rounded-md bg-[#292925] not-italic text-[#d8ff3e]">✓</i><b className="truncate">{decision.label}</b><span className="font-mono text-[7px] text-[#888]">{decision.source}</span></div>) : <div className="border-t border-[#33332e] py-3 text-[9px] text-[#888]">Direction will sharpen as evidence and angles are persisted.</div>}
         </div>
         <div className="relative mt-auto h-[90px] before:absolute before:left-[50px] before:right-[40px] before:top-[42px] before:rotate-[8deg] before:border-t before:border-[#444] after:absolute after:left-[50px] after:right-[40px] after:top-[42px] after:-rotate-[10deg] after:border-t after:border-[#444]" aria-label="Source trace graph">
-          <span className="absolute left-2 top-4 z-10 grid h-[52px] w-[52px] place-items-center rounded-full bg-[#d8ff3e] font-mono text-[7px] font-semibold text-black">{job.transcriptSegments.length ? "SOURCE" : "BRIEF"}</span>
+          <span className="absolute left-2 top-4 z-10 grid h-[52px] w-[52px] place-items-center rounded-full bg-[#d8ff3e] font-mono text-[7px] font-semibold text-black">{job.normalizedSources?.length ? "SOURCE" : "PENDING"}</span>
           <span className="absolute left-[43%] top-0 z-10 grid h-[52px] w-[52px] place-items-center rounded-full bg-[#ff765f] font-mono text-[7px] font-semibold text-black">DRAFT</span>
           <span className="absolute right-2 top-[30px] z-10 grid h-[52px] w-[52px] place-items-center rounded-full bg-[#a566ff] font-mono text-[7px] font-semibold text-black">MEDIA</span>
         </div>

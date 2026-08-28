@@ -6,7 +6,7 @@ import type { JobFull } from "../src/components/jobTypes";
 
 const job: JobFull = {
   id: "job-1", status: "waiting_for_approval", stage: "awaiting_approval", createdAt: "2026-08-23T00:00:00.000Z", updatedAt: "2026-08-23T00:01:00.000Z",
-  config: { brief: "Launch from outcomes", platforms: ["x"] }, transcriptSegments: [],
+  config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, normalizedSources: [],
   drafts: [{ id: "draft-1", platform: "x", text: "This full draft must not reach the planner.", valid: true }],
   actions: [], assets: [],
 };

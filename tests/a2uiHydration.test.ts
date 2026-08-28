@@ -9,8 +9,8 @@ const job: JobFull = {
   stage: "awaiting_approval",
   createdAt: "2026-08-23T00:00:00.000Z",
   updatedAt: "2026-08-23T00:01:00.000Z",
-  config: { brief: "Lead with measurable outcomes", platforms: ["x"] },
-  transcriptSegments: [{ id: "segment-1", startSec: 4, endSec: 12, text: "We cut setup time by half." }],
+  config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] },
+  normalizedSources: [{ sourceId: "source-1", sourceKind: "video", title: "Interview", mimeType: "video/mp4", contentDigest: "c".repeat(64), extractorVersion: "media-v1", extractedAt: "2026-08-23T00:00:00.000Z", extractionReceiptId: "receipt-1", metadata: {}, segments: [{ id: "segment-1", text: "We cut setup time by half.", digest: "d".repeat(64), locator: { kind: "time_range", startMs: 4000, endMs: 12000 } }] }],
   sourceAnalysis: { sourceDigest: "a".repeat(64), summary: "Setup time proof.", moments: [{ id: "moment-1", title: "Setup time proof", startSec: 4, endSec: 12, hook: "Half the setup time", quote: "We cut setup time by half.", transcriptSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }], angles: [], assumptions: [], confidence: "high" },
   drafts: [{ id: "draft-1", platform: "x", text: "Half the setup. More time shipping.", valid: true, momentId: "moment-1" }],
   actions: [{

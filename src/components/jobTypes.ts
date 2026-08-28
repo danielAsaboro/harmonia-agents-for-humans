@@ -1,4 +1,4 @@
-import type { AnalysisResearchRequest, AnalysisSearchEvidence, ApprovalDecision, EvidenceRef, Angle, ContentStrategy, DraftWorkflowResult, EditorialPlan, EditorialPlanningSnapshot, EffectClaimSummary, JobConfig, JobSourceManifest, Moment, NormalizedSource, PlannedAction, PostDraft, Receipt, SourceAnalysis, Stage, StrategyApproval } from "@/lib/types";
+import type { AnalysisResearchRequest, AnalysisSearchEvidence, ApprovalDecision, EvidenceRef, Angle, ContentStrategy, DraftWorkflowResult, EditorialPlan, EditorialPlanningSnapshot, EffectClaimSummary, JobConfig, JobSourceManifest, Moment, NormalizedSource, PlannedAction, PostDraft, Receipt, SourceAnalysis, SourceRecord, Stage, StrategyApproval } from "@/lib/types";
 
 export interface JobSummary {
   id: string;
@@ -32,7 +32,8 @@ export interface JobFull extends JobSummary {
   productionTrace?: DraftWorkflowResult;
   productionTraceDigest?: string;
   sourceManifest?: JobSourceManifest;
-  normalizedSources: NormalizedSource[];
+  sourceRecords?: SourceRecord[];
+  normalizedSources?: NormalizedSource[];
   sourceAnalysis?: SourceAnalysis;
   analysisDigest?: string;
   analysisResearchRequest?: AnalysisResearchRequest | null;

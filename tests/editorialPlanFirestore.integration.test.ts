@@ -43,7 +43,7 @@ describe.skipIf(!emulator)("Temi editorial plan Firestore boundary", () => {
     await db().doc(path).set({
       workspaceId: scope.workspaceId, brandId: scope.brandId, createdByUserId: "operator-test",
       createdAt: "2026-08-27T00:00:00Z", updatedAt: "2026-08-27T00:00:00Z", status: "running", stage: "plan",
-      config: { platforms: ["x"] }, contentStrategy: strategy, strategyDigest, strategyRevision: 1,
+      config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, contentStrategy: strategy, strategyDigest, strategyRevision: 1,
       strategyApprovalState: "approved", strategyApproval: { decision: "approved", payloadDigest: strategyDigest, revision: 1, actorSubjectId: "operator-test", decidedAt: "2026-08-27T00:00:00Z", expiresAt: "2026-08-28T00:00:00Z" },
       editorialPlanningSnapshot: snapshot, editorialPlanningSnapshotDigest: snapshotDigest,
     });

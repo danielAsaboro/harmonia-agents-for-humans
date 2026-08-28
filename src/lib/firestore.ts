@@ -1075,7 +1075,7 @@ export async function listRecentReceipts(limit = 200): Promise<ReceiptWithJob[]>
       const receipt = r.data() as Receipt;
       out.push({
         ...receipt,
-        jobTitle: data.ingestedTitle ?? data.config?.youtubeUrl ?? doc.id,
+        jobTitle: data.ingestedTitle ?? `Source bundle ${data.config.sourceManifestId.slice(0, 8)}`,
       });
     }
   }
@@ -1175,15 +1175,20 @@ export async function eraseJobData(plan: DeletionPlan, actorSubjectId: string): 
   const assets = await listAssets(plan.jobId);
   for (const asset of assets) await deleteArtifactUri(asset.storageUri);
 
-  const attachmentId = job.config.mediaAttachmentId;
-  if (attachmentId) {
-    const attachmentRef = tenantCollection("chat_attachments").doc(attachmentId);
-    const attachment = await attachmentRef.get();
-    if (attachment.exists) {
+  const manifestSnapshot = await jobRef(plan.jobId).collection("source_manifests").doc(job.config.sourceManifestId).get();
+  const directSourceIds = (manifestSnapshot.get("directSourceIds") as string[] | undefined) ?? [];
+  for (const sourceId of directSourceIds) {
+    const payloadRef = db().doc(`workspaces/${job.workspaceId}/brands/${job.brandId}/source_payloads/${sourceId}`);
+    const payload = await payloadRef.get();
+    const attachmentId = payload.get("input.attachmentId") as string | undefined;
+    if (attachmentId) {
+      const attachmentRef = tenantCollection("chat_attachments").doc(attachmentId);
+      const attachment = await attachmentRef.get();
       const uri = String(attachment.get("storageUri") ?? "");
       if (uri) await deleteArtifactUri(uri);
-      await attachmentRef.delete();
+      if (attachment.exists) await attachmentRef.delete();
     }
+    await payloadRef.delete();
   }
 
   const denormalized = await Promise.all([
@@ -1285,6 +1290,7 @@ export async function eraseWorkspaceData(
 export async function createJob(
   config: JobConfig,
   initialStage: Stage,
+  setup?: (transaction: FirebaseFirestore.Transaction, jobId: string, now: string) => void,
 ): Promise<Job> {
   const id = newId();
   const now = new Date().toISOString();
@@ -1308,6 +1314,7 @@ export async function createJob(
   const outboxId = stageOutboxId(id, initialStage, 0);
   await db().runTransaction(async (tx) => {
     tx.create(jobRef(id), doc);
+    setup?.(tx, id, now);
     tx.create(stageOutboxRef(outboxId), {
       id: outboxId,
       workspaceId: tenant.workspaceId,

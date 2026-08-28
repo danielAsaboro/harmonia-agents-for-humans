@@ -56,7 +56,7 @@ describe.skipIf(!emulator)("unknown effect operator resolution", () => {
     await Promise.all([
       db().doc(jobPath).set({
         workspaceId: scope.workspaceId, brandId: scope.brandId, createdByUserId: "operator-1",
-        createdAt: now, updatedAt: now, status: "running", stage: "publish", config: { platforms: ["x"] }, actions: [action],
+        createdAt: now, updatedAt: now, status: "running", stage: "publish", config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, actions: [action],
       }),
       db().doc(`${tenantCollectionPath(scope, "operations")}/${operationId}`).set(operation),
       db().doc(commandPath).set(command),

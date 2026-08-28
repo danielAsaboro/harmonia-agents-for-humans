@@ -17,7 +17,7 @@ interface LogEntry {
 }
 
 const STAGES = [
-  "ingest", "transcribe", "understand", "strategize", "awaiting_strategy_approval",
+  "collect_sources", "extract_sources", "awaiting_source_resolution", "understand", "strategize", "awaiting_strategy_approval",
   "plan", "draft", "awaiting_approval", "publish", "verify", "learn",
 ];
 const ACTORS = ["system", "agent", "operator"];

@@ -6,7 +6,7 @@ import { Button } from "@/components/dashboard/Button";
 import { ErrorState, LoadingState } from "@/components/dashboard/SystemState";
 
 const STAGE_ORDER = [
-  "queued", "ingest", "transcribe", "understand", "strategize", "awaiting_strategy_approval",
+  "queued", "collect_sources", "extract_sources", "awaiting_source_resolution", "understand", "strategize", "awaiting_strategy_approval",
   "plan", "draft", "awaiting_approval", "publish", "verify", "learn", "packet", "complete",
 ];
 

@@ -27,7 +27,7 @@ const remaining = {
 
 const job: JobFull = {
   id: "job-1", status: "running", stage: "plan", createdAt: "2026-08-27T00:00:00Z", updatedAt: "2026-08-27T00:01:00Z",
-  config: { platforms: ["x"] }, transcriptSegments: [], drafts: [], actions: [],
+  config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, normalizedSources: [], drafts: [], actions: [],
   editorialPlan: {
     planId: "plan-1", version: 1, approvedStrategyDigest: "a".repeat(64),
     planningSnapshotId: "planning-job-1-v1", planningSnapshotDigest: "d".repeat(64),

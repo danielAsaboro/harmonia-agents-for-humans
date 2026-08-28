@@ -77,8 +77,8 @@ export function buildDemoChatRunEvents(input) {
       title: "Persisted source chain",
       sources: [
         { id: "source-video", kind: "video", label: "Onboarding interview", url: "https://www.youtube.com/watch?v=jNQXAC9IVRw" },
-        { id: "s2", kind: "transcript", label: "Transcript 00:06–00:14", excerpt: "We mapped every step and found eleven that were pure ceremony." },
-        { id: "s3", kind: "transcript", label: "Transcript 00:14–00:23", excerpt: "Deleting them cut activation time from nine days to forty hours." },
+        { id: "s2", kind: "segment", label: "Transcript 00:06–00:14", excerpt: "We mapped every step and found eleven that were pure ceremony." },
+        { id: "s3", kind: "segment", label: "Transcript 00:14–00:23", excerpt: "Deleting them cut activation time from nine days to forty hours." },
       ],
       links: [
         { fromId: "m1", toId: "s2", label: "grounded in transcript" },

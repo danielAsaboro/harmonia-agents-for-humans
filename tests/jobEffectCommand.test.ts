@@ -11,7 +11,7 @@ const action: PlannedAction = {
 const job = {
   id: "job-1", workspaceId: "workspace-1", brandId: "brand-1", createdByUserId: "user-1",
   createdAt: "2026-08-26T00:00:00.000Z", updatedAt: "2026-08-26T00:00:00.000Z",
-  status: "running", stage: "publish", config: { platforms: ["x"] },
+  status: "running", stage: "publish", config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] },
   budget: { estimatedUsd: "0", observedUsd: "0", reservedUsd: "0", limitUsd: "0", approvalThresholdUsd: "0" },
 } satisfies Job;
 const approval = {

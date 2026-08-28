@@ -28,7 +28,7 @@ describe.skipIf(!emulator)("effect command Firestore aggregate", () => {
     await db().doc(jobPath).set({
       workspaceId: scope.workspaceId, brandId: scope.brandId, createdByUserId: "operator-test",
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), status: "running",
-      stage: "publish", config: { platforms: ["x"] }, actions: [action],
+      stage: "publish", config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, actions: [action],
     });
     await runWithTenant(scope, () => createCommand(command));
     const owner = { operationId: `job:${jobId}:effect:${command.id}`, traceId: "a".repeat(32) };
@@ -85,7 +85,7 @@ describe.skipIf(!emulator)("effect command Firestore aggregate", () => {
     await db().doc(`workspaces/${scope.workspaceId}/jobs/${unknownJobId}`).set({
       workspaceId: scope.workspaceId, brandId: scope.brandId, createdByUserId: "operator-test",
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), status: "running",
-      stage: "publish", config: { platforms: ["x"] }, actions: [unknownAction],
+      stage: "publish", config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, actions: [unknownAction],
     });
     await runWithTenant(scope, () => createCommand(unknownCommand));
     const operationId = `job:${unknownJobId}:effect:${unknownCommand.id}`;
@@ -127,7 +127,7 @@ describe.skipIf(!emulator)("effect command Firestore aggregate", () => {
     await db().doc(`workspaces/${scope.workspaceId}/jobs/${retryJobId}`).set({
       workspaceId: scope.workspaceId, brandId: scope.brandId, createdByUserId: "operator-test",
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), status: "running",
-      stage: "publish", config: { platforms: ["x"] }, actions: [retryAction],
+      stage: "publish", config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, actions: [retryAction],
     });
     await runWithTenant(scope, () => createCommand(retryCommand));
     const operationId = `job:${retryJobId}:effect:${retryCommand.id}`;

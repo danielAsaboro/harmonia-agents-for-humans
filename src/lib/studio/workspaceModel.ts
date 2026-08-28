@@ -30,7 +30,7 @@ export interface TraceLink {
 }
 
 export interface StudioWorkspaceSources {
-  transcriptSegments: JobFull["transcriptSegments"];
+  normalizedSources: NonNullable<JobFull["normalizedSources"]>;
   moments: Moment[];
   angles: Angle[];
   receipts: Receipt[];
@@ -146,7 +146,7 @@ export function buildStudioWorkspace(job: JobFull, receipts: Receipt[]): StudioW
     visual,
     motion,
     audio,
-    sources: { transcriptSegments: job.transcriptSegments, moments, angles, receipts, unsupportedAssets },
+    sources: { normalizedSources: job.normalizedSources ?? [], moments, angles, receipts, unsupportedAssets },
     pendingActions: job.actions.filter((action) => action.state === "planned" && action.approvalState === "pending"),
     failedActions: job.actions.filter((action) => action.state === "failed"),
     verifiedCount: (job.verifications ?? []).filter((verification) => verification.verified).length,

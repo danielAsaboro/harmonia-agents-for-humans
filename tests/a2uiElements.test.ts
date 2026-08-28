@@ -75,7 +75,7 @@ describe("Harmonia generated workspace elements", () => {
     const html = renderToStaticMarkup(createElement(CampaignBrief, {
       title: "Campaign direction",
       brief: "Lead with the customer outcome.",
-      sourceKind: "written",
+      sourceKind: "text",
       platforms: ["x"],
       angles: [],
       tone: "ink",

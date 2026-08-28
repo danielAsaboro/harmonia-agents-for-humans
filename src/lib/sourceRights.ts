@@ -1,15 +1,20 @@
 import { requireContentOperator } from "./authority";
+import { createHash } from "node:crypto";
 import type { TenantContext } from "./tenancy";
 
 export const RIGHTS_ATTESTATION_PHRASE = "I confirm I have rights to use this source";
 
 export interface SourceRightsAuthorization {
   version: "source-rights-v1";
-  sourceKind: "youtube" | "upload";
+  sourceKind: "youtube" | "web" | "upload" | "pasted_text";
   attestedBySubjectId: string;
   authenticationId: string;
   channel: "dashboard" | "telegram";
   attestedAt: string;
+}
+
+export function sourceRightsAuthorizationId(authorization: SourceRightsAuthorization): string {
+  return `rights_${createHash("sha256").update(JSON.stringify(authorization)).digest("hex").slice(0, 32)}`;
 }
 
 export function hasRightsAttestation(message: string): boolean {

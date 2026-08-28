@@ -10,8 +10,8 @@ describe("Nimi persisted analysis UI", () => {
     const job = {
       id: "job-1", status: "running", stage: "strategize",
       createdAt: "2026-08-27T00:00:00Z", updatedAt: "2026-08-27T00:01:00Z",
-      config: { platforms: ["x"] }, drafts: [], actions: [],
-      transcriptSegments: [{ id: "segment-1", startSec: 2, endSec: 8, text: "We cut nine days to forty hours." }],
+      config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, drafts: [], actions: [],
+      normalizedSources: [{ sourceId: "source-1", sourceKind: "video", title: "Interview", mimeType: "video/mp4", contentDigest: "c".repeat(64), extractorVersion: "media-v1", extractedAt: "2026-08-27T00:00:00Z", extractionReceiptId: "receipt-1", metadata: {}, segments: [{ id: "segment-1", text: "We cut nine days to forty hours.", digest: "d".repeat(64), locator: { kind: "time_range", startMs: 2000, endMs: 8000 } }] }],
       analysisDigest: "b".repeat(64),
       analysisResearchRequest: { id: "analysis-research-market", mode: "public_web", question: "What current public context qualifies this source?", justification: "Current context was explicitly requested." },
       analysisSearchEvidence: [{ evidenceId: "analysis-search-source-1", evidenceKind: "public_context", title: "Primary source", url: "https://example.com/source", supportedText: "Current context qualifies the source." }],

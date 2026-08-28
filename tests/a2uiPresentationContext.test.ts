@@ -8,9 +8,9 @@ const job: JobFull = {
   stage: "awaiting_approval",
   createdAt: "2026-08-23T00:00:00.000Z",
   updatedAt: "2026-08-23T00:01:00.000Z",
-  config: { youtubeUrl: "https://www.youtube.com/watch?v=abcdefghijk", brief: "Launch from outcomes", platforms: ["x"] },
+  config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] },
   ingestedTitle: "Founder launch interview",
-  transcriptSegments: [{ id: "segment-1", startSec: 10, endSec: 20, text: "private transcript text" }],
+  normalizedSources: [{ sourceId: "source-1", sourceKind: "video", title: "Interview", mimeType: "video/mp4", contentDigest: "c".repeat(64), extractorVersion: "media-v1", extractedAt: "2026-08-23T00:00:00.000Z", extractionReceiptId: "receipt-1", metadata: {}, segments: [{ id: "segment-1", text: "private transcript text", digest: "d".repeat(64), locator: { kind: "time_range", startMs: 10000, endMs: 20000 } }] }],
   sourceAnalysis: { sourceDigest: "a".repeat(64), summary: "Outcome proof.", moments: [{ id: "moment-1", title: "Outcome proof", startSec: 10, endSec: 20, hook: "Proof", quote: "We cut setup time.", transcriptSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }], angles: [{ id: "angle-1", angleType: "source_insight", evidenceKind: "source", title: "Outcome-led launch", rationale: "Lead with proof.", evidenceRefs: ["moment-1"], assumptions: [], confidence: "high" }], assumptions: [], confidence: "high" },
   drafts: [{ id: "draft-1", platform: "x", text: "full draft text must stay server-side", valid: true, momentId: "moment-1" }],
   actions: [{
@@ -41,8 +41,8 @@ describe("A2UI presentation context", () => {
     expect(context.drafts).toEqual([{ id: "draft-1", platform: "x", valid: true, momentId: "moment-1" }]);
     expect(context.actions).toEqual([{ id: "publish-1", type: "publish_x_post", pending: true }]);
     expect(context.sources).toEqual(expect.arrayContaining([
-      { id: "source-video", kind: "video", label: "Founder launch interview" },
-      { id: "segment-1", kind: "transcript", label: "Transcript 00:10–00:20" },
+      { id: "source-1", kind: "video", label: "Interview" },
+      { id: "source-1:segment-1", kind: "segment", label: "time_range · segment-1" },
     ]));
     const serialized = JSON.stringify(context);
     expect(serialized).not.toContain("full draft text");

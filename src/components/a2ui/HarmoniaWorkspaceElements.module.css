@@ -116,3 +116,6 @@
 @media (max-width:640px) { .brief,.progress,.momentExplorer,.draftComparison,.platformPreview,.evidence,.approval,.receipt,.state { padding:.85rem; box-shadow:none; } .heading h3 { font-size:1.35rem; } .draftTabs { display:flex; } .draftGrid { grid-template-columns:1fr; } .draftGrid article[data-selected="false"] { display:none; } .evidence > ol > li { grid-template-columns:1fr; } .evidence > ol > li > code { display:none; } }
 @media (prefers-reduced-motion:reduce) { .loadingBar { animation:none; transform:none; } }
 @media (forced-colors:active) { .brief,.progress,.momentExplorer,.draftComparison,.platformPreview,.evidence,.approval,.receipt,.state { border:2px solid CanvasText; box-shadow:none; } .agentLabel,.progressMeta strong,.timecode { color:LinkText; } }
+.surfaceFrame {
+  min-width: 0;
+}

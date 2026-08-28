@@ -50,6 +50,7 @@ import {
   SurfaceUnresolved,
   VerificationReceipt,
 } from "./HarmoniaWorkspaceElements";
+import styles from "./HarmoniaWorkspaceElements.module.css";
 
 const status = z.enum(["pending", "active", "complete", "failed"]);
 const step = z.object({ id: z.string(), label: z.string(), description: z.string().optional(), status });
@@ -154,6 +155,46 @@ export function parseHarmoniaA2uiOperation(operation: unknown) {
   return parsed;
 }
 
+export interface SurfaceFrameMetadata {
+  composition: "stack" | "split" | "mosaic" | "rail";
+  rhythm: "editorial" | "operational" | "cinematic" | "evidence";
+  energy: "quiet" | "active" | "resolved";
+  revision: number;
+}
+
+const DEFAULT_SURFACE_FRAME: SurfaceFrameMetadata = {
+  composition: "stack",
+  rhythm: "editorial",
+  energy: "quiet",
+  revision: 1,
+};
+
+export function surfaceFrameMetadata(surface: SurfaceModel<ReactComponentImplementation> | undefined): SurfaceFrameMetadata {
+  if (!surface) return DEFAULT_SURFACE_FRAME;
+  const queue = ["root"];
+  const visited = new Set<string>();
+  while (queue.length > 0) {
+    const componentId = queue.shift();
+    if (!componentId || visited.has(componentId)) continue;
+    visited.add(componentId);
+    const component = surface.componentsModel.get(componentId);
+    if (!component) continue;
+    const properties = component.properties as Partial<Record<string, unknown>>;
+    if (typeof properties.surfaceComposition === "string") {
+      return {
+        composition: properties.surfaceComposition as SurfaceFrameMetadata["composition"],
+        rhythm: properties.surfaceRhythm as SurfaceFrameMetadata["rhythm"],
+        energy: properties.surfaceEnergy as SurfaceFrameMetadata["energy"],
+        revision: properties.revision as number,
+      };
+    }
+    if (Array.isArray(properties.children)) {
+      queue.push(...properties.children.filter((child): child is string => typeof child === "string"));
+    }
+  }
+  return DEFAULT_SURFACE_FRAME;
+}
+
 export function HarmoniaA2uiHost({ operations, onAction, onProtocolError, className }: { operations: unknown[]; onAction?: (action: A2uiClientAction) => void | Promise<void>; onProtocolError?: (error: Error) => void; className?: string }) {
   const processor = useMemo(() => new MessageProcessor<ReactComponentImplementation>(
     [harmoniaCatalog],
@@ -188,5 +229,15 @@ export function HarmoniaA2uiHost({ operations, onAction, onProtocolError, classN
     }
   }, [onProtocolError, operations, processor]);
 
-  return <div className={className ?? "flex flex-col gap-2"}>{protocolError && <p className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">A2UI protocol error: {protocolError}</p>}{surfaces.map((surface) => <A2uiSurface key={surface.id} surface={surface} />)}</div>;
+  return <div className={className ?? "flex flex-col gap-2"}>{protocolError && <p className="rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">A2UI protocol error: {protocolError}</p>}{surfaces.map((surface) => {
+    const frame = surfaceFrameMetadata(surface);
+    return <div
+      key={surface.id}
+      className={styles.surfaceFrame}
+      data-composition={frame.composition}
+      data-rhythm={frame.rhythm}
+      data-energy={frame.energy}
+      data-revision={frame.revision}
+    ><A2uiSurface surface={surface} /></div>;
+  })}</div>;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { MessageProcessor } from "@a2ui/web_core/v0_9";
-import { harmoniaCatalog, parseHarmoniaA2uiOperation } from "../src/components/a2ui/HarmoniaCatalog";
+import { harmoniaCatalog, parseHarmoniaA2uiOperation, surfaceFrameMetadata } from "../src/components/a2ui/HarmoniaCatalog";
 import { generateResponseSurfaces } from "../src/lib/a2ui/responseSurface";
 import type { JobFull } from "../src/components/jobTypes";
 
@@ -15,7 +15,19 @@ describe("Harmonia A2UI surfaces", () => {
   test("passes bounded context to the planner and materializes its hydrated surface", async () => {
     const planner = vi.fn().mockResolvedValue({
       version: "harmonia.ui/v1",
-      surfaces: [{ slot: "canvas", revision: 1, rootId: "drafts", nodes: [{ id: "drafts", component: "DraftComparison", refs: { jobId: "job-1", draftIds: ["draft-1"] }, children: [] }] }],
+      surfaces: [{
+        slot: "canvas",
+        revision: 1,
+        rootId: "drafts",
+        artDirection: { rhythm: "cinematic", composition: "split", energy: "active" },
+        nodes: [{
+          id: "drafts",
+          component: "DraftComparison",
+          refs: { jobId: "job-1", draftIds: ["draft-1"] },
+          artDirection: { tone: "violet", role: "feature", density: "balanced", motion: "reveal" },
+          children: [],
+        }],
+      }],
     });
     const surfaces = await generateResponseSurfaces({
       runId: "run-1",
@@ -31,6 +43,13 @@ describe("Harmonia A2UI surfaces", () => {
     const surface = processor.model.getSurface("studio-run-1-canvas-r1");
     expect(surface?.componentsModel.get("root")).toBeTruthy();
     expect(surface?.componentsModel.get("drafts")?.properties.drafts[0].text).toContain("full draft");
+    expect(surface?.componentsModel.get("drafts")?.properties.tone).toBe("violet");
+    expect(surfaceFrameMetadata(surface)).toEqual({
+      composition: "split",
+      rhythm: "cinematic",
+      energy: "active",
+      revision: 1,
+    });
     expect(planner).toHaveBeenCalledWith(expect.objectContaining({ intent: "list_drafts" }));
     expect(JSON.stringify(planner.mock.calls[0][0])).not.toContain("full draft");
   });

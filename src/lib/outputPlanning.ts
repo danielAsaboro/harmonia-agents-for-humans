@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { CampaignOutputPlan, NormalizedSource, OutputKind, ProposedOutput, SourceAnalysis } from "./types";
+import { OUTPUT_CAPABILITIES } from "./outputCapabilities";
 
 export interface OutputEligibilityIssue { outputType: OutputKind; code: "not_allowed" | "video_evidence_required" | "missing_evidence"; message: string }
 
@@ -21,13 +22,15 @@ export function sealOutputPlan(input: Omit<CampaignOutputPlan, "digest">): Campa
 }
 
 export function proposeOutputPlan(jobId: string, desiredOutputs: OutputKind[], allowedOutputs: OutputKind[], analysis: SourceAnalysis): CampaignOutputPlan {
+  const unavailable = desiredOutputs.filter((output) => OUTPUT_CAPABILITIES[output].state === "unavailable");
+  if (unavailable.length) throw new Error(`unavailable output: ${unavailable.join(", ")}`);
   const allowed = new Set(allowedOutputs); const sourceRefs = [...new Set([...analysis.moments.flatMap((moment) => moment.sourceSegmentRefs), ...analysis.angles.flatMap((angle) => angle.evidenceKind === "source" ? angle.evidenceRefs.filter((ref) => ref.includes(":")) : [])])];
   const timedRefs = [...new Set(analysis.moments.flatMap((moment) => moment.sourceSegmentRefs))];
   const outputs: ProposedOutput[] = desiredOutputs.filter((outputType) => allowed.has(outputType)).flatMap((outputType, index) => {
     const clip = outputType === "short_clip" || outputType === "reel"; const evidenceRefs = clip ? timedRefs : sourceRefs;
     if (!evidenceRefs.length) return [];
-    const metered = ["social_image", "generated_broll", "generated_audio"].includes(outputType);
-    return [{ id: `output-${index + 1}-${outputType}`, outputType, quantity: 1, destinations: outputType.startsWith("x_") ? ["x"] : [], evidenceRefs, costClass: metered ? "provider_metered" : "local", approvalClass: metered || ["short_clip", "reel"].includes(outputType) ? "effect" : "strategy" }];
+    const capability = OUTPUT_CAPABILITIES[outputType];
+    return [{ id: `output-${index + 1}-${outputType}`, outputType, quantity: 1, destinations: capability.publisher ? [capability.publisher] : [], evidenceRefs, costClass: capability.costClass, approvalClass: capability.approvalClass }];
   });
   return sealOutputPlan({ id: `output-plan-${jobId}`, desiredOutputs, allowedOutputs, outputs });
 }

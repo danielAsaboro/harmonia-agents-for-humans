@@ -7,10 +7,11 @@ export const sourceInputSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("pasted_text"), title: z.string().min(1).max(300), text: z.string().min(1), rightsAuthorizationId: z.string().min(1) }).strict(),
 ]);
 
-export const outputKindSchema = z.enum([
+export const OUTPUT_KINDS = [
   "x_post", "x_thread", "linkedin_post", "blog_article", "newsletter", "caption", "carousel_spec", "social_image",
   "quote_card", "diagram", "short_clip", "reel", "generated_broll", "generated_audio", "editorial_calendar", "content_pack",
-]);
+] as const;
+export const outputKindSchema = z.enum(OUTPUT_KINDS);
 
 export const createJobInputSchema = z.object({
   librarySnapshotId: z.string().min(1).optional(),

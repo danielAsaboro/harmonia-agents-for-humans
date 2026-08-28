@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateOutputEligibility } from "@/lib/outputPlanning";
+import { proposeOutputPlan, validateOutputEligibility } from "@/lib/outputPlanning";
 import { outputKindSchema } from "@/lib/contracts";
 import type { NormalizedSource, OutputKind } from "@/lib/types";
 const document: NormalizedSource = { sourceId: "s1", sourceKind: "document", title: "Brief", mimeType: "application/pdf", contentDigest: "a".repeat(64), extractorVersion: "pdf-v1", extractedAt: "2026-08-30T00:00:00Z", extractionReceiptId: "r1", metadata: {}, segments: [{ id: "p1", text: "Proof", digest: "b".repeat(64), locator: { kind: "page_range", startPage: 1, endPage: 1 } }] };
@@ -8,4 +8,7 @@ describe("output modality eligibility", () => {
   it("allows text and image outputs from document evidence", () => expect(validateOutputEligibility(plan(["x_post", "linkedin_post", "social_image"]), [document])).toEqual([]));
   it("rejects source clips without video time evidence", () => expect(validateOutputEligibility(plan(["short_clip"]), [document])).toContainEqual(expect.objectContaining({ code: "video_evidence_required" })));
   it("keeps generated video distinct from source clips", () => { expect(outputKindSchema.parse("generated_broll")).toBe("generated_broll"); expect(outputKindSchema.parse("short_clip")).toBe("short_clip"); });
+  it("rejects an unavailable desired output instead of silently dropping it", () => {
+    expect(() => proposeOutputPlan("job-1", ["generated_audio"], ["generated_audio"], { sourceDigest: "a".repeat(64), summary: "Proof", moments: [{ id: "m1", title: "Proof", startSec: 0, endSec: 1, hook: "Hook", quote: "Proof", sourceSegmentRefs: ["s1:p1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }], angles: [], assumptions: [], confidence: "high" })).toThrow("unavailable output");
+  });
 });

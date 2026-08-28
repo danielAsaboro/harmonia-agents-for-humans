@@ -29,10 +29,11 @@ EXPECTED_REFERENCES = {
     "references/outlining.md",
     "references/titles-and-headlines.md",
     "references/convincing-content.md",
+    "references/short-form-video-scripts.md",
 }
 
 
-def test_noni_skill_is_valid_and_covers_all_ten_writing_topics():
+def test_noni_skill_is_valid_and_covers_all_registered_writing_topics():
     toolset = build_noni_writing_skillset()
 
     assert isinstance(toolset, skill_toolset.SkillToolset)
@@ -145,6 +146,12 @@ def test_noni_trace_requires_one_skill_and_at_least_one_approved_reference():
         validate_noni_skill_trace(_trace())
     with pytest.raises(ValueError, match="unapproved resource"):
         validate_noni_skill_trace(_trace("references/unknown.md"))
+
+
+def test_noni_trace_accepts_the_short_form_video_script_method():
+    assert validate_noni_skill_trace(
+        _trace("references/short-form-video-scripts.md")
+    ) == {}
 
 
 def _grounding_metadata() -> dict:

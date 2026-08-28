@@ -34,6 +34,7 @@ NONI_SKILL_REFERENCES = (
     "references/outlining.md",
     "references/titles-and-headlines.md",
     "references/convincing-content.md",
+    "references/short-form-video-scripts.md",
 )
 NONI_RESEARCH_TOOLS = ("search_verified_publications", "google_search_agent")
 NONI_ARTIFACT_REFERENCES = (

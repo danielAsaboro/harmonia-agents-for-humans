@@ -35,6 +35,8 @@ two years of content-marketing work for brands.
 - Plan post or thread beats: `references/outlining.md`
 - Headline, first line, or thread title: `references/titles-and-headlines.md`
 - Credibility and specificity pass: `references/convincing-content.md`
+- Narrated short-form video script and concrete visual treatment:
+  `references/short-form-video-scripts.md`
 
 ## Non-negotiable boundary
 

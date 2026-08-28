@@ -1,6 +1,6 @@
 # Writing Knowledge Coverage
 
-The ten required areas are maintained in these references:
+The supported writing areas are maintained in these references:
 
 1. Thought leadership — `thought-leadership.md`
 2. Introductions and hooks — `hooks-and-introductions.md`
@@ -12,3 +12,4 @@ The ten required areas are maintained in these references:
 8. Outlining — `outlining.md`
 9. Titles and headlines — `titles-and-headlines.md`
 10. Convincing, credible content — `convincing-content.md`
+11. Short-form narrated video scripts — `short-form-video-scripts.md`

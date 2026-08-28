@@ -31,3 +31,10 @@ export function groupCalendarItems(items: CalendarItem[]): Map<string, CalendarI
   }
   return grouped;
 }
+
+export function calendarRequestAction(status: number):
+  | { kind: "reauthenticate"; clearSession: true; href: string }
+  | { kind: "error"; message: string } {
+  if (status === 401) return { kind: "reauthenticate", clearSession: true, href: "/login?returnTo=%2Fdashboard%2Fcalendar" };
+  return { kind: "error", message: `Calendar could not be loaded (HTTP ${status}).` };
+}

@@ -16,6 +16,14 @@ if [[ -f .env.local ]]; then
   set -a; source .env.local; set +a
 fi
 
+# macOS ships a /usr/bin/java launcher even when no JRE is available. Prefer
+# Homebrew's JDK when the launcher cannot report a working runtime.
+if ! command -v java >/dev/null 2>&1 || ! java -version >/dev/null 2>&1; then
+  if [[ -x /opt/homebrew/opt/openjdk/bin/java ]]; then
+    export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"
+  fi
+fi
+
 echo "== Starting emulators =="
 gcloud beta emulators firestore start --host-port "$FIRESTORE_EMULATOR_HOST" --project "$PROJECT_ID" >/dev/null 2>&1 &
 gcloud beta emulators pubsub start --host-port "$PUBSUB_EMULATOR_HOST" --project "$PROJECT_ID" >/dev/null 2>&1 &

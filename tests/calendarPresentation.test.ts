@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarAnchor, calendarStatus } from "@/lib/dashboard/calendarPresentation";
+import { calendarAnchor, calendarRequestAction, calendarStatus } from "@/lib/dashboard/calendarPresentation";
 import type { CalendarItem } from "@/app/api/calendar/route";
 
 function item(overrides: Partial<CalendarItem>): CalendarItem {
@@ -36,5 +36,10 @@ describe("calendar presentation", () => {
   it("provides readable semantics for approval and failure", () => {
     expect(calendarStatus("awaiting_final_review")).toEqual({ tone: "warning", label: "Awaiting final review" });
     expect(calendarStatus("failed")).toEqual({ tone: "danger", label: "Failed" });
+  });
+
+  it("routes expired sessions through login while retaining real request failures", () => {
+    expect(calendarRequestAction(401)).toEqual({ kind: "reauthenticate", clearSession: true, href: "/login?returnTo=%2Fdashboard%2Fcalendar" });
+    expect(calendarRequestAction(503)).toEqual({ kind: "error", message: "Calendar could not be loaded (HTTP 503)." });
   });
 });

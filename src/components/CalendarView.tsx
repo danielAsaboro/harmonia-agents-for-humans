@@ -11,7 +11,7 @@ import { DashboardPage } from "@/components/dashboard/DashboardPage";
 import { StatusBadge } from "@/components/dashboard/StatusBadge";
 import { AlertBanner, EmptyState, ErrorState, LoadingState } from "@/components/dashboard/SystemState";
 import { Tabs } from "@/components/dashboard/Tabs";
-import { calendarAnchor, calendarStatus, groupCalendarItems } from "@/lib/dashboard/calendarPresentation";
+import { calendarAnchor, calendarRequestAction, calendarStatus, groupCalendarItems } from "@/lib/dashboard/calendarPresentation";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -49,7 +49,15 @@ export default function CalendarView() {
         fetch("/api/settings/goals", { cache: "no-store" }),
         fetch("/api/calendar/google", { cache: "no-store" }),
       ]);
-      if (!calendarResponse.ok) throw new Error(`Calendar could not be loaded (HTTP ${calendarResponse.status}).`);
+      if (!calendarResponse.ok) {
+        const action = calendarRequestAction(calendarResponse.status);
+        if (action.kind === "reauthenticate") {
+          await fetch("/api/auth/session", { method: "DELETE" });
+          window.location.assign(action.href);
+          return;
+        }
+        throw new Error(action.message);
+      }
       const calendar = await calendarResponse.json();
       setEvents(calendar.events ?? []);
       setItems(calendar.items ?? []);

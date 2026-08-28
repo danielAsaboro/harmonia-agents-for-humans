@@ -27,8 +27,8 @@ describe("dashboard navigation rail", () => {
       "Harmonia home",
       "Console",
       "Calendar",
-      "Monitoring",
       "Notifications",
+      "Monitoring",
       "Settings",
       "Sign out",
     ];
@@ -115,7 +115,7 @@ describe("dashboard navigation rail", () => {
 
   it("keeps exactly five named destinations with visible tooltip copy", () => {
     const html = renderToStaticMarkup(createElement(NavRail));
-    const labels = ["Console", "Calendar", "Monitoring", "Notifications", "Settings"];
+    const labels = ["Console", "Calendar", "Notifications", "Monitoring", "Settings"];
 
     for (const label of labels) {
       expect(html).toContain(`aria-label="${label}`);

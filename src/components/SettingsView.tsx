@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/clientApi";
 import { PlatformIcon } from "@/components/socialIcons";
+import { Button } from "@/components/dashboard/Button";
+import { TextInput } from "@/components/dashboard/Controls";
+import { FormField } from "@/components/dashboard/FormField";
+import { SectionHeader } from "@/components/dashboard/DashboardPage";
+import { StatusBadge } from "@/components/dashboard/StatusBadge";
+import { Surface } from "@/components/dashboard/Surface";
+import { AlertBanner, ErrorState, LoadingState } from "@/components/dashboard/SystemState";
 
 interface HealthInfo {
   ok: boolean;
@@ -63,34 +70,29 @@ function TelegramSection() {
   }
 
   return (
-    <section className="rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
-      <h2 className="text-sm font-semibold">Telegram</h2>
-      <p className="mt-1 text-xs leading-5 text-zinc-500">
-        Connect a bot and one allowed chat to this workspace. Messages and approvals cannot access another workspace.
-      </p>
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-        <input
+    <Surface as="section" className="settings-section">
+      <SectionHeader title="Telegram operator" description="Connect one bot and one allow-listed chat. Messages and approvals cannot cross workspace boundaries." metadata={<StatusBadge tone={connected ? "success" : "neutral"}>{connected ? "Connected" : "Not connected"}</StatusBadge>} />
+      <div className="settings-fields settings-fields--two">
+        <FormField id="telegram-token" label="Bot token" description="Stored server-side and never displayed after saving."><TextInput
           type="password"
           value={botToken}
           onChange={(event) => setBotToken(event.target.value)}
           placeholder={connected ? "enter a new bot token to replace" : "bot token"}
-          className="rounded-md border border-zinc-300 bg-transparent px-3 py-2 text-xs dark:border-zinc-700"
-        />
-        <input
+        /></FormField>
+        <FormField id="telegram-chat" label="Allowed chat ID" description="Only this Telegram chat can submit or approve work."><TextInput
           value={chatId}
           onChange={(event) => setChatId(event.target.value)}
           placeholder="allowed chat ID"
-          className="rounded-md border border-zinc-300 bg-transparent px-3 py-2 text-xs dark:border-zinc-700"
-        />
+        /></FormField>
       </div>
       <div className="mt-3 flex items-center gap-2">
-        <button onClick={connect} disabled={!botToken || !chatId} className="rounded-full bg-zinc-900 px-4 py-2 text-xs text-white disabled:opacity-40 dark:bg-white dark:text-black">
+        <Button variant="primary" onClick={connect} disabled={!botToken || !chatId}>
           {connected ? "Replace connection" : "Connect"}
-        </button>
-        {connected && <button onClick={disconnect} className="rounded-full border px-4 py-2 text-xs">Disconnect</button>}
+        </Button>
+        {connected && <Button onClick={disconnect}>Disconnect</Button>}
         {status && <span className="text-xs text-zinc-500">{status}</span>}
       </div>
-    </section>
+    </Surface>
   );
 }
 
@@ -134,21 +136,17 @@ function GoalsSection() {
   }
 
   return (
-    <section className="rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
-      <h2 className="text-sm font-semibold">Content goals</h2>
-      <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-        Strategy the agent optimizes toward. Goals are injected into every research and
-        ideation prompt, alongside what performed well in past posts.
+    <Surface as="section" className="settings-section settings-section--strategy">
+      <SectionHeader title="Content strategy" description="The operating brief injected into research and ideation alongside verified performance history." metadata={<StatusBadge tone={status === "error" || loadError ? "danger" : status === "saved" ? "success" : status === "saving" ? "info" : "neutral"}>{status === "saving" ? "Saving" : status === "saved" ? "Saved" : status === "error" ? "Save failed" : loadError ? "Load failed" : "Ready"}</StatusBadge>} />
+      <p className="settings-save-status" role={status === "error" || loadError ? "alert" : "status"}>
         {status === "saving" && " Saving…"}
         {status === "saved" && " Saved ✓"}
         {status === "error" && " Save failed — check operator token."}
         {loadError && ` ${loadError}`}
       </p>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-          Weekly post target
-          <input
+      <div className="settings-fields settings-fields--two">
+        <FormField id="weekly-target" label="Weekly post target" description="Between 1 and 50 approved posts."><TextInput
             type="number"
             min={1}
             max={50}
@@ -159,29 +157,19 @@ function GoalsSection() {
             }}
             onBlur={() => void save(goals)}
             placeholder="e.g. 5"
-            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-          Target audience
-          <input
+          /></FormField>
+        <FormField id="target-audience" label="Target audience" description="Who every draft should be useful to."><TextInput
             value={goals.audience ?? ""}
             onChange={(e) => setGoals((g) => ({ ...g, audience: e.target.value }))}
             onBlur={() => void save(goals)}
             placeholder="e.g. seed-stage technical founders"
-            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400 sm:col-span-2">
-          Brand voice
-          <input
+          /></FormField>
+        <FormField id="brand-voice" className="settings-field--wide" label="Brand voice" description="Specific language and tone constraints for generated drafts."><TextInput
             value={goals.voice ?? ""}
             onChange={(e) => setGoals((g) => ({ ...g, voice: e.target.value }))}
             onBlur={() => void save(goals)}
             placeholder="e.g. direct, technical, allergic to hype"
-            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950"
-          />
-        </label>
+          /></FormField>
       </div>
 
       <div className="mt-4">
@@ -203,19 +191,18 @@ function GoalsSection() {
           ))}
         </div>
         <div className="mt-2 flex gap-2">
-          <input
+          <TextInput aria-label="New priority topic"
             value={topicDraft}
             onChange={(e) => setTopicDraft(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addTopic()}
             placeholder="add a topic and press Enter"
-            className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950"
           />
-          <button onClick={addTopic} className="shrink-0 rounded-md bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-white dark:text-black dark:hover:bg-zinc-300">
+          <Button variant="primary" onClick={addTopic}>
             Add
-          </button>
+          </Button>
         </div>
       </div>
-    </section>
+    </Surface>
   );
 }
 
@@ -247,12 +234,13 @@ function ConnectionsSection() {
   const [pasteFor, setPasteFor] = useState<string | null>(null);
   const [pasteToken, setPasteToken] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState("");
 
   const load = useCallback(() => {
     return fetch("/api/settings/connections", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((d) => setConnections(d.connections))
-      .catch(() => setConnections([]));
+      .then((d) => { setConnections(d.connections); setLoadError(""); })
+      .catch((cause) => setLoadError(cause instanceof Error ? cause.message : "Connections request failed"));
   }, []);
 
   useEffect(() => {
@@ -310,42 +298,30 @@ function ConnectionsSection() {
   }
 
   return (
-    <section className="rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
-      <h2 className="text-sm font-semibold">Connected accounts</h2>
-      <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-        Official platform APIs only — OAuth 2.0 sign-in, tokens stored server-side, never in
-        your browser. Publishing always passes the human approval gate.
-      </p>
+    <Surface as="section" className="settings-section settings-section--wide">
+      <SectionHeader title="Connected accounts" description="Official platform APIs only. Credentials stay server-side, and every publish still passes the human approval gate." metadata={<StatusBadge tone="info">OAuth 2.0</StatusBadge>} />
 
       {banner && (
-        <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
-          banner.result === "ok"
-            ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-            : "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
-        }`}>
+        <AlertBanner tone={banner.result === "ok" ? "success" : "danger"}>
           {banner.result === "ok"
             ? `${banner.connection} connected successfully.`
             : `${banner.connection} failed to connect${banner.reason ? `: ${banner.reason}` : "."}`}
-        </div>
+        </AlertBanner>
       )}
 
-      {!connections ? (
-        <p className="mt-3 text-xs text-zinc-400">Loading…</p>
+      {loadError ? <ErrorState title="Connected accounts could not be loaded" message={loadError} action={<Button onClick={() => void load()}>Retry</Button>} /> : !connections ? (
+        <LoadingState title="Loading connected accounts" />
       ) : (
         <>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {connections.map((c) => (
-              <div key={c.id} className={`flex flex-col rounded-xl bg-white p-4 dark:bg-zinc-950 ${RING[c.status]}`}>
+              <Surface key={c.id} variant="raised" className={`settings-connection ${RING[c.status]}`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <PlatformIcon id={c.id} />
                     <span className="text-sm font-semibold">{c.label}</span>
                   </div>
-                  <span className={`h-2.5 w-2.5 rounded-full ${
-                    c.status === "connected" ? "bg-emerald-500"
-                    : c.status === "connectable" ? "bg-sky-500"
-                    : "bg-zinc-300 dark:bg-zinc-700"
-                  }`} />
+                  <StatusBadge tone={c.status === "connected" ? "success" : c.status === "connectable" ? "info" : "neutral"}>{c.status.replaceAll("_", " ")}</StatusBadge>
                 </div>
                 <p className="mt-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
                   {c.status === "connected"
@@ -355,32 +331,29 @@ function ConnectionsSection() {
 
                 <div className="mt-auto flex flex-col gap-1.5 pt-3">
                   {c.status === "connected" ? (
-                    <button
+                    <Button
                       onClick={() => disconnect(c.id)}
                       disabled={busy === c.id}
-                      className="w-full rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
                     >
                       Disconnect
-                    </button>
+                    </Button>
                   ) : c.productAvailability === "credential_groundwork" ? (
-                    <button disabled className="w-full cursor-not-allowed rounded-full border border-dashed border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-400 dark:border-zinc-800">
+                    <Button disabled>
                       Credential groundwork only
-                    </button>
+                    </Button>
                   ) : c.status === "connectable" ? (
-                    <button
+                    <Button variant="primary"
                       onClick={() => startOauth(c.id)}
-                      className="w-full rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-white dark:text-black dark:hover:bg-zinc-300"
                     >
                       Connect with OAuth 2.0
-                    </button>
+                    </Button>
                   ) : (
-                    <button
+                    <Button
                       disabled
                       title={c.missingRequired.length ? `Add ${c.missingRequired.join(", ")} server-side first` : undefined}
-                      className="w-full cursor-not-allowed rounded-full border border-dashed border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-400 dark:border-zinc-800"
                     >
                       App config needed
-                    </button>
+                    </Button>
                   )}
                   <button
                     onClick={() => setPasteFor(pasteFor === c.id ? null : c.id)}
@@ -390,23 +363,21 @@ function ConnectionsSection() {
                   </button>
                   {pasteFor === c.id && (
                     <div className="flex gap-1">
-                      <input
+                      <TextInput aria-label={`${c.label} access token`}
                         value={pasteToken}
                         onChange={(e) => setPasteToken(e.target.value)}
                         placeholder="access token"
-                        className="w-full rounded border border-zinc-300 bg-white px-2 py-1 font-mono text-[11px] outline-none dark:border-zinc-700 dark:bg-zinc-950"
                       />
-                      <button
+                      <Button
                         onClick={() => pasteSave(c.id)}
                         disabled={busy === c.id}
-                        className="shrink-0 rounded bg-zinc-800 px-2 py-1 text-[10px] font-medium text-white dark:bg-zinc-200 dark:text-black"
                       >
                         Save
-                      </button>
+                      </Button>
                     </div>
                   )}
                 </div>
-              </div>
+              </Surface>
             ))}
           </div>
           <details className="mt-3">
@@ -427,7 +398,7 @@ function ConnectionsSection() {
           </details>
         </>
       )}
-    </section>
+    </Surface>
   );
 }
 
@@ -445,13 +416,13 @@ export default function SettingsView() {
   }, []);
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+    <div className="settings-grid">
       <GoalsSection />
       <ConnectionsSection />
       <TelegramSection />
 
-      <section className="rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
-        <h2 className="text-sm font-semibold">Service</h2>
+      <Surface as="section" className="settings-section">
+        <SectionHeader title="Service health" description="Authenticated runtime and Google Cloud configuration reported by this deployment." metadata={<StatusBadge tone={health?.ok ? "success" : "danger"}>{health?.ok ? "Operational" : "Unavailable"}</StatusBadge>} />
         {health ? (
           <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-xs">
             <dt className="text-zinc-400">Web service</dt>
@@ -466,12 +437,12 @@ export default function SettingsView() {
             )}
           </dl>
         ) : (
-          <p className="mt-2 text-xs text-zinc-400">Health endpoint unreachable.</p>
+          <ErrorState title="Health endpoint unreachable" message="Service metadata could not be verified." />
         )}
-      </section>
+      </Surface>
 
-      <section className="rounded-xl border border-zinc-200 p-5 dark:border-zinc-800">
-        <h2 className="text-sm font-semibold">Integrations</h2>
+      <Surface as="section" className="settings-section">
+        <SectionHeader title="Integration policy" description="The immutable boundaries applied to platform access and agent execution." />
         <ul className="mt-3 flex flex-col gap-2 text-xs leading-5 text-zinc-600 dark:text-zinc-400">
           <li>
             <strong className="text-zinc-800 dark:text-zinc-200">X publishing</strong> — each
@@ -491,7 +462,7 @@ export default function SettingsView() {
           Integration credentials are server-side secrets; this page only documents their
           expected configuration and never displays them.
         </p>
-      </section>
+      </Surface>
     </div>
   );
 }

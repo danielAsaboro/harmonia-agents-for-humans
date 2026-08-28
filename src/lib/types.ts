@@ -1,7 +1,8 @@
 export const STAGES = [
   "queued",
-  "ingest",
-  "transcribe",
+  "collect_sources",
+  "extract_sources",
+  "awaiting_source_resolution",
   "understand",
   "strategize",
   "awaiting_strategy_approval",
@@ -23,19 +24,110 @@ export type JobStatus =
   | "complete"
   | "failed";
 
+export type SourceInput =
+  | { kind: "youtube"; url: string; rightsAuthorizationId: string }
+  | { kind: "web"; url: string; rightsAuthorizationId: string }
+  | { kind: "upload"; attachmentId: string; rightsAuthorizationId: string }
+  | { kind: "pasted_text"; title: string; text: string; rightsAuthorizationId: string };
+
+export type SourceState =
+  | "discovered"
+  | "validating"
+  | "queued"
+  | "extracting"
+  | "ready"
+  | "failed"
+  | "excluded";
+
+export interface SourceFailure {
+  code: string;
+  category: "validation" | "authorization" | "policy" | "provider_transient" | "provider_permanent" | "dependency";
+  publicMessage: string;
+  retryable: boolean;
+  occurredAt: string;
+}
+
+export interface SourceRecord {
+  id: string;
+  workspaceId: string;
+  brandId: string;
+  provider: "youtube" | "web" | "upload" | "pasted_text" | "google_drive" | "gcs";
+  providerResourceId: string;
+  providerVersion: string;
+  title: string;
+  mimeType: string;
+  state: SourceState;
+  rightsAuthorizationId: string;
+  trust: "operator_supplied" | "authorized_private" | "public_untrusted";
+  contentDigest?: string;
+  normalizedArtifactId?: string;
+  extractionReceiptId?: string;
+  failure?: SourceFailure;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type EvidenceLocator =
+  | { kind: "time_range"; startMs: number; endMs: number }
+  | { kind: "frame"; timestampMs: number; frameArtifactId: string }
+  | { kind: "page_range"; startPage: number; endPage: number }
+  | { kind: "paragraph_range"; startParagraph: number; endParagraph: number }
+  | { kind: "line_range"; startLine: number; endLine: number }
+  | { kind: "section"; heading: string; occurrence: number }
+  | { kind: "url_fragment"; canonicalUrl: string; fragment: string };
+
+export interface ContentSegment {
+  id: string;
+  text: string;
+  locator: EvidenceLocator;
+  digest: string;
+}
+
+export interface NormalizedSource {
+  sourceId: string;
+  sourceKind: "video" | "audio" | "document" | "web" | "text";
+  title: string;
+  mimeType: string;
+  contentDigest: string;
+  extractorVersion: string;
+  extractedAt: string;
+  segments: ContentSegment[];
+  metadata: Record<string, string | number | boolean>;
+  extractionReceiptId: string;
+}
+
+export interface SourceExclusionRecord {
+  sourceId: string;
+  reason: string;
+  excludedAt: string;
+  excludedBySubjectId: string;
+}
+
+export interface JobSourceManifest {
+  id: string;
+  jobId: string;
+  revision: number;
+  librarySnapshotId?: string;
+  directSourceIds: string[];
+  excludedSourceIds: string[];
+  exclusionRecords: SourceExclusionRecord[];
+  digest: string;
+  sealedAt: string;
+  sealedBySubjectId: string;
+}
+
+export type OutputKind =
+  | "x_post" | "linkedin_post" | "thread" | "blog" | "newsletter"
+  | "carousel" | "image" | "quote_card" | "diagram"
+  | "clip" | "reel" | "generated_media" | "content_calendar" | "content_pack";
+
 export interface JobConfig {
-  youtubeUrl?: string;
-  /** Tenant-scoped uploaded media selected by the chat request router. */
-  mediaAttachmentId?: string;
-  mediaFilename?: string;
-  mediaMime?: string;
-  mediaStorageUri?: string;
-  /** Operator-supplied topic/brief for concept jobs that skip ingest+transcribe. */
-  brief?: string;
+  sourceManifestId: string;
+  desiredOutputs: OutputKind[];
+  allowedOutputs: OutputKind[];
   strategyContext?: StrategyContext;
   analysisResearchRequest?: AnalysisResearchRequest;
   platforms: string[];
-  sourceRights?: import("./sourceRights").SourceRightsAuthorization;
 }
 
 export interface AnalysisResearchRequest {

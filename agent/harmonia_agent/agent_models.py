@@ -24,6 +24,105 @@ StrictAssumptionText = Annotated[StrictStr, Field(min_length=1, max_length=500)]
 StrictDigest = Annotated[StrictStr, Field(pattern=r"^[0-9a-f]{64}$")]
 
 
+class TimeRangeLocator(StrictModel):
+    kind: Literal["time_range"] = "time_range"
+    startMs: int = Field(ge=0)
+    endMs: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "TimeRangeLocator":
+        if self.endMs < self.startMs:
+            raise ValueError("range end must not precede start")
+        return self
+
+
+class FrameLocator(StrictModel):
+    kind: Literal["frame"] = "frame"
+    timestampMs: int = Field(ge=0)
+    frameArtifactId: str = Field(min_length=1)
+
+
+class PageRangeLocator(StrictModel):
+    kind: Literal["page_range"] = "page_range"
+    startPage: int = Field(ge=1)
+    endPage: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "PageRangeLocator":
+        if self.endPage < self.startPage:
+            raise ValueError("range end must not precede start")
+        return self
+
+
+class ParagraphRangeLocator(StrictModel):
+    kind: Literal["paragraph_range"] = "paragraph_range"
+    startParagraph: int = Field(ge=1)
+    endParagraph: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "ParagraphRangeLocator":
+        if self.endParagraph < self.startParagraph:
+            raise ValueError("range end must not precede start")
+        return self
+
+
+class LineRangeLocator(StrictModel):
+    kind: Literal["line_range"] = "line_range"
+    startLine: int = Field(ge=1)
+    endLine: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "LineRangeLocator":
+        if self.endLine < self.startLine:
+            raise ValueError("range end must not precede start")
+        return self
+
+
+class SectionLocator(StrictModel):
+    kind: Literal["section"] = "section"
+    heading: str = Field(min_length=1)
+    occurrence: int = Field(ge=1)
+
+
+class UrlFragmentLocator(StrictModel):
+    kind: Literal["url_fragment"] = "url_fragment"
+    canonicalUrl: str = Field(min_length=1)
+    fragment: str = Field(min_length=1)
+
+    @field_validator("canonicalUrl")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        if urlparse(value).scheme not in {"http", "https"}:
+            raise ValueError("canonical URL must use http or https")
+        return value
+
+
+EvidenceLocator = Annotated[
+    TimeRangeLocator | FrameLocator | PageRangeLocator | ParagraphRangeLocator | LineRangeLocator | SectionLocator | UrlFragmentLocator,
+    Field(discriminator="kind"),
+]
+
+
+class ContentSegment(StrictModel):
+    id: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+    locator: EvidenceLocator
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class NormalizedSource(StrictModel):
+    sourceId: str = Field(min_length=1)
+    sourceKind: Literal["video", "audio", "document", "web", "text"]
+    title: str = Field(min_length=1)
+    mimeType: str = Field(min_length=1)
+    contentDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    extractorVersion: str = Field(min_length=1)
+    extractedAt: datetime
+    segments: list[ContentSegment] = Field(min_length=1)
+    metadata: dict[str, str | int | float | bool]
+    extractionReceiptId: str = Field(min_length=1)
+
+
 def _require_json_list(value: object) -> object:
     if not isinstance(value, list):
         raise ValueError("JSON boundary arrays must be lists")

@@ -1,4 +1,4 @@
-import type { AnalysisResearchRequest, AnalysisSearchEvidence, ApprovalDecision, EvidenceRef, Angle, ContentStrategy, DraftWorkflowResult, EditorialPlan, EditorialPlanningSnapshot, EffectClaimSummary, Moment, PlannedAction, PostDraft, Receipt, SourceAnalysis, Stage, StrategyApproval } from "@/lib/types";
+import type { AnalysisResearchRequest, AnalysisSearchEvidence, ApprovalDecision, EvidenceRef, Angle, ContentStrategy, DraftWorkflowResult, EditorialPlan, EditorialPlanningSnapshot, EffectClaimSummary, JobConfig, JobSourceManifest, Moment, NormalizedSource, PlannedAction, PostDraft, Receipt, SourceAnalysis, Stage, StrategyApproval } from "@/lib/types";
 
 export interface JobSummary {
   id: string;
@@ -6,14 +6,7 @@ export interface JobSummary {
   stage: Stage;
   createdAt: string;
   updatedAt: string;
-  config: {
-    youtubeUrl?: string;
-    mediaAttachmentId?: string;
-    mediaFilename?: string;
-    mediaMime?: string;
-    brief?: string;
-    platforms: string[];
-  };
+  config: JobConfig;
   ingestedTitle?: string;
   ingestedDurationSec?: number;
   failure?: { stage: Stage; error: string; permanent: boolean; at: string };
@@ -38,7 +31,8 @@ export interface JobFull extends JobSummary {
   editorialItemStates?: Record<string, { status: "planned" | "selected" | "drafting" | "reviewed" | "awaiting_approval"; updatedAt: string }>;
   productionTrace?: DraftWorkflowResult;
   productionTraceDigest?: string;
-  transcriptSegments: Array<{ id: string; startSec: number; endSec: number; text: string }>;
+  sourceManifest?: JobSourceManifest;
+  normalizedSources: NormalizedSource[];
   sourceAnalysis?: SourceAnalysis;
   analysisDigest?: string;
   analysisResearchRequest?: AnalysisResearchRequest | null;

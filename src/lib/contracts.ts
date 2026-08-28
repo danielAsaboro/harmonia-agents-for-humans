@@ -1,5 +1,83 @@
 import { z } from "zod";
 
+export const sourceInputSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("youtube"), url: z.string().url(), rightsAuthorizationId: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal("web"), url: z.string().url(), rightsAuthorizationId: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal("upload"), attachmentId: z.string().min(1), rightsAuthorizationId: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal("pasted_text"), title: z.string().min(1).max(300), text: z.string().min(1), rightsAuthorizationId: z.string().min(1) }).strict(),
+]);
+
+export const outputKindSchema = z.enum([
+  "x_post", "linkedin_post", "thread", "blog", "newsletter", "carousel", "image",
+  "quote_card", "diagram", "clip", "reel", "generated_media", "content_calendar", "content_pack",
+]);
+
+export const createJobInputSchema = z.object({
+  librarySnapshotId: z.string().min(1).optional(),
+  directSources: z.array(sourceInputSchema).max(10).default([]),
+  desiredOutputs: z.array(outputKindSchema).min(1),
+  allowedOutputs: z.array(outputKindSchema).min(1).optional(),
+  strategyContext: z.unknown().optional(),
+  analysisResearchRequest: z.unknown().optional(),
+  platforms: z.array(z.string().min(1)).default([]),
+}).strict().superRefine((value, context) => {
+  if (!value.librarySnapshotId && value.directSources.length === 0) {
+    context.addIssue({ code: "custom", path: ["directSources"], message: "a library snapshot or direct source is required" });
+  }
+  if (value.allowedOutputs) {
+    const allowed = new Set(value.allowedOutputs);
+    for (const output of value.desiredOutputs) {
+      if (!allowed.has(output)) context.addIssue({ code: "custom", path: ["desiredOutputs"], message: `${output} is not allowed` });
+    }
+  }
+});
+
+const increasingRange = <T extends z.ZodRawShape>(shape: T, startKey: keyof T & string, endKey: keyof T & string) =>
+  z.object(shape).strict().superRefine((value, context) => {
+    const range = value as Record<string, unknown>;
+    if ((range[endKey] as number) < (range[startKey] as number)) {
+      context.addIssue({ code: "custom", path: [endKey], message: "range end must not precede start" });
+    }
+  });
+
+export const evidenceLocatorSchema = z.discriminatedUnion("kind", [
+  increasingRange({ kind: z.literal("time_range"), startMs: z.number().int().nonnegative(), endMs: z.number().int().nonnegative() }, "startMs", "endMs"),
+  z.object({ kind: z.literal("frame"), timestampMs: z.number().int().nonnegative(), frameArtifactId: z.string().min(1) }).strict(),
+  increasingRange({ kind: z.literal("page_range"), startPage: z.number().int().positive(), endPage: z.number().int().positive() }, "startPage", "endPage"),
+  increasingRange({ kind: z.literal("paragraph_range"), startParagraph: z.number().int().positive(), endParagraph: z.number().int().positive() }, "startParagraph", "endParagraph"),
+  increasingRange({ kind: z.literal("line_range"), startLine: z.number().int().positive(), endLine: z.number().int().positive() }, "startLine", "endLine"),
+  z.object({ kind: z.literal("section"), heading: z.string().min(1), occurrence: z.number().int().positive() }).strict(),
+  z.object({ kind: z.literal("url_fragment"), canonicalUrl: z.string().url(), fragment: z.string().min(1) }).strict(),
+]);
+
+export const contentSegmentSchema = z.object({
+  id: z.string().min(1), text: z.string().min(1), locator: evidenceLocatorSchema, digest: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();
+
+export const normalizedSourceSchema = z.object({
+  sourceId: z.string().min(1),
+  sourceKind: z.enum(["video", "audio", "document", "web", "text"]),
+  title: z.string().min(1),
+  mimeType: z.string().min(1),
+  contentDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  extractorVersion: z.string().min(1),
+  extractedAt: z.string().datetime({ offset: true }),
+  segments: z.array(contentSegmentSchema).min(1),
+  metadata: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+  extractionReceiptId: z.string().min(1),
+}).strict();
+
+export const sourceExclusionRecordSchema = z.object({
+  sourceId: z.string().min(1), reason: z.string().min(1).max(500), excludedAt: z.string().datetime({ offset: true }), excludedBySubjectId: z.string().min(1),
+}).strict();
+
+export const jobSourceManifestSchema = z.object({
+  id: z.string().min(1), jobId: z.string().min(1), revision: z.number().int().positive(),
+  librarySnapshotId: z.string().min(1).optional(), directSourceIds: z.array(z.string().min(1)).max(10),
+  excludedSourceIds: z.array(z.string().min(1)), exclusionRecords: z.array(sourceExclusionRecordSchema),
+  digest: z.string().regex(/^[a-f0-9]{64}$/), sealedAt: z.string().datetime({ offset: true }), sealedBySubjectId: z.string().min(1),
+}).strict();
+
 const usdDecimalSchema = z.string().regex(/^\d+\.\d{1,6}$/);
 
 const modelPolicySchema = z.object({

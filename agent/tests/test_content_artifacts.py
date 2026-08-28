@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from harmonia_agent.content_artifacts import ContentArtifactDraft, ProductionBatch
+from harmonia_agent.content_artifacts import ArtifactReviewBatch, ContentArtifactDraft, ProductionBatch
 
 
 def newsletter():
@@ -58,3 +58,15 @@ def test_enforces_thread_limits_and_nested_evidence():
     value = newsletter(); value.update(outputType="x_thread", payload={"kind": "x_thread", "posts": [{"id": "p1", "text": "x" * 281, "sourceSegmentRefs": ["source-1:seg-1"]}, {"id": "p2", "text": "Two", "sourceSegmentRefs": ["source-1:seg-1"]}]})
     with pytest.raises(ValidationError):
         ContentArtifactDraft.model_validate(value)
+
+
+def test_review_batch_binds_every_exact_artifact_and_rejects_missing_checks():
+    reviews = ArtifactReviewBatch.model_validate({"reviews": [{
+        "artifactId": "artifact-newsletter", "decision": "accept",
+        "checks": [{"kind": kind, "passed": True, "note": "Pass"} for kind in ["grounding", "brief", "brand", "format", "cta", "safety", "clarity"]],
+        "issues": [],
+    }]})
+    assert reviews.accepted_ids(["artifact-newsletter"]) == ["artifact-newsletter"]
+    value = reviews.model_dump(mode="json"); value["reviews"][0]["checks"][-1] = dict(value["reviews"][0]["checks"][0])
+    with pytest.raises(ValidationError, match="exactly once"):
+        ArtifactReviewBatch.model_validate(value)

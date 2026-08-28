@@ -151,3 +151,42 @@ class ProductionBatch(StrictModel):
         if any(ref not in allowed for item in self.artifacts for ref in item.sourceSegmentRefs):
             raise ValueError("artifact evidence is outside supplied evidence")
         return self
+
+
+class ArtifactReviewCheck(StrictModel):
+    kind: Literal["grounding", "brief", "brand", "format", "cta", "safety", "clarity"]
+    passed: bool
+    note: str = Field(min_length=1, max_length=600)
+
+
+class ArtifactReviewIssue(StrictModel):
+    id: str = Field(min_length=1)
+    check: Literal["grounding", "brief", "brand", "format", "cta", "safety", "clarity"]
+    instruction: str = Field(min_length=1, max_length=600)
+
+
+class ArtifactReview(StrictModel):
+    artifactId: str = Field(min_length=1)
+    decision: Literal["accept", "revise"]
+    checks: list[ArtifactReviewCheck] = Field(min_length=7, max_length=7)
+    issues: list[ArtifactReviewIssue] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def complete_review(self):
+        required = {"grounding", "brief", "brand", "format", "cta", "safety", "clarity"}
+        if {check.kind for check in self.checks} != required:
+            raise ValueError("each editorial check must appear exactly once")
+        if self.decision == "accept" and (self.issues or not all(check.passed for check in self.checks)):
+            raise ValueError("accepted artifact cannot retain failed checks or issues")
+        if self.decision == "revise" and not self.issues:
+            raise ValueError("revise decision requires actionable issues")
+        return self
+
+
+class ArtifactReviewBatch(StrictModel):
+    reviews: list[ArtifactReview] = Field(min_length=1, max_length=30)
+
+    def accepted_ids(self, artifact_ids: list[str]) -> list[str]:
+        if [review.artifactId for review in self.reviews] != artifact_ids:
+            raise ValueError("review coverage must exactly match artifact order")
+        return [review.artifactId for review in self.reviews if review.decision == "accept"]

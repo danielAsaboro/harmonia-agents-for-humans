@@ -28,7 +28,7 @@ export function ConfirmationDialog({ open, title, description, confirmLabel, can
 
   if (!open) return null;
   return (
-    <div className="dash-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
+    <div className="dashboard-app dash-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
       <div role="dialog" aria-modal="true" aria-labelledby="dash-dialog-title" aria-describedby="dash-dialog-description" className="dash-dialog">
         <h2 id="dash-dialog-title">{title}</h2>
         <div id="dash-dialog-description">{description}</div>

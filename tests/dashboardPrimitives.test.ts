@@ -6,6 +6,7 @@ import { TextInput } from "@/components/dashboard/Controls";
 import { FormField } from "@/components/dashboard/FormField";
 import { StatusBadge } from "@/components/dashboard/StatusBadge";
 import { ErrorState } from "@/components/dashboard/SystemState";
+import { ConfirmationDialog } from "@/components/dashboard/ConfirmationDialog";
 import { nextTabIndex } from "@/components/dashboard/Tabs";
 
 describe("dashboard primitives", () => {
@@ -59,5 +60,18 @@ describe("dashboard primitives", () => {
     expect(nextTabIndex(2, 3, "ArrowRight")).toBe(0);
     expect(nextTabIndex(1, 3, "Home")).toBe(0);
     expect(nextTabIndex(1, 3, "End")).toBe(2);
+  });
+
+  it("carries dashboard tokens when a dialog mounts outside the page canvas", () => {
+    const html = renderToStaticMarkup(createElement(ConfirmationDialog, {
+      open: true,
+      title: "Sign out?",
+      description: "Your workspace remains unchanged.",
+      confirmLabel: "Sign out",
+      onConfirm: () => undefined,
+      onCancel: () => undefined,
+    }));
+    expect(html).toContain('class="dashboard-app dash-dialog-backdrop"');
+    expect(html).toContain('class="dash-dialog"');
   });
 });

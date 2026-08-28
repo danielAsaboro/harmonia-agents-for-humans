@@ -1,4 +1,5 @@
-import { claimEffect, getJob, listReceipts, writeReplayObservation } from "./firestore";
+import { getJob, listReceipts, writeReplayObservation } from "./firestore";
+import { claimCommandEffect, listCommandsForJob } from "./effectCommandStore";
 import { newId } from "./idempotency";
 import { currentTraceId } from "./telemetry";
 import { currentTenant, tenantWorkspaceRole, type WorkspaceRole } from "./tenancy";
@@ -34,14 +35,18 @@ export function assertReplayApplied(result: ReplayClaimResult): string {
 
 export async function requestReplayProof(jobId: string, actionId: string): Promise<{ receiptId: string; operationId: string }> {
   const tenant = currentTenant();
-  const [job, receipts] = await Promise.all([getJob(jobId), listReceipts(jobId)]);
+  const [job, receipts, commands] = await Promise.all([
+    getJob(jobId), listReceipts(jobId), listCommandsForJob(jobId),
+  ]);
   const receipt = replayEligibleReceipt(job, actionId, receipts, tenantWorkspaceRole(tenant));
   const operationId = `${jobId}:replay:${actionId}:${newId()}`;
   const traceId = currentTraceId();
-  const result = await claimEffect({
-    jobId, actionId, actionType: receipt.actionType,
-    idempotencyKey: receipt.idempotencyKey, operationId, traceId,
-    claimToken: newId(),
+  const command = commands.find((candidate) =>
+    candidate.actionId === actionId && candidate.payloadDigest === receipt.idempotencyKey,
+  );
+  if (!command) throw new Error("replay proof requires the immutable effect command");
+  const result = await claimCommandEffect(command.id, {
+    operationId, traceId, claimToken: newId(),
   });
   const receiptId = assertReplayApplied(result);
   await writeReplayObservation({

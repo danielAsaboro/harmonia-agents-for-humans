@@ -115,7 +115,7 @@ export default function ChatConsole() {
           }));
           setMessages(hydrated);
         })
-        .catch(() => setMessages([{ id: "welcome", role: "assistant", text: "Bring me a raw idea, a brief, or source media. We can shape the narrative together before anything reaches approval." }]))
+        .catch(() => setMessages([{ id: "welcome", role: "assistant", text: "Tell me what your startup needs: I can establish the strategy, plan the calendar, repurpose source material, or handle a one-off request in context." }]))
         .finally(() => setLoaded(true));
     }, 0);
     return () => window.clearTimeout(timer);
@@ -143,9 +143,9 @@ export default function ChatConsole() {
     setDetailError(null);
     try {
       const response = await fetch(`/api/jobs/${jobId}`, { cache: "no-store", signal: controller.signal });
-      const body = await response.json().catch(() => null) as { job?: JobFull; events?: TimelineEvent[]; receipts?: Receipt[]; decisions?: NonNullable<JobFull["decisions"]>; assets?: NonNullable<JobFull["assets"]>; error?: string } | null;
+      const body = await response.json().catch(() => null) as { job?: JobFull; events?: TimelineEvent[]; receipts?: Receipt[]; decisions?: NonNullable<JobFull["decisions"]>; claims?: NonNullable<JobFull["claims"]>; assets?: NonNullable<JobFull["assets"]>; error?: string } | null;
       if (!response.ok || !body?.job) throw new Error(body?.error ?? `Unable to load job (${response.status})`);
-      if (!controller.signal.aborted) setDetail({ job: { ...body.job, decisions: body.decisions ?? body.job.decisions ?? [], assets: body.assets ?? body.job.assets ?? [] }, events: body.events ?? [], receipts: body.receipts ?? [] });
+      if (!controller.signal.aborted) setDetail({ job: { ...body.job, decisions: body.decisions ?? body.job.decisions ?? [], claims: body.claims ?? body.job.claims ?? [], assets: body.assets ?? body.job.assets ?? [] }, events: body.events ?? [], receipts: body.receipts ?? [] });
     } catch (error) {
       if (!controller.signal.aborted) setDetailError(error instanceof Error ? error.message : String(error));
     } finally {

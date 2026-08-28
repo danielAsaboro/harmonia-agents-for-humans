@@ -7,6 +7,7 @@ import { currentTenant } from "@/lib/tenancy";
 import { getArtifact } from "@/lib/storage";
 import { normalizedSourceSchema } from "@/lib/contracts";
 import { z } from "zod";
+import { listCommandEffectClaimsForJob } from "@/lib/effectCommandStore";
 
 async function get(
   _req: Request,
@@ -41,7 +42,7 @@ async function get(
     const parsed = normalizedSourceSchema.safeParse(JSON.parse(bytes.toString("utf8")));
     return parsed.success ? parsed.data : null;
   }))).filter(Boolean);
-  const [events, receipts, assets, decisions, replays, usage, claims] = await Promise.all([
+  const [events, receipts, assets, decisions, replays, usage, claims, commandClaims] = await Promise.all([
     listEvents(id),
     listReceipts(id),
     listAssets(id),
@@ -49,7 +50,13 @@ async function get(
     listReplayObservations(id),
     listUsageRecords(id),
     listEffectClaims(id),
+    listCommandEffectClaimsForJob(id),
   ]);
+  const allClaims = [...claims, ...commandClaims].filter((claim, index, values) =>
+    values.findIndex((candidate) =>
+      candidate.operationId === claim.operationId && candidate.idempotencyKey === claim.idempotencyKey,
+    ) === index,
+  );
   return Response.json({
     job: { ...job, sourceRecords, normalizedSources, actions: job.actions.map((action) => ({ ...action, payloadDigest: actionPayloadDigest(action) })) },
     events,
@@ -57,7 +64,7 @@ async function get(
     decisions,
     replays,
     usage,
-    claims: claims.map(redactEffectClaim),
+    claims: allClaims.map(redactEffectClaim),
     assets: assets.map((a) => ({
       actionId: a.actionId,
       mime: a.mime,

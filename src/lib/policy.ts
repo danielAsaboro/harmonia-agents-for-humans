@@ -28,6 +28,9 @@ export function evaluateActionPolicy(
 ): PolicyDecision {
   switch (type) {
     case "export_content_artifact":
+      if (payload.outputType === "content_pack" || payload.outputType === "editorial_calendar") {
+        return { risk: "medium", requiresApproval: true, reason: `exports the operator-facing ${String(payload.outputType).replaceAll("_", " ")} after review` };
+      }
       return { risk: "low", requiresApproval: false, reason: "writes an internal content artifact and verifies stored bytes; nothing is published" };
     case "publish_x_post": {
       const text = typeof payload.text === "string" ? payload.text : "";
@@ -50,9 +53,9 @@ export function evaluateActionPolicy(
       };
     case "generate_image":
       return {
-        risk: "low",
-        requiresApproval: false,
-        reason: "generates an internal image asset with Gemini; nothing is published",
+        risk: "medium",
+        requiresApproval: true,
+        reason: "incurs paid Gemini image generation; output remains internal until separately published",
       };
     case "generate_veo_broll":
     case "generate_lyria_soundtrack":

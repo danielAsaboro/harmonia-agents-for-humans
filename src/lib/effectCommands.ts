@@ -19,6 +19,7 @@ export interface EffectCommand {
   actionId: string;
   actionType: ActionType;
   payload: Record<string, unknown>;
+  dependsOnCommandIds?: string[];
   payloadDigest: string;
   authorization: EffectCommandAuthorization;
   executeAfter?: string;
@@ -49,6 +50,7 @@ export interface EffectCommandInput {
   actionId: string;
   actionType: ActionType;
   payload: Record<string, unknown>;
+  dependsOnCommandIds?: string[];
   authorization: EffectCommandAuthorization;
   executeAfter?: string;
   now?: string;
@@ -72,6 +74,7 @@ function canonicalJson(value: unknown): string {
 }
 
 export function effectCommandDigest(input: Omit<EffectCommandInput, "authorization" | "now"> | EffectCommandInput | EffectCommand): string {
+  const dependencies = [...(input.dependsOnCommandIds ?? [])].sort();
   return createHash("sha256").update(canonicalJson({
     workspaceId: input.workspaceId,
     brandId: input.brandId,
@@ -81,6 +84,7 @@ export function effectCommandDigest(input: Omit<EffectCommandInput, "authorizati
     actionId: input.actionId,
     actionType: input.actionType,
     payload: input.payload,
+    ...(dependencies.length > 0 ? { dependsOnCommandIds: dependencies } : {}),
     executeAfter: input.executeAfter ?? null,
   })).digest("hex");
 }
@@ -99,6 +103,11 @@ export function createEffectCommand(input: EffectCommandInput): EffectCommand {
     throw new Error("invalid mandate digest");
   }
   const now = input.now ?? new Date().toISOString();
+  const dependsOnCommandIds = [...new Set(input.dependsOnCommandIds ?? [])].sort();
+  if (dependsOnCommandIds.includes(input.id)) throw new Error("effect command cannot depend on itself");
+  if (dependsOnCommandIds.length !== (input.dependsOnCommandIds ?? []).length) {
+    throw new Error("effect command contains duplicate dependencies");
+  }
   return {
     id: input.id,
     workspaceId: input.workspaceId,
@@ -109,6 +118,7 @@ export function createEffectCommand(input: EffectCommandInput): EffectCommand {
     actionId: input.actionId,
     actionType: input.actionType,
     payload: structuredClone(input.payload),
+    ...(dependsOnCommandIds.length > 0 ? { dependsOnCommandIds } : {}),
     payloadDigest,
     authorization: structuredClone(input.authorization),
     ...(input.executeAfter ? { executeAfter: input.executeAfter } : {}),

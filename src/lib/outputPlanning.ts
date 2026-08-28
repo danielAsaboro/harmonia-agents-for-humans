@@ -34,3 +34,17 @@ export function proposeOutputPlan(jobId: string, desiredOutputs: OutputKind[], a
   });
   return sealOutputPlan({ id: `output-plan-${jobId}`, desiredOutputs, allowedOutputs, outputs });
 }
+
+export function planOutputProjection(
+  jobId: string,
+  existing: CampaignOutputPlan | undefined,
+  desiredOutputs: OutputKind[],
+  allowedOutputs: OutputKind[],
+  analysis: SourceAnalysis,
+): { outcome: "existing" | "reconstructed"; plan: CampaignOutputPlan } {
+  if (existing) return { outcome: "existing", plan: existing };
+  return {
+    outcome: "reconstructed",
+    plan: proposeOutputPlan(jobId, desiredOutputs, allowedOutputs, analysis),
+  };
+}

@@ -7,13 +7,14 @@ import pytest
 
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from harmonia_agent import content
+from harmonia_agent import content, youtube
 from harmonia_agent.agent_models import AnalystInput, ContentDraft, EditorialReviewInput
 from harmonia_agent.agents import _run_coordinator
 from harmonia_agent.agents import RoleModelInstances
 from harmonia_agent.role_models import RoleModelConfig
 from harmonia_agent.usage import InvocationContext, run_metered
 from harmonia_agent.telemetry import configure_telemetry
+from harmonia_agent.team_runtime import AgentEngineProviderError
 from test_agent_team import ManagedRuntime, ScriptedDraftModel, _analysis, _production_input
 from harmonia_agent.tenant_context import tenant_scope
 from tests.test_ryan_strategy import strategy as _content_strategy
@@ -83,10 +84,10 @@ def test_draft_run_reserves_and_reports_each_participating_role():
     ))
 
     assert [item["role"] for item in reservations] == [
-        "harmonia_coordinator", "noni_copywriter", "harmonia_coordinator", "dara_editor",
+        "noni_copywriter", "dara_editor",
     ]
     assert [item["role"] for item in reports] == [
-        "harmonia_coordinator", "noni_copywriter", "harmonia_coordinator", "dara_editor",
+        "noni_copywriter", "dara_editor",
     ]
     trace_ids = {item["traceId"] for item in reports}
     assert len(trace_ids) == 2
@@ -112,15 +113,14 @@ def test_managed_agent_run_projects_log_trace_and_metric_activity():
     assert all(item.outcome == "success" for item in activity)
 
 
-def test_team_releases_prior_reservations_when_reservation_fails_before_dispatch():
+def test_team_does_not_dispatch_when_the_specialist_reservation_fails():
     resolutions: list[dict] = []
     calls = 0
 
     def reserve(_payload):
         nonlocal calls
         calls += 1
-        if calls == 2:
-            raise RuntimeError("budget service unavailable")
+        raise RuntimeError("budget service unavailable")
 
     with pytest.raises(RuntimeError, match="budget service unavailable"):
         asyncio.run(_run_coordinator(
@@ -136,9 +136,8 @@ def test_team_releases_prior_reservations_when_reservation_fails_before_dispatch
             budget_resolver=resolutions.append,
         ))
 
-    assert len(resolutions) == 1
-    assert resolutions[0]["operationId"] == "job-1:draft:0:harmonia_coordinator"
-    assert resolutions[0]["outcome"] == "not_invoked"
+    assert calls == 1
+    assert resolutions == []
 
 
 def test_team_quarantines_all_reservations_when_runtime_fails_after_dispatch():
@@ -147,7 +146,7 @@ def test_team_quarantines_all_reservations_when_runtime_fails_after_dispatch():
             raise TimeoutError("managed runtime timeout")
 
     resolutions: list[dict] = []
-    with pytest.raises(TimeoutError, match="managed runtime timeout"):
+    with pytest.raises(AgentEngineProviderError, match="operation timeout") as raised:
         asyncio.run(_run_coordinator(
             "nimi_analyst",
             _analyst_input(),
@@ -161,8 +160,9 @@ def test_team_quarantines_all_reservations_when_runtime_fails_after_dispatch():
             budget_resolver=resolutions.append,
         ))
 
+    assert raised.value.status == 504
+
     assert [item["operationId"] for item in resolutions] == [
-        "job-1:understand:0:harmonia_coordinator",
         "job-1:understand:0:nimi_analyst",
     ]
     assert {item["outcome"] for item in resolutions} == {"uncertain"}
@@ -172,10 +172,13 @@ def test_transcription_reserves_before_provider_and_reports_tokens(monkeypatch):
     order: list[str] = []
     reservations: list[dict] = []
     reports: list[dict] = []
+    monkeypatch.setattr(youtube, "probe_audio_duration", lambda _audio: 1)
+    monkeypatch.setenv("TRANSCRIBER_MODEL_ID", "gemini-3.5-flash-lite")
 
     class Models:
         def generate_content(self, **_kwargs):
             assert order == ["reserve"]
+            assert _kwargs["model"] == "gemini-3.5-flash-lite"
             order.append("provider")
             return SimpleNamespace(
                 text='{"language":"en","segments":[{"id":"s1","startSec":0,"endSec":1,"text":"hello"}]}',
@@ -199,13 +202,41 @@ def test_transcription_reserves_before_provider_and_reports_tokens(monkeypatch):
     assert result["segments"][0]["text"] == "hello"
     assert order == ["reserve", "provider", "usage"]
     assert reservations[0]["role"] == "transcriber"
+    assert reservations[0]["model"] == "gemini-3.5-flash-lite"
     assert reports[0]["inputUnits"] == 120
     assert reports[0]["outputUnits"] == 30
+
+
+def test_transcription_reservation_prices_audio_duration_instead_of_encoded_bytes(monkeypatch):
+    reservations: list[dict] = []
+
+    class Models:
+        def generate_content(self, **_kwargs):
+            return SimpleNamespace(
+                text='{"language":"en","segments":[{"id":"s1","startSec":0,"endSec":1,"text":"hello"}]}',
+                usage_metadata=SimpleNamespace(prompt_token_count=20_000, candidates_token_count=30),
+            )
+
+    monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=Models()))
+    monkeypatch.setattr(youtube, "probe_audio_duration", lambda _audio: 600)
+
+    content.transcribe_audio(
+        b"x" * 10_000_000, "audio/mp4",
+        invocation=InvocationContext(
+            workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
+            job_id="job-1", stage="extract_sources", operation_id="job-1:extract_sources:0",
+        ),
+        budget_reserver=reservations.append,
+        usage_reporter=lambda _item: None,
+    )
+
+    assert 0.05 < float(reservations[0]["estimatedCostUsd"]) < 0.25
 
 
 def test_large_transcription_uses_files_api_instead_of_inline_base64(monkeypatch):
     uploaded = SimpleNamespace(uri="https://generativelanguage.googleapis.com/v1beta/files/media-1", mime_type="audio/mp4")
     calls: dict[str, object] = {}
+    monkeypatch.setattr(youtube, "probe_audio_duration", lambda _audio: 600)
 
     class Files:
         def upload(self, **kwargs):
@@ -240,6 +271,7 @@ def test_large_transcription_uses_files_api_instead_of_inline_base64(monkeypatch
 
 def test_transcription_releases_when_client_fails_before_dispatch(monkeypatch):
     resolutions: list[dict] = []
+    monkeypatch.setattr(youtube, "probe_audio_duration", lambda _audio: 1)
     monkeypatch.setattr(content, "_client", lambda: (_ for _ in ()).throw(RuntimeError("client unavailable")))
 
     with pytest.raises(RuntimeError):
@@ -258,6 +290,7 @@ def test_transcription_releases_when_client_fails_before_dispatch(monkeypatch):
 
 def test_transcription_quarantines_timeout_after_dispatch(monkeypatch):
     resolutions: list[dict] = []
+    monkeypatch.setattr(youtube, "probe_audio_duration", lambda _audio: 1)
 
     class Models:
         def generate_content(self, **_kwargs):
@@ -435,7 +468,7 @@ def test_heterogeneous_draft_usage_keeps_each_actual_gemini_role_model():
         budget_reserver=reservations.append, usage_reporter=reports.append,
     ))
 
-    expected = {"harmonia_coordinator": "gemini-3.5-flash-lite", "noni_copywriter": "gemini-3.5-flash", "dara_editor": "gemini-3.5-flash"}
+    expected = {"noni_copywriter": "gemini-3.5-flash", "dara_editor": "gemini-3.5-flash"}
     assert {item["role"]: item["model"] for item in reservations} == expected
     assert {item["role"]: item["model"] for item in reports} == expected
     noni_usage = next(item for item in reports if item["role"] == "noni_copywriter")
@@ -503,7 +536,7 @@ def test_managed_runtime_finalizes_explicit_estimated_usage_for_every_reserved_r
     ))
 
     assert [item["role"] for item in reports] == [
-        "harmonia_coordinator", "nimi_analyst",
+        "nimi_analyst",
     ]
     assert all(item["unitType"] == "tokens" for item in reports)
     assert all(item.get("observedCostUsd") is None for item in reports)

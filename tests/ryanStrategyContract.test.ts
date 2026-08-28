@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { contentStrategySchema } from "@/lib/contracts";
-import { validatePersistedStrategy, validateStrategySearchGrounding } from "@/lib/strategyApproval";
+import { strategySourceEvidenceIds, validatePersistedStrategy, validateStrategySearchGrounding } from "@/lib/strategyApproval";
 
 const refs = ["m1"];
 const valid = {
@@ -21,6 +21,17 @@ const valid = {
 };
 
 describe("Ryan strategy wire contract", () => {
+  it("persists every source-backed evidence ID that Ryan may cite", () => {
+    const analysis = {
+      sourceDigest: "a".repeat(64), summary: "Grounded proof", assumptions: [], confidence: "high" as const,
+      moments: [{ id: "m1", title: "Proof", startSec: 0, endSec: 1, hook: "Proof", quote: "Proof",
+        sourceSegmentRefs: ["segment-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" as const }],
+      angles: [{ id: "a1", angleType: "source_insight" as const, evidenceKind: "source" as const,
+        title: "Proof angle", rationale: "Use the proof.", evidenceRefs: ["m1", "segment-1"], assumptions: [], confidence: "high" as const }],
+    };
+    expect(strategySourceEvidenceIds(analysis)).toEqual(["a1", "m1", "segment-1"]);
+  });
+
   it("accepts the same complete strict shape persisted by Python", () => {
     expect(contentStrategySchema.parse(valid).briefs[0].id).toBe("brief-1");
   });
@@ -56,6 +67,11 @@ describe("Ryan strategy wire contract", () => {
       researchRequest: null, searchEvidence: [],
     } };
     expect(() => validatePersistedStrategy(job as never, strategy)).not.toThrow();
+    const segmentStrategy = structuredClone(strategy);
+    segmentStrategy.briefs[0].evidenceRefs = ["segment-1"];
+    const segmentJob = structuredClone(job);
+    segmentJob.strategyInvocationContext.sourceIds.push("segment-1");
+    expect(() => validatePersistedStrategy(segmentJob as never, segmentStrategy)).not.toThrow();
     const forged = structuredClone(strategy);
     forged.briefs[0].evidenceRefs = ["invented"];
     expect(() => validatePersistedStrategy(job as never, forged)).toThrow("unknown persisted evidence");

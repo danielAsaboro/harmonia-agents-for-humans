@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialDraftCompletionPatch, editorialPlanDigest, editorialPlanEvidenceLineage, editorialPlanningSnapshotDigest, isMatchingCompletedProduction } from "@/lib/editorialPlan";
+import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialDraftCompletionPatch, editorialPlanDigest, editorialPlanEvidenceLineage, editorialPlanningSnapshotDigest, isMatchingActiveProduction, isMatchingCompletedProduction } from "@/lib/editorialPlan";
 
 const snapshot = {
   snapshotId: "planning-job-1-v1", asOf: "2026-08-30T00:00:00Z",
@@ -114,5 +114,12 @@ describe("selected production authority", () => {
     expect(() => assertSelectedProductionAuthority(productionJob, { ...authority, briefId: "other" }, "selected")).toThrow("brief");
     expect(() => assertSelectedProductionAuthority({ ...productionJob, strategyHistory: {} }, authority, "selected")).toThrow("strategy history");
     expect(() => assertSelectedProductionAuthority({ ...productionJob, editorialItemStates: { [item.id]: { status: "planned", updatedAt: "x" } } }, authority, "selected")).toThrow("lifecycle");
+  });
+  it("resumes only the exact already-claimed drafting lineage", () => {
+    const authority = { editorialPlanId: plan.planId, editorialPlanDigest: editorialPlanDigest(plan), editorialItemId: item.id, briefId: item.briefId };
+    const drafting = { stage: "draft", activeProductionLineage: authority,
+      editorialItemStates: { [item.id]: { status: "drafting", updatedAt: "2026-08-30T00:00:00Z" } } };
+    expect(isMatchingActiveProduction(drafting, authority)).toBe(true);
+    expect(isMatchingActiveProduction(drafting, { ...authority, briefId: "other" })).toBe(false);
   });
 });

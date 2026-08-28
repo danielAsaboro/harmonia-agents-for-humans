@@ -26,7 +26,7 @@ export async function POST(req: Request) {
         workspaceId: body.envelope.workspaceId,
         brandId: body.envelope.brandId,
         jobId: body.envelope.jobId,
-        kind: "stage",
+        kind: body.envelope.payload.stage === "verify" ? "verification" : "stage",
         goal: {
           type: body.envelope.eventType,
           version: body.envelope.schemaVersion,

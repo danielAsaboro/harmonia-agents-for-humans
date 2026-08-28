@@ -2,18 +2,30 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const firestore = vi.hoisted(() => ({
   listJobs: vi.fn(),
+  listChatMessages: vi.fn(),
   saveChatMessage: vi.fn(),
 }));
 const chatIntent = vi.hoisted(() => ({ parseIntent: vi.fn() }));
+const sourceManifest = vi.hoisted(() => ({ createSourceJob: vi.fn() }));
 
 vi.mock("@/lib/firestore", () => ({
   appendEvent: vi.fn(),
   getJob: vi.fn(),
   listAssets: vi.fn(),
+  listChatMessages: firestore.listChatMessages,
   listJobs: firestore.listJobs,
   saveChatMessage: firestore.saveChatMessage,
 }));
 vi.mock("@/lib/chatIntent", () => ({ parseIntent: chatIntent.parseIntent }));
+vi.mock("@/lib/sourceManifest", () => ({ createSourceJob: sourceManifest.createSourceJob }));
+vi.mock("@/lib/stageTrigger", () => ({ queueStageTrigger: vi.fn() }));
+vi.mock("@/lib/tenancy", () => ({ currentTenant: () => ({ workspaceId: "workspace-local", brandId: "brand-local", principal: { subjectId: "user-local" } }) }));
+vi.mock("@/lib/sourceRights", () => ({
+  hasRightsAttestation: () => false,
+  RIGHTS_ATTESTATION_PHRASE: "I confirm I have the rights to process this media.",
+  sourceRightsAuthorization: () => ({ id: "rights-web" }),
+  sourceRightsAuthorizationId: () => "rights-web",
+}));
 vi.mock("@/lib/chatAttachments", () => ({ requireReadyAttachments: vi.fn().mockResolvedValue([]) }));
 vi.mock("@/lib/agentAskClient", () => ({ requestAgentAnswer: vi.fn().mockRejectedValue(new Error("agent unavailable")) }));
 
@@ -23,8 +35,15 @@ import { handleChat } from "../src/lib/chatHandler";
 describe("source-agnostic product copy", () => {
   beforeEach(() => {
     firestore.listJobs.mockResolvedValue([]);
+    firestore.listChatMessages.mockResolvedValue([]);
     firestore.saveChatMessage.mockResolvedValue(undefined);
     chatIntent.parseIntent.mockResolvedValue({ intent: "status" });
+    sourceManifest.createSourceJob.mockResolvedValue({
+      id: "job-natural-1", workspaceId: "workspace-local", brandId: "brand-local",
+      status: "running", stage: "collect_sources", controlEpoch: 0, controlState: "running",
+      config: { sourceManifestId: "manifest-1", desiredOutputs: ["linkedin_post"], allowedOutputs: ["linkedin_post"], platforms: ["linkedin"] },
+      actions: [], assets: [], createdAt: "2026-09-01T00:00:00.000Z", updatedAt: "2026-09-01T00:00:00.000Z",
+    });
   });
 
   it("describes the supported source range in search metadata", () => {
@@ -53,9 +72,68 @@ describe("source-agnostic product copy", () => {
     }));
 
     const payload = await response.json() as { reply: string };
-    expect(payload.reply).toContain("share a public URL");
-    expect(payload.reply).toContain("upload a file");
-    expect(payload.reply).toContain("paste source material");
+    expect(payload.reply).toContain("content strategy for our startup");
+    expect(payload.reply).toContain("Plan the next month");
+    expect(payload.reply).toContain("one-off launch announcement");
+    expect(payload.reply).not.toContain("x_post");
     errorLog.mockRestore();
+  });
+
+  it("invites the operator to connect a recommended but disconnected platform", async () => {
+    chatIntent.parseIntent.mockResolvedValue({
+      intent: "establish_strategy",
+      connectionSuggestions: ["linkedin"],
+      workspaceContext: { strategyReady: false },
+    });
+    const response = await handleChat(new Request("http://localhost/api/chat", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "Build our content strategy" }),
+    }));
+    const payload = await response.json() as { reply: string };
+    expect(payload.reply).toContain("LinkedIn is a good fit but not connected yet");
+    expect(payload.reply).toContain("Connect it in Settings");
+    expect(payload.reply).toContain("still prepare the strategy and drafts now");
+  });
+
+  it("keeps connection guidance visible while asking a clarifying question", async () => {
+    chatIntent.parseIntent.mockResolvedValue({
+      intent: "establish_strategy",
+      needsClarification: true,
+      clarifyingQuestion: "What outcome should the strategy prioritize?",
+      connectionSuggestions: ["linkedin"],
+    });
+    const response = await handleChat(new Request("http://localhost/api/chat", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "Help us plan LinkedIn content" }),
+    }));
+    const payload = await response.json() as { reply: string };
+    expect(payload.reply).toContain("What outcome should the strategy prioritize?");
+    expect(payload.reply).toContain("LinkedIn is a good fit but not connected yet");
+  });
+
+  it("persists the coordinator's inferred strategy context when an ordinary request starts work", async () => {
+    const strategyContext = {
+      company: "Harmonia", product: "Content operations for startups", positioning: "Evidence-backed content operations",
+      differentiators: ["Human approval before effects"], brandVoice: ["clear"], exclusions: [], safetyConstraints: ["No invented claims"],
+      businessObjectives: ["Reach startup founders"], campaignObjectives: ["Build awareness"],
+      audiences: [{ id: "founders", name: "Startup founders", pains: ["Inconsistent content"] }],
+      funnelStage: "awareness", intendedConversion: "Visit the website", requestedChannels: ["linkedin"], supportedChannels: ["linkedin"], horizonWeeks: 4,
+    };
+    chatIntent.parseIntent.mockResolvedValue({
+      intent: "create_job", userOutcome: "Help more founders find us",
+      sources: [{ kind: "web", url: "https://example.com" }], desiredOutputs: ["linkedin_post"],
+      platformRecommendations: ["linkedin"], strategyContext, workspaceContext: { strategyReady: false },
+      requiresRightsAttestation: false,
+    });
+
+    const response = await handleChat(new Request("http://localhost/api/chat", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "Can you help more founders find us? Here's our site: https://example.com" }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(sourceManifest.createSourceJob).toHaveBeenCalledWith(expect.objectContaining({
+      platforms: ["linkedin"], strategyContext,
+    }));
   });
 });

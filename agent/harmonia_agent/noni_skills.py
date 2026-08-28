@@ -17,6 +17,7 @@ from google.adk.models.base_llm import BaseLlm
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import web_client
+from .authority_records import skill_activation_records, validate_skill_activation
 from .tool_contracts import ToolContract, error, evidence, provider_error, success, validate_tool_envelope
 
 NONI_SKILL_NAME = "noni-writing-skills"
@@ -35,6 +36,10 @@ NONI_SKILL_REFERENCES = (
     "references/convincing-content.md",
 )
 NONI_RESEARCH_TOOLS = ("search_verified_publications", "google_search_agent")
+NONI_ARTIFACT_REFERENCES = (
+    "references/thought-leadership.md",
+    "references/structure-and-mece.md",
+)
 _RESEARCH_STOP_WORDS = {
     "about", "after", "brief", "campaign", "content", "different", "find",
     "from", "into", "source", "sources", "that", "their", "this", "verify",
@@ -104,6 +109,28 @@ def build_noni_writing_skillset() -> skill_toolset.SkillToolset:
     )
 
 
+def compiled_noni_artifact_skill_context() -> str:
+    """Compile the approved static writing method without spending model turns."""
+    skill = load_skill_from_dir(NONI_SKILL_ROOT)
+    references = []
+    for path in NONI_ARTIFACT_REFERENCES:
+        name = path.removeprefix("references/")
+        content = skill.resources.references.get(name)
+        if not content:
+            raise RuntimeError(f"Noni compiled reference is missing: {path}")
+        references.append(f"APPROVED REFERENCE {path}:\n{content}")
+    return f"APPROVED SKILL {NONI_SKILL_NAME}:\n{skill.instructions}\n\n" + "\n\n".join(references)
+
+
+def activate_noni_artifact_skill(callback_context: Context) -> None:
+    """Record the coordinator-side activation of the compiled, immutable skill."""
+    callback_context.state[NONI_SKILL_TRACE_KEY] = skill_activation_records(
+        skill_name=NONI_SKILL_NAME,
+        skill_root=NONI_SKILL_ROOT,
+        references=NONI_ARTIFACT_REFERENCES,
+    )
+
+
 class GroundedWebSource(BaseModel):
     model_config = ConfigDict(extra="forbid")
     evidenceId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$")
@@ -156,6 +183,8 @@ def record_noni_skill_tool(
     tool_context: Context,
     tool_response: dict[str, Any],
 ) -> None:
+    if tool.name == "set_model_response":
+        return
     trace = list(tool_context.state.get(NONI_SKILL_TRACE_KEY) or [])
     entry = {
         "sequence": len(trace) + 1,
@@ -208,6 +237,12 @@ def validate_noni_skill_trace(
     grounding_metadata: Any | None = None,
 ) -> dict[str, tuple[str, ...]]:
     """Fail closed unless Noni used only the exact writing skill and references."""
+    if trace and trace[0].get("kind") == "skill_activation":
+        validate_skill_activation(
+            trace, skill_name=NONI_SKILL_NAME, skill_root=NONI_SKILL_ROOT,
+            allowed_references=NONI_SKILL_REFERENCES,
+        )
+        return {}
     if (
         not trace
         or trace[0].get("name") != "load_skill"

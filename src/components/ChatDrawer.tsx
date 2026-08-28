@@ -55,7 +55,7 @@ export default function ChatDrawer({ onJobCreated }: { onJobCreated?: (id: strin
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
-      text: 'Ask me to run the pipeline. E.g. "create a job from https://youtu.be/..." or "status". Or open any item and tap "Ask AI".',
+      text: 'Tell me the outcome you need—build a strategy, plan next month, repurpose a source, make a one-off announcement, or check what needs approval.',
     },
   ]);
   const [input, setInput] = useState("");
@@ -211,7 +211,7 @@ export default function ChatDrawer({ onJobCreated }: { onJobCreated?: (id: strin
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void send()}
-              placeholder="e.g. status of job abc123"
+              placeholder="What do you want Harmonia to accomplish?"
               className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950"
             />
             <button

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from functools import lru_cache
 from typing import Any
 
 from google.adk.agents.context import Context
 from google.adk.skills import load_skill_from_dir
 from google.adk.tools import skill_toolset
 from google.adk.tools.base_tool import BaseTool
+
+from .authority_records import skill_activation_records, validate_skill_activation
 
 NIMI_SKILL_NAME = "nimi-analysis-skills"
 NIMI_SKILL_TRACE_KEY = "nimi_analysis_skill_trace"
@@ -34,6 +37,33 @@ def build_nimi_analysis_skillset() -> skill_toolset.SkillToolset:
 
 def reset_nimi_skill_trace(callback_context: Context) -> None:
     callback_context.state[NIMI_SKILL_TRACE_KEY] = []
+
+
+@lru_cache(maxsize=1)
+def nimi_analysis_skill_context() -> str:
+    """Load the project-owned Nimi skill and every approved method reference."""
+    skill = load_skill_from_dir(NIMI_SKILL_ROOT)
+    if skill.frontmatter.name != NIMI_SKILL_NAME:
+        raise RuntimeError("Nimi analysis skill name does not match its runtime contract")
+    resources = skill.resources.model_dump().get("references") or {}
+    sections = ["Nimi evidence analyst runtime skill:", skill.instructions]
+    for reference in NIMI_SKILL_REFERENCES:
+        name = Path(reference).name
+        content = resources.get(name)
+        if not isinstance(content, str) or not content.strip():
+            raise RuntimeError(f"Nimi analysis skill reference is missing: {reference}")
+        sections.extend((f"\n## Loaded {reference}", content))
+    return "\n".join(sections)
+
+
+def bootstrap_nimi_skill_context(callback_context: Context) -> None:
+    """Deterministically load Nimi's owned skill before model inference."""
+    callback_context.state["nimi_analysis_skill_context"] = nimi_analysis_skill_context()
+    callback_context.state[NIMI_SKILL_TRACE_KEY] = skill_activation_records(
+        skill_name=NIMI_SKILL_NAME,
+        skill_root=NIMI_SKILL_ROOT,
+        references=NIMI_SKILL_REFERENCES,
+    )
 
 
 def _skill_name(args: dict[str, Any]) -> str | None:
@@ -62,6 +92,14 @@ def record_nimi_skill_tool(tool: BaseTool, args: dict[str, Any], tool_context: C
 
 
 def validate_nimi_skill_trace(trace: list[dict[str, Any]]) -> None:
+    if trace and trace[0].get("kind") == "skill_activation":
+        validate_skill_activation(
+            trace,
+            skill_name=NIMI_SKILL_NAME,
+            skill_root=NIMI_SKILL_ROOT,
+            allowed_references=NIMI_SKILL_REFERENCES,
+        )
+        return
     if not trace or trace[0].get("name") != "load_skill" or sum(item.get("name") == "load_skill" for item in trace) != 1:
         raise ValueError("Nimi must load nimi-analysis-skills exactly once first")
     if [item.get("sequence") for item in trace] != list(range(1, len(trace) + 1)):

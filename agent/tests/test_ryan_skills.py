@@ -17,6 +17,7 @@ from harmonia_agent.ryan_skills import (
     RYAN_SKILL_REFERENCES,
     build_ryan_strategy_skillset,
     build_ryan_google_search_tool,
+    bootstrap_ryan_skill_trace,
     guard_ryan_skill_tool,
     reset_ryan_skill_trace,
     validate_ryan_skill_trace,
@@ -123,10 +124,10 @@ def test_source_coverage_ledger_accounts_for_every_supplied_source():
 def test_ryan_runtime_is_wired_to_bounded_skill_callbacks():
     team = build_agent_team(model="gemini-test")
     ryan = next(agent for agent in team.sub_agents if agent.name == "ryan_strategist")
-    assert len(ryan.tools) == 2
-    assert isinstance(ryan.tools[1], AgentTool)
+    assert len(ryan.tools) == 1
+    assert isinstance(ryan.tools[0], AgentTool)
     assert not any(isinstance(tool, GoogleSearchTool) for tool in ryan.tools)
-    assert ryan.before_agent_callback is reset_ryan_skill_trace
+    assert ryan.before_agent_callback is bootstrap_ryan_skill_trace
     assert ryan.before_tool_callback is guard_ryan_skill_tool
     assert ryan.after_tool_callback.__name__ == "record_ryan_skill_tool"
 

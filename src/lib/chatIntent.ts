@@ -1,7 +1,8 @@
-import { getConfig } from "./config";
-import type { OutputKind } from "./types";
+import type { OutputKind, StrategyContext } from "./types";
 import { outputKindSchema } from "./contracts";
 import { OUTPUT_CAPABILITIES } from "./outputCapabilities";
+import { OUTPUT_CONCEPT_TO_KIND, requestIntentRoute } from "./agentRouteClient";
+import { loadWorkspaceContentContext, type WorkspaceContentContext } from "./workspaceContentContext";
 
 const URL_RE = /https?:\/\/[^\s<>"]+/gi;
 const YOUTUBE_RE = /(?:youtube\.com\/(?:watch\?\S*v=|shorts\/)|youtu\.be\/)/i;
@@ -14,9 +15,9 @@ function extractJobId(message: string): string | undefined {
   return undefined;
 }
 
-export type ChatIntent = "create_job" | "status" | "list_artifacts" | "approve" | "unknown";
+export type ChatIntent = "create_job" | "establish_strategy" | "revise_strategy" | "advance_plan" | "manage_calendar" | "status" | "list_artifacts" | "approve" | "effect_request" | "unknown";
 export type ChatSourceDescriptor = { kind: "youtube" | "web"; url: string } | { kind: "pasted_text"; title: string; text: string };
-export interface ParsedIntent { intent: ChatIntent; sources?: ChatSourceDescriptor[]; desiredOutputs?: OutputKind[]; libraryName?: string; jobId?: string }
+export interface ParsedIntent { intent: ChatIntent; sources?: ChatSourceDescriptor[]; desiredOutputs?: OutputKind[]; libraryName?: string; jobId?: string; userOutcome?: string; assumptions?: string[]; needsClarification?: boolean; clarifyingQuestion?: string; requiresRightsAttestation?: boolean; workspaceContext?: WorkspaceContentContext; platformRecommendations?: string[]; connectionSuggestions?: string[]; strategyContext?: StrategyContext }
 
 export function parseLocalIntent(message: string): ParsedIntent {
   const trimmed = message.trim();
@@ -26,42 +27,28 @@ export function parseLocalIntent(message: string): ParsedIntent {
   if (/\bartifacts?\b/.test(lower)) return { intent: "list_artifacts", jobId };
   if (/\bstatus\b/.test(lower)) return { intent: "status", jobId };
   const libraryName = trimmed.match(/\b(?:brand\s+)?library\s+["“]([^"”]+)["”]/i)?.[1]?.trim();
-  const desiredLine = trimmed.match(/Desired outputs:\s*([^\n.]+)/i)?.[1];
-  const desiredOutputs = desiredLine?.split(",").flatMap((item) => {
-    const parsed = outputKindSchema.safeParse(item.trim());
-    return parsed.success && OUTPUT_CAPABILITIES[parsed.data].state !== "unavailable" ? [parsed.data] : [];
-  });
   const urls = trimmed.match(URL_RE) ?? [];
   if (urls.length || libraryName || trimmed.length >= 20) {
     const sources: ChatSourceDescriptor[] = urls.map((url) => ({ kind: YOUTUBE_RE.test(url) ? "youtube" : "web", url }));
-    const remaining = trimmed.replace(URL_RE, "").replace(/\n?Use brand library ["“][^"”]+["”]\.??/gi, "").replace(/\n?Desired outputs:[^\n]+/gi, "").replace(/^(please\s+)?(make|create|start|run|generate|write)\s+(content|posts?)?\s*(from|about)?\s*/i, "").trim();
+    const remaining = trimmed.replace(URL_RE, "").replace(/\n?Use brand library ["“][^"”]+["”]\.??/gi, "").replace(/^(please\s+)?(make|create|start|run|generate|write)\s+(content|posts?)?\s*(from|about)?\s*/i, "").trim();
     if (remaining.length >= 20 && !/^content from the selected brand library\.?$/i.test(remaining)) sources.push({ kind: "pasted_text", title: "Operator context", text: remaining });
-    return { intent: "create_job", sources, desiredOutputs: desiredOutputs?.length ? desiredOutputs : ["x_post"], libraryName };
+    return { intent: "create_job", sources, libraryName };
   }
   return { intent: "unknown" };
 }
 
-const schema = { type: "object", properties: {
-  intent: { type: "string", enum: ["create_job", "status", "list_artifacts", "approve", "unknown"] },
-  sources: { type: "array", maxItems: 10, items: { type: "object", properties: { kind: { type: "string", enum: ["youtube", "web", "pasted_text"] }, url: { type: "string" }, title: { type: "string" }, text: { type: "string" } }, required: ["kind"] } },
-  desiredOutputs: { type: "array", items: { type: "string" } }, libraryName: { type: "string" }, jobId: { type: "string" },
-}, required: ["intent"] } as const;
-
-const prompt = `Classify Harmonia operator requests. A create_job request may contain YouTube URLs, public web URLs, pasted factual context, and the exact name of an existing brand library. Return sources as typed descriptors, libraryName only when explicitly named, and desired output types. Never invent URLs, source text, library names, identifiers, or approval. Status, content-artifact listing, and approval commands may include a jobId. Return JSON only.`;
-
-export async function parseIntent(message: string): Promise<ParsedIntent> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not configured for chat intent parsing");
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${getConfig().MODEL_ID}:generateContent`, { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": apiKey }, body: JSON.stringify({ systemInstruction: { parts: [{ text: prompt }] }, contents: [{ role: "user", parts: [{ text: message }] }], generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0 } }), signal: AbortSignal.timeout(20_000) });
-  if (!response.ok) throw new Error(`Gemini intent parsing failed (${response.status}): ${(await response.text()).slice(0, 300)}`);
-  const data = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-  const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("");
-  if (!text) throw new Error("Gemini returned no intent payload");
-  const parsed = JSON.parse(text) as ParsedIntent;
-  const intents: ChatIntent[] = ["create_job", "status", "list_artifacts", "approve", "unknown"];
-  const desiredOutputs = parsed.desiredOutputs?.flatMap((item) => {
-    const result = outputKindSchema.safeParse(item);
-    return result.success && OUTPUT_CAPABILITIES[result.data].state !== "unavailable" ? [result.data] : [];
+export async function parseIntent(message: string, attachmentCount = 0, recentConversation: Array<{ role: "user" | "assistant"; text: string }> = []): Promise<ParsedIntent> {
+  const workspaceContext = await loadWorkspaceContentContext();
+  const route = await requestIntentRoute({ message, workspaceContext, attachmentCount, recentConversation });
+  const sources: ChatSourceDescriptor[] = route.sourceUrls.map((url) => ({ kind: YOUTUBE_RE.test(url) ? "youtube" : "web", url }));
+  const desiredOutputs = route.outputConcepts.map((concept) => OUTPUT_CONCEPT_TO_KIND[concept]).flatMap((kind) => {
+    const parsed = outputKindSchema.safeParse(kind);
+    return parsed.success && OUTPUT_CAPABILITIES[parsed.data].state !== "unavailable" ? [parsed.data] : [];
   });
-  return { intent: intents.includes(parsed.intent) ? parsed.intent : "unknown", sources: parsed.sources, desiredOutputs, libraryName: typeof parsed.libraryName === "string" ? parsed.libraryName : undefined, jobId: typeof parsed.jobId === "string" ? parsed.jobId : undefined };
+  const common = { sources, desiredOutputs, jobId: route.jobId ?? undefined, userOutcome: route.userOutcome, assumptions: route.assumptions, needsClarification: route.needsClarification, clarifyingQuestion: route.clarifyingQuestion ?? undefined, requiresRightsAttestation: route.requiresRightsAttestation, workspaceContext, platformRecommendations: route.platformRecommendations, connectionSuggestions: route.connectionSuggestions, strategyContext: route.strategyContext ?? undefined };
+  if (route.intent === "repurpose_source" || route.intent === "one_off_content") return { intent: "create_job", ...common };
+  if (route.intent === "status_evidence") return { intent: /artifact|draft|content/i.test(message) ? "list_artifacts" : "status", ...common };
+  if (route.intent === "effect_request") return { intent: /approv|review|accept/i.test(message) ? "approve" : "effect_request", ...common };
+  if (["establish_strategy", "revise_strategy", "advance_plan", "manage_calendar"].includes(route.intent)) return { intent: route.intent as ChatIntent, ...common };
+  return { intent: "unknown", ...common };
 }

@@ -106,6 +106,16 @@ export async function listCommandsForJob(jobId: string): Promise<EffectCommand[]
   return snaps.docs.map((doc) => doc.data() as EffectCommand).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
+export async function listCommandEffectClaimsForJob(jobId: string): Promise<EffectClaim[]> {
+  const jobCommands = await listCommandsForJob(jobId);
+  const snapshots = await Promise.all(
+    jobCommands.map((command) => commands().doc(command.id).collection(CLAIMS).doc("effect").get()),
+  );
+  return snapshots
+    .filter((snapshot) => snapshot.exists)
+    .map((snapshot) => snapshot.data() as EffectClaim);
+}
+
 export async function claimCommandEffect(
   commandId: string,
   owner: Pick<EffectClaimInput, "claimToken" | "operationId" | "traceId">,
@@ -118,15 +128,25 @@ export async function claimCommandEffect(
     if (!commandSnap.exists) throw new Error("effect command not found");
     const command = commandSnap.data() as EffectCommand;
     const operationId = operationIdForEffect(command.jobId, commandId);
-    if (owner.operationId !== operationId) throw new Error("effect command operation id mismatch");
     const operationRef = db().collection(tenantCollectionPath(tenant, OPERATIONS)).doc(operationId);
     const jobRef = db().collection(tenantCollectionPath(tenant, JOBS)).doc(command.jobId);
     const approvalRef = jobRef.collection(APPROVAL_DECISIONS).doc(command.actionId);
+    const dependencyRefs = (command.dependsOnCommandIds ?? []).map((id) => commands().doc(id));
     const [claimSnap, operationSnap, jobSnap, approvalSnap] = await Promise.all([
       tx.get(claimRef), tx.get(operationRef), tx.get(jobRef), tx.get(approvalRef),
     ]);
+    const dependencySnaps = await Promise.all(dependencyRefs.map((ref) => tx.get(ref)));
     assertStoredCommand(command);
     assertCommandTenant(command);
+    dependencySnaps.forEach((snapshot, index) => {
+      if (!snapshot.exists) throw new Error(`effect command dependency ${command.dependsOnCommandIds![index]} is missing`);
+      const dependency = snapshot.data() as EffectCommand;
+      assertStoredCommand(dependency);
+      assertCommandTenant(dependency);
+      if (dependency.jobId !== command.jobId || dependency.state !== "applied") {
+        throw new Error(`effect command dependency ${dependency.id} is not applied`);
+      }
+    });
     if (["cancelled", "failed", "unknown"].includes(command.state)) throw new Error(`effect command is ${command.state}`);
     if (command.executeAfter && Date.parse(command.executeAfter) > Date.now()) throw new Error("effect command is not due");
     const input = commandClaimInput(command, owner);
@@ -142,6 +162,9 @@ export async function claimCommandEffect(
       existingClaim = { ...existingClaim, state: "failed", finalizedAt: new Date().toISOString() };
     }
     let result = decideEffectClaim(existingClaim, input);
+    if (result.outcome !== "already_applied" && owner.operationId !== operationId) {
+      throw new Error("effect command operation id mismatch");
+    }
     if (result.outcome === "execute") {
       if (!jobSnap.exists) throw new Error("effect command job not found");
       const job = jobSnap.data() as Job & { actions: PlannedAction[] };

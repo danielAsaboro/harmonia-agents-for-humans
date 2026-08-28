@@ -59,7 +59,7 @@ describe.skipIf(!emulator)("durable steering transactions", () => {
     const outboxId = await runWithTenant(scope, () => transitionStageWithOutbox(sourceJob.id, "awaiting_source_resolution", "extract_sources", "operator retry"));
     const [job, outbox] = await Promise.all([db().doc(`${root}/jobs/${sourceJob.id}`).get(), db().doc(`${root}/stage_outbox/${outboxId}`).get()]);
     expect(job.data()).toMatchObject({ stage: "extract_sources", controlEpoch: 1 });
-    expect(outbox.data()).toMatchObject({ stage: "extract_sources", attempt: 1, operationId: `job:${sourceJob.id}:stage:extract_sources:generation:1` });
+    expect(outbox.data()).toMatchObject({ stage: "extract_sources", attempt: 0, operationId: `job:${sourceJob.id}:stage:extract_sources:generation:1` });
   });
 
   it("rejects rewinds that would cross an executed effect", async () => {

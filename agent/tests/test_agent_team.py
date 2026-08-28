@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -30,6 +32,7 @@ from harmonia_agent.content_artifacts import ArtifactProductionInput, ArtifactRe
 from harmonia_agent.agents import (
     AgentProtocolError,
     _reservation_payloads,
+    _role_task,
     _resolve_role_models,
     _run_coordinator,
     _validate_run_output,
@@ -42,6 +45,7 @@ from harmonia_agent.agents import (
     RoleModelInstances,
 )
 from harmonia_agent.agent_errors import AgentContractError
+from harmonia_agent.a2ui_models import UiContext
 from harmonia_agent.stages import classify_failure
 from harmonia_agent.tenant_context import tenant_scope
 from harmonia_agent.generation_policy import safety_settings
@@ -69,6 +73,32 @@ def _analyst_input(**updates) -> AnalystInput:
     }
     value.update(updates)
     return AnalystInput.model_validate(value)
+
+
+def test_nimi_semantic_validation_exposes_safe_repair_codes() -> None:
+    invalid = {
+        "sourceDigest": "a" * 64, "summary": "Grounded", "assumptions": [], "confidence": "medium",
+        "moments": [{
+            "id": "m1", "title": "Moment", "startSec": 0, "endSec": 10,
+            "hook": "Hook", "quote": "Proof", "sourceSegmentRefs": ["segment-1"],
+            "visualHook": "Show it", "visualEvidenceIds": [], "assumptions": ["Maybe"],
+            "confidence": "high",
+        }, {
+            "id": "m2", "title": "Moment two", "startSec": 10, "endSec": 20,
+            "hook": "Hook", "quote": "Proof", "sourceSegmentRefs": ["segment-1"],
+            "visualEvidenceIds": [], "assumptions": ["Maybe"], "confidence": "high",
+        }],
+        "angles": [{
+            "id": "a1", "angleType": "trend", "evidenceKind": "source",
+            "title": "Angle", "rationale": "Reason", "evidenceRefs": ["segment-1"],
+            "assumptions": [], "confidence": "medium",
+        }],
+    }
+    with pytest.raises(AgentProtocolError) as error:
+        _validated_state({"source_analysis": invalid}, "source_analysis", SourceAnalysis)
+    assert "visual_evidence_pair_mismatch" in str(error.value)
+    assert "confidence_assumption_conflict" in str(error.value)
+    assert "angle_evidence_kind_mismatch" in str(error.value)
 
 
 class ScriptedDelegationModel(BaseLlm):
@@ -267,6 +297,7 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
 
     assert root.name == "harmonia_coordinator"
     assert [(a.name, a.mode) for a in root.sub_agents] == [
+        ("harmonia_intent_router", "single_turn"),
         ("ryan_strategist", "single_turn"),
         ("nimi_analyst", "single_turn"),
         ("temi_editorial_planner", "single_turn"),
@@ -277,9 +308,7 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
         ("maya_presenter", "single_turn"),
         ("nova_liaison", "chat"),
     ]
-    tool_names = {tool.name for tool in root.tools if isinstance(tool, AgentTool)}
-    assert "flo_content_engine" not in tool_names
-    assert "noni_dara_revision_loop" not in tool_names
+    assert not hasattr(root, "tools")
 
 
 def test_noni_is_a_focused_skill_backed_typed_specialist():
@@ -295,10 +324,10 @@ def test_noni_is_a_focused_skill_backed_typed_specialist():
     assert noni.tools[1].name == "google_search_agent"
 
 
-def test_multiformat_noni_validated_state_accepts_exact_batch():
+def test_multiformat_noni_validated_state_accepts_authority_free_semantics():
     supplied = ArtifactProductionInput.model_validate({"outputPlanId": "plan-1", "outputPlanDigest": "a" * 64, "requests": [{"id": "output-1-newsletter", "outputType": "newsletter", "evidenceRefs": ["source-1:seg-1"]}], "evidence": [{"id": "source-1:seg-1", "text": "Proof"}], "brandContext": "Concise and factual", "constraints": [], "passType": "original", "priorBatch": None, "priorReview": None})
     state = {
-        "production_batch": {"artifacts": [{"id": "artifact-1", "outputPlanItemId": "output-1-newsletter", "outputType": "newsletter", "title": "Launch", "sourceSegmentRefs": ["source-1:seg-1"], "payload": {"kind": "newsletter", "subject": "Launch", "preheader": "Proof", "introduction": "Intro", "sections": [{"id": "s1", "heading": "Proof", "body": "Proof", "sourceSegmentRefs": ["source-1:seg-1"]}], "cta": "Try it"}}]},
+        "semantic_artifact_draft": {"title": "Launch", "sourceSegmentRefs": ["source-1:seg-1"], "payloadJson": '{"kind":"newsletter","subject":"Launch","preheader":"Proof","introduction":"Intro","sections":[{"id":"s1","heading":"Proof","body":"Proof","sourceSegmentRefs":["source-1:seg-1"]}],"cta":"Try it"}'},
         "noni_writing_skill_trace": [
             {"sequence": 1, "name": "load_skill", "args": {"skill_name": "noni-writing-skills"}},
             {"sequence": 2, "name": "load_skill_resource", "args": {
@@ -325,8 +354,13 @@ def test_multiformat_specialists_use_strict_batch_contracts():
     root = build_agent_team()
     noni = next(agent for agent in root.sub_agents if agent.name == "noni_artifact_producer")
     dara = next(agent for agent in root.sub_agents if agent.name == "dara_artifact_editor")
-    assert (noni.input_schema, noni.output_schema, noni.output_key) == (ArtifactProductionInput, ProductionBatch, "production_batch")
-    assert (dara.output_schema, dara.output_key) == (ArtifactReviewBatch, "artifact_review_batch")
+    assert noni.input_schema is ArtifactProductionInput
+    assert isinstance(noni.output_schema, dict)
+    assert noni.output_key == "semantic_artifact_draft"
+    assert isinstance(dara.output_schema, dict)
+    assert dara.output_key == "semantic_artifact_review"
+    assert "additionalProperties" not in json.dumps(noni.output_schema)
+    assert "additionalProperties" not in json.dumps(dara.output_schema)
 
 
 def test_team_assigns_the_configured_model_to_each_role():
@@ -344,8 +378,9 @@ def test_team_assigns_the_configured_model_to_each_role():
         liaison=scripted("liaison-fake"),
     ))
 
-    assert root.model.model == "coordinator-fake"
+    assert not hasattr(root, "model")
     assert [agent.model.model for agent in root.sub_agents] == [
+        "coordinator-fake",
         "strategist-fake", "analyst-fake", "planner-fake", "copywriter-fake",
         "editor-fake", "copywriter-fake", "editor-fake", "presenter-fake", "liaison-fake",
     ]
@@ -354,22 +389,87 @@ def test_team_assigns_the_configured_model_to_each_role():
 def test_team_applies_each_roles_generation_and_safety_policy():
     root = build_agent_team()
 
-    assert root.generate_content_config.temperature == 0.1
-    assert root.generate_content_config.max_output_tokens == 1024
-    assert len(root.generate_content_config.safety_settings) == 4
+    assert not hasattr(root, "generate_content_config")
+
+    intent_router = next(agent for agent in root.sub_agents if agent.name == "harmonia_intent_router")
+    assert intent_router.generate_content_config.temperature == 0.1
+    assert intent_router.generate_content_config.max_output_tokens == 4096
+    assert len(intent_router.generate_content_config.safety_settings) == 4
 
     analyst = next(agent for agent in root.sub_agents if agent.name == "nimi_analyst")
     assert analyst.generate_content_config.temperature == 0.2
-    assert analyst.generate_content_config.max_output_tokens == 2048
-    assert len(analyst.tools) == 2
-    assert analyst.tools[1].name == "nimi_google_search_agent"
+    assert analyst.generate_content_config.max_output_tokens == 8192
+    assert len(analyst.tools) == 1
+    assert analyst.tools[0].name == "nimi_google_search_agent"
+    assert "additionalProperties" not in json.dumps(analyst.output_schema)
+    assert "minLength" not in json.dumps(analyst.output_schema)
+    assert "pattern" not in json.dumps(analyst.output_schema)
+    assert "title" in analyst.output_schema["properties"]["angles"]["items"]["properties"]
 
     planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
     copywriter = next(agent for agent in root.sub_agents if agent.name == "noni_copywriter")
     assert copywriter.generate_content_config.temperature == 0.8
     assert copywriter.generate_content_config.max_output_tokens == 2048
     assert planner.generate_content_config.temperature == 0.1
-    assert planner.generate_content_config.max_output_tokens == 1024
+    assert planner.generate_content_config.max_output_tokens == 8192
+
+
+def test_artifact_specialists_have_explicit_eligibility_tasks():
+    payload = SimpleNamespace()
+    assert _role_task("noni_artifact_producer", "noni_artifact_producer", payload) == "produce_artifact_batch"
+    assert _role_task("dara_artifact_editor", "dara_artifact_editor", payload) == "review_artifact_batch"
+
+
+def test_artifact_specialists_inherit_their_parent_role_provider_policy(monkeypatch):
+    monkeypatch.setenv("COPYWRITER_TIMEOUT_SECONDS", "300")
+    monkeypatch.setenv("EDITOR_TIMEOUT_SECONDS", "240")
+    resolved = _resolve_role_models()
+
+    producer = resolved.config_for("noni_artifact_producer")
+    reviewer = resolved.config_for("dara_artifact_editor")
+    assert producer.model_id == resolved.config_for("noni_copywriter").model_id
+    assert producer.timeout_seconds == 300
+    assert producer.max_output_tokens == 8192
+    assert producer.eligible_tasks == ("produce_artifact_batch",)
+    assert reviewer.model_id == resolved.config_for("dara_editor").model_id
+    assert reviewer.timeout_seconds == 240
+    assert reviewer.max_output_tokens == 4096
+    assert reviewer.eligible_tasks == ("review_artifact_batch",)
+
+
+def test_artifact_specialists_receive_coordinator_compiled_skills_without_model_loading_turns():
+    root = build_agent_team()
+    noni = next(agent for agent in root.sub_agents if agent.name == "noni_artifact_producer")
+    dara = next(agent for agent in root.sub_agents if agent.name == "dara_artifact_editor")
+
+    assert noni.tools == []
+    assert dara.tools == []
+    assert noni.before_agent_callback.__name__ == "activate_noni_artifact_skill"
+    assert dara.before_agent_callback.__name__ == "activate_dara_artifact_skill"
+    assert "APPROVED SKILL noni-writing-skills" in str(noni.instruction)
+    assert "APPROVED SKILL dara-editing-skills" in str(dara.instruction)
+    assert "do not call a loading" in str(noni.instruction)
+    assert "do not call a loading" in str(dara.instruction)
+
+
+def test_intent_router_receives_compiled_skill_and_host_owned_connection_lookup():
+    root = build_agent_team()
+    router = next(agent for agent in root.sub_agents if agent.name == "harmonia_intent_router")
+
+    assert router.tools == []
+    assert router.generate_content_config.max_output_tokens == 4096
+    assert "Activation: coordinator_compiled" in str(router.instruction)
+    assert "trusted routing host calls `get_social_platform_connections`" in str(router.instruction)
+    assert "additionalProperties" not in json.dumps(router.output_schema)
+
+
+def test_temi_gemini_wire_schema_is_json_serializable_and_preserves_plan_fields():
+    root = build_agent_team()
+    planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
+    json.dumps(planner.output_schema)
+    assert "items" in planner.output_schema["properties"]
+    assert "selectedNextItemId" in planner.output_schema["properties"]
+    assert "additionalProperties" not in json.dumps(planner.output_schema)
 
 
 def test_nimi_private_agent_search_requires_configured_datastore(monkeypatch):
@@ -379,8 +479,8 @@ def test_nimi_private_agent_search_requires_configured_datastore(monkeypatch):
     )
     root = build_agent_team()
     analyst = next(agent for agent in root.sub_agents if agent.name == "nimi_analyst")
-    assert len(analyst.tools) == 3
-    assert [tool.name for tool in analyst.tools[1:]] == [
+    assert len(analyst.tools) == 2
+    assert [tool.name for tool in analyst.tools] == [
         "nimi_google_search_agent", "nimi_agent_search_agent",
     ]
 
@@ -411,7 +511,7 @@ def test_agent_reservations_record_exact_model_policy():
         "topP": 0.9,
         "topK": None,
         "safetyProfile": "harmonia-standard",
-        "maxOutputTokens": 2048,
+            "maxOutputTokens": 8192,
         "timeoutSeconds": 120,
         "eligibleTasks": ["analyze_media", "analyze_sources"],
         "minimumPassRate": "0.95",
@@ -452,8 +552,9 @@ def test_temi_runs_as_a_distinct_skill_backed_typed_specialist():
     planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
 
     assert planner.input_schema is EditorialPlannerInput
-    assert planner.output_schema is EditorialPlan
-    assert len(planner.tools) == 1
+    assert isinstance(planner.output_schema, dict)
+    assert planner.tools == []
+    assert planner.before_agent_callback.__name__ == "bootstrap_temi_trace"
     assert "write final post" in " ".join(planner.instruction.split())
 
 
@@ -479,6 +580,80 @@ def test_missing_agent_state_is_a_permanent_protocol_failure():
     with pytest.raises(ValidationError) as invalid:
         ContentDraft.model_validate(invalid_payload)
     assert classify_failure(invalid.value) is True
+
+
+def test_invalid_agent_state_reports_only_safe_schema_locations():
+    secret = "private source text must never enter diagnostics"
+
+    with pytest.raises(AgentProtocolError) as raised:
+        _validated_state(
+            {"source_analysis": {"summary": secret, "moments": [], "angles": [], "assumptions": [], "confidence": "medium"}},
+            "source_analysis",
+            SourceAnalysis,
+        )
+
+    assert "sourceDigest:missing" in str(raised.value)
+    assert secret not in str(raised.value)
+
+
+def test_specialist_contract_failure_logs_the_safe_validator_cause(caplog):
+    payload = UiContext(
+        runId="run-1", operatorRequest="show progress", intent="status",
+    )
+
+    with pytest.raises(AgentContractError):
+        _validate_run_output(
+            "maya_presenter",
+            payload,
+            {"surface_plan": {"surfaces": [{"private": "do not log me"}]}},
+        )
+
+    assert "surfaces.0.slot:missing" in caplog.text
+    assert "do not log me" not in caplog.text
+
+
+def test_adk_output_formatter_bypasses_domain_tool_guards_and_traces():
+    root = build_agent_team()
+    tool = SimpleNamespace(name="set_model_response")
+
+    for name in (
+        "ryan_strategist", "nimi_analyst", "temi_editorial_planner",
+        "noni_copywriter", "dara_editor", "noni_artifact_producer",
+        "dara_artifact_editor",
+    ):
+        agent = next(item for item in root.sub_agents if item.name == name)
+        context = SimpleNamespace(state={
+            "ryan_strategy_skill_trace": [],
+            "nimi_analysis_skill_trace": [],
+            "nimi_analysis_research_trace": [],
+            "temi_editorial_planning_trace": [],
+            "noni_writing_skill_trace": [],
+            "dara_editing_skill_trace": [],
+        })
+        if agent.before_tool_callback:
+            agent.before_tool_callback(tool, {}, context)
+        if agent.after_tool_callback:
+            agent.after_tool_callback(tool, {}, context, {"accepted": True})
+
+        assert all(value == [] for value in context.state.values())
+
+
+def test_maya_uses_a_gemini_compatible_wire_schema_before_strict_validation():
+    presenter = next(
+        item for item in build_agent_team().sub_agents if item.name == "maya_presenter"
+    )
+
+    assert isinstance(presenter.output_schema, dict)
+    assert presenter.output_schema["required"] == ["version", "surfaces"]
+    assert "additionalProperties" not in json.dumps(presenter.output_schema)
+    assert "const" not in json.dumps(presenter.output_schema)
+    assert "$defs" not in json.dumps(presenter.output_schema)
+    assert "$ref" not in json.dumps(presenter.output_schema)
+    assert "anyOf" not in json.dumps(presenter.output_schema)
+    assert "default" not in json.dumps(presenter.output_schema)
+    assert presenter.output_schema["properties"]["version"]["enum"] == ["harmonia.ui/v1"]
+    surface = presenter.output_schema["properties"]["surfaces"]["items"]
+    assert surface["properties"]["nodes"]["items"]["properties"]["refs"]["required"] == ["jobId"]
 
 
 def test_liaison_must_return_grounded_answer_contract():

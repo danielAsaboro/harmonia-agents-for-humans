@@ -97,6 +97,19 @@ def test_complete_grounded_strategy_is_accepted():
     assert result.channelRoles[1].operationallySupported is False
 
 
+def test_strategy_accepts_source_segment_references_already_grounded_by_nimi():
+    grounded_segment = strategy(briefs=[strategy().briefs[0].model_copy(update={
+        "evidenceRefs": ["segment-1", "ctx-campaign"],
+    })])
+    assert validate_strategy_grounding(strategist_input(), grounded_segment) == grounded_segment
+
+    invented_segment = strategy(briefs=[strategy().briefs[0].model_copy(update={
+        "evidenceRefs": ["segment-2", "ctx-campaign"],
+    })])
+    with pytest.raises(AgentProtocolError, match="unknown evidence references.*segment-2"):
+        validate_strategy_grounding(strategist_input(), invented_segment)
+
+
 def test_strategist_input_defaults_to_four_weeks_and_requires_revision_feedback():
     assert strategist_input().campaign.horizonWeeks == 4
     with pytest.raises(ValidationError, match="revision feedback"):
@@ -125,6 +138,17 @@ def test_strategy_rejects_memory_as_authority_and_effect_language():
         validate_strategy_grounding(strategist_input(), overreach)
 
 
+def test_strategy_allows_descriptive_human_approval_receipt_and_verification_constraints():
+    governed = strategy(
+        constraints=[
+            "Harmonia allows human operators to approve publishing; a receipt and independent verification are required after the effect executes.",
+        ],
+        priorityRules=["Prepare drafts autonomously while preserving the human approval boundary"],
+    )
+
+    assert validate_strategy_grounding(strategist_input(), governed) == governed
+
+
 def test_strategy_rejects_performance_claim_without_verified_performance_reference():
     invalid = strategy(pillars=[strategy().pillars[0].model_copy(update={
         "purpose": "Repeat the prior high-performing approach",
@@ -132,6 +156,23 @@ def test_strategy_rejects_performance_claim_without_verified_performance_referen
     })])
     with pytest.raises(AgentProtocolError, match="performance claim requires verified performance evidence"):
         validate_strategy_grounding(strategist_input(), invalid)
+
+
+def test_strategy_allows_forward_looking_engagement_kpis_without_prior_performance_data():
+    no_history = strategist_input().model_copy(update={"performance": []})
+    baseline = strategy()
+    forward_kpi = baseline.model_copy(update={
+        "pillars": [baseline.pillars[0].model_copy(update={"evidenceRefs": ["m1"]})],
+        "channelRoles": [role.model_copy(update={"evidenceRefs": ["ctx-campaign"]}) for role in baseline.channelRoles],
+        "kpis": [baseline.kpis[0].model_copy(update={
+            "name": "qualified engagement rate",
+            "target": "establish a baseline during the first four weeks",
+            "measurement": "measure verified engagement weekly",
+            "evidenceRefs": ["ctx-campaign"],
+        })],
+    })
+
+    assert validate_strategy_grounding(no_history, forward_kpi) == forward_kpi
 
 
 def test_strategy_rejects_incoherent_thesis_final_copy_and_unexplained_high_confidence():

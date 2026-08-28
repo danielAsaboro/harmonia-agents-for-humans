@@ -112,11 +112,9 @@ def test_plan_surface_uses_managed_runtime_and_validates_output() -> None:
     assert runtime.calls[0]["specialist"] == "maya_presenter"
     assert runtime.calls[0]["user_id"] == "workspace-1:operator-1:job-1"
     assert [record["role"] for record in reservations] == [
-        "harmonia_coordinator",
         "maya_presenter",
     ]
     assert [record["role"] for record in usage] == [
-        "harmonia_coordinator",
         "maya_presenter",
     ]
 

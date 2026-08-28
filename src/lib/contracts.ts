@@ -642,8 +642,9 @@ export const agentActivitySchema = z.object({
   kind: z.enum(["handoff", "tool_call", "retry", "failure"]),
   status: z.enum(["succeeded", "retrying", "failed"]),
   role: z.enum([
-    "nimi_analyst", "ryan_strategist", "temi_editorial_planner",
-    "noni_copywriter", "dara_editor", "maya_trend_researcher", "nova_liaison", "coordinator_system",
+    "harmonia_intent_router", "nimi_analyst", "ryan_strategist", "temi_editorial_planner",
+    "noni_copywriter", "dara_editor", "noni_artifact_producer", "dara_artifact_editor",
+    "maya_trend_researcher", "maya_presenter", "nova_liaison", "coordinator_system",
   ]),
   fromRole: z.string().min(1).max(80).optional(),
   toRole: z.string().min(1).max(80).optional(),

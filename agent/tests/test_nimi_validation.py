@@ -3,7 +3,11 @@
 import pytest
 
 from harmonia_agent.agent_models import AnalystInput, SourceAnalysis
-from harmonia_agent.agents import AgentProtocolError, validate_source_analysis
+from harmonia_agent.agents import (
+    AgentProtocolError,
+    _anchor_model_moment_quotes,
+    validate_source_analysis,
+)
 from tests.test_nimi_contracts import analyst_input, source_analysis
 
 
@@ -16,6 +20,26 @@ def validate(input_value=None, output_value=None):
 
 def test_accepts_exactly_grounded_analysis():
     assert validate().sourceDigest == "a" * 64
+
+
+def test_anchors_a_model_paraphrase_to_the_exact_cited_transcript():
+    supplied = AnalystInput.model_validate(analyst_input())
+    output = source_analysis()
+    output["moments"][0]["quote"] = "Activation fell from nine days to forty hours."
+
+    anchored = _anchor_model_moment_quotes(
+        supplied, SourceAnalysis.model_validate(output),
+    )
+
+    assert anchored.moments[0].quote == supplied.sourceSegments[0].text
+    assert validate_source_analysis(supplied, anchored).moments[0].quote == supplied.sourceSegments[0].text
+
+
+def test_accepts_unicode_in_supplied_source_context():
+    supplied = analyst_input()
+    supplied["title"] = "Harmonia — source to proof"
+
+    assert validate(input_value=supplied).sourceDigest == "a" * 64
 
 
 @pytest.mark.parametrize(("mutation", "message"), [
@@ -78,6 +102,23 @@ def test_rejects_strategy_copy_and_effect_authority(text):
     output["angles"][0]["rationale"] = text
     with pytest.raises(AgentProtocolError, match="authority overreach"):
         validate(output_value=output)
+
+
+def test_accepts_descriptive_source_mentions_of_approval_and_publishing():
+    output = source_analysis()
+    output["summary"] = (
+        "The source says Harmonia waits for operator approval, then publishes, records a receipt, "
+        "and shows independent verification and KPIs."
+    )
+
+    assert validate(output_value=output).summary == output["summary"]
+
+
+def test_accepts_normal_unicode_punctuation_in_grounded_analysis():
+    output = source_analysis()
+    output["summary"] = "A rabbit’s quiet day — interrupted by three rivals."
+
+    assert validate(output_value=output).summary == output["summary"]
 
 
 def test_rejects_non_ascii_semantic_bypass():

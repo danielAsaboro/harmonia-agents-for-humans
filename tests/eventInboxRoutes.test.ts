@@ -80,6 +80,23 @@ describe("durable event and operation routes", () => {
     }));
   });
 
+  it("grants the verify stage an explicit verification operation authority", async () => {
+    const verifyEnvelope = {
+      ...envelope,
+      operationId: "job:job-1:stage:verify:generation:1",
+      payload: { stage: "verify" },
+      payloadDigest: eventPayloadDigest({ stage: "verify" }),
+    };
+    const response = await claimEvent(post("/api/internal/event-inbox/claim", {
+      envelope: verifyEnvelope, pubsubMessageId: "delivery-verify", claimToken: "v".repeat(32),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(claimDurableEvent).toHaveBeenCalledWith(expect.objectContaining({
+      operation: expect.objectContaining({ kind: "verification" }),
+    }));
+  });
+
   it("claims operations without trusting a caller-supplied digest", async () => {
     const response = await claimOperation(post("/api/internal/operation/claim", {
       operationId: envelope.operationId,

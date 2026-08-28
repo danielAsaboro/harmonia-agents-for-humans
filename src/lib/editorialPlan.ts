@@ -70,6 +70,23 @@ export function isMatchingCompletedProduction(
     && active.briefId === authority.briefId);
 }
 
+export function isMatchingActiveProduction(
+  job: {
+    stage: string; activeProductionLineage?: ProductionAuthority;
+    editorialItemStates?: Record<string, { status: string; updatedAt: string }>;
+  },
+  authority: ProductionAuthority,
+): boolean {
+  if (job.stage !== "draft") return false;
+  if (job.editorialItemStates?.[authority.editorialItemId]?.status !== "drafting") return false;
+  const active = job.activeProductionLineage;
+  return Boolean(active
+    && active.editorialPlanId === authority.editorialPlanId
+    && active.editorialPlanDigest === authority.editorialPlanDigest
+    && active.editorialItemId === authority.editorialItemId
+    && active.briefId === authority.briefId);
+}
+
 export function assertSelectedProductionAuthority(
   job: {
     stage: string; editorialPlan?: EditorialPlan; editorialPlanDigest?: string;

@@ -3,9 +3,14 @@
 from .agent_models import StrictModel
 from .content_artifacts import ArtifactReviewBatch, ProductionBatch
 
-NONI_ARTIFACT_INSTRUCTION = """You are Noni, Harmonia's bounded multi-format producer. Return exactly one typed artifact for every requested output-plan item, in request order. Use only supplied evidence IDs and text. Follow each payload schema exactly. Never approve, publish, choose credentials or destinations, invent evidence, or omit a requested item. On a revision pass, change only issues identified by Dara and preserve artifact IDs."""
+NONI_ARTIFACT_INSTRUCTION = """You are Noni, Harmonia's bounded multi-format producer. Harmonia has already activated the immutable `noni-writing-skills` method and approved references in this instruction; apply them directly and do not call a loading or research tool. The input contains exactly one authorized output request. Return its semantic title, exact supplied source evidence references, and `payloadJson`: a compact JSON string whose object follows only the requested output format and includes its exact `kind`. Do not return an artifact ID, output-plan item ID, digest, content-pack membership, receipt, approval, credential, or destination: Harmonia owns all authority metadata and deterministic assembly. On a revision pass, change only the Dara issues that apply to this request."""
 
-DARA_ARTIFACT_INSTRUCTION = """You are Dara, Harmonia's bounded artifact editor. Review every supplied artifact independently and in order. Return exactly seven checks per artifact: grounding, brief, brand, format, cta, safety, and clarity. Accept only when all checks pass and no issue remains. Otherwise return precise issue-bound revision instructions. Never rewrite content, approve effects, publish, or invent evidence."""
+DARA_ARTIFACT_INSTRUCTION = """You are Dara, Harmonia's bounded artifact editor. Harmonia has already activated the immutable `dara-editing-skills` method and approved references in this instruction; apply them directly and do not call a loading tool. The input contains exactly one host-identified artifact. Return one semantic decision with exactly seven checks: grounding, brief, brand, format, cta, safety, and clarity. Accept only when all checks pass and no issue remains. Otherwise return precise issue-bound revision instructions without artifact IDs or issue IDs; Harmonia assigns those authority identifiers. Never rewrite content, approve effects, publish, or invent evidence."""
+
+
+def compiled_artifact_context_ready() -> dict[str, str]:
+    """Authority-free ADK marker for the already compiled static skill context."""
+    return {"status": "ready"}
 
 
 class ProductionResult(StrictModel):

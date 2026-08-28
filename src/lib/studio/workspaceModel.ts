@@ -127,7 +127,12 @@ export function buildStudioWorkspace(job: JobFull, receipts: Receipt[]): StudioW
     if (kind === "audio") audio.push(studioAsset);
   }
 
-  const knownSegments = new Set((job.normalizedSources ?? []).flatMap((source) => source.segments.flatMap((segment) => [segment.id, `${source.sourceId}:${segment.id}`])));
+  const knownSegments = new Set((job.normalizedSources ?? []).flatMap((source) => source.segments.flatMap((segment, index) => [
+    segment.id,
+    `${source.sourceId}:${segment.id}`,
+    `seg-${index + 1}`,
+    `${source.sourceId}:seg-${index + 1}`,
+  ])));
   const traceLinks = [
     ...(job.contentArtifacts ?? []).map((artifact) => ({
       artifactId: artifact.id,

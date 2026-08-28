@@ -23,6 +23,7 @@ from opentelemetry import context as otel_context
 from .config import settings
 from .a2ui_api import router as a2ui_router
 from .ask_api import router as ask_router
+from .intent_api import router as intent_router
 from .extraction_api import router as extraction_router
 from .stages import HANDLERS, dispatch
 from .telemetry import configure_telemetry, extract_context
@@ -39,6 +40,7 @@ logger = logging.getLogger("harmonia.worker")
 app = FastAPI(title="harmonia-agent", version="1.0.0")
 app.include_router(a2ui_router)
 app.include_router(ask_router)
+app.include_router(intent_router)
 app.include_router(extraction_router)
 
 if settings().telemetry_enabled:
@@ -199,7 +201,10 @@ async def _process_stage_event(
     delivery_attempt: int,
 ) -> tuple[bool, dict[str, Any]]:
     workspace_id, brand_id, job_id, stage, source_attempt = _stage_delivery(data, carrier)
-    attempt = max(source_attempt, delivery_attempt)
+    # Pub/Sub delivery attempts are transport retries, not cognitive-stage
+    # generations. Advancing the stage retry budget on redelivery can turn a
+    # recoverable provider interruption into a false terminal failure.
+    attempt = source_attempt
     operation_id = str(data["operationId"])
     event_token = secrets.token_urlsafe(32)
     with tenant_scope(workspace_id, brand_id):
@@ -281,10 +286,16 @@ async def pubsub_push(request: Request) -> JSONResponse:
     return JSONResponse(result)
 
 
+def _pubsub_project() -> str:
+    return os.environ.get("PUBSUB_EMULATOR_PROJECT", settings().gcp_project)
+
+
 def _run_pull_loop() -> None:
     from google.cloud import pubsub_v1
 
-    project = settings().gcp_project
+    # Local Pub/Sub may intentionally use an emulator namespace while Gemini
+    # authenticates against the real Vertex AI project.
+    project = _pubsub_project()
     topic_name = os.environ.get("PUBSUB_STAGE_TOPIC", "harmonia-stages")
     subscriber = pubsub_v1.SubscriberClient()
     subscription_path = subscriber.subscription_path(project, f"{topic_name}-local-pull")

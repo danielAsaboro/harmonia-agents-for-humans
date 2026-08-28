@@ -92,7 +92,7 @@ class Settings:
             telemetry_sample_rate=telemetry_sample_rate,
             otel_service_name=os.environ.get("OTEL_SERVICE_NAME", "harmonia-agent"),
             image_max_cost_usd=image_max_cost_usd,
-            agent_engine_resource=_require("AGENT_ENGINE_RESOURCE"),
+            agent_engine_resource=(os.environ.get("AGENT_ENGINE_RESOURCE") or "") if _bool_env("HARMONIA_LOCAL_ADK") else _require("AGENT_ENGINE_RESOURCE"),
             memory_bank_enabled=_bool_env("MEMORY_BANK_ENABLED"),
             memory_bank_resource=os.environ.get("MEMORY_BANK_RESOURCE") or None,
             generative_media_enabled=_bool_env("GENERATIVE_MEDIA_ENABLED"),

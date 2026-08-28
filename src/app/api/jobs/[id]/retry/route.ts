@@ -20,7 +20,7 @@ async function post(
   void retrySchema.safeParse(body);
 
   const job = await getJob(id);
-  if (job.status !== "failed" || !job.failure) {
+  if (!job.failure || (job.status !== "failed" && !job.failure.retryable)) {
     return Response.json(
       { error: "only failed jobs can be retried", status: job.status },
       { status: 409 },
@@ -34,7 +34,7 @@ async function post(
     );
   }
 
-  const outboxId = await retryFailedJobWithOutbox(id, failedStage, (job.failure.attempt ?? 0) + 1);
+  const outboxId = await retryFailedJobWithOutbox(id, failedStage);
   await appendEvent(
     id,
     failedStage,

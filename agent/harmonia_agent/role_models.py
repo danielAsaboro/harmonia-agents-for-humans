@@ -127,11 +127,13 @@ def _gemini(
     temperature: float,
     eligible_tasks: tuple[str, ...],
 ) -> RoleModelConfig:
+    timeout_env = env_name.removesuffix("MODEL_ID") + "TIMEOUT_SECONDS"
     return RoleModelConfig(
         role=role,
         provider="gemini",
         model_id=os.environ.get(env_name, default),
         max_output_tokens=max_output_tokens,
+        timeout_seconds=int(os.environ.get(timeout_env, "120")),
         generation=_policy(temperature),
         eligible_tasks=eligible_tasks,
     )
@@ -144,11 +146,11 @@ def load_role_model_catalog() -> RoleModelCatalog:
             ("route",),
         ),
         strategist=_gemini(
-            "ryan_strategist", "STRATEGIST_MODEL_ID", "gemini-3.5-flash", 4096, 0.4,
+            "ryan_strategist", "STRATEGIST_MODEL_ID", "gemini-3.5-flash", 8192, 0.4,
             ("strategize",),
         ),
         analyst=_gemini(
-            "nimi_analyst", "ANALYST_MODEL_ID", "gemini-3.5-flash", 2048, 0.2,
+            "nimi_analyst", "ANALYST_MODEL_ID", "gemini-3.5-flash", 8192, 0.2,
             ("analyze_media", "analyze_sources"),
         ),
         copywriter=_gemini(
@@ -160,7 +162,7 @@ def load_role_model_catalog() -> RoleModelCatalog:
             ("review_drafts",),
         ),
         planner=_gemini(
-            "temi_editorial_planner", "PLANNER_MODEL_ID", "gemini-3.5-flash-lite", 1024, 0.1,
+            "temi_editorial_planner", "PLANNER_MODEL_ID", "gemini-3.5-flash-lite", 8192, 0.1,
             ("propose_editorial_plan",),
         ),
         presenter=_gemini(

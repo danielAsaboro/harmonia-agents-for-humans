@@ -73,6 +73,15 @@ def get_connection(platform: str) -> dict[str, Any]:
     return dict(res.json()["connection"])
 
 
+def get_platform_connections() -> list[dict[str, Any]]:
+    """Read safe connection metadata for every supported platform."""
+    with _client() as c:
+        res = c.get("/api/internal/connections")
+    if res.status_code != 200:
+        raise WebApiError(f"platform connections unavailable: {res.status_code}", res.status_code)
+    return list(res.json().get("connections") or [])
+
+
 def get_telegram_connection() -> dict[str, Any] | None:
     with _client() as c:
         res = c.get("/api/internal/telegram")

@@ -1,5 +1,5 @@
 import { artifactProductionSubmissionSchema } from "@/lib/contentArtifacts/submission";
-import { sealContentArtifact } from "@/lib/contentArtifacts/digest";
+import { resolveContentPackPayload, sealContentArtifact } from "@/lib/contentArtifacts/digest";
 import { deriveArtifactActions } from "@/lib/contentArtifacts/actions";
 import { applyPolicy } from "@/lib/policy";
 import { appendEvent, createNotification, finalizeArtifactProduction, getConnection, getJob, transitionStageWithOutbox } from "@/lib/firestore";
@@ -25,11 +25,18 @@ export async function POST(req: Request) {
     const job = await getJob(body.jobId); if (job.stage !== "draft" && job.stage !== "awaiting_approval") return Response.json({ error: `job stage is '${job.stage}'` }, { status: 409 });
     const plan = job.campaignOutputPlan; if (!plan) return Response.json({ error: "campaign output plan is missing" }, { status: 409 });
     const acceptedReviews = body.result.finalReview?.reviews ?? body.result.firstReview.reviews; const traceId = currentTraceId(); const now = new Date().toISOString();
-    const artifacts = body.result.accepted.artifacts.map((draft) => {
+    const sealDraft = (draft: (typeof body.result.accepted.artifacts)[number], payload = draft.payload) => {
       const planned = plan.outputs.find((item) => item.id === draft.outputPlanItemId); if (!planned || planned.outputType !== draft.outputType) throw new Error(`artifact ${draft.id} is outside the output plan`);
       if (draft.sourceSegmentRefs.some((ref) => !planned.evidenceRefs.includes(ref))) throw new Error(`artifact ${draft.id} references evidence outside its output-plan item`);
       const review = acceptedReviews.find((item) => item.artifactId === draft.id); if (!review || review.decision !== "accept") throw new Error(`artifact ${draft.id} has no accepted exact review`);
-      return sealContentArtifact({ id: draft.id, jobId: body.jobId, outputPlanId: plan.id, outputPlanDigest: plan.digest, outputType: draft.outputType, revision: body.result.revision ? 2 : 1, title: draft.title, sourceSegmentRefs: draft.sourceSegmentRefs, producer: { role: "noni_artifact_producer", model: "gemini-3.5-flash", traceId }, review: { role: "dara_artifact_editor", traceId, decision: "accept" }, mimeType: "text/markdown", createdAt: now, payload: draft.payload });
+      return sealContentArtifact({ id: draft.id, jobId: body.jobId, outputPlanId: plan.id, outputPlanDigest: plan.digest, outputType: draft.outputType, revision: body.result.revision ? 2 : 1, title: draft.title, sourceSegmentRefs: draft.sourceSegmentRefs, producer: { role: "noni_artifact_producer", model: "gemini-3.5-or-newer", traceId }, review: { role: "dara_artifact_editor", traceId, decision: "accept" }, mimeType: "text/markdown", createdAt: now, payload });
+    };
+    const drafts = body.result.accepted.artifacts;
+    const sealedChildren = drafts.filter((draft) => draft.payload.kind !== "content_pack").map((draft) => sealDraft(draft));
+    const sealedById = new Map(sealedChildren.map((artifact) => [artifact.id, artifact] as const));
+    const artifacts = drafts.map((draft) => {
+      if (draft.payload.kind !== "content_pack") return sealedById.get(draft.id)!;
+      return sealDraft(draft, resolveContentPackPayload(draft.payload, sealedChildren));
     });
     const [x, linkedin] = await Promise.all([getConnection("x"), getConnection("linkedin")]);
     const destination = linkedin?.health !== "reconnect_required" && linkedin?.defaultDestinationId ? linkedin.destinations?.find((item) => item.id === linkedin.defaultDestinationId && (item.kind === "linkedin_member" || item.kind === "linkedin_organization")) ?? null : null;

@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from harmonia_agent.role_models import RoleGenerationPolicy, load_role_model_catalog
+from harmonia_agent.generation_policy import generation_config
 
 
 def test_roles_do_not_collapse_to_one_global_model(monkeypatch):
@@ -38,6 +39,15 @@ def test_copywriter_uses_skill_capable_gemini(monkeypatch):
     assert catalog.copywriter.reservation_usd is None
 
 
+def test_each_role_can_raise_its_timeout_without_weakening_other_roles(monkeypatch):
+    monkeypatch.setenv("STRATEGIST_TIMEOUT_SECONDS", "300")
+
+    catalog = load_role_model_catalog()
+
+    assert catalog.strategist.timeout_seconds == 300
+    assert catalog.analyst.timeout_seconds == 120
+
+
 def test_every_role_has_versioned_generation_and_safety_policy(monkeypatch):
     """Catches a role falling back to implicit provider generation defaults."""
 
@@ -45,6 +55,7 @@ def test_every_role_has_versioned_generation_and_safety_policy(monkeypatch):
 
     assert all(role.policy_version == "gear-2026-08-24" for role in catalog.roles())
     assert catalog.planner.generation.temperature == 0.1
+    assert catalog.planner.max_output_tokens == 8192
     assert catalog.analyst.generation.temperature == 0.2
     assert catalog.copywriter.generation.temperature == 0.8
     assert all(
@@ -80,3 +91,13 @@ def test_generation_policy_rejects_unbounded_values(field, value):
 
     with pytest.raises(ValidationError):
         RoleGenerationPolicy(**values)
+
+
+def test_adk_transport_owns_bounded_http_retries_and_timeout():
+    role = load_role_model_catalog().copywriter
+
+    config = generation_config(role)
+
+    assert config.http_options.timeout == role.timeout_seconds * 1_000
+    assert config.http_options.retry_options.attempts == 2
+    assert config.http_options.retry_options.http_status_codes == [429, 500, 502, 503, 504]

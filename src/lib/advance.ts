@@ -39,7 +39,12 @@ export async function recordFailure(
     { operationId: failure.operationId, traceId: failure.traceId, activity: {
       kind: failure.retryable ? "retry" : "failure",
       status: failure.retryable ? "retrying" : "failed",
-      role: (failure.details.role as "nimi_analyst" | "ryan_strategist" | "temi_editorial_planner" | "noni_copywriter" | "dara_editor" | "maya_trend_researcher" | "nova_liaison") ?? "coordinator_system",
+      role: (failure.details.role as
+        | "harmonia_intent_router" | "nimi_analyst" | "ryan_strategist"
+        | "temi_editorial_planner" | "noni_copywriter" | "dara_editor"
+        | "noni_artifact_producer" | "dara_artifact_editor"
+        | "maya_trend_researcher" | "maya_presenter" | "nova_liaison")
+        ?? "coordinator_system",
       code: failure.code,
       category: failure.category,
       publicMessage: failure.publicMessage,

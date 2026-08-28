@@ -201,7 +201,7 @@ def test_rejects_empty_or_duplicate_review_issue_ids(issue_id):
         )
 
 
-def test_rejects_non_ascii_input_before_the_first_noni_invocation():
+def test_accepts_unicode_in_grounding_input_before_the_first_noni_invocation():
     supplied = original_input()
     supplied["brandContext"] = "Direct and concise. 立即发布."
     calls = 0
@@ -211,7 +211,9 @@ def test_rejects_non_ascii_input_before_the_first_noni_invocation():
         calls += 1
         return grounded_draft()
 
-    with pytest.raises(AgentProtocolError, match="ASCII-only"):
-        run_noni_dara_loop(supplied, invoke_noni, lambda *_: accepted_assessment())
+    result = run_noni_dara_loop(
+        supplied, invoke_noni, lambda *_: accepted_assessment(),
+    )
 
-    assert calls == 0
+    assert result.acceptedDraft.id == "draft-1"
+    assert calls == 1

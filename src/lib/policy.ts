@@ -27,6 +27,8 @@ export function evaluateActionPolicy(
   payload: Record<string, unknown>,
 ): PolicyDecision {
   switch (type) {
+    case "export_content_artifact":
+      return { risk: "low", requiresApproval: false, reason: "writes an internal content artifact and verifies stored bytes; nothing is published" };
     case "publish_x_post": {
       const text = typeof payload.text === "string" ? payload.text : "";
       const check = validateDraftText("x", text);
@@ -38,6 +40,8 @@ export function evaluateActionPolicy(
           : `blocked: draft invalid for X — ${check.note}`,
       };
     }
+    case "publish_x_thread":
+      return { risk: "high", requiresApproval: true, reason: "publishes an ordered thread to X" };
     case "publish_linkedin_post":
       return {
         risk: "high",

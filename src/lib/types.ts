@@ -1,3 +1,5 @@
+import type { ContentArtifact } from "./contentArtifacts/contracts";
+
 export const STAGES = [
   "queued",
   "collect_sources",
@@ -386,6 +388,8 @@ export interface Job {
   controlState?: "running" | "paused" | "cancelled";
   steeringInstructions?: Array<{ nudgeId: string; scope: "current_stage" | "remaining_job" | "content_item"; contentItemId?: string; instruction: string; appliedAt: string; controlEpoch: number }>;
   campaignOutputPlan?: CampaignOutputPlan;
+  contentArtifacts?: ContentArtifact[];
+  artifactProductionResult?: import("./contentArtifacts/submission").ArtifactProductionResult;
   sourceAnalysis?: SourceAnalysis;
   analysisDigest?: string;
   analysisResearchRequest?: AnalysisResearchRequest | null;
@@ -490,8 +494,10 @@ export interface EvidenceRef {
 export type RiskLevel = "low" | "medium" | "high";
 
 export type ActionType =
+  | "export_content_artifact"
   | "export_content_pack"
   | "publish_x_post"
+  | "publish_x_thread"
   | "publish_linkedin_post"
   | "publish_instagram_post"
   | "publish_youtube_video"

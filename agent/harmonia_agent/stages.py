@@ -33,11 +33,13 @@ from .agent_models import (
     PerformanceObservation,
     StrategistInput,
 )
+from .content_artifacts import ArtifactProductionInput
 from .agents import (
     AgentProtocolError,
     analyze_with_team,
     configured_memory,
     draft_with_team,
+    produce_artifacts_with_team,
     plan_with_team,
     prepare_strategist_input,
     strategize_with_team,
@@ -601,6 +603,28 @@ async def run_draft(job_id: str) -> None:
     })
     if claim.get("outcome") != "execute":
         raise AgentProtocolError("selected editorial item drafting claim was not granted")
+    artifact_output_types = {"x_post", "x_thread", "linkedin_post", "blog_article", "newsletter", "caption", "carousel_spec", "quote_card", "diagram", "editorial_calendar"}
+    output_plan = job.get("campaignOutputPlan") or {}
+    requested = [item for item in (output_plan.get("outputs") or []) if item.get("outputType") in artifact_output_types]
+    if requested:
+        source_package = get_source_manifest(job_id); evidence_by_id: dict[str, str] = {}
+        for source in source_package.get("normalizedSources") or []:
+            for segment in source.get("segments") or []:
+                evidence_by_id[f"{source['sourceId']}:{segment['id']}"] = str(segment.get("text") or "")
+        required_refs = list(dict.fromkeys(ref for item in requested for ref in (item.get("evidenceRefs") or [])))
+        missing = [ref for ref in required_refs if ref not in evidence_by_id]
+        if missing: raise AgentProtocolError(f"artifact output plan references unknown normalized evidence: {missing}")
+        production_input = ArtifactProductionInput.model_validate({
+            "outputPlanId": output_plan["id"], "outputPlanDigest": output_plan["digest"],
+            "requests": [{"id": item["id"], "outputType": item["outputType"], "evidenceRefs": item["evidenceRefs"]} for item in requested],
+            "evidence": [{"id": ref, "text": evidence_by_id[ref]} for ref in required_refs],
+            "brandContext": json.dumps({"strategicThesis": strategy.get("thesis"), "differentiatedNarrative": strategy.get("differentiatedNarrative"), "brandSafety": strategy.get("brandSafety") or []}, sort_keys=True)[:4000],
+            "constraints": [*selected.constraints, *strategy.get("brandSafety", []), *[str(item.get("instruction"))[:300] for item in (job.get("steeringInstructions") or []) if item.get("instruction")]],
+            "passType": "original", "priorBatch": None, "priorReview": None,
+        })
+        result = await produce_artifacts_with_team(production_input, invocation=InvocationContext(job_id=job_id, workspace_id=job["workspaceId"], brand_id=job["brandId"], user_id=job["createdByUserId"], stage="draft", operation_id=f"{job_id}:draft:artifacts:0"))
+        web_post("/api/internal/content-artifacts", {"jobId": job_id, "stage": "draft", "operation": "complete", "editorialPlanId": editorial_plan.planId, "editorialPlanDigest": stored_digest, "editorialItemId": selected.id, "briefId": selected.briefId, "result": result.model_dump(mode="json", by_alias=True)})
+        return
     brand_context = json.dumps({
         "strategicThesis": strategy.get("thesis"),
         "differentiatedNarrative": strategy.get("differentiatedNarrative"),

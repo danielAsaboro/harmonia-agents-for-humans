@@ -1799,6 +1799,32 @@ export async function finalizeEditorialItemDraft(
   });
 }
 
+export async function finalizeArtifactProduction(
+  jobId: string,
+  lineage: { editorialPlanId: string; editorialPlanDigest: string; editorialItemId: string; briefId: string },
+  productionResult: import("./contentArtifacts/submission").ArtifactProductionResult,
+  artifacts: import("./contentArtifacts/contracts").ContentArtifact[],
+  actions: PlannedAction[],
+  needsApproval: boolean,
+) {
+  const traceDigest = createHash("sha256").update(canonicalJson(productionResult), "utf8").digest("hex");
+  return db().runTransaction(async (tx) => {
+    const ref = jobRef(jobId); const snap = await tx.get(ref); const job = requireJobDoc(snap);
+    if (job.artifactProductionResult && job.productionTraceDigest === traceDigest) return { outcome: "already_applied" as const };
+    assertSelectedProductionAuthority(job, lineage, "drafting");
+    const active = job.activeProductionLineage;
+    if (!active || active.editorialPlanId !== lineage.editorialPlanId || active.editorialPlanDigest !== lineage.editorialPlanDigest || active.editorialItemId !== lineage.editorialItemId || active.briefId !== lineage.briefId) throw new Error("production lineage mismatch");
+    const linkedActions = actions.map((action) => ({ ...action, ...lineage })); const updatedAt = new Date().toISOString();
+    tx.update(ref, { artifactProductionResult: productionResult, contentArtifacts: artifacts, productionTraceDigest: traceDigest, actions: linkedActions, ...editorialDraftCompletionPatch(lineage.editorialItemId, updatedAt, needsApproval) });
+    for (const artifact of artifacts) {
+      const revisionRef = ref.collection("content_artifacts").doc(artifact.id).collection("revisions").doc(String(artifact.revision));
+      tx.create(revisionRef, artifact);
+      tx.set(ref.collection("content_artifacts").doc(artifact.id), { id: artifact.id, currentRevision: artifact.revision, contentDigest: artifact.contentDigest, outputType: artifact.outputType, title: artifact.title, updatedAt });
+    }
+    return { outcome: "execute" as const, artifacts, actions: linkedActions };
+  });
+}
+
 export async function decideStrategy(jobId: string, input: StrategyDecisionInput) {
   const tenant = currentTenant();
   const actorSubjectId = tenantSubjectId(tenant);

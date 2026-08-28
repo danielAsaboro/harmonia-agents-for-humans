@@ -10,11 +10,11 @@ import pytest
 from harmonia_agent import stages
 from harmonia_agent.agent_models import SourceAnalysis
 from harmonia_agent.agents import AnalysisRunResult
+from harmonia_agent.content_production import ProductionResult
 from harmonia_agent.effect_executor import ExecutionResult
 from harmonia_agent.web_client import EffectClaimInProgress, EffectClaimUncertain
 from tests.test_ryan_strategy import strategy as _content_strategy
 from tests.test_temi_editorial_plan import plan as _editorial_plan
-from tests.test_temi_stages import accepted_package
 
 
 def _analysis() -> dict:
@@ -100,7 +100,15 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
         "workspaceId": "workspace-test", "brandId": "brand-test", "createdByUserId": "user-test",
         "config": {"brief": "Activation launch"},
         "sourceAnalysis": _analysis(),
-        "campaignOutputPlan": {"outputs": [{"outputType": "x_post"}, {"outputType": "content_pack"}]},
+        "campaignOutputPlan": {
+            "id": "output-plan-job-1",
+            "digest": "d" * 64,
+            "outputs": [{
+                "id": "output-1-x-post",
+                "outputType": "x_post",
+                "evidenceRefs": ["source-1:segment-1"],
+            }],
+        },
         "strategyDigest": "a" * 64,
         "strategyApproval": {"decision": "approved", "payloadDigest": "a" * 64, "revision": 1, "decidedAt": "2026-08-27T00:00:00Z", "expiresAt": "2099-01-01T00:00:00Z"},
         "contentStrategy": _content_strategy().model_dump(mode="json"),
@@ -110,12 +118,41 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
         "selectedNextItemId": persisted_plan["selectedNextItemId"],
         "editorialItemStates": {persisted_plan["selectedNextItemId"]: {"status": "selected"}},
     }
-    async def fake_draft(*_args, **_kwargs):
-        return accepted_package(_args[0])
+    async def fake_produce(*_args, **_kwargs):
+        artifact = {
+            "id": "artifact-x-post",
+            "outputPlanItemId": "output-1-x-post",
+            "outputType": "x_post",
+            "title": "Activation launch",
+            "sourceSegmentRefs": ["source-1:segment-1"],
+            "payload": {"kind": "x_post", "text": "Nine days became forty hours."},
+        }
+        review = {
+            "artifactId": "artifact-x-post",
+            "decision": "accept",
+            "checks": [
+                {"kind": kind, "passed": True, "note": "Passes the bounded check."}
+                for kind in ("grounding", "brief", "brand", "format", "cta", "safety", "clarity")
+            ],
+            "issues": [],
+        }
+        return ProductionResult.model_validate({
+            "original": {"artifacts": [artifact]},
+            "firstReview": {"reviews": [review]},
+            "revision": None,
+            "finalReview": None,
+            "accepted": {"artifacts": [artifact]},
+        })
 
     monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+    monkeypatch.setattr(stages, "get_source_manifest", lambda _job_id: {
+        "normalizedSources": [{
+            "sourceId": "source-1",
+            "segments": [{"id": "segment-1", "text": "Nine days became forty hours."}],
+        }],
+    })
     monkeypatch.setattr(stages, "get_insights", lambda: {"goals": {"voice": "direct"}})
-    monkeypatch.setattr(stages, "draft_with_team", fake_draft)
+    monkeypatch.setattr(stages, "produce_artifacts_with_team", fake_produce)
     def fake_post(path, payload):
         posts.append((path, payload))
         return {"outcome": "execute"} if payload.get("operation") == "claim" else {"ok": True}
@@ -124,16 +161,16 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
     asyncio.run(stages.run_draft("job-1"))
 
     path, payload = posts[-1]
-    assert path == "/api/internal/drafts"
-    assert set(payload) == {"jobId", "stage", "operation", "editorialPlanId", "editorialPlanDigest", "editorialItemId", "briefId", "productionTrace", "proposedActions"}
-    draft_text = {payload["productionTrace"]["acceptedDraft"]["text"]}
-    publish_text = {
-        action["payload"]["text"]
-        for action in payload["proposedActions"]
-        if action["type"] == "publish_x_post"
-    }
-    assert publish_text <= draft_text
-    assert any(action["id"] == "act-content-pack" for action in payload["proposedActions"])
+    assert path == "/api/internal/content-artifacts"
+    assert set(payload) == {"jobId", "stage", "operation", "editorialPlanId", "editorialPlanDigest", "editorialItemId", "briefId", "result"}
+    assert payload["result"]["accepted"]["artifacts"] == [{
+        "id": "artifact-x-post",
+        "outputPlanItemId": "output-1-x-post",
+        "outputType": "x_post",
+        "title": "Activation launch",
+        "sourceSegmentRefs": ["source-1:segment-1"],
+        "payload": {"kind": "x_post", "text": "Nine days became forty hours."},
+    }]
 
 
 def test_understand_video_passes_typed_time_range_evidence(monkeypatch):

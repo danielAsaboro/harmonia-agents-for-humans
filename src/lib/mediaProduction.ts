@@ -86,10 +86,23 @@ export const videoProductionPlanSchema = z.object({
   target: z.object({ platform: z.string().min(1), durationSec: z.number().positive(), aspectRatio: z.enum(["16:9", "9:16"]), resolution: z.enum(["720p", "1080p", "4k"]), frameRate: z.union([z.literal(24), z.literal(25), z.literal(30), z.literal(60)]), format: z.literal("mp4") }).strict(),
   scenes: z.array(sceneSchema).min(1), soundtrack: generatedMusicSpecSchema.optional(),
   constraints: z.object({ allowLikeness: z.boolean(), allowGeneratedVocals: z.boolean(), requireLicensedSources: z.boolean() }).strict(),
-  pricingVersion: z.string().min(1), estimatedCostUsd: usd, maximumCostUsd: usd,
+  pricingVersion: z.string().min(1), operationCostsUsd: z.record(z.string().regex(/^[A-Za-z0-9:_-]{1,512}$/), usd), estimatedCostUsd: usd, maximumCostUsd: usd,
 }).strict().superRefine((value, context) => {
   if (Number(value.maximumCostUsd) < Number(value.estimatedCostUsd)) context.addIssue({ code: "custom", path: ["maximumCostUsd"], message: "maximum cost must cover estimated cost" });
   if (!value.constraints.allowGeneratedVocals && value.soundtrack && !value.soundtrack.instrumental) context.addIssue({ code: "custom", path: ["soundtrack"], message: "generated vocals are forbidden by the plan" });
+  const requiredOperationIds = value.scenes.flatMap((scene) => {
+    if (!scene.video) return [];
+    const type = scene.video.mode === "extend_video" ? "extend_video" : "generate_video";
+    return [`${value.id}:${type}:${scene.id}`];
+  });
+  if (value.soundtrack) requiredOperationIds.push(`${value.id}:generate_music`);
+  requiredOperationIds.sort();
+  const quotedOperationIds = Object.keys(value.operationCostsUsd).sort();
+  const quotedMicros = Object.values(value.operationCostsUsd).reduce((total, cost) => total + BigInt(cost.replace(".", "")), BigInt(0));
+  const estimatedMicros = BigInt(value.estimatedCostUsd.replace(".", ""));
+  if (JSON.stringify(requiredOperationIds) !== JSON.stringify(quotedOperationIds) || quotedMicros !== estimatedMicros) {
+    context.addIssue({ code: "custom", path: ["operationCostsUsd"], message: "operation cost quotes must exactly fund the paid operation graph" });
+  }
 });
 
 export type GeneratedVideoSpec = z.infer<typeof generatedVideoSpecSchema>;
@@ -97,7 +110,10 @@ export type GeneratedMusicSpec = z.infer<typeof generatedMusicSpecSchema>;
 export type VideoProductionPlan = z.infer<typeof videoProductionPlanSchema>;
 
 const operationTypes = ["extract_source_segment", "normalize_media", "generate_video", "extend_video", "generate_music", "generate_image", "generate_voice", "resolve_media", "build_composition", "render_composition", "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production", "assemble_export", "publish_external"] as const;
-export const productionOperationSchema = z.object({ id: z.string().min(1), jobId: z.string().min(1), type: z.enum(operationTypes), dependsOn: z.array(z.string().min(1)), payload: z.record(z.string(), z.unknown()), requestDigest: digest, executionAuthority: z.enum(["production_mandate", "internal", "publication_approval"]) }).strict();
+export const productionOperationSchema = z.object({ id: z.string().min(1), jobId: z.string().min(1), type: z.enum(operationTypes), dependsOn: z.array(z.string().min(1)), payload: z.record(z.string(), z.unknown()), requestDigest: digest, estimatedCostUsd: usd.optional(), executionAuthority: z.enum(["production_mandate", "internal", "publication_approval"]) }).strict().superRefine((value, context) => {
+  if (value.executionAuthority === "production_mandate" && !value.estimatedCostUsd) context.addIssue({ code: "custom", path: ["estimatedCostUsd"], message: "paid operation requires a sealed cost quote" });
+  if (value.executionAuthority !== "production_mandate" && value.estimatedCostUsd) context.addIssue({ code: "custom", path: ["estimatedCostUsd"], message: "only paid operations carry cost quotes" });
+});
 export type ProductionOperation = z.infer<typeof productionOperationSchema>;
 
 export const mediaOperationSchema = z.object({
@@ -153,6 +169,7 @@ function canonical(value: unknown): string {
 }
 
 const sha = (value: unknown) => createHash("sha256").update(canonical(value)).digest("hex");
+export function generatedMediaRequestDigest(spec: GeneratedVideoSpec | GeneratedMusicSpec): string { return sha(spec); }
 export function productionPlanDigest(plan: VideoProductionPlan): string { return sha(videoProductionPlanSchema.parse(plan)); }
 
 export function productionApprovalStillValid(
@@ -197,6 +214,49 @@ export function createProductionMandate(
   return productionMandateSchema.parse({ ...unsigned, mandateDigest: sha(unsigned) });
 }
 
+export function assertProductionMandateAuthorizes(input: {
+  mandate: ProductionMandate;
+  plan: VideoProductionPlan;
+  operation: ProductionOperation;
+  activeMandateId: string | null;
+  workspaceId: string;
+  brandId: string;
+  now?: Date;
+}): ProductionOperation {
+  const mandate = productionMandateSchema.parse(input.mandate);
+  const plan = videoProductionPlanSchema.parse(input.plan);
+  const operation = productionOperationSchema.parse(input.operation);
+  if (input.activeMandateId !== mandate.id) throw new Error("production mandate is inactive");
+  if (
+    mandate.workspaceId !== input.workspaceId
+    || mandate.brandId !== input.brandId
+    || plan.workspaceId !== input.workspaceId
+    || plan.brandId !== input.brandId
+  ) throw new Error("production mandate tenant scope mismatch");
+  if (mandate.jobId !== plan.jobId || operation.jobId !== plan.jobId) {
+    throw new Error("production mandate job scope mismatch");
+  }
+  const { mandateDigest, ...unsigned } = mandate;
+  if (sha(unsigned) !== mandateDigest) throw new Error("production mandate digest mismatch");
+  const now = input.now ?? new Date();
+  if (Date.parse(mandate.approvedAt) > now.getTime()) throw new Error("production mandate is not active yet");
+  if (Date.parse(mandate.expiresAt) <= now.getTime()) throw new Error("production mandate expired");
+  if (!productionApprovalStillValid(mandate, plan, now)) {
+    throw new Error("production mandate does not authorize the current plan");
+  }
+  if (operation.executionAuthority !== "production_mandate") {
+    throw new Error("production mandate authorizes only a paid operation");
+  }
+  const compiled = compileProductionOperations(plan).find((candidate) => candidate.id === operation.id);
+  if (!compiled || canonical(compiled) !== canonical(operation)) {
+    throw new Error("production operation is not in the sealed graph");
+  }
+  if (!mandate.paidOperationDigests.includes(operation.requestDigest)) {
+    throw new Error("paid operation digest is not authorized");
+  }
+  return input.operation;
+}
+
 export function estimateGeneratedMediaCost(spec: GeneratedVideoSpec | GeneratedMusicSpec, overrides: Record<string, string> = {}): string {
   if ("mode" in spec) {
     const rate = VEO_CAPABILITIES[spec.modelCapability].usdPerSecond;
@@ -212,9 +272,15 @@ export function compileProductionOperations(plan: VideoProductionPlan): Producti
   const paid: ProductionOperation[] = [];
   for (const scene of [...plan.scenes].sort((a, b) => a.order - b.order)) if (scene.video) {
     const type = scene.video.mode === "extend_video" ? "extend_video" : "generate_video";
-    paid.push({ id: `${plan.id}:${type}:${scene.id}`, jobId: plan.jobId, type, dependsOn: [], payload: scene.video, requestDigest: sha(scene.video), executionAuthority: "production_mandate" });
+    const id = `${plan.id}:${type}:${scene.id}`;
+    const requestDigest = generatedMediaRequestDigest(scene.video);
+    paid.push({ id, jobId: plan.jobId, type, dependsOn: [], payload: scene.video, requestDigest, estimatedCostUsd: plan.operationCostsUsd[id], executionAuthority: "production_mandate" });
   }
-  if (plan.soundtrack) paid.push({ id: `${plan.id}:generate_music`, jobId: plan.jobId, type: "generate_music", dependsOn: [], payload: plan.soundtrack, requestDigest: sha(plan.soundtrack), executionAuthority: "production_mandate" });
+  if (plan.soundtrack) {
+    const id = `${plan.id}:generate_music`;
+    const requestDigest = generatedMediaRequestDigest(plan.soundtrack);
+    paid.push({ id, jobId: plan.jobId, type: "generate_music", dependsOn: [], payload: plan.soundtrack, requestDigest, estimatedCostUsd: plan.operationCostsUsd[id], executionAuthority: "production_mandate" });
+  }
   const buildId = `${plan.id}:build_composition`;
   const chain: ProductionOperation[] = [
     { id: buildId, jobId: plan.jobId, type: "build_composition", dependsOn: paid.map((item) => item.id), payload: { planDigest: productionPlanDigest(plan) }, requestDigest: sha({ planDigest: productionPlanDigest(plan) }), executionAuthority: "internal" },

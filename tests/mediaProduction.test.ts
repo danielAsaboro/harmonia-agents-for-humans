@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertProductionMandateAuthorizes,
   compileProductionOperations,
   createProductionMandate,
   estimateGeneratedMediaCost,
@@ -12,6 +13,14 @@ import {
   videoProductionPlanSchema,
 } from "@/lib/mediaProduction";
 
+const videoSpec = generatedVideoSpecSchema.parse({
+  modelCapability: "veo-3.1-fast", mode: "text_to_video", prompt: "Abstract data streams forming a calm blue network", durationSec: 4,
+  aspectRatio: "9:16", resolution: "1080p", generateAudio: false, enhancePrompt: true, outputCount: 1,
+});
+const musicSpec = generatedMusicSpecSchema.parse({
+  modelCapability: "lyria-3-clip", prompt: "Warm minimal electronic soundtrack, 100 BPM", instrumental: true,
+  lyricsMode: "none", language: "en", bpm: 100, intensity: 0.45, structure: ["intro", "build"], targetDurationSec: 30, outputCount: 1,
+});
 const basePlan = {
   id: "plan-1",
   jobId: "job-1",
@@ -25,13 +34,17 @@ const basePlan = {
   scenes: [{
     id: "scene-1", order: 1, startSec: 0, durationSec: 4,
     purpose: "establish the product", sourceArtifactIds: [],
-    video: { modelCapability: "veo-3.1-fast", mode: "text_to_video", prompt: "Abstract data streams forming a calm blue network", durationSec: 4, aspectRatio: "9:16", resolution: "1080p", generateAudio: false, enhancePrompt: true, outputCount: 1 },
+    video: videoSpec,
     overlays: [], captions: [], transitions: [],
   }],
-  soundtrack: { modelCapability: "lyria-3-clip", prompt: "Warm minimal electronic soundtrack, 100 BPM", instrumental: true, lyricsMode: "none", language: "en", bpm: 100, intensity: 0.45, structure: ["intro", "build"], targetDurationSec: 30, outputCount: 1 },
+  soundtrack: musicSpec,
   constraints: { allowLikeness: false, allowGeneratedVocals: false, requireLicensedSources: true },
   pricingVersion: "2026-08-31",
-  estimatedCostUsd: "0.320000",
+  operationCostsUsd: {
+    "plan-1:generate_video:scene-1": "0.320000",
+    "plan-1:generate_music": "0.120000",
+  },
+  estimatedCostUsd: "0.440000",
   maximumCostUsd: "0.500000",
 } as const;
 
@@ -85,11 +98,105 @@ describe("media production contracts", () => {
     expect(productionApprovalStillValid({ ...mandate, paidOperationDigests: [] }, parsed, new Date("2026-08-31T10:30:00.000Z"))).toBe(false);
   });
 
+  it("authorizes only an exact paid operation while the current mandate is active", () => {
+    const plan = videoProductionPlanSchema.parse(basePlan);
+    const operation = compileProductionOperations(plan).find((candidate) => candidate.type === "generate_video")!;
+    const mandate = createProductionMandate(plan, {
+      operatorSubjectId: "operator-1",
+      authenticationId: "session-1",
+      approvedAt: "2026-08-31T10:00:00.000Z",
+      expiresAt: "2026-08-31T11:00:00.000Z",
+    });
+
+    expect(assertProductionMandateAuthorizes({
+      mandate,
+      plan,
+      operation,
+      activeMandateId: mandate.id,
+      workspaceId: plan.workspaceId,
+      brandId: plan.brandId,
+      now: new Date("2026-08-31T10:30:00.000Z"),
+    })).toBe(operation);
+
+    expect(() => assertProductionMandateAuthorizes({
+      mandate,
+      plan: { ...plan, revision: 2 },
+      operation,
+      activeMandateId: mandate.id,
+      workspaceId: plan.workspaceId,
+      brandId: plan.brandId,
+      now: new Date("2026-08-31T10:30:00.000Z"),
+    })).toThrow(/current plan/i);
+    expect(() => assertProductionMandateAuthorizes({
+      mandate,
+      plan,
+      operation: compileProductionOperations(plan).find((candidate) => candidate.type === "build_composition")!,
+      activeMandateId: mandate.id,
+      workspaceId: plan.workspaceId,
+      brandId: plan.brandId,
+      now: new Date("2026-08-31T10:30:00.000Z"),
+    })).toThrow(/paid operation/i);
+    expect(() => assertProductionMandateAuthorizes({
+      mandate,
+      plan,
+      operation,
+      activeMandateId: null,
+      workspaceId: plan.workspaceId,
+      brandId: plan.brandId,
+      now: new Date("2026-08-31T10:30:00.000Z"),
+    })).toThrow(/inactive/i);
+    expect(() => assertProductionMandateAuthorizes({
+      mandate,
+      plan,
+      operation,
+      activeMandateId: mandate.id,
+      workspaceId: plan.workspaceId,
+      brandId: plan.brandId,
+      now: new Date("2026-08-31T11:00:00.000Z"),
+    })).toThrow(/expired/i);
+    expect(() => assertProductionMandateAuthorizes({
+      mandate,
+      plan,
+      operation,
+      activeMandateId: mandate.id,
+      workspaceId: plan.workspaceId,
+      brandId: plan.brandId,
+      now: new Date("2026-08-31T09:59:59.000Z"),
+    })).toThrow(/not active/i);
+  });
+
   it("prices Veo from duration and rejects unpriced preview Lyria without an override", () => {
     const plan = videoProductionPlanSchema.parse(basePlan);
     expect(estimateGeneratedMediaCost(plan.scenes[0].video!)).toBe("0.320000");
     expect(() => estimateGeneratedMediaCost(plan.soundtrack!)).toThrow(/pricing unavailable/i);
     expect(estimateGeneratedMediaCost(plan.soundtrack!, { "lyria-3-clip": "0.120000" })).toBe("0.120000");
+  });
+
+  it("rejects a plan whose signed operation quotes do not exactly fund its paid graph", () => {
+    expect(() => videoProductionPlanSchema.parse({
+      ...basePlan,
+      operationCostsUsd: { "plan-1:generate_video:scene-1": "0.000001" },
+    })).toThrow(/operation cost quotes/i);
+  });
+
+  it("itemizes repeated identical paid requests as distinct operation costs", () => {
+    const repeated = {
+      ...basePlan,
+      scenes: [
+        basePlan.scenes[0],
+        { ...basePlan.scenes[0], id: "scene-2", order: 2, startSec: 4 },
+      ],
+      operationCostsUsd: {
+        "plan-1:generate_video:scene-1": "0.320000",
+        "plan-1:generate_video:scene-2": "0.320000",
+        "plan-1:generate_music": "0.120000",
+      },
+      estimatedCostUsd: "0.760000",
+      maximumCostUsd: "0.800000",
+    };
+    const operations = compileProductionOperations(videoProductionPlanSchema.parse(repeated));
+    expect(operations.filter((operation) => operation.type === "generate_video").map((operation) => operation.estimatedCostUsd))
+      .toEqual(["0.320000", "0.320000"]);
   });
 
   it("compiles paid media before composition and finalization", () => {
@@ -99,6 +206,7 @@ describe("media production contracts", () => {
       "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production", "assemble_export",
     ]);
     expect(operations[2].dependsOn).toEqual([operations[0].id, operations[1].id]);
+    expect(operations.slice(0, 2).map((operation) => operation.estimatedCostUsd)).toEqual(["0.320000", "0.120000"]);
   });
 
   it("models provider pending as a durable nonterminal state", () => {

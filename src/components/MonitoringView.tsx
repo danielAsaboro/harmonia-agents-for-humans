@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { MetricsResponse } from "@/app/api/metrics/route";
+import { Button } from "@/components/dashboard/Button";
+import { ErrorState, LoadingState } from "@/components/dashboard/SystemState";
 
 const STAGE_ORDER = [
   "queued", "ingest", "transcribe", "understand", "strategize", "awaiting_strategy_approval",
@@ -34,7 +36,7 @@ function PipelineFlow({ stages }: { stages: MetricsResponse["stages"] }) {
   const totalJobs = ordered.reduce((a, b) => a + b.count, 0);
 
   return (
-    <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+    <div className="dash-surface monitor-card monitor-card--wide-data">
       <h3 className="mb-4 text-sm font-semibold">Pipeline flow — jobs per stage</h3>
       <svg viewBox={`0 0 ${ordered.length * 72} 150`} className="w-full" role="img" aria-label="Jobs per pipeline stage">
         {ordered.map((s, i) => {
@@ -85,7 +87,7 @@ function StatusDonut({ totals }: { totals: MetricsResponse["totals"] }) {
   let offset = 0;
 
   return (
-    <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+    <div className="dash-surface monitor-card">
       <h3 className="mb-4 text-sm font-semibold">Job status</h3>
       <div className="flex items-center gap-5">
         <svg viewBox="0 0 140 140" className="h-32 w-32 shrink-0" role="img" aria-label="Job status distribution">
@@ -128,7 +130,7 @@ function StatusDonut({ totals }: { totals: MetricsResponse["totals"] }) {
 function DwellChart({ dwell }: { dwell: MetricsResponse["stageDwell"] }) {
   const max = Math.max(1, ...dwell.map((d) => d.avgSec));
   return (
-    <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+    <div className="dash-surface monitor-card">
       <h3 className="mb-1 text-sm font-semibold">Average time in stage</h3>
       <p className="mb-4 text-[11px] text-zinc-400">
         Mean wall-clock dwell derived from stage events of the most recent jobs.
@@ -165,11 +167,11 @@ function ReceiptStats({ receipts }: { receipts: MetricsResponse["receipts"] }) {
     { label: "rejected", value: receipts.rejected, color: "text-zinc-500" },
   ];
   return (
-    <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+    <div className="dash-surface monitor-card">
       <h3 className="mb-4 text-sm font-semibold">External action receipts</h3>
       <dl className="grid grid-cols-2 gap-3">
         {items.map((it) => (
-          <div key={it.label} className="rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-900">
+          <div key={it.label} className="monitor-metric">
             <dt className="text-[11px] uppercase tracking-wide text-zinc-400">{it.label}</dt>
             <dd className={`mt-0.5 text-xl font-semibold tabular-nums ${it.color}`}>{it.value}</dd>
           </div>
@@ -187,7 +189,7 @@ function ModelCostStats({
   costs: MetricsResponse["costs"];
 }) {
   return (
-    <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800 lg:col-span-2">
+    <div className="dash-surface monitor-card lg:col-span-2">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold">Model usage and cost comparison</h3>
@@ -237,7 +239,7 @@ function ModelCostStats({
 
 function ReliabilityChart({ stats }: { stats: MetricsResponse["stageStats"] }) {
   return (
-    <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+    <div className="dash-surface monitor-card">
       <h3 className="mb-4 text-sm font-semibold">Stage reliability</h3>
       {stats.length === 0 ? (
         <p className="py-6 text-center text-xs text-zinc-400">Not enough history yet.</p>
@@ -264,7 +266,7 @@ function ReliabilityChart({ stats }: { stats: MetricsResponse["stageStats"] }) {
 
 function ActivityFeed({ events }: { events: MetricsResponse["recentEvents"] }) {
   return (
-    <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+    <div className="dash-surface monitor-card">
       <h3 className="mb-4 text-sm font-semibold">Live activity log</h3>
       {events.length === 0 ? (
         <p className="py-6 text-center text-xs text-zinc-400">No events yet.</p>
@@ -319,18 +321,14 @@ export default function MonitoringView() {
   }, [load]);
 
   if (error) {
-    return (
-      <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-        Failed to load metrics: {error}
-      </div>
-    );
+    return <ErrorState title="Metrics could not be loaded" message={error} action={<Button onClick={() => void load()}>Retry metrics</Button>} />;
   }
   if (!metrics) {
-    return <div className="py-20 text-center text-sm text-zinc-400">Loading metrics…</div>;
+    return <LoadingState title="Loading operational metrics" message="Reading current pipeline, receipt, reliability, and model-usage state." />;
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="monitoring-grid">
       <PipelineFlow stages={metrics.stages} />
       <StatusDonut totals={metrics.totals} />
       <DwellChart dwell={metrics.stageDwell} />

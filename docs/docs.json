@@ -95,7 +95,7 @@
           {
             "group": "Overview",
             "root": "product/overview", "directory": "card",
-            "pages": ["index", "architecture", "architecture-explorer", "evaluation"]
+            "pages": ["index", "architecture", "architecture/overview", "architecture-explorer", "evaluation"]
           },
           {
             "group": "Workflow",

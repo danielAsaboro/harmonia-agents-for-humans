@@ -1,0 +1,153 @@
+.harmonia-architecture-shell {
+  display: flex;
+  width: 100%;
+  height: calc(100dvh - 64px);
+  min-height: 640px;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f4f3e9;
+}
+
+.harmonia-architecture-toolbar {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid rgba(23, 34, 29, 0.14);
+  padding: 8px 20px;
+  background: rgba(244, 243, 233, 0.96);
+  color: #17221d;
+}
+
+.harmonia-architecture-heading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.harmonia-architecture-heading strong {
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+
+.harmonia-architecture-heading span {
+  color: #506158;
+  font-size: 12px;
+}
+
+.harmonia-architecture-guide {
+  flex: none;
+  border: 1px solid rgba(95, 143, 34, 0.38);
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: #e9f7d5;
+  color: #31570f;
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.harmonia-architecture-guide:hover {
+  background: #dcf2be;
+}
+
+.harmonia-architecture-guide:focus-visible {
+  outline: 3px solid rgba(95, 143, 34, 0.42);
+  outline-offset: 2px;
+}
+
+.harmonia-architecture-frame {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  border: 0;
+  background: #f4f3e9;
+}
+
+.harmonia-architecture-fallback {
+  margin: 24px;
+  color: #17221d;
+}
+
+@media (prefers-color-scheme: dark) {
+  .harmonia-architecture-shell,
+  .harmonia-architecture-frame {
+    background: #0d1511;
+  }
+
+  .harmonia-architecture-toolbar {
+    border-bottom-color: rgba(185, 255, 102, 0.16);
+    background: rgba(13, 21, 17, 0.96);
+    color: #f4f3e9;
+  }
+
+  .harmonia-architecture-heading span {
+    color: #a9b8af;
+  }
+
+  .harmonia-architecture-guide {
+    border-color: rgba(185, 255, 102, 0.3);
+    background: #23351e;
+    color: #caff8a;
+  }
+
+  .harmonia-architecture-guide:hover {
+    background: #2d4724;
+  }
+
+  .harmonia-architecture-fallback {
+    color: #f4f3e9;
+  }
+}
+
+.dark .harmonia-architecture-shell,
+.dark .harmonia-architecture-frame {
+  background: #0d1511;
+}
+
+.dark .harmonia-architecture-toolbar {
+  border-bottom-color: rgba(185, 255, 102, 0.16);
+  background: rgba(13, 21, 17, 0.96);
+  color: #f4f3e9;
+}
+
+.dark .harmonia-architecture-heading span {
+  color: #a9b8af;
+}
+
+.dark .harmonia-architecture-guide {
+  border-color: rgba(185, 255, 102, 0.3);
+  background: #23351e;
+  color: #caff8a;
+}
+
+.dark .harmonia-architecture-guide:hover {
+  background: #2d4724;
+}
+
+.dark .harmonia-architecture-fallback {
+  color: #f4f3e9;
+}
+
+@media (max-width: 640px) {
+  .harmonia-architecture-shell {
+    height: calc(100dvh - 56px);
+    min-height: 520px;
+  }
+
+  .harmonia-architecture-toolbar {
+    min-height: 48px;
+    padding: 7px 12px;
+  }
+
+  .harmonia-architecture-heading span {
+    display: none;
+  }
+
+  .harmonia-architecture-guide {
+    padding: 5px 10px;
+  }
+}

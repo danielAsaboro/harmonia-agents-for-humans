@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 describe("GEAR architecture documentation contracts", () => {
   it("describes claim-before-effect rather than receipt lookup as the concurrency boundary", () => {
-    const architecture = readFileSync("docs/architecture.mdx", "utf8");
+    const architecture = readFileSync("docs/architecture/overview.mdx", "utf8");
     expect(architecture).toContain("atomically claims");
     expect(architecture).toContain("expired unresolved claim");
     expect(architecture).toContain("`already_applied` with the original receipt identity");

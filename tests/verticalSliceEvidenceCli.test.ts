@@ -2,14 +2,10 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRequire } from "node:module";
-
 import { describe, expect, it } from "vitest";
 
 const repoRoot = process.cwd();
 const cli = join(repoRoot, "scripts/verify-vertical-slice-evidence.ts");
-const require = createRequire(import.meta.url);
-const tsxCli = require.resolve("tsx/cli");
 const digest = "b".repeat(64);
 const workflowTraceId = "a".repeat(32);
 const approvalTraceId = "c".repeat(32);
@@ -45,7 +41,7 @@ function runCli(contents: string) {
   const directory = mkdtempSync(join(tmpdir(), "harmonia-evidence-cli-"));
   const path = join(directory, "bundle.json");
   writeFileSync(path, contents);
-  return spawnSync(process.execPath, [tsxCli, cli, path], {
+  return spawnSync(process.execPath, ["--import", "tsx", cli, path], {
     cwd: repoRoot,
     encoding: "utf8",
   });

@@ -393,7 +393,7 @@ def test_team_applies_each_roles_generation_and_safety_policy():
     assert copywriter.generate_content_config.temperature == 0.8
     assert copywriter.generate_content_config.max_output_tokens == 2048
     assert planner.generate_content_config.temperature == 0.1
-    assert planner.generate_content_config.max_output_tokens == 4096
+    assert planner.generate_content_config.max_output_tokens == 8192
 
 
 def test_nimi_private_agent_search_requires_configured_datastore(monkeypatch):
@@ -502,7 +502,7 @@ def test_temi_prompt_bounds_the_vertical_slice_response():
     assert "`read_planning_authority` exactly once" in TEMI_EDITORIAL_PLANNER_INSTRUCTION
     assert "Return exactly one plan item" in TEMI_EDITORIAL_PLANNER_INSTRUCTION
     assert "Use only low, medium, or high" in TEMI_EDITORIAL_PLANNER_INSTRUCTION
-    assert load_role_model_catalog().planner.max_output_tokens >= 4096
+    assert load_role_model_catalog().planner.max_output_tokens == 8192
 
 
 def test_temi_delegation_validates_the_returned_plan():

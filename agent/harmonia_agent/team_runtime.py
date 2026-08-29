@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from hashlib import sha256
 from typing import Any, Protocol
@@ -157,9 +158,9 @@ class AgentEngineTeamRuntime:
                 "resource": self.resource_name,
             }))
             try:
-                prompt = (
-                    f"Call transfer_to_agent for {specialist} now. Do not answer in text. "
-                    "The complete typed input is already in managed session state."
+                prompt = json.dumps(
+                    {key: value for key, value in payload.items() if not key.startswith("_")},
+                    separators=(",", ":"), sort_keys=True,
                 )
                 if all(callable(getattr(remote, name, None)) for name in (
                     "get_session", "create_session", "stream_query",

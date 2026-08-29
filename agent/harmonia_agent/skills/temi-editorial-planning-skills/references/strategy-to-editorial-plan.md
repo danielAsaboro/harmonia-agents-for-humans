@@ -16,3 +16,6 @@ and snapshot. Output changes only `EditorialPlan` items and rationale. Common
 failures are rewriting the brief, treating unsupported channels as executable,
 or using this method as evidence. Temi cannot approve, schedule externally, or
 write final copy.
+
+After loading this reference, immediately call `read_planning_authority` once
+with the exact supplied snapshot ID before drafting any plan JSON.

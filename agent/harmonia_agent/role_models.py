@@ -162,7 +162,7 @@ def load_role_model_catalog() -> RoleModelCatalog:
             ("review_drafts",),
         ),
         planner=_gemini(
-            "temi_editorial_planner", "PLANNER_MODEL_ID", "gemini-3.5-flash", 4096, 0.1,
+            "temi_editorial_planner", "PLANNER_MODEL_ID", "gemini-3.5-flash", 8192, 0.1,
             ("propose_editorial_plan",),
         ),
         presenter=_gemini(

@@ -39,6 +39,19 @@ def _session_id(session: Any) -> str:
     return str(value)
 
 
+def _session_state(session: Any) -> dict[str, Any]:
+    value = session.get("state") if isinstance(session, dict) else getattr(session, "state", None)
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _persisted_delta(session: Any, seeded_state: dict[str, Any]) -> dict[str, Any]:
+    state = _session_state(session)
+    return {
+        key: value for key, value in state.items()
+        if key not in seeded_state or value != seeded_state[key]
+    }
+
+
 def _is_missing_session_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return "session not found" in message and (
@@ -81,12 +94,23 @@ def _invoke_sync_remote(
     if _session_id(session) != session_id:
         raise AgentEngineProtocolError("Agent Engine returned the wrong managed session")
     state: dict[str, Any] = {}
-    for event in remote.stream_query(
-        user_id=user_id, session_id=session_id, message=prompt,
-    ):
-        state.update(_state_delta(event))
-        if metadata := _grounding_metadata(event):
-            state["_adk_grounding_metadata"] = metadata
+    try:
+        for event in remote.stream_query(
+            user_id=user_id, session_id=session_id, message=prompt,
+        ):
+            state.update(_state_delta(event))
+            if metadata := _grounding_metadata(event):
+                state["_adk_grounding_metadata"] = metadata
+    except Exception:
+        # Agent Engine may durably commit the specialist handoff before its SSE
+        # transport terminates. Recover only state that differs from our seed;
+        # downstream specialist validators still fail closed on partial output.
+        recovered = _persisted_delta(
+            remote.get_session(user_id=user_id, session_id=session_id), seeded_state,
+        )
+        if not recovered:
+            raise
+        state.update(recovered)
     return state
 
 
@@ -182,15 +206,26 @@ class AgentEngineTeamRuntime:
                                 raise create_exc
                     if _session_id(session) != session_id:
                         raise AgentEngineProtocolError("Agent Engine returned the wrong managed session")
-                    events: AsyncIterator[Any] = remote.async_stream_query(
-                        user_id=user_id,
-                        session_id=session_id,
-                        message=prompt,
-                    )
-                    async for event in events:
-                        state.update(_state_delta(event))
-                        if metadata := _grounding_metadata(event):
-                            state["_adk_grounding_metadata"] = metadata
+                    try:
+                        events: AsyncIterator[Any] = remote.async_stream_query(
+                            user_id=user_id,
+                            session_id=session_id,
+                            message=prompt,
+                        )
+                        async for event in events:
+                            state.update(_state_delta(event))
+                            if metadata := _grounding_metadata(event):
+                                state["_adk_grounding_metadata"] = metadata
+                    except Exception:
+                        recovered = _persisted_delta(
+                            await remote.async_get_session(
+                                user_id=user_id, session_id=session_id,
+                            ),
+                            seeded_state,
+                        )
+                        if not recovered:
+                            raise
+                        state.update(recovered)
             except AgentEngineProtocolError:
                 raise
             except Exception as exc:  # noqa: BLE001 - normalized at provider boundary

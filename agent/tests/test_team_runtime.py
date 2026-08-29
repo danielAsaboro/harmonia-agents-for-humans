@@ -257,6 +257,85 @@ def test_sync_runtime_creates_session_before_opaque_managed_not_found_lookup():
     assert len(remote.created) == 1
 
 
+def test_sync_runtime_recovers_persisted_state_when_stream_terminates_after_handoff():
+    class InterruptedRemote(_RemoteAgent):
+        def create_session(self, **kwargs):
+            self.created.append(kwargs)
+            session = {"id": kwargs["session_id"], "state": dict(kwargs["state"])}
+            self.sessions[kwargs["session_id"]] = session
+            return session
+
+        def get_session(self, **kwargs):
+            return self.sessions[kwargs["session_id"]]
+
+        def stream_query(self, **kwargs):
+            self.sessions[kwargs["session_id"]]["state"].update({
+                "source_analysis": {"summary": "Persisted managed analysis", "moments": [], "angles": []},
+            })
+            raise RuntimeError("managed SSE stream terminated")
+            yield  # pragma: no cover
+
+    runtime = AgentEngineTeamRuntime(
+        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
+        client=_Client(InterruptedRemote()),
+    )
+
+    state = asyncio.run(runtime.invoke(
+        specialist="nimi_analyst", payload={"title": "Demo"},
+        user_id="job-123", session_key="op-1",
+    ))
+
+    assert state["source_analysis"]["summary"] == "Persisted managed analysis"
+
+
+def test_sync_runtime_does_not_mask_stream_failure_without_persisted_output_state():
+    class InterruptedRemote(_RemoteAgent):
+        def create_session(self, **kwargs):
+            session = {"id": kwargs["session_id"], "state": dict(kwargs["state"])}
+            self.sessions[kwargs["session_id"]] = session
+            return session
+
+        def get_session(self, **kwargs):
+            return self.sessions[kwargs["session_id"]]
+
+        def stream_query(self, **kwargs):
+            raise RuntimeError("managed SSE stream terminated")
+            yield  # pragma: no cover
+
+    runtime = AgentEngineTeamRuntime(
+        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
+        client=_Client(InterruptedRemote()),
+    )
+
+    with pytest.raises(Exception, match="managed SSE stream terminated"):
+        asyncio.run(runtime.invoke(
+            specialist="nimi_analyst", payload={"title": "Demo"},
+            user_id="job-123", session_key="op-1",
+        ))
+
+
+def test_async_runtime_recovers_persisted_state_when_stream_terminates_after_handoff():
+    class AsyncInterruptedRemote(_RemoteAgent):
+        async def async_stream_query(self, **kwargs):
+            self.sessions[kwargs["session_id"]]["state"].update({
+                "source_analysis": {"summary": "Persisted async analysis", "moments": [], "angles": []},
+            })
+            raise RuntimeError("managed async SSE stream terminated")
+            yield  # pragma: no cover
+
+    runtime = AgentEngineTeamRuntime(
+        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
+        client=_Client(AsyncInterruptedRemote()),
+    )
+
+    state = asyncio.run(runtime.invoke(
+        specialist="nimi_analyst", payload={"title": "Demo"},
+        user_id="job-123", session_key="op-1",
+    ))
+
+    assert state["source_analysis"]["summary"] == "Persisted async analysis"
+
+
 def test_runtime_resumes_the_same_managed_session_after_process_restart():
     remote = _RemoteAgent()
     kwargs = dict(

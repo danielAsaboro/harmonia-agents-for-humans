@@ -1,8 +1,7 @@
 import { getOrCreateEditorialPlanningSnapshot } from "@/lib/firestore";
-import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
+import { internalTenantHandler } from "@/lib/internalAuth";
 
-export async function GET(req: Request) {
-  if (!isInternalAuthorized(req)) return unauthorized();
+async function get(req: Request) {
   const jobId = new URL(req.url).searchParams.get("jobId");
   if (!jobId) return Response.json({ error: "jobId is required" }, { status: 400 });
   try {
@@ -11,3 +10,5 @@ export async function GET(req: Request) {
     return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 409 });
   }
 }
+
+export const GET = internalTenantHandler(get);

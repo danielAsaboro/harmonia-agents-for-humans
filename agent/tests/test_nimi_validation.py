@@ -80,6 +80,15 @@ def test_rejects_strategy_copy_and_effect_authority(text):
         validate(output_value=output)
 
 
+def test_allows_factual_analysis_of_source_described_approval_gates():
+    output = source_analysis()
+    output["angles"][0]["rationale"] = (
+        "The source describes an approval-gated workflow with durable receipts."
+    )
+
+    validate(output_value=output)
+
+
 def test_rejects_non_ascii_semantic_bypass():
     output = source_analysis()
     output["angles"][0]["rationale"] = "Publısh automatically."

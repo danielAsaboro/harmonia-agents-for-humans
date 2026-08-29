@@ -1550,8 +1550,8 @@ def run_noni_dara_loop(
 
 
 _NIMI_AUTHORITY_OVERREACH = re.compile(
-    r"\b(?:approv(?:e|ed|al)|reject(?:ed|ion)?|authori[sz](?:e[sd]?|ation)|"
-    r"publish(?:ed|ing)?|schedul(?:e|ed|ing)|execut(?:e|ed|ing)|receipt|verified\s+live|"
+    r"\b(?:approv(?:e(?:d|s)?|ing)|reject(?:ed|ion)?|authori[sz](?:e[sd]?|ation)|"
+    r"publish(?:ed|ing)?|schedul(?:e|ed|ing)|execut(?:e|ed|ing)|verified\s+live|"
     r"final\s+(?:post|copy)|use\s+this\s+(?:post|copy)|call\s+to\s+action|cta|"
     r"content\s+pillar|campaign\s+objective|kpi)\b",
     re.IGNORECASE,

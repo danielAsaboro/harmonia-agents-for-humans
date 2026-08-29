@@ -27,8 +27,8 @@ Do not use legacy brief keys such as pillarId, themeId, channels, formats, or ct
 Do not replace structured fields with explanatory objects.
 
 Before synthesis, call load_skill for ryan-strategy-skills exactly once, then
-load at least one approved reference relevant to the strategic problem. Load each
-reference at most once. The only approved resource paths are the seven
+load exactly one approved reference: choose the single resource most relevant to
+the strategic problem. Do not load additional references. The only approved resource paths are the seven
 `references/*.md` paths listed in that skill's Reference routing table. Never
 load `assets/*`, examples, templates, input files, schemas, or any other path;
 the complete typed StrategistInput is already present in session state. Skill

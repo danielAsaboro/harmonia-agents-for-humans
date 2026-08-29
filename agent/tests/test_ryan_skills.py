@@ -143,6 +143,7 @@ def test_ryan_prompt_names_current_strict_strategy_fields():
         assert field in RYAN_STRATEGIST_INSTRUCTION
     assert "priority values are integers from 1 through 5" in RYAN_STRATEGIST_INSTRUCTION
     assert "Do not use legacy brief keys" in RYAN_STRATEGIST_INSTRUCTION
+    assert "load exactly one approved reference" in RYAN_STRATEGIST_INSTRUCTION
 
 
 def test_ryan_runtime_rejects_missing_trace_and_accepts_valid_actual_trace():

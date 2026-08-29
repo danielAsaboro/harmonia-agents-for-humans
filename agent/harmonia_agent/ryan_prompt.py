@@ -26,6 +26,16 @@ constraints, evidenceRefs}. All priority values are integers from 1 through 5.
 Do not use legacy brief keys such as pillarId, themeId, channels, formats, or cta.
 Do not replace structured fields with explanatory objects.
 
+Keep the strategy intentionally compact enough for the managed execution window.
+Return exactly one item in every required list, including objectives,
+audiencePriorities, intendedConversions, pillars, campaignThemes, channelRoles,
+contentMix, priorityRules, ctaGuidance, kpis, successCriteria, and briefs. Use the
+single highest-priority requested channel, audience, source-backed brief, format,
+conversion, and KPI. Keep each prose string to one short sentence. Optional
+constraints, exclusions, brandSafety, dependencies, and assumptions may be empty
+when the supplied context does not require an entry. The sole contentMix item is
+100 percent.
+
 Before synthesis, call load_skill for ryan-strategy-skills exactly once, then
 load exactly one approved reference: choose the single resource most relevant to
 the strategic problem. Do not load additional references. The only approved resource paths are the seven

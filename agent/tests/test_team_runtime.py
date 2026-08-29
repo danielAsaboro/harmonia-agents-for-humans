@@ -233,6 +233,8 @@ def test_runtime_explicitly_directs_agents_to_the_pinned_projection_when_present
     ))
     assert "_durable_context_projection" in remote.queries[0]["message"]
     assert "pinned authority" in remote.queries[0]["message"]
+    assert "Do not pass its key, name, or content to any tool" in remote.queries[0]["message"]
+    assert "Read _durable_context_projection" not in remote.queries[0]["message"]
 
 
 def test_runtime_preserves_native_google_search_grounding_metadata():

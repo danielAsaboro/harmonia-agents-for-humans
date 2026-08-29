@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { parseLocalIntent } from "@/lib/chatIntent";
+import { normalizeParsedIntent, parseLocalIntent } from "@/lib/chatIntent";
 
 describe("local intent grammar", () => {
+
+  it("normalizes a Gemini pasted-text descriptor that omits its model-generated title", () => {
+    expect(normalizeParsedIntent({
+      intent: "create_job",
+      sources: [{ kind: "pasted_text", text: "Harmonia turns sources into approved content." }],
+      desiredOutputs: ["x_post"],
+    })).toEqual({
+      intent: "create_job",
+      sources: [{ kind: "pasted_text", title: "Operator context", text: "Harmonia turns sources into approved content." }],
+      desiredOutputs: ["x_post"],
+    });
+  });
 
   it("routes youtube urls to create_job", async () => {
     expect(parseLocalIntent("make a job from https://youtu.be/jNQXAC9IVRw please"))

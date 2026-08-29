@@ -71,6 +71,38 @@ const schema = { type: "object", properties: {
 
 const prompt = `Classify Harmonia operator requests. Distinguish production-plan creation, revision, model-selection explanation, approval, operation status, and cost-free rerendering from job creation and publication approval. Preserve the operator's exact production request in productionRequest; never invent plan controls. A create_job request may contain YouTube URLs, public web URLs, pasted factual context, and the exact name of an existing brand library. Return sources as typed descriptors, libraryName only when explicitly named, and desired output types. Never invent URLs, source text, library names, identifiers, or approval. Commands may include a jobId. Return JSON only.`;
 
+export function normalizeParsedIntent(value: unknown): ParsedIntent {
+  const raw = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const intents: ChatIntent[] = ["create_job", "status", "list_artifacts", "approve", "create_production_plan", "revise_production_plan", "explain_production_plan", "approve_production_plan", "production_status", "rerender_production_plan", "unknown"];
+  const intent = typeof raw.intent === "string" && intents.includes(raw.intent as ChatIntent)
+    ? raw.intent as ChatIntent
+    : "unknown";
+  const sources = Array.isArray(raw.sources) ? raw.sources.flatMap((item): ChatSourceDescriptor[] => {
+    if (!item || typeof item !== "object") return [];
+    const source = item as Record<string, unknown>;
+    if ((source.kind === "youtube" || source.kind === "web") && typeof source.url === "string" && source.url.trim()) {
+      return [{ kind: source.kind, url: source.url.trim() }];
+    }
+    if (source.kind === "pasted_text" && typeof source.text === "string" && source.text.trim()) {
+      const title = typeof source.title === "string" && source.title.trim() ? source.title.trim() : "Operator context";
+      return [{ kind: "pasted_text", title, text: source.text.trim() }];
+    }
+    return [];
+  }) : [];
+  const desiredOutputs = Array.isArray(raw.desiredOutputs) ? raw.desiredOutputs.flatMap((item) => {
+    const result = outputKindSchema.safeParse(item);
+    return result.success && OUTPUT_CAPABILITIES[result.data].state !== "unavailable" ? [result.data] : [];
+  }) : [];
+  return {
+    intent,
+    ...(sources.length ? { sources } : {}),
+    ...(desiredOutputs.length ? { desiredOutputs } : {}),
+    ...(typeof raw.libraryName === "string" && raw.libraryName.trim() ? { libraryName: raw.libraryName.trim() } : {}),
+    ...(typeof raw.jobId === "string" && raw.jobId.trim() ? { jobId: raw.jobId.trim() } : {}),
+    ...(typeof raw.productionRequest === "string" && raw.productionRequest.trim() ? { productionRequest: raw.productionRequest.trim() } : {}),
+  };
+}
+
 export async function parseIntent(message: string): Promise<ParsedIntent> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not configured for chat intent parsing");
@@ -79,11 +111,5 @@ export async function parseIntent(message: string): Promise<ParsedIntent> {
   const data = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
   const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("");
   if (!text) throw new Error("Gemini returned no intent payload");
-  const parsed = JSON.parse(text) as ParsedIntent;
-  const intents: ChatIntent[] = ["create_job", "status", "list_artifacts", "approve", "create_production_plan", "revise_production_plan", "explain_production_plan", "approve_production_plan", "production_status", "rerender_production_plan", "unknown"];
-  const desiredOutputs = parsed.desiredOutputs?.flatMap((item) => {
-    const result = outputKindSchema.safeParse(item);
-    return result.success && OUTPUT_CAPABILITIES[result.data].state !== "unavailable" ? [result.data] : [];
-  });
-  return { intent: intents.includes(parsed.intent) ? parsed.intent : "unknown", sources: parsed.sources, desiredOutputs, libraryName: typeof parsed.libraryName === "string" ? parsed.libraryName : undefined, jobId: typeof parsed.jobId === "string" ? parsed.jobId : undefined, productionRequest: typeof parsed.productionRequest === "string" ? parsed.productionRequest : undefined };
+  return normalizeParsedIntent(JSON.parse(text));
 }

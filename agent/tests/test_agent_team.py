@@ -29,6 +29,7 @@ from harmonia_agent.agent_models import (
 from harmonia_agent.content_artifacts import ArtifactProductionInput, ArtifactReviewBatch, ProductionBatch
 from harmonia_agent.agents import (
     AgentProtocolError,
+    _enforce_requested_specialist_transfer,
     _reservation_payloads,
     _resolve_role_models,
     _run_coordinator,
@@ -432,6 +433,19 @@ def test_coordinator_really_delegates_and_forwards_specialist_state():
     assert result.summary == "Delegated analysis"
     assert runtime.calls[0]["specialist"] == "nimi_analyst"
     assert runtime.calls[0]["user_id"] == "workspace-test:system:proactive"
+
+
+def test_coordinator_rewrites_model_transfer_to_the_requested_specialist():
+    class Tool:
+        name = "transfer_to_agent"
+
+    class Context:
+        state = {"requested_specialist": "nimi_analyst"}
+
+    args = {"agent_name": "nova_liaison"}
+
+    assert _enforce_requested_specialist_transfer(Tool(), args, Context()) is None
+    assert args == {"agent_name": "nimi_analyst"}
 
 
 def test_analyst_receives_source_video_as_typed_time_range_evidence():

@@ -360,6 +360,19 @@ def _enforce_role_eligibility(
     return max(timeouts)
 
 
+def _enforce_requested_specialist_transfer(
+    tool: Any, args: dict[str, Any], tool_context: Any,
+) -> None:
+    """Make managed coordinator routing deterministic at the transfer boundary."""
+    if getattr(tool, "name", "") != "transfer_to_agent":
+        return None
+    requested = tool_context.state.get("requested_specialist")
+    if requested not in _SPECIALIST_ROLES:
+        raise AgentProtocolError("managed session has no valid requested specialist")
+    args["agent_name"] = requested
+    return None
+
+
 def build_agent_team(
     model: str | BaseLlm | None = None,
     *,
@@ -531,6 +544,7 @@ def build_agent_team(
         ),
         sub_agents=[strategist, analyst, planner, copywriter, editor, artifact_producer, artifact_editor, presenter, liaison],
         tools=[],
+        before_tool_callback=_enforce_requested_specialist_transfer,
     )
 
 

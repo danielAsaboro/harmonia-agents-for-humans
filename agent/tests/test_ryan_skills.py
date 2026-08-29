@@ -145,6 +145,7 @@ def test_ryan_prompt_names_current_strict_strategy_fields():
     assert "Do not use legacy brief keys" in RYAN_STRATEGIST_INSTRUCTION
     assert "load exactly one approved reference" in RYAN_STRATEGIST_INSTRUCTION
     assert "exactly one item in every required list" in RYAN_STRATEGIST_INSTRUCTION
+    assert 'confidence values are only the strings "low", "medium", or "high"' in RYAN_STRATEGIST_INSTRUCTION
 
 
 def test_ryan_runtime_rejects_missing_trace_and_accepts_valid_actual_trace():

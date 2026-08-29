@@ -23,6 +23,8 @@ assumption is {text, evidenceRefs, confidence}. Each brief is exactly {id, title
 objective, audienceId, funnelStage, keyMessage, channelCandidates,
 formatCandidates, ctaIntent, intendedConversion, kpi, priority, dependencies,
 constraints, evidenceRefs}. All priority values are integers from 1 through 5.
+All confidence values are only the strings "low", "medium", or "high"; never
+emit a numeric confidence score.
 Do not use legacy brief keys such as pillarId, themeId, channels, formats, or cta.
 Do not replace structured fields with explanatory objects.
 

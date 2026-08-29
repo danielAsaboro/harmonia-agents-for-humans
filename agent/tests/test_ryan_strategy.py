@@ -125,6 +125,18 @@ def test_strategy_rejects_memory_as_authority_and_effect_language():
         validate_strategy_grounding(strategist_input(), overreach)
 
 
+def test_strategy_allows_receipts_as_a_product_control_without_claiming_one_exists():
+    governed = strategy(priorityRules=[
+        "Explain how an approval gate and a durable audit receipt reduce operational risk",
+    ])
+
+    assert validate_strategy_grounding(strategist_input(), governed) == governed
+
+    fabricated = strategy(priorityRules=["Receipt issued for this strategy"])
+    with pytest.raises(AgentProtocolError, match="authority overreach"):
+        validate_strategy_grounding(strategist_input(), fabricated)
+
+
 def test_strategy_rejects_performance_claim_without_verified_performance_reference():
     invalid = strategy(pillars=[strategy().pillars[0].model_copy(update={
         "purpose": "Repeat the prior high-performing approach",

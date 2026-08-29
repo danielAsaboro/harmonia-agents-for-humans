@@ -2334,7 +2334,9 @@ def validate_strategy_grounding(
     serialized = strategy.model_dump_json().lower()
     if re.search(
         r"\b(memory|ryan|i|we|harmonia)\b.{0,50}\b(approve[ds]?|reject(?:ed)?|publish(?:ed)?|executed|authoriz(?:e[ds]?|ation)|permits?|allows?|verified|scheduled)\b"
-        r"|\bautomatic publishing\b|\breceipt(?:id)?\b|\beffect payload\b|\bpolicy exception\b|\bcredential(?:s)?\b",
+        r"|\bautomatic publishing\b"
+        r"|\breceipt(?:id)?\b.{0,40}\b(?:created|recorded|issued|attached|exists?)\b"
+        r"|\beffect payload\b|\bpolicy exception\b|\bcredential(?:s)?\b",
         serialized,
     ):
         raise AgentProtocolError("strategy authority overreach")

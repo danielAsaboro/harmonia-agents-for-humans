@@ -3,12 +3,13 @@ import { newId } from "./idempotency";
 import { assertResourceWorkspace, currentTenant, tenantCollectionPath, tenantSubjectId } from "./tenancy";
 
 export type PendingOperationDecision = "approved" | "rejected";
-export type PendingOperationState = "pending" | PendingOperationDecision | "expired";
-export type PendingOperationHandler = "decide_job_action" | "decide_strategy" | "publish_preview" | "export_content_artifact" | "generate_image" | "render_clip" | "render_reel" | "publish_x_post" | "publish_x_thread" | "publish_linkedin_post";
+export type PendingOperationState = "pending" | "processing" | PendingOperationDecision | "failed" | "expired";
+export type PendingOperationHandler = "decide_job_action" | "decide_strategy" | "decide_production_plan" | "publish_preview" | "export_content_artifact" | "generate_image" | "render_clip" | "render_reel" | "publish_x_post" | "publish_x_thread" | "publish_linkedin_post";
 
 const REGISTERED_HANDLERS = new Set<PendingOperationHandler>([
   "decide_job_action",
   "decide_strategy",
+  "decide_production_plan",
   "publish_preview",
   "export_content_artifact",
   "generate_image",
@@ -34,6 +35,9 @@ export interface PendingOperation {
   expiresAt: string;
   decidedAt?: string;
   decidedByUserId?: string;
+  pendingDecision?: PendingOperationDecision;
+  decisionLeaseExpiresAt?: string;
+  failureReason?: string;
 }
 
 function collection() {
@@ -65,6 +69,64 @@ export function decideOperationRecord(
     decidedAt: now.toISOString(),
     decidedByUserId: userId,
   };
+}
+
+function assertPayloadBoundOperation(operation: PendingOperation): void {
+  if (!REGISTERED_HANDLERS.has(operation.handler as PendingOperationHandler)) {
+    throw new Error("operation handler is not registered");
+  }
+  if (
+    typeof operation.arguments.jobId !== "string"
+    || typeof operation.arguments.actionId !== "string"
+    || typeof operation.arguments.payloadDigest !== "string"
+    || !/^[a-f0-9]{64}$/.test(operation.arguments.payloadDigest)
+  ) throw new Error("operation is not payload-bound");
+}
+
+export function claimOperationDecisionRecord(
+  operation: PendingOperation,
+  decision: PendingOperationDecision,
+  now: Date,
+  userId: string,
+): PendingOperation {
+  assertPayloadBoundOperation(operation);
+  if (Date.parse(operation.expiresAt) <= now.getTime()) throw new Error("operation expired");
+  if (operation.state === "processing") {
+    if (operation.pendingDecision !== decision) throw new Error("operation decision mismatch");
+    if (Date.parse(operation.decisionLeaseExpiresAt ?? "") > now.getTime()) throw new Error("operation is already processing");
+  } else if (operation.state !== "pending") {
+    throw new Error("operation already decided");
+  }
+  return {
+    ...operation,
+    state: "processing",
+    pendingDecision: decision,
+    decidedByUserId: userId,
+    decisionLeaseExpiresAt: new Date(now.getTime() + 60_000).toISOString(),
+    failureReason: undefined,
+  };
+}
+
+export function finalizeOperationDecisionRecord(
+  operation: PendingOperation,
+  decision: PendingOperationDecision,
+  now: Date,
+): PendingOperation {
+  if (operation.state !== "processing" || operation.pendingDecision !== decision) {
+    throw new Error("operation decision claim mismatch");
+  }
+  return { ...operation, state: decision, decidedAt: now.toISOString(), decisionLeaseExpiresAt: undefined };
+}
+
+export function failOperationDecisionRecord(
+  operation: PendingOperation,
+  reason: string,
+  now: Date,
+): PendingOperation {
+  if (operation.state !== "processing") throw new Error("operation decision is not processing");
+  const failureReason = reason.trim();
+  if (!failureReason) throw new Error("operation decision failure reason required");
+  return { ...operation, state: "failed", decidedAt: now.toISOString(), decisionLeaseExpiresAt: undefined, failureReason };
 }
 
 export async function createPendingOperation(input: {
@@ -115,5 +177,47 @@ export async function decidePendingOperation(id: string, decision: PendingOperat
     const decided = decideOperationRecord(operation, decision, new Date(), tenantSubjectId(tenant));
     transaction.set(ref, decided);
     return decided;
+  });
+}
+
+export async function claimPendingOperationDecision(id: string, decision: PendingOperationDecision): Promise<PendingOperation> {
+  const tenant = currentTenant();
+  const ref = collection().doc(id);
+  return db().runTransaction(async (transaction) => {
+    const snap = await transaction.get(ref);
+    if (!snap.exists) throw new Error("operation not found");
+    const operation = snap.data() as PendingOperation;
+    assertResourceWorkspace(tenant, operation);
+    const claimed = claimOperationDecisionRecord(operation, decision, new Date(), tenantSubjectId(tenant));
+    transaction.set(ref, claimed);
+    return claimed;
+  });
+}
+
+export async function finalizePendingOperationDecision(id: string, decision: PendingOperationDecision): Promise<PendingOperation> {
+  const tenant = currentTenant();
+  const ref = collection().doc(id);
+  return db().runTransaction(async (transaction) => {
+    const snap = await transaction.get(ref);
+    if (!snap.exists) throw new Error("operation not found");
+    const operation = snap.data() as PendingOperation;
+    assertResourceWorkspace(tenant, operation);
+    const finalized = finalizeOperationDecisionRecord(operation, decision, new Date());
+    transaction.set(ref, finalized);
+    return finalized;
+  });
+}
+
+export async function failPendingOperationDecision(id: string, reason: string): Promise<PendingOperation> {
+  const tenant = currentTenant();
+  const ref = collection().doc(id);
+  return db().runTransaction(async (transaction) => {
+    const snap = await transaction.get(ref);
+    if (!snap.exists) throw new Error("operation not found");
+    const operation = snap.data() as PendingOperation;
+    assertResourceWorkspace(tenant, operation);
+    const failed = failOperationDecisionRecord(operation, reason, new Date());
+    transaction.set(ref, failed);
+    return failed;
   });
 }

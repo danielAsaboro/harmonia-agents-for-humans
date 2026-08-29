@@ -14,14 +14,36 @@ function extractJobId(message: string): string | undefined {
   return undefined;
 }
 
-export type ChatIntent = "create_job" | "status" | "list_artifacts" | "approve" | "unknown";
+export type ChatIntent = "create_job" | "status" | "list_artifacts" | "approve"
+  | "create_production_plan" | "revise_production_plan" | "explain_production_plan"
+  | "approve_production_plan" | "production_status" | "rerender_production_plan" | "unknown";
 export type ChatSourceDescriptor = { kind: "youtube" | "web"; url: string } | { kind: "pasted_text"; title: string; text: string };
-export interface ParsedIntent { intent: ChatIntent; sources?: ChatSourceDescriptor[]; desiredOutputs?: OutputKind[]; libraryName?: string; jobId?: string }
+export interface ParsedIntent { intent: ChatIntent; sources?: ChatSourceDescriptor[]; desiredOutputs?: OutputKind[]; libraryName?: string; jobId?: string; productionRequest?: string }
 
 export function parseLocalIntent(message: string): ParsedIntent {
   const trimmed = message.trim();
   const lower = trimmed.toLowerCase();
   const jobId = extractJobId(trimmed);
+  if (/\b(?:re-?render|render again)\b/.test(lower) && /\b(?:production|media|paid assets?|job)\b/.test(lower)) {
+    return { intent: "rerender_production_plan", jobId, productionRequest: trimmed };
+  }
+  if (/\bapprove\b/.test(lower) && /\b(?:production|media)\s+plan\b/.test(lower)) {
+    return { intent: "approve_production_plan", jobId };
+  }
+  if (/\b(?:revise|change|update|replace|remove)\b/.test(lower)
+    && /\b(?:production plan|soundtrack|shot|storyboard|media plan)\b/.test(lower)) {
+    return { intent: "revise_production_plan", jobId, productionRequest: trimmed };
+  }
+  if (/\b(?:explain|why)\b/.test(lower) && /\b(?:model|production plan|media plan|shot|soundtrack)\b/.test(lower)) {
+    return { intent: "explain_production_plan", jobId };
+  }
+  if (/\b(?:active|running|pending|report|status|progress)\b/.test(lower)
+    && /\b(?:production|media)\s+(?:operations?|plan|status|progress)\b/.test(lower)) {
+    return { intent: "production_status", jobId };
+  }
+  if (/\b(?:create|make|propose|draft|prepare)\b/.test(lower) && /\b(?:production|media)\s+plan\b/.test(lower)) {
+    return { intent: "create_production_plan", jobId, productionRequest: trimmed };
+  }
   if (/\bapprove\b/.test(lower)) return { intent: "approve", jobId };
   if (/\bartifacts?\b/.test(lower)) return { intent: "list_artifacts", jobId };
   if (/\bstatus\b/.test(lower)) return { intent: "status", jobId };
@@ -42,12 +64,12 @@ export function parseLocalIntent(message: string): ParsedIntent {
 }
 
 const schema = { type: "object", properties: {
-  intent: { type: "string", enum: ["create_job", "status", "list_artifacts", "approve", "unknown"] },
+  intent: { type: "string", enum: ["create_job", "status", "list_artifacts", "approve", "create_production_plan", "revise_production_plan", "explain_production_plan", "approve_production_plan", "production_status", "rerender_production_plan", "unknown"] },
   sources: { type: "array", maxItems: 10, items: { type: "object", properties: { kind: { type: "string", enum: ["youtube", "web", "pasted_text"] }, url: { type: "string" }, title: { type: "string" }, text: { type: "string" } }, required: ["kind"] } },
-  desiredOutputs: { type: "array", items: { type: "string" } }, libraryName: { type: "string" }, jobId: { type: "string" },
+  desiredOutputs: { type: "array", items: { type: "string" } }, libraryName: { type: "string" }, jobId: { type: "string" }, productionRequest: { type: "string" },
 }, required: ["intent"] } as const;
 
-const prompt = `Classify Harmonia operator requests. A create_job request may contain YouTube URLs, public web URLs, pasted factual context, and the exact name of an existing brand library. Return sources as typed descriptors, libraryName only when explicitly named, and desired output types. Never invent URLs, source text, library names, identifiers, or approval. Status, content-artifact listing, and approval commands may include a jobId. Return JSON only.`;
+const prompt = `Classify Harmonia operator requests. Distinguish production-plan creation, revision, model-selection explanation, approval, operation status, and cost-free rerendering from job creation and publication approval. Preserve the operator's exact production request in productionRequest; never invent plan controls. A create_job request may contain YouTube URLs, public web URLs, pasted factual context, and the exact name of an existing brand library. Return sources as typed descriptors, libraryName only when explicitly named, and desired output types. Never invent URLs, source text, library names, identifiers, or approval. Commands may include a jobId. Return JSON only.`;
 
 export async function parseIntent(message: string): Promise<ParsedIntent> {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -58,10 +80,10 @@ export async function parseIntent(message: string): Promise<ParsedIntent> {
   const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("");
   if (!text) throw new Error("Gemini returned no intent payload");
   const parsed = JSON.parse(text) as ParsedIntent;
-  const intents: ChatIntent[] = ["create_job", "status", "list_artifacts", "approve", "unknown"];
+  const intents: ChatIntent[] = ["create_job", "status", "list_artifacts", "approve", "create_production_plan", "revise_production_plan", "explain_production_plan", "approve_production_plan", "production_status", "rerender_production_plan", "unknown"];
   const desiredOutputs = parsed.desiredOutputs?.flatMap((item) => {
     const result = outputKindSchema.safeParse(item);
     return result.success && OUTPUT_CAPABILITIES[result.data].state !== "unavailable" ? [result.data] : [];
   });
-  return { intent: intents.includes(parsed.intent) ? parsed.intent : "unknown", sources: parsed.sources, desiredOutputs, libraryName: typeof parsed.libraryName === "string" ? parsed.libraryName : undefined, jobId: typeof parsed.jobId === "string" ? parsed.jobId : undefined };
+  return { intent: intents.includes(parsed.intent) ? parsed.intent : "unknown", sources: parsed.sources, desiredOutputs, libraryName: typeof parsed.libraryName === "string" ? parsed.libraryName : undefined, jobId: typeof parsed.jobId === "string" ? parsed.jobId : undefined, productionRequest: typeof parsed.productionRequest === "string" ? parsed.productionRequest : undefined };
 }

@@ -918,7 +918,7 @@ export interface TelegramDecisionNonceDoc {
   brandId: string;
   jobId: string;
   actionId: string;
-  target: "effect" | "strategy" | "strategy_feedback";
+  target: "effect" | "strategy" | "strategy_feedback" | "production";
   payloadDigest: string;
   decision: "approved" | "rejected";
   feedback?: string;

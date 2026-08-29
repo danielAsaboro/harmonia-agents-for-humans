@@ -20,6 +20,9 @@ import { hasRightsAttestation, RIGHTS_ATTESTATION_PHRASE, sourceRightsAuthorizat
 import { createSourceJob } from "@/lib/sourceManifest";
 import { latestHealthySnapshot, listLibraryConnections } from "@/lib/brandLibraries/repository";
 import { outputKindSchema } from "@/lib/contracts";
+import { getProductionPlanWorkspaceForJob, proposeProductionPlan, type ProductionPlanAggregate, type ProductionPlanWorkspaceView } from "@/lib/productionPlanStore";
+import { authorProductionPlan } from "@/lib/productionPlanAuthor";
+import type { VideoProductionPlan } from "@/lib/mediaProduction";
 
 const chatSchema = z.object({
   message: z.string().min(1).max(2000),
@@ -174,6 +177,47 @@ export async function buildApprovalConfirmation(
   };
 }
 
+export async function buildProductionApprovalConfirmation(
+  workspace: ProductionPlanWorkspaceView,
+  surface: "dashboard" | "telegram",
+  createOperation: typeof createPendingOperation = createPendingOperation,
+): Promise<ChatResponse> {
+  const { aggregate, revision } = workspace;
+  const summary: PendingActionSummary = {
+    id: aggregate.id,
+    title: `Production plan v${aggregate.currentRevision}: ${revision.plan.goal}`,
+    type: "production_plan",
+    risk: "material",
+    payloadDigest: aggregate.currentPlanDigest,
+  };
+  if (aggregate.state !== "sealed") return {
+    intent: "approve_production_plan",
+    reply: `Production plan ${aggregate.id} is ${aggregate.state}, not sealed for approval. Publication approval remains separate.`,
+    jobId: aggregate.jobId,
+    pendingActions: [],
+  };
+  if (surface === "telegram") return {
+    intent: "approve_production_plan",
+    reply: `Production plan ${aggregate.id} v${aggregate.currentRevision} is sealed at a maximum cost of $${revision.plan.maximumCostUsd}. Use the verified production confirmation; this does not approve publication.`,
+    jobId: aggregate.jobId,
+    pendingActions: [summary],
+  };
+  const operation = await createOperation({
+    handler: "decide_production_plan",
+    title: `Approve ${summary.title}`,
+    description: `Authorize only the sealed paid media graph up to $${revision.plan.maximumCostUsd}; publication remains separately gated.`,
+    risk: "material",
+    arguments: { jobId: aggregate.jobId, actionId: aggregate.id, payloadDigest: aggregate.currentPlanDigest },
+  }) as Pick<PendingOperation, "id">;
+  return {
+    intent: "approve_production_plan",
+    reply: `Review production plan ${aggregate.id} v${aggregate.currentRevision}, then use the explicit production confirmation. Publication remains separately gated.`,
+    jobId: aggregate.jobId,
+    pendingActions: [summary],
+    confirmation: { operationId: operation.id, payloadDigest: aggregate.currentPlanDigest },
+  };
+}
+
 async function assetsOf(jobId: string) {
   try {
     const assets = await listAssets(jobId);
@@ -182,6 +226,73 @@ async function assetsOf(jobId: string) {
   } catch {
     return undefined;
   }
+}
+
+async function resolveProductionWorkspace(jobId?: string): Promise<ProductionPlanWorkspaceView | null> {
+  if (jobId) return getProductionPlanWorkspaceForJob(jobId);
+  const jobs = await listJobs();
+  for (const job of jobs) {
+    const workspace = await getProductionPlanWorkspaceForJob(job.id);
+    if (workspace) return workspace;
+  }
+  return null;
+}
+
+export function productionStatusReply(workspace: ProductionPlanWorkspaceView): string {
+  const { aggregate, revision, operations } = workspace;
+  const counts = new Map<string, number>();
+  for (const operation of operations) counts.set(operation.state, (counts.get(operation.state) ?? 0) + 1);
+  const active = operations.filter((operation) => ["claimed", "submitting", "waiting_provider"].includes(operation.state));
+  const failed = operations.filter((operation) => operation.state === "failed" || operation.state === "uncertain");
+  const stateSummary = [...counts.entries()].sort(([left], [right]) => left.localeCompare(right))
+    .map(([state, count]) => `${count} ${state}`).join(", ");
+  const activeSummary = active.length
+    ? ` Active: ${active.map((operation) => `${operation.type}${operation.provider ? ` via ${operation.provider}` : ""}`).join(", ")}.`
+    : " No operation is actively executing.";
+  const failureSummary = failed.length
+    ? ` Attention required: ${failed.map((operation) => `${operation.type}: ${operation.failureReason ?? operation.state}`).join("; ")}.`
+    : "";
+  return `Production plan ${aggregate.id} v${revision.revision} is ${aggregate.state}. Operations: ${stateSummary || "none"}.${activeSummary}${failureSummary} Production approval does not authorize publication.`;
+}
+
+export function productionModelExplanation(workspace: ProductionPlanWorkspaceView): string {
+  const plan = workspace.revision.plan;
+  const sceneModels = plan.scenes.map((scene) => scene.video
+    ? `${scene.id} uses ${scene.video.modelCapability} for ${scene.video.mode} at ${scene.video.resolution}, ${scene.video.durationSec}s, ${scene.video.aspectRatio}`
+    : `${scene.id} uses source media only`);
+  const soundtrack = plan.soundtrack
+    ? `Soundtrack uses ${plan.soundtrack.modelCapability} for ${plan.soundtrack.targetDurationSec}s (${plan.soundtrack.instrumental ? "instrumental" : "vocals"}).`
+    : "No generated soundtrack is included, so no music-generation cost is authorized.";
+  return `Model selection for production plan ${workspace.aggregate.id} v${workspace.revision.revision}: ${sceneModels.join("; ")}. ${soundtrack} These are the exact sealed controls; changing them creates a new revision and invalidates the current mandate.`;
+}
+
+export async function createOrReviseProductionPlanFromChat(
+  input: { jobId: string; request: string; revise: boolean },
+  dependencies: {
+    getJob?: typeof getJob;
+    getWorkspace?: typeof getProductionPlanWorkspaceForJob;
+    author?: typeof authorProductionPlan;
+    propose?: typeof proposeProductionPlan;
+    tenant?: { workspaceId: string; brandId: string };
+  } = {},
+): Promise<{ plan: VideoProductionPlan; aggregate: ProductionPlanAggregate }> {
+  const loadJob = dependencies.getJob ?? getJob;
+  const loadWorkspace = dependencies.getWorkspace ?? getProductionPlanWorkspaceForJob;
+  const author = dependencies.author ?? authorProductionPlan;
+  const propose = dependencies.propose ?? proposeProductionPlan;
+  const tenant = dependencies.tenant ?? currentTenant();
+  const [job, workspace] = await Promise.all([loadJob(input.jobId), loadWorkspace(input.jobId)]);
+  if (input.revise && !workspace) throw new Error(`job ${input.jobId} has no production plan to revise`);
+  if (!input.revise && workspace) throw new Error(`job ${input.jobId} already has production plan ${workspace.aggregate.id}; revise it instead`);
+  const plan = await author({
+    job,
+    workspaceId: tenant.workspaceId,
+    brandId: tenant.brandId,
+    request: input.request,
+    ...(workspace ? { existing: workspace.revision.plan } : {}),
+  });
+  const aggregate = await propose(plan);
+  return { plan, aggregate };
 }
 
 export async function handleChat(req: Request, options: { chatRunId?: string } = {}): Promise<Response> {
@@ -360,6 +471,70 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
           : "No jobs yet. Send me a YouTube URL to create one.",
         jobs: jobs.slice(0, 5).map(toCard),
       } satisfies ChatResponse };
+    }
+
+    case "production_status": {
+      const workspace = await resolveProductionWorkspace(intent.jobId);
+      if (!workspace) return { payload: {
+        intent: intent.intent,
+        reply: intent.jobId ? `Job ${intent.jobId} has no production plan.` : "No recent job has a production plan.",
+        ...(intent.jobId ? { jobId: intent.jobId } : {}),
+      } satisfies ChatResponse };
+      return { payload: {
+        intent: intent.intent,
+        reply: productionStatusReply(workspace),
+        jobId: workspace.aggregate.jobId,
+      } satisfies ChatResponse };
+    }
+
+    case "explain_production_plan": {
+      const workspace = await resolveProductionWorkspace(intent.jobId);
+      if (!workspace) return { payload: {
+        intent: intent.intent,
+        reply: intent.jobId ? `Job ${intent.jobId} has no production plan to explain.` : "No recent job has a production plan to explain.",
+        ...(intent.jobId ? { jobId: intent.jobId } : {}),
+      } satisfies ChatResponse };
+      return { payload: {
+        intent: intent.intent,
+        reply: productionModelExplanation(workspace),
+        jobId: workspace.aggregate.jobId,
+      } satisfies ChatResponse };
+    }
+
+    case "approve_production_plan": {
+      const workspace = await resolveProductionWorkspace(intent.jobId);
+      if (!workspace) return { payload: {
+        intent: intent.intent,
+        reply: intent.jobId ? `Job ${intent.jobId} has no production plan to approve.` : "No recent job has a production plan to approve.",
+        ...(intent.jobId ? { jobId: intent.jobId } : {}),
+      } satisfies ChatResponse };
+      return { payload: await buildProductionApprovalConfirmation(workspace, surface) };
+    }
+
+    case "create_production_plan":
+    case "revise_production_plan": {
+      if (!intent.jobId) return { payload: {
+        intent: intent.intent,
+        reply: `Specify the exact job ID to ${intent.intent === "create_production_plan" ? "create" : "revise"} a production plan.`,
+      } satisfies ChatResponse };
+      const result = await createOrReviseProductionPlanFromChat({
+        jobId: intent.jobId,
+        request: intent.productionRequest ?? message,
+        revise: intent.intent === "revise_production_plan",
+      });
+      return { payload: {
+        intent: intent.intent,
+        reply: `${result.aggregate.state === "proposed" ? "Proposed" : "Created"} production plan ${result.plan.id} v${result.plan.revision} for job ${result.plan.jobId}: ${result.plan.scenes.length} shot(s), ${result.plan.target.durationSec}s, exact estimated and maximum cost $${result.plan.maximumCostUsd}. Review and seal this exact revision before production approval; publication remains separately gated.`,
+        jobId: result.plan.jobId,
+      } satisfies ChatResponse, status: 201 };
+    }
+
+    case "rerender_production_plan": {
+      return { payload: {
+        intent: intent.intent,
+        reply: "Cost-free rerendering is visibly blocked until Harmonia can create a new durable internal render attempt while preserving the paid artifact claims and their audit history. No provider request, mandate charge, or publication action was created.",
+        ...(intent.jobId ? { jobId: intent.jobId } : {}),
+      } satisfies ChatResponse, status: 409 };
     }
 
     case "list_artifacts": {

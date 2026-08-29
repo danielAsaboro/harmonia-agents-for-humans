@@ -98,7 +98,14 @@ class AgentEngineTeamRuntime:
                 "resource": self.resource_name,
             }))
             try:
-                session = await remote.async_get_session(user_id=user_id, session_id=session_id)
+                try:
+                    session = await remote.async_get_session(
+                        user_id=user_id, session_id=session_id,
+                    )
+                except RuntimeError as exc:
+                    if "not found" not in str(exc).lower():
+                        raise
+                    session = None
                 if session is None:
                     try:
                         session = await remote.async_create_session(

@@ -65,6 +65,7 @@ def build_deployment_config(
             if key in _FORWARDED_ENV and value
         } | {
             "INTERNAL_API_TOKEN": {"secret": "internal-api-token", "version": "latest"},
+            "GEMINI_API_KEY": {"secret": "gemini-api-key", "version": "latest"},
         },
     }
 

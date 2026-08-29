@@ -154,6 +154,44 @@ def test_runtime_creates_session_when_managed_sdk_wraps_not_found_in_client_erro
     assert len(remote.created) == 1
 
 
+def test_runtime_uses_sync_sdk_methods_when_async_transport_connector_is_closed():
+    class SyncCapableRemote(_RemoteAgent):
+        async def async_get_session(self, **kwargs):
+            raise AssertionError("closed aiohttp connector")
+
+        def get_session(self, **kwargs):
+            return self.sessions.get(kwargs["session_id"])
+
+        def create_session(self, **kwargs):
+            self.created.append(kwargs)
+            session = {"id": kwargs["session_id"], "state": dict(kwargs["state"])}
+            self.sessions[kwargs["session_id"]] = session
+            return session
+
+        def stream_query(self, **kwargs):
+            self.queries.append(kwargs)
+            yield {
+                "author": "nimi_analyst",
+                "actions": {"state_delta": {
+                    "source_analysis": {"summary": "Managed analysis", "moments": [], "angles": []},
+                }},
+            }
+
+    remote = SyncCapableRemote()
+    runtime = AgentEngineTeamRuntime(
+        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
+        client=_Client(remote),
+    )
+
+    state = asyncio.run(runtime.invoke(
+        specialist="nimi_analyst", payload={"title": "Demo"},
+        user_id="job-123", session_key="op-1",
+    ))
+
+    assert state["source_analysis"]["summary"] == "Managed analysis"
+    assert len(remote.created) == 1
+
+
 def test_runtime_resumes_the_same_managed_session_after_process_restart():
     remote = _RemoteAgent()
     kwargs = dict(
@@ -317,4 +355,5 @@ def test_agent_engine_deployment_config_is_narrow_and_reproducible():
         "COPYWRITER_MODEL_ID": "gemini-3.5-flash",
         "WEB_INTERNAL_URL": "https://harmonia-web.example",
         "INTERNAL_API_TOKEN": {"secret": "internal-api-token", "version": "latest"},
+        "GEMINI_API_KEY": {"secret": "gemini-api-key", "version": "latest"},
     }

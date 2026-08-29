@@ -142,7 +142,7 @@ def _gemini(
 def load_role_model_catalog() -> RoleModelCatalog:
     return RoleModelCatalog(
         coordinator=_gemini(
-            "harmonia_coordinator", "COORDINATOR_MODEL_ID", "gemini-3.5-flash-lite", 1024, 0.1,
+            "harmonia_coordinator", "COORDINATOR_MODEL_ID", "gemini-3.5-flash", 1024, 0.1,
             ("route",),
         ),
         strategist=_gemini(
@@ -162,7 +162,7 @@ def load_role_model_catalog() -> RoleModelCatalog:
             ("review_drafts",),
         ),
         planner=_gemini(
-            "temi_editorial_planner", "PLANNER_MODEL_ID", "gemini-3.5-flash-lite", 4096, 0.1,
+            "temi_editorial_planner", "PLANNER_MODEL_ID", "gemini-3.5-flash", 4096, 0.1,
             ("propose_editorial_plan",),
         ),
         presenter=_gemini(

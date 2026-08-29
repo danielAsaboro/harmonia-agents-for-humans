@@ -372,9 +372,10 @@ def test_runtime_explicitly_directs_agents_to_the_pinned_projection_when_present
         user_id="job-123",
         session_key="op-1:projection-a",
     ))
-    assert "_durable_context_projection" in remote.queries[0]["message"]
-    assert "pinned authority" in remote.queries[0]["message"]
-    assert "Do not pass its key, name, or content to any tool" in remote.queries[0]["message"]
+    assert remote.queries[0]["message"] == (
+        "Call transfer_to_agent for nimi_analyst now. Do not answer in text. "
+        "The complete typed input is already in managed session state."
+    )
     assert "Read _durable_context_projection" not in remote.queries[0]["message"]
 
 

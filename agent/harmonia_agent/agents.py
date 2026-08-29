@@ -256,6 +256,14 @@ def _instance_model_id(model: str | BaseLlm) -> str:
     return model if isinstance(model, str) else model.model
 
 
+def _located_model(model_id: str) -> str | BaseLlm:
+    location = os.environ.get("GEMINI_VERTEX_LOCATION")
+    if not location:
+        return model_id
+    from google.adk.models.google_llm import Gemini
+    return Gemini(model=model_id, client_kwargs={"vertexai": True, "location": location})
+
+
 def _resolve_role_models(
     model: str | BaseLlm | None = None,
     models: RoleModelInstances | None = None,
@@ -280,14 +288,14 @@ def _resolve_role_models(
     catalog = load_role_model_catalog()
     configs = {item.role: item for item in catalog.roles()}
     return RoleModelInstances(
-        coordinator=catalog.coordinator.model_id,
-        strategist=catalog.strategist.model_id,
-        analyst=catalog.analyst.model_id,
-        copywriter=catalog.copywriter.model_id,
-        editor=catalog.editor.model_id,
-        planner=catalog.planner.model_id,
-        presenter=catalog.presenter.model_id,
-        liaison=catalog.liaison.model_id,
+        coordinator=_located_model(catalog.coordinator.model_id),
+        strategist=_located_model(catalog.strategist.model_id),
+        analyst=_located_model(catalog.analyst.model_id),
+        copywriter=_located_model(catalog.copywriter.model_id),
+        editor=_located_model(catalog.editor.model_id),
+        planner=_located_model(catalog.planner.model_id),
+        presenter=_located_model(catalog.presenter.model_id),
+        liaison=_located_model(catalog.liaison.model_id),
         configs=configs,
     )
 

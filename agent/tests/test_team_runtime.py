@@ -12,6 +12,7 @@ from harmonia_agent.team_runtime import (
 )
 from harmonia_agent.agent_engine_app import build_agent_engine_app
 from harmonia_agent.agent_engine_deploy import build_deployment_config
+from harmonia_agent.agents import _resolve_role_models
 
 
 class _RemoteAgent:
@@ -336,6 +337,7 @@ def test_agent_engine_deployment_config_is_narrow_and_reproducible():
             "PRESENTER_MODEL_ID": "gemini-3.5-flash",
             "COPYWRITER_MODEL_ID": "gemini-3.5-flash",
             "WEB_INTERNAL_URL": "https://harmonia-web.example",
+            "GEMINI_VERTEX_LOCATION": "global",
             "GOOGLE_CSE_ID": "search-engine-1",
             "GOOGLE_CLOUD_PROJECT": "must-be-runtime-injected",
             "GOOGLE_CLOUD_LOCATION": "must-be-runtime-injected",
@@ -354,6 +356,17 @@ def test_agent_engine_deployment_config_is_narrow_and_reproducible():
         "PRESENTER_MODEL_ID": "gemini-3.5-flash",
         "COPYWRITER_MODEL_ID": "gemini-3.5-flash",
         "WEB_INTERNAL_URL": "https://harmonia-web.example",
+        "GEMINI_VERTEX_LOCATION": "global",
         "INTERNAL_API_TOKEN": {"secret": "internal-api-token", "version": "latest"},
         "GEMINI_API_KEY": {"secret": "gemini-api-key", "version": "latest"},
     }
+
+
+def test_role_models_use_explicit_global_vertex_location(monkeypatch):
+    monkeypatch.setenv("GEMINI_VERTEX_LOCATION", "global")
+    monkeypatch.setenv("COORDINATOR_MODEL_ID", "gemini-3.5-flash-lite")
+
+    models = _resolve_role_models()
+
+    assert models.coordinator.model == "gemini-3.5-flash-lite"
+    assert models.coordinator.client_kwargs == {"vertexai": True, "location": "global"}

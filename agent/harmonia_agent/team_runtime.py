@@ -37,6 +37,13 @@ def _session_id(session: Any) -> str:
     return str(value)
 
 
+def _is_missing_session_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "session not found" in message and (
+        isinstance(exc, RuntimeError) or "create_session" in message
+    )
+
+
 def _state_delta(event: Any) -> dict[str, Any]:
     if not isinstance(event, dict):
         event = event.model_dump(mode="json") if hasattr(event, "model_dump") else {}
@@ -102,8 +109,8 @@ class AgentEngineTeamRuntime:
                     session = await remote.async_get_session(
                         user_id=user_id, session_id=session_id,
                     )
-                except RuntimeError as exc:
-                    if "not found" not in str(exc).lower():
+                except Exception as exc:  # provider SDK wraps this in multiple exception types
+                    if not _is_missing_session_error(exc):
                         raise
                     session = None
                 if session is None:

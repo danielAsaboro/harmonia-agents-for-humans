@@ -123,6 +123,37 @@ def test_runtime_creates_session_when_managed_sdk_raises_not_found():
     assert len(remote.created) == 1
 
 
+def test_runtime_creates_session_when_managed_sdk_wraps_not_found_in_client_error():
+    class ClientError(Exception):
+        pass
+
+    class RealErrorShapeRemote(_RemoteAgent):
+        async def async_get_session(self, **kwargs):
+            session = self.sessions.get(kwargs["session_id"])
+            if session is None:
+                raise ClientError(
+                    "400 INVALID_ARGUMENT: Agent Engine Error: Session not found. "
+                    "Please create it using .create_session()"
+                )
+            return session
+
+    remote = RealErrorShapeRemote()
+    runtime = AgentEngineTeamRuntime(
+        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
+        client=_Client(remote),
+    )
+
+    state = asyncio.run(runtime.invoke(
+        specialist="nimi_analyst",
+        payload={"title": "Demo", "transcript": "proof"},
+        user_id="job-123",
+        session_key="job-123:understand:0:nimi_analyst",
+    ))
+
+    assert state["source_analysis"]["summary"] == "Managed analysis"
+    assert len(remote.created) == 1
+
+
 def test_runtime_resumes_the_same_managed_session_after_process_restart():
     remote = _RemoteAgent()
     kwargs = dict(

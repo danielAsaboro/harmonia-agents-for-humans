@@ -123,7 +123,7 @@ def test_agent_engine_runtime_seeds_a_deterministic_persistent_session_and_colle
     assert remote.created[0]["session_id"].startswith("harmonia-")
     assert remote.queries[0]["session_id"] == remote.created[0]["session_id"]
     assert json.loads(remote.queries[0]["message"]) == {
-        "title": "Demo", "transcript": "proof",
+        "title": "Demo", "transcript": "proof", "requestedSpecialist": "nimi_analyst",
     }
     assert "specialist_payload" not in remote.queries[0]["message"]
     assert remote.deleted == []

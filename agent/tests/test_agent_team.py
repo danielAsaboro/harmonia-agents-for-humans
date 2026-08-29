@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -297,19 +296,14 @@ def test_coordinator_selects_only_the_request_bound_specialist_without_an_llm_tr
         root.specialist_for_state({"requested_specialist": "unknown"})
 
 
-def test_coordinator_emits_native_adk_transfer_for_the_bound_specialist():
+def test_coordinator_router_reads_only_explicit_request_bound_metadata():
     root = build_agent_team()
-    ctx = SimpleNamespace(session=SimpleNamespace(
-        state={"requested_specialist": "temi_editorial_planner"},
-    ))
 
-    async def collect():
-        return [event async for event in root._run_async_impl(ctx)]
-
-    events = asyncio.run(collect())
-    assert len(events) == 1
-    assert events[0].author == "harmonia_coordinator"
-    assert events[0].actions.transfer_to_agent == "temi_editorial_planner"
+    assert root.model.specialist_from_message(
+        '{"requestedSpecialist":"temi_editorial_planner","strategy":{}}',
+    ) == "temi_editorial_planner"
+    with pytest.raises(AgentProtocolError, match="valid requested specialist"):
+        root.model.specialist_from_message('{"requestedSpecialist":"unknown"}')
 
 
 def test_noni_is_a_focused_skill_backed_typed_specialist():
@@ -378,7 +372,7 @@ def test_team_assigns_the_configured_model_to_each_role():
         liaison=scripted("liaison-fake"),
     ))
 
-    assert root.model.model == "coordinator-fake"
+    assert root.model.model == "request-bound-router"
     assert [agent.model.model for agent in root.sub_agents] == [
         "strategist-fake", "analyst-fake", "planner-fake", "copywriter-fake",
         "editor-fake", "copywriter-fake", "editor-fake", "presenter-fake", "liaison-fake",

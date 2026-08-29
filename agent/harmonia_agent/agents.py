@@ -11,15 +11,15 @@ import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from collections.abc import AsyncGenerator, Callable, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 from google.adk.agents import Agent
-from google.adk.agents.invocation_context import InvocationContext
-from google.adk.events import Event
-from google.adk.events import EventActions
+from google.adk.models._capabilities import LlmCapabilities
 from google.adk.models.base_llm import BaseLlm
+from google.adk.models.llm_response import LlmResponse
+from google.genai import types
 from pydantic import BaseModel, ValidationError
 
 from .agent_models import (
@@ -389,14 +389,42 @@ class DeterministicCoordinator(Agent):
                 return specialist
         raise AgentProtocolError(f"requested specialist is not installed: {requested}")
 
-    async def _run_async_impl(
-        self, ctx: InvocationContext,
-    ) -> AsyncGenerator[Event, None]:
-        specialist = self.specialist_for_state(ctx.session.state)
-        yield Event(
-            author=self.name,
-            actions=EventActions(transfer_to_agent=specialist.name),
+
+
+class RequestBoundRouterModel(BaseLlm):
+    """Emit ADK's standard transfer call without a generative routing decision."""
+
+    model: str = "request-bound-router"
+
+    @property
+    def capabilities(self) -> LlmCapabilities:
+        return LlmCapabilities(output_schema_and_tools=True)
+
+    @staticmethod
+    def specialist_from_message(message: str) -> str:
+        try:
+            requested = json.loads(message).get("requestedSpecialist")
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise AgentProtocolError("managed request lacks routing metadata") from exc
+        if requested not in _SPECIALIST_ROLES:
+            raise AgentProtocolError("managed session has no valid requested specialist")
+        return requested
+
+    async def generate_content_async(self, llm_request: Any, stream: bool = False):
+        message = next(
+            (
+                part.text for content in reversed(llm_request.contents)
+                for part in reversed(content.parts or []) if part.text
+            ),
+            "",
         )
+        requested = self.specialist_from_message(message)
+        yield LlmResponse(content=types.Content(
+            role="model",
+            parts=[types.Part(function_call=types.FunctionCall(
+                name="transfer_to_agent", args={"agent_name": requested},
+            ))],
+        ))
 
 
 def build_agent_team(
@@ -553,7 +581,7 @@ def build_agent_team(
         on_tool_error_callback=record_liaison_tool_error,
     )
     return DeterministicCoordinator(
-        model=resolved.coordinator,
+        model=RequestBoundRouterModel(),
         generate_content_config=generation_config(resolved.config_for("harmonia_coordinator")),
         name="harmonia_coordinator",
         description="Routes Harmonia judgment tasks to typed specialists; never performs external effects.",

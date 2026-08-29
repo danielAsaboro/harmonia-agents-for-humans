@@ -159,7 +159,10 @@ class AgentEngineTeamRuntime:
             }))
             try:
                 prompt = json.dumps(
-                    {key: value for key, value in payload.items() if not key.startswith("_")},
+                    {
+                        **{key: value for key, value in payload.items() if not key.startswith("_")},
+                        "requestedSpecialist": specialist,
+                    },
                     separators=(",", ":"), sort_keys=True,
                 )
                 if all(callable(getattr(remote, name, None)) for name in (

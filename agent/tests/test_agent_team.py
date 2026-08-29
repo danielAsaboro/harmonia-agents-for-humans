@@ -366,7 +366,7 @@ def test_team_applies_each_roles_generation_and_safety_policy():
 
     analyst = next(agent for agent in root.sub_agents if agent.name == "nimi_analyst")
     assert analyst.generate_content_config.temperature == 0.2
-    assert analyst.generate_content_config.max_output_tokens == 2048
+    assert analyst.generate_content_config.max_output_tokens == 8192
     assert len(analyst.tools) == 2
     assert analyst.tools[1].name == "nimi_google_search_agent"
 
@@ -417,7 +417,7 @@ def test_agent_reservations_record_exact_model_policy():
         "topP": 0.9,
         "topK": None,
         "safetyProfile": "harmonia-standard",
-        "maxOutputTokens": 2048,
+        "maxOutputTokens": 8192,
         "timeoutSeconds": 120,
         "eligibleTasks": ["analyze_media", "analyze_sources"],
         "minimumPassRate": "0.95",

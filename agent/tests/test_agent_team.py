@@ -46,6 +46,7 @@ from harmonia_agent.agent_errors import AgentContractError
 from harmonia_agent.stages import classify_failure
 from harmonia_agent.tenant_context import tenant_scope
 from harmonia_agent.generation_policy import safety_settings
+from harmonia_agent.provider_schema import vertex_output_schema
 from harmonia_agent.usage import InvocationContext
 
 
@@ -289,7 +290,7 @@ def test_noni_is_a_focused_skill_backed_typed_specialist():
 
     assert noni.name == "noni_copywriter"
     assert noni.input_schema is CopywriterInput
-    assert noni.output_schema is ContentDraft
+    assert noni.output_schema == vertex_output_schema(ContentDraft)
     assert noni.output_key == "copywriter_draft"
     assert noni.mode == "single_turn"
     assert len(noni.tools) == 2
@@ -316,7 +317,7 @@ def test_dara_is_a_focused_skill_only_review_specialist():
     root = build_agent_team()
     dara = next(agent for agent in root.sub_agents if agent.name == "dara_editor")
 
-    assert dara.output_schema is EditorialAssessment
+    assert dara.output_schema == vertex_output_schema(EditorialAssessment)
     assert dara.output_key == "editorial_assessment"
     assert dara.mode == "single_turn"
     assert len(dara.tools) == 1
@@ -326,8 +327,12 @@ def test_multiformat_specialists_use_strict_batch_contracts():
     root = build_agent_team()
     noni = next(agent for agent in root.sub_agents if agent.name == "noni_artifact_producer")
     dara = next(agent for agent in root.sub_agents if agent.name == "dara_artifact_editor")
-    assert (noni.input_schema, noni.output_schema, noni.output_key) == (ArtifactProductionInput, ProductionBatch, "production_batch")
-    assert (dara.output_schema, dara.output_key) == (ArtifactReviewBatch, "artifact_review_batch")
+    assert (noni.input_schema, noni.output_schema, noni.output_key) == (
+        ArtifactProductionInput, vertex_output_schema(ProductionBatch), "production_batch",
+    )
+    assert (dara.output_schema, dara.output_key) == (
+        vertex_output_schema(ArtifactReviewBatch), "artifact_review_batch",
+    )
 
 
 def test_team_assigns_the_configured_model_to_each_role():
@@ -466,7 +471,7 @@ def test_temi_runs_as_a_distinct_skill_backed_typed_specialist():
     planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
 
     assert planner.input_schema is EditorialPlannerInput
-    assert planner.output_schema is EditorialPlan
+    assert planner.output_schema == vertex_output_schema(EditorialPlan)
     assert len(planner.tools) == 1
     assert "write final post" in " ".join(planner.instruction.split())
 

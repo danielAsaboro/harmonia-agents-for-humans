@@ -16,6 +16,8 @@ from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.base_tool import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .provider_schema import vertex_output_schema
+
 RYAN_SKILL_NAME = "ryan-strategy-skills"
 RYAN_SKILL_TRACE_KEY = "ryan_strategy_skill_trace"
 RYAN_SKILL_ROOT = Path(__file__).parent / "skills" / RYAN_SKILL_NAME
@@ -79,7 +81,7 @@ def build_ryan_google_search_tool(model: str | BaseLlm) -> AgentTool:
             "customer research, change strategy, authorize an action, or access private data."
         ),
         tools=[google_search],
-        output_schema=GroundedStrategyResearch,
+        output_schema=vertex_output_schema(GroundedStrategyResearch),
         output_key="grounded_strategy_research",
         mode="single_turn",
     )

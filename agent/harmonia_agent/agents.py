@@ -44,6 +44,7 @@ from .agent_errors import AgentContractError
 from .config import settings
 from .generation_policy import generation_config
 from .model_catalog import PRICING_VERSION, estimate_text_cost
+from .provider_schema import vertex_output_schema
 from .memory_bank import MemoryBank, MemoryScope, VertexMemoryBank
 from .memory_bank import MemoryFact as RetrievedMemoryFact
 from .agent_models import MemoryFact as StrategyMemoryFact
@@ -389,7 +390,7 @@ def build_agent_team(
         ),
         instruction=RYAN_STRATEGIST_INSTRUCTION,
         input_schema=StrategistInput,
-        output_schema=StrategistResult,
+        output_schema=vertex_output_schema(StrategistResult),
         output_key="strategist_result",
         tools=[
             build_ryan_strategy_skillset(),
@@ -413,7 +414,7 @@ def build_agent_team(
         description="Finds grounded insights and, when timed media exists, clip-worthy moments across a source manifest.",
         instruction=NIMI_ANALYST_INSTRUCTION,
         input_schema=AnalystInput,
-        output_schema=SourceAnalysis,
+        output_schema=vertex_output_schema(SourceAnalysis),
         output_key="source_analysis",
         tools=analyst_tools,
         mode="single_turn",
@@ -430,7 +431,7 @@ def build_agent_team(
         ),
         instruction=MAYA_PRESENTER_INSTRUCTION,
         input_schema=UiContext,
-        output_schema=SurfacePlan,
+        output_schema=vertex_output_schema(SurfacePlan),
         output_key="surface_plan",
         mode="single_turn",
     )
@@ -441,7 +442,7 @@ def build_agent_team(
         description="Writes one platform-native X draft grounded in supplied moments and angles.",
         instruction=NONI_COPYWRITER_INSTRUCTION,
         input_schema=CopywriterInput,
-        output_schema=ContentDraft,
+        output_schema=vertex_output_schema(ContentDraft),
         output_key="copywriter_draft",
         tools=[
             build_noni_writing_skillset(),
@@ -458,7 +459,7 @@ def build_agent_team(
         description="Returns a structured review of one exact Noni draft without rewriting it.",
         instruction=DARA_EDITOR_INSTRUCTION,
         input_schema=EditorialReviewInput,
-        output_schema=EditorialAssessment,
+        output_schema=vertex_output_schema(EditorialAssessment),
         output_key="editorial_assessment",
         tools=[build_dara_editing_skillset()],
         mode="single_turn",
@@ -473,7 +474,7 @@ def build_agent_team(
         description="Produces a strict batch of requested, evidence-grounded content artifacts.",
         instruction=NONI_ARTIFACT_INSTRUCTION,
         input_schema=ArtifactProductionInput,
-        output_schema=ProductionBatch,
+        output_schema=vertex_output_schema(ProductionBatch),
         output_key="production_batch",
         tools=[build_noni_writing_skillset(), build_noni_google_search_tool(resolved.copywriter)],
         mode="single_turn",
@@ -487,7 +488,7 @@ def build_agent_team(
         description="Reviews every exact Noni artifact independently without rewriting it.",
         instruction=DARA_ARTIFACT_INSTRUCTION,
         input_schema=ArtifactReviewInput,
-        output_schema=ArtifactReviewBatch,
+        output_schema=vertex_output_schema(ArtifactReviewBatch),
         output_key="artifact_review_batch",
         tools=[build_dara_editing_skillset()],
         mode="single_turn",
@@ -502,7 +503,7 @@ def build_agent_team(
         description="Operationalizes one approved Ryan strategy as a bounded editorial plan.",
         instruction=TEMI_EDITORIAL_PLANNER_INSTRUCTION,
         input_schema=EditorialPlannerInput,
-        output_schema=EditorialPlan,
+        output_schema=vertex_output_schema(EditorialPlan),
         output_key="editorial_plan",
         tools=[build_temi_editorial_planning_skillset()],
         mode="single_turn",

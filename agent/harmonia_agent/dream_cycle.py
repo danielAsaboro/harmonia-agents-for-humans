@@ -10,6 +10,7 @@ from typing import Any
 from google.adk.agents import Agent
 
 from .autonomy_models import DreamCycleInput, DreamCycleOutput
+from .provider_schema import vertex_output_schema
 
 
 def build_dream_cycle_agent(model: str) -> Agent:
@@ -26,7 +27,7 @@ def build_dream_cycle_agent(model: str) -> Agent:
             "protected configuration remains human-reviewed. If evidence is weak, return no experiment."
         ),
         input_schema=DreamCycleInput,
-        output_schema=DreamCycleOutput,
+        output_schema=vertex_output_schema(DreamCycleOutput),
         output_key="dream_cycle_output",
         tools=[],
     )

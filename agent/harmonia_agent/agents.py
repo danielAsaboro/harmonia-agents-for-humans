@@ -10,12 +10,15 @@ import logging
 import os
 import re
 import time
+from contextlib import aclosing
 from datetime import datetime, timedelta, timezone
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 from google.adk.agents import Agent
+from google.adk.agents.invocation_context import InvocationContext
+from google.adk.events import Event
 from google.adk.models.base_llm import BaseLlm
 from pydantic import BaseModel, ValidationError
 
@@ -374,6 +377,27 @@ def _enforce_requested_specialist_transfer(
     return None
 
 
+class DeterministicCoordinator(Agent):
+    """Request-bound ADK router that never asks a model to format a transfer call."""
+
+    def specialist_for_state(self, state: Mapping[str, Any]) -> Agent:
+        requested = state.get("requested_specialist")
+        if requested not in _SPECIALIST_ROLES:
+            raise AgentProtocolError("managed session has no valid requested specialist")
+        for specialist in self.sub_agents:
+            if specialist.name == requested:
+                return specialist
+        raise AgentProtocolError(f"requested specialist is not installed: {requested}")
+
+    async def _run_async_impl(
+        self, ctx: InvocationContext,
+    ) -> AsyncGenerator[Event, None]:
+        specialist = self.specialist_for_state(ctx.session.state)
+        async with aclosing(specialist.run_async(ctx)) as events:
+            async for event in events:
+                yield event
+
+
 def build_agent_team(
     model: str | BaseLlm | None = None,
     *,
@@ -527,7 +551,7 @@ def build_agent_team(
         after_tool_callback=record_liaison_tool,
         on_tool_error_callback=record_liaison_tool_error,
     )
-    return Agent(
+    return DeterministicCoordinator(
         model=resolved.coordinator,
         generate_content_config=generation_config(resolved.config_for("harmonia_coordinator")),
         name="harmonia_coordinator",

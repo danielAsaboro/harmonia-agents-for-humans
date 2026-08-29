@@ -28,6 +28,7 @@ from harmonia_agent.agent_models import (
 )
 from harmonia_agent.content_artifacts import ArtifactProductionInput, ArtifactReviewBatch, ProductionBatch
 from harmonia_agent.agents import (
+    DeterministicCoordinator,
     AgentProtocolError,
     _enforce_requested_specialist_transfer,
     _reservation_payloads,
@@ -267,6 +268,7 @@ class ManagedRuntime:
 def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
     root = build_agent_team()
 
+    assert isinstance(root, DeterministicCoordinator)
     assert root.name == "harmonia_coordinator"
     assert [(a.name, a.mode) for a in root.sub_agents] == [
         ("ryan_strategist", "single_turn"),
@@ -282,6 +284,16 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
     tool_names = {tool.name for tool in root.tools if isinstance(tool, AgentTool)}
     assert "flo_content_engine" not in tool_names
     assert "noni_dara_revision_loop" not in tool_names
+
+
+def test_coordinator_selects_only_the_request_bound_specialist_without_an_llm_transfer():
+    root = build_agent_team()
+
+    assert root.specialist_for_state(
+        {"requested_specialist": "temi_editorial_planner"},
+    ).name == "temi_editorial_planner"
+    with pytest.raises(AgentProtocolError, match="valid requested specialist"):
+        root.specialist_for_state({"requested_specialist": "unknown"})
 
 
 def test_noni_is_a_focused_skill_backed_typed_specialist():

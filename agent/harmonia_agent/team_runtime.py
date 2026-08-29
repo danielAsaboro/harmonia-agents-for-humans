@@ -68,25 +68,16 @@ def _invoke_sync_remote(
     seeded_state: dict[str, Any], prompt: str,
 ) -> dict[str, Any]:
     try:
-        session = remote.get_session(user_id=user_id, session_id=session_id)
-    except Exception as exc:
-        if not _is_missing_session_error(exc):
-            raise
-        session = None
-    if session is None:
+        session = remote.create_session(
+            user_id=user_id, session_id=session_id, state=seeded_state,
+        )
+    except Exception as create_exc:
         try:
-            session = remote.create_session(
-                user_id=user_id, session_id=session_id, state=seeded_state,
-            )
-        except Exception as create_exc:
-            try:
-                session = remote.get_session(user_id=user_id, session_id=session_id)
-            except Exception as get_exc:
-                if _is_missing_session_error(get_exc):
-                    raise create_exc
-                raise
-            if session is None:
-                raise create_exc
+            session = remote.get_session(user_id=user_id, session_id=session_id)
+        except Exception:
+            raise create_exc
+        if session is None:
+            raise create_exc
     if _session_id(session) != session_id:
         raise AgentEngineProtocolError("Agent Engine returned the wrong managed session")
     state: dict[str, Any] = {}

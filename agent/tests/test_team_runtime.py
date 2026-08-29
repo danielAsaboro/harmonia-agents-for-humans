@@ -199,6 +199,39 @@ def test_runtime_uses_sync_sdk_methods_when_async_transport_connector_is_closed(
     assert len(remote.created) == 1
 
 
+def test_sync_runtime_creates_session_before_opaque_managed_not_found_lookup():
+    """Catches a fresh Agent Engine rejecting get_session without exposing its cause."""
+
+    class OpaqueLookupRemote(_RemoteAgent):
+        def get_session(self, **kwargs):
+            raise RuntimeError("400 Invalid Argument")
+
+        def create_session(self, **kwargs):
+            self.created.append(kwargs)
+            session = {"id": kwargs["session_id"], "state": dict(kwargs["state"])}
+            self.sessions[kwargs["session_id"]] = session
+            return session
+
+        def stream_query(self, **kwargs):
+            yield {"actions": {"state_delta": {
+                "source_analysis": {"summary": "Managed analysis", "moments": [], "angles": []},
+            }}}
+
+    remote = OpaqueLookupRemote()
+    runtime = AgentEngineTeamRuntime(
+        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
+        client=_Client(remote),
+    )
+
+    state = asyncio.run(runtime.invoke(
+        specialist="nimi_analyst", payload={"title": "Demo"},
+        user_id="job-123", session_key="op-1",
+    ))
+
+    assert state["source_analysis"]["summary"] == "Managed analysis"
+    assert len(remote.created) == 1
+
+
 def test_runtime_resumes_the_same_managed_session_after_process_restart():
     remote = _RemoteAgent()
     kwargs = dict(

@@ -1320,6 +1320,8 @@ export async function createJob(
   const id = newId();
   const now = new Date().toISOString();
   const storedConfig: JobConfig = { ...config };
+  if (storedConfig.strategyContext === undefined) delete storedConfig.strategyContext;
+  if (storedConfig.analysisResearchRequest === undefined) delete storedConfig.analysisResearchRequest;
   if (!storedConfig.strategyContext) {
     const goals = await getGoals();
     if (goals.strategyContext) storedConfig.strategyContext = goals.strategyContext;

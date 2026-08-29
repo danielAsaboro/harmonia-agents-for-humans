@@ -18,6 +18,25 @@ const scope = {
 };
 
 describe.skipIf(!emulator)("stage outbox Firestore transaction", () => {
+  it("omits undefined optional job configuration before persistence", async () => {
+    const job = await runWithTenant(scope, () => createJob({
+      sourceManifestId: "manifest-optional-config",
+      desiredOutputs: ["x_post"],
+      allowedOutputs: ["x_post"],
+      platforms: ["x"],
+      strategyContext: undefined,
+      analysisResearchRequest: undefined,
+    }, "collect_sources"));
+
+    const snapshot = await db().doc(`workspaces/${scope.workspaceId}/jobs/${job.id}`).get();
+    expect(snapshot.get("config")).toEqual({
+      sourceManifestId: "manifest-optional-config",
+      desiredOutputs: ["x_post"],
+      allowedOutputs: ["x_post"],
+      platforms: ["x"],
+    });
+  });
+
   it("atomically creates the initial trigger and grants one concurrent publisher", async () => {
     const job = await runWithTenant(scope, () => createJob({ sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, "understand"));
     const [record] = await runWithTenant(scope, () => listDispatchableStageOutbox());

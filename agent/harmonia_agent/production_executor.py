@@ -404,6 +404,23 @@ def execute_production_operation(
         else validate_veo_request(operation.get("payload"))
     )
     model = str(model_request["providerModel"])
+    config = settings()
+    media_output_bucket = getattr(config, "media_output_bucket", None)
+    if provider == "veo" and not media_output_bucket:
+        record_production_operation_failure(
+            plan_id,
+            operation_id,
+            claim_id=claim["id"],
+            claim_token=token,
+            outcome="failed",
+            reason="MEDIA_OUTPUT_BUCKET is required for authorized Veo output",
+        )
+        return {"outcome": "failed", "reason": "authorized Veo output storage unavailable"}
+    authorized_output_prefix = (
+        f"gs://{media_output_bucket}/workspaces/{claim['workspaceId']}/brands/{claim['brandId']}"
+        f"/jobs/{claim['jobId']}/plans/{plan_id}/claims/{claim['id']}/"
+        if provider == "veo" else None
+    )
     budget_operation_id = f"production:{claim['id']}"
     try:
         reserve_budget({
@@ -475,8 +492,8 @@ def execute_production_operation(
             return {"outcome": "failed", "reason": "provider submission authorization failed"}
 
     transport = GoogleMediaTransport(
-        project=settings().gcp_project,
-        location=settings().vertex_media_location,
+        project=config.gcp_project,
+        location=config.vertex_media_location,
     )
 
     def persist_provider(provider_operation_id: str) -> None:
@@ -521,6 +538,7 @@ def execute_production_operation(
                 request=model_request,
                 existing_operation=str(persisted_provider_id) if persisted_provider_id else None,
                 persist_operation=persist_provider,
+                authorized_output_prefix=authorized_output_prefix,
             )
         else:
             generated = LyriaGenerator(transport=transport).generate(
@@ -551,6 +569,7 @@ def execute_production_operation(
             "durationSec": generated.duration_sec,
             "estimatedCostUsd": sealed_cost,
             "inspection": inspection,
+            "providerResponse": generated.provider_metadata,
         }
         completed = upload_production_artifact(
             plan_id,

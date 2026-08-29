@@ -135,6 +135,11 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
 gcloud storage buckets add-iam-policy-binding "${ASSET_BUCKET}" \
   --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role roles/storage.objectAdmin --project "${PROJECT_ID}" >/dev/null
+for role in roles/storage.objectCreator roles/storage.objectViewer; do
+  gcloud storage buckets add-iam-policy-binding "${ASSET_BUCKET}" \
+    --member "serviceAccount:harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --role "${role}" --project "${PROJECT_ID}" >/dev/null
+done
 
 # Cloud Run metadata credentials sign short-lived upload/download URLs through
 # IAM Credentials. Scope that authority to the web identity signing as itself.

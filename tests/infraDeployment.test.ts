@@ -168,6 +168,12 @@ describe("Google Cloud deployment automation", () => {
     expect(fake.log()).toContain("storage buckets describe gs://project-eabd3654-89fd-476d-b23-harmonia-assets");
     expect(fake.log()).toContain("storage buckets add-iam-policy-binding gs://project-eabd3654-89fd-476d-b23-harmonia-assets");
     expect(fake.log()).toContain("roles/storage.objectAdmin");
+    const bucketBindings = fake.log().split("\n").filter((line) =>
+      line.includes("storage buckets add-iam-policy-binding")
+      && line.includes("serviceAccount:harmonia-agent@"),
+    );
+    expect(bucketBindings.some((line) => line.includes("roles/storage.objectCreator"))).toBe(true);
+    expect(bucketBindings.some((line) => line.includes("roles/storage.objectViewer"))).toBe(true);
     expect(fake.log()).toContain("service-166794945034@gcp-sa-pubsub.iam.gserviceaccount.com");
     expect(fake.log()).toContain("roles/iam.serviceAccountTokenCreator");
   });
@@ -199,6 +205,8 @@ describe("Google Cloud deployment automation", () => {
     });
 
     expect(fake.log()).toContain("GCS_BUCKET=project-eabd3654-89fd-476d-b23-harmonia-assets");
+    const agentDeploy = fake.log().split("\n").find((line) => line.includes("run deploy harmonia-agent")) ?? "";
+    expect(agentDeploy).toContain("GCS_BUCKET=project-eabd3654-89fd-476d-b23-harmonia-assets");
     expect(fake.log()).toContain("storage buckets update gs://project-eabd3654-89fd-476d-b23-harmonia-assets");
     expect(fake.log()).toContain("--cors-file=");
   });

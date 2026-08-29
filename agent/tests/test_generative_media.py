@@ -39,6 +39,10 @@ class FakeTransport:
             "type": "audio", "mime_type": "audio/mpeg", "data": "YXVkaW8=",
         }]}
 
+    def download_gcs(self, uri: str, authorized_prefix: str) -> bytes:
+        self.calls.append(("download", uri, authorized_prefix))
+        return b"video-from-gcs"
+
 
 def test_veo_persists_operation_before_polling_and_returns_typed_media():
     transport = FakeTransport()
@@ -56,6 +60,75 @@ def test_veo_persists_operation_before_polling_and_returns_typed_media():
     assert order == ["persist:projects/p/locations/us-central1/models/veo/operations/op-1"]
     assert [call[0] for call in transport.calls] == ["start", "poll"]
     assert transport.calls[1][2] == "veo-3.1-fast-generate-001"
+
+
+def test_veo_uses_only_its_authorized_gcs_output_prefix_and_retains_filtering_metadata():
+    class GcsTransport(FakeTransport):
+        def poll_veo(self, operation_name: str, model: str):
+            self.calls.append(("poll", operation_name, model))
+            return {
+                "name": operation_name,
+                "done": True,
+                "response": {
+                    "raiMediaFilteredCount": 0,
+                    "raiMediaFilteredReasons": [],
+                    "videos": [{
+                        "gcsUri": "gs://media-bucket/workspaces/w1/brands/b1/jobs/j1/plans/p1/claims/c1/123/sample_0.mp4",
+                        "mimeType": "video/mp4",
+                    }],
+                },
+            }
+
+    transport = GcsTransport()
+    prefix = "gs://media-bucket/workspaces/w1/brands/b1/jobs/j1/plans/p1/claims/c1/"
+    result = VeoGenerator(transport=transport).generate(
+        request=validate_veo_request({"modelCapability": "veo-3.1-fast", "mode": "text_to_video", "prompt": "abstract startup dashboard motion", "durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p", "generateAudio": False, "enhancePrompt": True, "outputCount": 1}),
+        existing_operation=None,
+        persist_operation=lambda _name: None,
+        authorized_output_prefix=prefix,
+    )
+
+    assert transport.calls[0][1]["storage_uri"] == prefix
+    assert transport.calls[-1] == (
+        "download",
+        "gs://media-bucket/workspaces/w1/brands/b1/jobs/j1/plans/p1/claims/c1/123/sample_0.mp4",
+        prefix,
+    )
+    assert result.data == b"video-from-gcs"
+    assert result.provider_metadata == {
+        "gcsUri": "gs://media-bucket/workspaces/w1/brands/b1/jobs/j1/plans/p1/claims/c1/123/sample_0.mp4",
+        "raiMediaFilteredCount": 0,
+        "raiMediaFilteredReasons": [],
+    }
+
+
+def test_veo_rejects_a_completed_output_outside_its_authorized_prefix():
+    class EscapedTransport(FakeTransport):
+        def poll_veo(self, operation_name: str, model: str):
+            return {"done": True, "response": {"videos": [{
+                "gcsUri": "gs://media-bucket/another-job/sample_0.mp4", "mimeType": "video/mp4",
+            }]}}
+
+        def download_gcs(self, uri: str, authorized_prefix: str) -> bytes:
+            pytest.fail("out-of-prefix media must not be downloaded")
+
+    with pytest.raises(MediaProtocolError, match="authorized GCS prefix"):
+        VeoGenerator(transport=EscapedTransport()).generate(
+            request=validate_veo_request({"modelCapability": "veo-3.1-fast", "mode": "text_to_video", "prompt": "abstract startup dashboard motion", "durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p", "generateAudio": False, "enhancePrompt": True, "outputCount": 1}),
+            existing_operation="operations/op-1",
+            persist_operation=lambda _name: None,
+            authorized_output_prefix="gs://media-bucket/workspaces/w1/brands/b1/jobs/j1/plans/p1/claims/c1/",
+        )
+
+
+def test_veo_rejects_inline_bytes_when_gcs_output_was_required():
+    with pytest.raises(MediaProtocolError, match="GCS output URI"):
+        VeoGenerator(transport=FakeTransport()).generate(
+            request=validate_veo_request({"modelCapability": "veo-3.1-fast", "mode": "text_to_video", "prompt": "abstract startup dashboard motion", "durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p", "generateAudio": False, "enhancePrompt": True, "outputCount": 1}),
+            existing_operation="operations/op-1",
+            persist_operation=lambda _name: None,
+            authorized_output_prefix="gs://media-bucket/workspaces/w1/brands/b1/jobs/j1/plans/p1/claims/c1/",
+        )
 
 
 def test_veo_resumes_existing_operation_without_starting_a_duplicate():

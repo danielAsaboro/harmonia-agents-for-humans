@@ -59,12 +59,13 @@ def test_executor_claims_sealed_operation_before_provider_and_uploads_verified_b
     inspected: list[tuple[bytes, str]] = []
 
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: order.append("claim") or _claim())
-    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1"))
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
     monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: object())
 
-    def generate(_self, *, request, existing_operation, persist_operation):
+    def generate(_self, *, request, existing_operation, persist_operation, authorized_output_prefix):
         assert order == ["claim", "budget:0.320000", "submission"]
         assert existing_operation is None
+        assert authorized_output_prefix == "gs://media-bucket/workspaces/workspace-1/brands/brand-1/jobs/job-1/plans/plan-1/claims/claim-1/"
         persist_operation("projects/p/locations/us-central1/operations/veo-1")
         return GeneratedMedia(
             data=b"real-video-bytes",
@@ -73,6 +74,7 @@ def test_executor_claims_sealed_operation_before_provider_and_uploads_verified_b
             provider_id="projects/p/locations/us-central1/operations/veo-1",
             duration_sec=4,
             estimated_cost_usd="999.000000",
+            provider_metadata={"gcsUri": authorized_output_prefix + "123/sample_0.mp4", "raiMediaFilteredCount": 0},
         )
 
     monkeypatch.setattr(production_executor.VeoGenerator, "generate", generate)
@@ -91,12 +93,16 @@ def test_executor_claims_sealed_operation_before_provider_and_uploads_verified_b
     assert uploads[0]["data"] == b"real-video-bytes"
     assert uploads[0]["operation_metadata"]["estimatedCostUsd"] == "0.320000"
     assert uploads[0]["operation_metadata"]["inspection"]["video"]["codec"] == "h264"
+    assert uploads[0]["operation_metadata"]["providerResponse"] == {
+        "gcsUri": "gs://media-bucket/workspaces/workspace-1/brands/brand-1/jobs/job-1/plans/plan-1/claims/claim-1/123/sample_0.mp4",
+        "raiMediaFilteredCount": 0,
+    }
     assert inspected == [(b"real-video-bytes", "video/mp4")]
 
 
 def test_executor_resumes_persisted_veo_identity_without_duplicate_submission(monkeypatch):
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim(provider_operation_id="operations/existing"))
-    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1"))
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
     monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: object())
     monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: None)
     monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("resume must not start a new submission")))
@@ -130,7 +136,7 @@ def test_executor_quarantines_ambiguous_provider_failure_without_resubmission(mo
     failures: list[dict] = []
     resolutions: list[dict] = []
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim())
-    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1"))
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
     monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: object())
     monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: None)
     monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: None)
@@ -157,7 +163,7 @@ def test_executor_quarantines_ambiguous_provider_failure_without_resubmission(mo
 def test_executor_requeues_transient_veo_poll_failure_after_provider_identity_is_durable(monkeypatch):
     provider_records: list[dict] = []
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim())
-    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1"))
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
     monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: object())
     monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: None)
     monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: None)
@@ -181,6 +187,7 @@ def test_executor_requeues_transient_veo_poll_failure_after_provider_identity_is
 def test_executor_persists_budget_rejection_as_terminal_failure_before_provider(monkeypatch):
     failures: list[dict] = []
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim())
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
     monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: (_ for _ in ()).throw(WebApiError("budget rejected", 409)))
     monkeypatch.setattr(production_executor, "record_production_operation_failure", lambda *args, **kwargs: failures.append(kwargs) or {"state": "failed"})
     monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("provider must not run")))
@@ -198,10 +205,43 @@ def test_executor_persists_budget_rejection_as_terminal_failure_before_provider(
     }]
 
 
+def test_executor_fails_closed_before_budget_when_veo_output_bucket_is_missing(monkeypatch):
+    failures: list[dict] = []
+    monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim())
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(
+        gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket=None,
+    ))
+    monkeypatch.setattr(
+        production_executor, "reserve_budget",
+        lambda _payload: (_ for _ in ()).throw(AssertionError("missing output storage must fail before budget")),
+    )
+    monkeypatch.setattr(
+        production_executor, "start_production_provider_submission",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("provider submission must not be armed")),
+    )
+    monkeypatch.setattr(
+        production_executor, "record_production_operation_failure",
+        lambda *args, **kwargs: failures.append(kwargs) or {"state": "failed"},
+    )
+
+    result = production_executor.execute_production_operation(
+        "plan-1", _operation()["id"], claim_token="worker-no-bucket",
+    )
+
+    assert result == {"outcome": "failed", "reason": "authorized Veo output storage unavailable"}
+    assert failures == [{
+        "claim_id": "claim-1",
+        "claim_token": "worker-no-bucket",
+        "outcome": "failed",
+        "reason": "MEDIA_OUTPUT_BUCKET is required for authorized Veo output",
+    }]
+
+
 def test_executor_releases_budget_when_predispatch_authorization_is_revoked(monkeypatch):
     failures: list[dict] = []
     resolutions: list[dict] = []
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim())
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
     monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: None)
     monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: (_ for _ in ()).throw(WebApiError("revision superseded", 409)))
     monkeypatch.setattr(production_executor, "record_production_operation_failure", lambda *args, **kwargs: failures.append(kwargs) or {"state": "failed"})
@@ -224,7 +264,7 @@ def test_executor_releases_budget_when_predispatch_authorization_is_revoked(monk
 
 def test_executor_surfaces_failed_veo_poll_rearm_for_pubsub_retry(monkeypatch):
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim(provider_operation_id="operations/existing"))
-    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1"))
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
     monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: object())
     monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: None)
     monkeypatch.setattr(production_executor.VeoGenerator, "generate", lambda *_args, **_kwargs: (_ for _ in ()).throw(MediaProviderError("poll unavailable")))

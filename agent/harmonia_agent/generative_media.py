@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Protocol
 
 import google.auth
 from google.auth.transport.requests import Request
 import httpx
+from google.cloud import storage
 
 from .telemetry import safe_attributes, tracer
 
@@ -142,6 +143,7 @@ class GeneratedMedia:
     provider_id: str
     duration_sec: int
     estimated_cost_usd: str
+    provider_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class MediaTransport(Protocol):
@@ -150,6 +152,8 @@ class MediaTransport(Protocol):
     def poll_veo(self, operation_name: str, model: str) -> dict[str, Any]: ...
 
     def generate_lyria(self, **kwargs: Any) -> dict[str, Any]: ...
+
+    def download_gcs(self, uri: str, authorized_prefix: str) -> bytes: ...
 
 
 class GoogleMediaTransport:
@@ -202,6 +206,7 @@ class GoogleMediaTransport:
                 "enhancePrompt": kwargs["enhance_prompt"],
                 **({"seed": kwargs["seed"]} if kwargs.get("seed") is not None else {}),
                 "personGeneration": "disallow",
+                **({"storageUri": kwargs["storage_uri"]} if kwargs.get("storage_uri") else {}),
             },
         }, timeout=60)
 
@@ -221,6 +226,18 @@ class GoogleMediaTransport:
             "model": kwargs["model"],
             "input": [{"type": "text", "text": kwargs["prompt"]}],
         }, timeout=180)
+
+    def download_gcs(self, uri: str, authorized_prefix: str) -> bytes:
+        if not uri.startswith(authorized_prefix):
+            raise MediaProtocolError("Veo output is outside its authorized GCS prefix")
+        remainder = uri.removeprefix("gs://")
+        bucket, separator, object_name = remainder.partition("/")
+        if not separator or not bucket or not object_name or ".." in object_name.split("/"):
+            raise MediaProtocolError("Veo returned a malformed GCS output URI")
+        try:
+            return storage.Client(project=self.project).bucket(bucket).blob(object_name).download_as_bytes()
+        except Exception as exc:  # noqa: BLE001 - Cloud Storage client has several transport errors
+            raise MediaProviderError("Veo GCS output download failed") from exc
 
 
 def _decode(value: Any, *, media: str) -> bytes:
@@ -245,6 +262,7 @@ class VeoGenerator:
         request: dict[str, Any],
         existing_operation: str | None,
         persist_operation: Callable[[str], None],
+        authorized_output_prefix: str | None = None,
     ) -> GeneratedMedia:
         request = validate_veo_request(request)
         duration_sec = int(request["durationSec"])
@@ -269,6 +287,7 @@ class VeoGenerator:
                     last_frame_artifact_id=request.get("lastFrameArtifactId"),
                     reference_image_artifact_ids=request.get("referenceImageArtifactIds"),
                     source_video_artifact_id=request.get("sourceVideoArtifactId"),
+                    storage_uri=authorized_output_prefix,
                 )
                 operation_name = started.get("name")
                 if not isinstance(operation_name, str) or not operation_name:
@@ -283,10 +302,24 @@ class VeoGenerator:
             if not videos:
                 raise MediaProtocolError("Veo completed without a video output")
             video = videos[0]
-            data = _decode(
-                video.get("bytesBase64Encoded") or video.get("bytes_base64_encoded"),
-                media="video",
-            )
+            gcs_uri = video.get("gcsUri") or video.get("gcs_uri")
+            if gcs_uri is not None:
+                if not isinstance(gcs_uri, str) or not authorized_output_prefix or not gcs_uri.startswith(authorized_output_prefix):
+                    raise MediaProtocolError("Veo output is outside its authorized GCS prefix")
+                data = self.transport.download_gcs(gcs_uri, authorized_output_prefix)
+            else:
+                if authorized_output_prefix:
+                    raise MediaProtocolError("Veo response is missing its required GCS output URI")
+                data = _decode(
+                    video.get("bytesBase64Encoded") or video.get("bytes_base64_encoded"),
+                    media="video",
+                )
+            response = polled.get("response") or {}
+            provider_metadata = {
+                **({"gcsUri": gcs_uri} if gcs_uri else {}),
+                **({"raiMediaFilteredCount": response["raiMediaFilteredCount"]} if "raiMediaFilteredCount" in response else {}),
+                **({"raiMediaFilteredReasons": response["raiMediaFilteredReasons"]} if "raiMediaFilteredReasons" in response else {}),
+            }
             return GeneratedMedia(
                 data=data,
                 mime=str(video.get("mimeType") or video.get("mime_type") or "video/mp4"),
@@ -294,6 +327,7 @@ class VeoGenerator:
                 provider_id=operation_name,
                 duration_sec=duration_sec,
                 estimated_cost_usd=estimate_media_cost(request),
+                provider_metadata=provider_metadata,
             )
 
 

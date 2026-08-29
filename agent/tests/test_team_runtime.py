@@ -122,8 +122,7 @@ def test_agent_engine_runtime_seeds_a_deterministic_persistent_session_and_colle
     assert remote.created[0]["session_id"].startswith("harmonia-")
     assert remote.queries[0]["session_id"] == remote.created[0]["session_id"]
     assert "Call transfer_to_agent for nimi_analyst now" in remote.queries[0]["message"]
-    assert "The complete typed input is already in managed session state" in remote.queries[0]["message"]
-    assert "specialist_payload" not in remote.queries[0]["message"]
+    assert '<specialist_payload>{"requested_specialist":"nimi_analyst","title":"Demo","transcript":"proof"}</specialist_payload>' in remote.queries[0]["message"]
     assert len(remote.queries[0]["message"]) < 500
     assert remote.deleted == []
 
@@ -372,10 +371,8 @@ def test_runtime_explicitly_directs_agents_to_the_pinned_projection_when_present
         user_id="job-123",
         session_key="op-1:projection-a",
     ))
-    assert remote.queries[0]["message"] == (
-        "Call transfer_to_agent for nimi_analyst now. Do not answer in text. "
-        "The complete typed input is already in managed session state."
-    )
+    assert "# AUTHORITY" not in remote.queries[0]["message"]
+    assert "_durable_context_projection" not in remote.queries[0]["message"]
     assert "Read _durable_context_projection" not in remote.queries[0]["message"]
 
 

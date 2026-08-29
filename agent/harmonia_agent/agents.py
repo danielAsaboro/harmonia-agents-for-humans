@@ -10,7 +10,6 @@ import logging
 import os
 import re
 import time
-from contextlib import aclosing
 from datetime import datetime, timedelta, timezone
 from collections.abc import AsyncGenerator, Callable, Mapping
 from dataclasses import dataclass, field
@@ -19,6 +18,7 @@ from typing import Any, TypeVar
 from google.adk.agents import Agent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event
+from google.adk.events import EventActions
 from google.adk.models.base_llm import BaseLlm
 from pydantic import BaseModel, ValidationError
 
@@ -393,9 +393,10 @@ class DeterministicCoordinator(Agent):
         self, ctx: InvocationContext,
     ) -> AsyncGenerator[Event, None]:
         specialist = self.specialist_for_state(ctx.session.state)
-        async with aclosing(specialist.run_async(ctx)) as events:
-            async for event in events:
-                yield event
+        yield Event(
+            author=self.name,
+            actions=EventActions(transfer_to_agent=specialist.name),
+        )
 
 
 def build_agent_team(

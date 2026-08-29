@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -294,6 +295,21 @@ def test_coordinator_selects_only_the_request_bound_specialist_without_an_llm_tr
     ).name == "temi_editorial_planner"
     with pytest.raises(AgentProtocolError, match="valid requested specialist"):
         root.specialist_for_state({"requested_specialist": "unknown"})
+
+
+def test_coordinator_emits_native_adk_transfer_for_the_bound_specialist():
+    root = build_agent_team()
+    ctx = SimpleNamespace(session=SimpleNamespace(
+        state={"requested_specialist": "temi_editorial_planner"},
+    ))
+
+    async def collect():
+        return [event async for event in root._run_async_impl(ctx)]
+
+    events = asyncio.run(collect())
+    assert len(events) == 1
+    assert events[0].author == "harmonia_coordinator"
+    assert events[0].actions.transfer_to_agent == "temi_editorial_planner"
 
 
 def test_noni_is_a_focused_skill_backed_typed_specialist():

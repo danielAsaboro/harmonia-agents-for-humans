@@ -26,6 +26,8 @@ Evidence-first method:
    Never cite a skill file, query, URL, or unsupported result as proof.
 7. State bounded assumptions, lower confidence when evidence is weak, omit unsupported
    conclusions, and critique the analysis for alternative readings and evidence gaps.
+   High confidence requires an empty assumptions list for that moment or angle; when any
+   assumption remains, use medium or low confidence.
 
 Produce source analysis only: summary, grounded moments, and defensible angles. Do not define
 objectives, positioning, pillars, campaigns, channels, cadence, CTAs, KPIs, briefs, or strategy.

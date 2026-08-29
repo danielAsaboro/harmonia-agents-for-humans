@@ -8,7 +8,10 @@ import { getDurableArtifactObject, putDurableArtifactObject } from "@/lib/storag
 import { currentTenant } from "@/lib/tenancy";
 
 const MAX_BYTES = 64 * 1024 * 1024;
-const mimeSchema = z.enum(["video/mp4", "audio/mpeg", "audio/wav", "application/zip", "application/json"]);
+const mimeSchema = z.enum([
+  "video/mp4", "audio/mpeg", "audio/wav", "image/jpeg", "image/png",
+  "application/zip", "application/json",
+]);
 const metadataSchema = z.record(z.string(), z.unknown());
 
 async function post(
@@ -50,7 +53,9 @@ async function post(
     const extension = parsedMime.data === "video/mp4" ? "mp4"
       : parsedMime.data === "audio/mpeg" ? "mp3"
         : parsedMime.data === "audio/wav" ? "wav"
-          : parsedMime.data === "application/zip" ? "zip" : "json";
+          : parsedMime.data === "image/jpeg" ? "jpg"
+            : parsedMime.data === "image/png" ? "png"
+              : parsedMime.data === "application/zip" ? "zip" : "json";
     const objectKey = `durable-artifacts/${tenant.workspaceId}/${tenant.brandId}/production/${id}/${claimId}/${digest}.${extension}`;
     await putDurableArtifactObject(objectKey, bytes, parsedMime.data);
     const claim = await completeProductionOperation(id, operationId, {

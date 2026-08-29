@@ -9,15 +9,15 @@ const artifactId = z.string().uuid();
 export const verifiedProductionArtifactRefSchema = z.object({
   artifactId,
   digest,
-  mime: z.enum(["video/mp4", "audio/mpeg", "audio/wav"]),
+  mime: z.enum(["video/mp4", "audio/mpeg", "audio/wav", "image/jpeg", "image/png"]),
   sizeBytes: z.number().int().positive().max(64 * 1024 * 1024),
   rightsAuthorizationId: z.string().regex(/^[A-Za-z0-9:_-]{1,256}$/),
 }).strict();
 export type VerifiedProductionArtifactRef = z.infer<typeof verifiedProductionArtifactRefSchema>;
 
 export const VEO_CAPABILITIES = {
-  "veo-3.1-fast": { model: "veo-3.1-fast-generate-001", resolutions: ["720p", "1080p"], durations: [4, 6, 8], modes: ["text_to_video"], usdPerSecond: "0.080000", preview: false },
-  "veo-3.1": { model: "veo-3.1-generate-001", resolutions: ["720p", "1080p", "4k"], durations: [4, 6, 8], modes: ["text_to_video"], usdPerSecond: null, preview: false },
+  "veo-3.1-fast": { model: "veo-3.1-fast-generate-001", resolutions: ["720p", "1080p"], durations: [4, 6, 8], modes: ["text_to_video", "image_to_video", "first_last_frame"], usdPerSecond: "0.080000", preview: false },
+  "veo-3.1": { model: "veo-3.1-generate-001", resolutions: ["720p", "1080p", "4k"], durations: [4, 6, 8], modes: ["text_to_video", "image_to_video", "first_last_frame"], usdPerSecond: null, preview: false },
 } as const;
 
 export const LYRIA_CAPABILITIES = {
@@ -33,10 +33,8 @@ export const generatedVideoSpecSchema = z.object({
   mode: videoMode,
   prompt: z.string().min(1).max(4000),
   negativePrompt: z.string().min(1).max(2000).optional(),
-  sourceImageArtifactId: z.string().min(1).optional(),
-  lastFrameArtifactId: z.string().min(1).optional(),
-  referenceImageArtifactIds: z.array(z.string().min(1)).max(3).optional(),
-  sourceVideoArtifactId: z.string().min(1).optional(),
+  sourceImageArtifact: verifiedProductionArtifactRefSchema.optional(),
+  lastFrameArtifact: verifiedProductionArtifactRefSchema.optional(),
   durationSec: z.union([z.literal(4), z.literal(6), z.literal(8)]),
   aspectRatio: z.enum(["16:9", "9:16"]),
   resolution: z.enum(["720p", "1080p", "4k"]),
@@ -50,12 +48,25 @@ export const generatedVideoSpecSchema = z.object({
   if (!(capability.durations as readonly number[]).includes(value.durationSec)) context.addIssue({ code: "custom", path: ["durationSec"], message: `duration is not supported by ${value.modelCapability}` });
   if (!(capability.modes as readonly string[]).includes(value.mode)) context.addIssue({ code: "custom", path: ["mode"], message: `mode is not supported by ${value.modelCapability}` });
   const requireField = (condition: boolean, field: keyof typeof value, message: string) => { if (condition && !value[field]) context.addIssue({ code: "custom", path: [field], message }); };
-  requireField(value.mode === "image_to_video" || value.mode === "first_last_frame", "sourceImageArtifactId", "source image is required");
-  requireField(value.mode === "first_last_frame", "lastFrameArtifactId", "last frame is required");
-  requireField(value.mode === "reference_images", "referenceImageArtifactIds", "reference images are required");
-  requireField(value.mode === "extend_video", "sourceVideoArtifactId", "source video is required");
-  if (value.negativePrompt || value.sourceImageArtifactId || value.lastFrameArtifactId || value.referenceImageArtifactIds || value.sourceVideoArtifactId) {
-    context.addIssue({ code: "custom", path: ["mode"], message: "conditioning controls are unavailable until their real provider path is implemented" });
+  requireField(value.mode === "image_to_video" || value.mode === "first_last_frame", "sourceImageArtifact", "source image is required");
+  requireField(value.mode === "first_last_frame", "lastFrameArtifact", "last frame is required");
+  if (value.mode === "text_to_video" && (value.sourceImageArtifact || value.lastFrameArtifact)) {
+    context.addIssue({ code: "custom", path: ["sourceImageArtifact"], message: "text-to-video cannot include conditioning images" });
+  }
+  if (value.mode !== "first_last_frame" && value.lastFrameArtifact) {
+    context.addIssue({ code: "custom", path: ["lastFrameArtifact"], message: "last frame requires first-last-frame mode" });
+  }
+  for (const field of ["sourceImageArtifact", "lastFrameArtifact"] as const) {
+    const reference = value[field];
+    if (reference && reference.mime !== "image/jpeg" && reference.mime !== "image/png") {
+      context.addIssue({ code: "custom", path: [field, "mime"], message: "Veo conditioning artifact must be JPEG or PNG" });
+    }
+    if (reference && reference.sizeBytes > 20 * 1024 * 1024) {
+      context.addIssue({ code: "custom", path: [field, "sizeBytes"], message: "Veo conditioning artifact must not exceed 20 MB" });
+    }
+  }
+  if (value.negativePrompt) {
+    context.addIssue({ code: "custom", path: ["negativePrompt"], message: "negative prompt is unavailable until its real provider path is implemented" });
   }
 });
 
@@ -139,6 +150,11 @@ export const videoProductionPlanSchema = z.object({
   const artifactIdentities = new Map<string, string>();
   const references = [
     ...value.scenes.flatMap((scene) => scene.sourceArtifact ? [scene.sourceArtifact] : []),
+    ...value.scenes.flatMap((scene) => scene.video
+      ? [scene.video.sourceImageArtifact, scene.video.lastFrameArtifact].filter(
+        (reference): reference is VerifiedProductionArtifactRef => Boolean(reference),
+      )
+      : []),
     ...value.narration.map((clip) => clip.artifact),
   ];
   for (const reference of references) {
@@ -328,10 +344,16 @@ export function estimateGeneratedMediaCost(spec: GeneratedVideoSpec | GeneratedM
 }
 
 export function compileProductionOperations(plan: VideoProductionPlan): ProductionOperation[] {
-  const references = [
+  const compositionReferences = [
     ...plan.scenes.flatMap((scene) => scene.sourceArtifact ? [scene.sourceArtifact] : []),
     ...plan.narration.map((clip) => clip.artifact),
   ];
+  const conditioningReferences = plan.scenes.flatMap((scene) => scene.video
+    ? [scene.video.sourceImageArtifact, scene.video.lastFrameArtifact].filter(
+      (reference): reference is VerifiedProductionArtifactRef => Boolean(reference),
+    )
+    : []);
+  const references = [...compositionReferences, ...conditioningReferences];
   const uniqueReferences = [...new Map(references.map((reference) => [reference.artifactId, reference])).values()];
   const resolved: ProductionOperation[] = uniqueReferences.map((reference) => ({
     id: `${plan.id}:resolve_media:${reference.artifactId}`,
@@ -347,7 +369,10 @@ export function compileProductionOperations(plan: VideoProductionPlan): Producti
     const type = scene.video.mode === "extend_video" ? "extend_video" : "generate_video";
     const id = `${plan.id}:${type}:${scene.id}`;
     const requestDigest = generatedMediaRequestDigest(scene.video);
-    paid.push({ id, jobId: plan.jobId, type, dependsOn: [], payload: scene.video, requestDigest, estimatedCostUsd: plan.operationCostsUsd[id], executionAuthority: "production_mandate" });
+    const conditioningIds = [scene.video.sourceImageArtifact, scene.video.lastFrameArtifact]
+      .filter((reference): reference is VerifiedProductionArtifactRef => Boolean(reference))
+      .map((reference) => `${plan.id}:resolve_media:${reference.artifactId}`);
+    paid.push({ id, jobId: plan.jobId, type, dependsOn: conditioningIds, payload: scene.video, requestDigest, estimatedCostUsd: plan.operationCostsUsd[id], executionAuthority: "production_mandate" });
   }
   if (plan.soundtrack) {
     const id = `${plan.id}:generate_music`;
@@ -356,7 +381,10 @@ export function compileProductionOperations(plan: VideoProductionPlan): Producti
   }
   const buildId = `${plan.id}:build_composition`;
   const chain: ProductionOperation[] = [
-    { id: buildId, jobId: plan.jobId, type: "build_composition", dependsOn: [...resolved, ...paid].map((item) => item.id), payload: { planDigest: productionPlanDigest(plan) }, requestDigest: sha({ planDigest: productionPlanDigest(plan) }), executionAuthority: "internal" },
+    { id: buildId, jobId: plan.jobId, type: "build_composition", dependsOn: [
+      ...compositionReferences.map((reference) => `${plan.id}:resolve_media:${reference.artifactId}`),
+      ...paid.map((item) => item.id),
+    ], payload: { planDigest: productionPlanDigest(plan) }, requestDigest: sha({ planDigest: productionPlanDigest(plan) }), executionAuthority: "internal" },
   ];
   for (const type of ["render_composition", "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production"] as const) {
     const previous = chain.at(-1)!.id;

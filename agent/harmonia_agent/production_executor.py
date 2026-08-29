@@ -79,6 +79,65 @@ def inspect_generated_media_bytes(data: bytes, mime: str) -> dict[str, Any]:
     return inspection
 
 
+def inspect_conditioning_image_bytes(data: bytes, mime: str) -> dict[str, Any]:
+    if mime not in {"image/jpeg", "image/png"}:
+        raise ProductionExecutionProtocolError("conditioning artifact must be JPEG or PNG")
+    suffix = ".jpg" if mime == "image/jpeg" else ".png"
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / f"conditioning{suffix}"
+        path.write_bytes(data)
+        inspection = inspect_media(path)
+    video = inspection.get("video")
+    if not isinstance(video, dict) or not video.get("width") or not video.get("height"):
+        raise ProductionExecutionProtocolError("conditioning artifact has no decodable image stream")
+    return inspection
+
+
+def _materialize_veo_conditioning(
+    plan_id: str,
+    request: dict[str, Any],
+    inputs: Any,
+    *,
+    download: bool,
+) -> dict[str, tuple[bytes, str, str]]:
+    if not isinstance(inputs, list):
+        raise ProductionExecutionProtocolError("paid production conditioning inputs are missing")
+    references = [
+        reference for reference in (
+            request.get("sourceImageArtifact"), request.get("lastFrameArtifact"),
+        ) if isinstance(reference, dict)
+    ]
+    expected_ids = {
+        f"{plan_id}:resolve_media:{reference['artifactId']}" for reference in references
+    }
+    by_operation: dict[str, dict[str, Any]] = {}
+    for value in inputs:
+        if not isinstance(value, dict) or not isinstance(value.get("operationId"), str) or not isinstance(value.get("artifact"), dict):
+            raise ProductionExecutionProtocolError("paid production conditioning input is malformed")
+        by_operation[value["operationId"]] = value["artifact"]
+    if set(by_operation) != expected_ids:
+        raise ProductionExecutionProtocolError("paid production conditioning dependencies do not match the sealed request")
+    materialized: dict[str, tuple[bytes, str, str]] = {}
+    for reference in references:
+        operation_id = f"{plan_id}:resolve_media:{reference['artifactId']}"
+        artifact = by_operation[operation_id]
+        if (
+            artifact.get("digest") != reference.get("digest")
+            or artifact.get("mime") != reference.get("mime")
+            or artifact.get("sizeBytes") != reference.get("sizeBytes")
+        ):
+            raise ProductionExecutionProtocolError("conditioning artifact does not match its sealed identity")
+        if not download:
+            continue
+        data, mime, digest = download_production_artifact(plan_id, operation_id)
+        mime = mime.split(";", 1)[0]
+        if digest != reference["digest"] or mime != reference["mime"] or len(data) != reference["sizeBytes"]:
+            raise ProductionExecutionProtocolError("conditioning artifact does not match its sealed identity")
+        inspect_conditioning_image_bytes(data, mime)
+        materialized[reference["artifactId"]] = (data, mime, digest)
+    return materialized
+
+
 def _target_dimensions(plan: dict[str, Any]) -> tuple[int, int]:
     target = plan.get("target")
     if not isinstance(target, dict):
@@ -193,7 +252,11 @@ def _execute_internal_operation(
             mime = mime.split(";", 1)[0]
             if digest != expected_digest or mime != expected_mime or len(data) != expected_size:
                 raise ProductionExecutionProtocolError("materialized source does not match its sealed identity")
-            inspection = inspect_generated_media_bytes(data, mime)
+            inspection = (
+                inspect_conditioning_image_bytes(data, mime)
+                if mime in {"image/jpeg", "image/png"}
+                else inspect_generated_media_bytes(data, mime)
+            )
             metadata = {
                 "kind": "verified_source_materialization",
                 "artifactId": artifact_id,
@@ -475,6 +538,26 @@ def execute_production_operation(
         else validate_veo_request(operation.get("payload"))
     )
     model = str(model_request["providerModel"])
+    persisted_provider_id = claim.get("providerOperationId")
+    conditioning_media: dict[str, tuple[bytes, str, str]] = {}
+    if provider == "veo":
+        try:
+            conditioning_media = _materialize_veo_conditioning(
+                plan_id,
+                model_request,
+                decision.get("inputs"),
+                download=not bool(persisted_provider_id),
+            )
+        except ProductionExecutionProtocolError as exc:
+            record_production_operation_failure(
+                plan_id,
+                operation_id,
+                claim_id=claim["id"],
+                claim_token=token,
+                outcome="failed",
+                reason=f"conditioning artifact verification failed: {exc}"[:2000],
+            )
+            return {"outcome": "failed", "reason": "conditioning artifact verification failed"}
     config = settings()
     media_output_bucket = getattr(config, "media_output_bucket", None)
     if provider == "veo" and not media_output_bucket:
@@ -526,7 +609,6 @@ def execute_production_operation(
                 logger.exception("failed to reconcile pre-provider production budget %s", budget_operation_id)
         return {"outcome": "failed", "reason": reason}
 
-    persisted_provider_id = claim.get("providerOperationId")
     active_provider_id = str(persisted_provider_id) if persisted_provider_id else None
     if provider == "lyria" and persisted_provider_id:
         raise ProductionExecutionProtocolError(
@@ -610,6 +692,7 @@ def execute_production_operation(
                 existing_operation=str(persisted_provider_id) if persisted_provider_id else None,
                 persist_operation=persist_provider,
                 authorized_output_prefix=authorized_output_prefix,
+                conditioning_media=conditioning_media,
             )
         else:
             generated = LyriaGenerator(transport=transport).generate(

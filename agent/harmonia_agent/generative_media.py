@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Protocol
@@ -19,8 +20,8 @@ VEO_MODEL = "veo-3.1-fast-generate-001"
 LYRIA_MODEL = "lyria-3-clip-preview"
 
 VEO_CAPABILITIES: dict[str, dict[str, Any]] = {
-    "veo-3.1-fast": {"model": "veo-3.1-fast-generate-001", "durations": {4, 6, 8}, "resolutions": {"720p", "1080p"}, "modes": {"text_to_video"}, "usdPerSecond": "0.080000"},
-    "veo-3.1": {"model": "veo-3.1-generate-001", "durations": {4, 6, 8}, "resolutions": {"720p", "1080p", "4k"}, "modes": {"text_to_video"}, "usdPerSecond": None},
+    "veo-3.1-fast": {"model": "veo-3.1-fast-generate-001", "durations": {4, 6, 8}, "resolutions": {"720p", "1080p"}, "modes": {"text_to_video", "image_to_video", "first_last_frame"}, "usdPerSecond": "0.080000"},
+    "veo-3.1": {"model": "veo-3.1-generate-001", "durations": {4, 6, 8}, "resolutions": {"720p", "1080p", "4k"}, "modes": {"text_to_video", "image_to_video", "first_last_frame"}, "usdPerSecond": None},
 }
 LYRIA_CAPABILITIES: dict[str, dict[str, Any]] = {
     "lyria-3-clip": {"model": "lyria-3-clip-preview", "maximumDurationSec": 30, "imageConditioning": True, "vocals": True, "structure": True, "fixedCostUsd": None},
@@ -49,6 +50,13 @@ class MediaOperationPending(MediaProviderError):
 
 def validate_veo_request(request: dict[str, Any]) -> dict[str, Any]:
     value = dict(request)
+    allowed_fields = {
+        "modelCapability", "mode", "prompt", "negativePrompt", "sourceImageArtifact",
+        "lastFrameArtifact", "durationSec", "aspectRatio", "resolution", "generateAudio",
+        "seed", "enhancePrompt", "outputCount", "providerModel", "mediaKind",
+    }
+    if set(value) - allowed_fields:
+        raise MediaProtocolError("Veo request contains unsupported fields")
     capability_name = value.get("modelCapability")
     capability = VEO_CAPABILITIES.get(str(capability_name))
     if capability is None:
@@ -63,24 +71,48 @@ def validate_veo_request(request: dict[str, Any]) -> dict[str, Any]:
     if mode not in capability["modes"]:
         raise MediaProtocolError("mode is unsupported by the selected Veo model")
     required = {
-        "image_to_video": ("sourceImageArtifactId",),
-        "first_last_frame": ("sourceImageArtifactId", "lastFrameArtifactId"),
-        "reference_images": ("referenceImageArtifactIds",),
-        "extend_video": ("sourceVideoArtifactId",),
+        "image_to_video": ("sourceImageArtifact",),
+        "first_last_frame": ("sourceImageArtifact", "lastFrameArtifact"),
     }.get(str(mode), ())
     for field in required:
         if not value.get(field):
             raise MediaProtocolError(f"{field} is required for {mode}")
-    if any(value.get(field) for field in (
-        "negativePrompt", "sourceImageArtifactId", "lastFrameArtifactId",
-        "referenceImageArtifactIds", "sourceVideoArtifactId",
-    )):
-        raise MediaProtocolError("Veo conditioning controls are unavailable")
+    source = value.get("sourceImageArtifact")
+    last = value.get("lastFrameArtifact")
+    if mode == "text_to_video" and (source or last):
+        raise MediaProtocolError("text-to-video cannot include conditioning images")
+    if mode != "first_last_frame" and last:
+        raise MediaProtocolError("last frame requires first-last-frame mode")
+    for reference in (source, last):
+        if reference is not None:
+            _validate_conditioning_reference(reference)
+    if value.get("negativePrompt"):
+        raise MediaProtocolError("negative prompt is unavailable")
     if value.get("aspectRatio") not in {"16:9", "9:16"}:
         raise MediaProtocolError("unsupported Veo aspect ratio")
     value["providerModel"] = capability["model"]
     value["mediaKind"] = "video"
     return value
+
+
+def _validate_conditioning_reference(reference: Any) -> dict[str, Any]:
+    if not isinstance(reference, dict):
+        raise MediaProtocolError("Veo conditioning artifact reference is malformed")
+    if set(reference) != {"artifactId", "digest", "mime", "sizeBytes", "rightsAuthorizationId"}:
+        raise MediaProtocolError("Veo conditioning artifact reference is malformed")
+    if (
+        not isinstance(reference["artifactId"], str)
+        or not re.fullmatch(r"[0-9a-fA-F-]{36}", reference["artifactId"])
+        or not isinstance(reference["digest"], str)
+        or not re.fullmatch(r"[a-f0-9]{64}", reference["digest"])
+        or reference["mime"] not in {"image/jpeg", "image/png"}
+        or not isinstance(reference["sizeBytes"], int)
+        or not 1 <= reference["sizeBytes"] <= 20 * 1024 * 1024
+        or not isinstance(reference["rightsAuthorizationId"], str)
+        or not reference["rightsAuthorizationId"]
+    ):
+        raise MediaProtocolError("Veo conditioning artifact reference is malformed")
+    return reference
 
 
 def validate_lyria_request(request: dict[str, Any]) -> dict[str, Any]:
@@ -196,6 +228,10 @@ class GoogleMediaTransport:
             f"/locations/{self.location}/publishers/google/models/{model}:predictLongRunning"
         )
         instance: dict[str, Any] = {"prompt": kwargs["prompt"]}
+        if kwargs.get("source_image"):
+            instance["image"] = kwargs["source_image"]
+        if kwargs.get("last_frame"):
+            instance["lastFrame"] = kwargs["last_frame"]
         return self._post(url, {
             "instances": [instance],
             "parameters": {
@@ -330,6 +366,7 @@ class VeoGenerator:
         existing_operation: str | None,
         persist_operation: Callable[[str], None],
         authorized_output_prefix: str | None = None,
+        conditioning_media: dict[str, tuple[bytes, str, str]] | None = None,
     ) -> GeneratedMedia:
         request = validate_veo_request(request)
         duration_sec = int(request["durationSec"])
@@ -340,6 +377,9 @@ class VeoGenerator:
             }))
             operation_name = existing_operation
             if operation_name is None:
+                media = conditioning_media or {}
+                source_image = self._provider_image(request.get("sourceImageArtifact"), media)
+                last_frame = self._provider_image(request.get("lastFrameArtifact"), media)
                 started = self.transport.start_veo(
                     model=request["providerModel"],
                     mode=request["mode"],
@@ -350,10 +390,8 @@ class VeoGenerator:
                     generate_audio=request["generateAudio"],
                     seed=request.get("seed"),
                     enhance_prompt=request["enhancePrompt"],
-                    source_image_artifact_id=request.get("sourceImageArtifactId"),
-                    last_frame_artifact_id=request.get("lastFrameArtifactId"),
-                    reference_image_artifact_ids=request.get("referenceImageArtifactIds"),
-                    source_video_artifact_id=request.get("sourceVideoArtifactId"),
+                    source_image=source_image,
+                    last_frame=last_frame,
                     storage_uri=authorized_output_prefix,
                 )
                 operation_name = started.get("name")
@@ -399,6 +437,30 @@ class VeoGenerator:
                 estimated_cost_usd=estimate_media_cost(request),
                 provider_metadata=_fit_provider_metadata(provider_metadata),
             )
+
+    @staticmethod
+    def _provider_image(
+        reference: Any,
+        conditioning_media: dict[str, tuple[bytes, str, str]],
+    ) -> dict[str, str] | None:
+        if reference is None:
+            return None
+        sealed = _validate_conditioning_reference(reference)
+        materialized = conditioning_media.get(sealed["artifactId"])
+        if materialized is None:
+            raise MediaProtocolError("Veo conditioning media is missing")
+        data, mime, digest = materialized
+        if (
+            not data
+            or mime != sealed["mime"]
+            or digest != sealed["digest"]
+            or len(data) != sealed["sizeBytes"]
+        ):
+            raise MediaProtocolError("Veo conditioning media does not match its sealed identity")
+        return {
+            "bytesBase64Encoded": base64.b64encode(data).decode("ascii"),
+            "mimeType": mime,
+        }
 
 
 class LyriaGenerator:

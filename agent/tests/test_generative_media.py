@@ -6,6 +6,7 @@ import json
 import pytest
 
 from harmonia_agent.generative_media import (
+    GoogleMediaTransport,
     LyriaGenerator,
     MediaOperationPending,
     MediaProtocolError,
@@ -61,6 +62,104 @@ def test_veo_persists_operation_before_polling_and_returns_typed_media():
     assert order == ["persist:projects/p/locations/us-central1/models/veo/operations/op-1"]
     assert [call[0] for call in transport.calls] == ["start", "poll"]
     assert transport.calls[1][2] == "veo-3.1-fast-generate-001"
+
+
+def test_veo_materializes_sealed_first_and_last_frames_into_the_official_rest_instance():
+    first = {
+        "artifactId": "018f47a2-4f40-7b1f-b19f-8f6b916b7d13",
+        "digest": "3" * 64,
+        "mime": "image/png",
+        "sizeBytes": 5,
+        "rightsAuthorizationId": "license-first",
+    }
+    last = {
+        "artifactId": "018f47a2-4f40-7b1f-b19f-8f6b916b7d14",
+        "digest": "4" * 64,
+        "mime": "image/jpeg",
+        "sizeBytes": 4,
+        "rightsAuthorizationId": "license-last",
+    }
+    request = validate_veo_request({
+        "modelCapability": "veo-3.1-fast", "mode": "first_last_frame",
+        "prompt": "camera moves through the product interface", "durationSec": 4,
+        "aspectRatio": "9:16", "resolution": "1080p", "generateAudio": False,
+        "enhancePrompt": True, "outputCount": 1,
+        "sourceImageArtifact": first, "lastFrameArtifact": last,
+    })
+    transport = FakeTransport()
+
+    VeoGenerator(transport=transport).generate(
+        request=request,
+        existing_operation=None,
+        persist_operation=lambda _name: None,
+        conditioning_media={
+            first["artifactId"]: (b"first", "image/png", first["digest"]),
+            last["artifactId"]: (b"last", "image/jpeg", last["digest"]),
+        },
+    )
+
+    started = transport.calls[0][1]
+    assert started["source_image"] == {
+        "bytesBase64Encoded": "Zmlyc3Q=", "mimeType": "image/png",
+    }
+    assert started["last_frame"] == {
+        "bytesBase64Encoded": "bGFzdA==", "mimeType": "image/jpeg",
+    }
+
+    captured: list[dict] = []
+    vertex = GoogleMediaTransport(project="project-1", location="us-central1")
+    vertex._post = lambda _url, body, timeout: captured.append(body) or {"name": "operations/1"}  # type: ignore[method-assign]
+    vertex.start_veo(
+        model="veo-3.1-fast-generate-001", prompt="validated prompt", duration_sec=4,
+        aspect_ratio="9:16", resolution="1080p", generate_audio=False,
+        enhance_prompt=True, seed=None, storage_uri="gs://bucket/output/",
+        source_image=started["source_image"], last_frame=started["last_frame"],
+    )
+    assert captured[0]["instances"] == [{
+        "prompt": "validated prompt",
+        "image": {"bytesBase64Encoded": "Zmlyc3Q=", "mimeType": "image/png"},
+        "lastFrame": {"bytesBase64Encoded": "bGFzdA==", "mimeType": "image/jpeg"},
+    }]
+
+
+def test_veo_rejects_conditioning_bytes_that_do_not_match_the_sealed_identity():
+    reference = {
+        "artifactId": "018f47a2-4f40-7b1f-b19f-8f6b916b7d13",
+        "digest": "3" * 64,
+        "mime": "image/png",
+        "sizeBytes": 5,
+        "rightsAuthorizationId": "license-first",
+    }
+    request = validate_veo_request({
+        "modelCapability": "veo-3.1-fast", "mode": "image_to_video", "prompt": "move",
+        "durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p",
+        "generateAudio": False, "enhancePrompt": True, "outputCount": 1,
+        "sourceImageArtifact": reference,
+    })
+    with pytest.raises(MediaProtocolError, match="sealed identity"):
+        VeoGenerator(transport=FakeTransport()).generate(
+            request=request,
+            existing_operation=None,
+            persist_operation=lambda _name: None,
+            conditioning_media={reference["artifactId"]: (b"wrong", "image/jpeg", "5" * 64)},
+        )
+
+
+def test_veo_rejects_conditioning_images_above_the_provider_limit():
+    reference = {
+        "artifactId": "018f47a2-4f40-7b1f-b19f-8f6b916b7d13",
+        "digest": "3" * 64,
+        "mime": "image/png",
+        "sizeBytes": 20 * 1024 * 1024 + 1,
+        "rightsAuthorizationId": "license-first",
+    }
+    with pytest.raises(MediaProtocolError, match="malformed|size"):
+        validate_veo_request({
+            "modelCapability": "veo-3.1-fast", "mode": "image_to_video", "prompt": "move",
+            "durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p",
+            "generateAudio": False, "enhancePrompt": True, "outputCount": 1,
+            "sourceImageArtifact": reference,
+        })
 
 
 def test_veo_uses_only_its_authorized_gcs_output_prefix_and_retains_filtering_metadata():
@@ -276,6 +375,8 @@ def test_preview_lyria_requires_deployment_pricing_and_rejects_invalid_instrumen
 def test_unwired_conditioning_and_music_controls_are_not_advertised_as_executable():
     base_video = {"modelCapability": "veo-3.1-fast", "prompt": "blue network", "durationSec": 6, "aspectRatio": "16:9", "resolution": "1080p", "generateAudio": True, "enhancePrompt": False, "outputCount": 1}
     with pytest.raises(MediaProtocolError, match="mode"):
-        validate_veo_request({**base_video, "mode": "image_to_video", "sourceImageArtifactId": "image-1"})
+        validate_veo_request({**base_video, "mode": "reference_images"})
+    with pytest.raises(MediaProtocolError, match="mode"):
+        validate_veo_request({**base_video, "mode": "extend_video"})
     with pytest.raises(MediaProtocolError, match="conditioning|controls"):
         validate_lyria_request({"modelCapability": "lyria-3-clip", "prompt": "pulse", "conditioningImageArtifactId": "image-1", "instrumental": True, "lyricsMode": "none", "language": "en", "targetDurationSec": 30, "outputCount": 1})

@@ -161,6 +161,105 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
     ))).rejects.toThrow(/ownership/i);
   });
 
+  it("does not claim paid Veo conditioning until the exact resolver artifact succeeds", async () => {
+    const unique = Date.now();
+    const conditionedJobId = `production-conditioned-${unique}`;
+    const conditionedPlanId = `plan-conditioned-${unique}`;
+    await db().doc(`workspaces/${workspaceId}`).set({ defaultBrandId: brandId });
+    await db().doc(`workspaces/${workspaceId}/jobs/${conditionedJobId}`).set({
+      id: conditionedJobId, workspaceId, brandId, status: "active", stage: "draft",
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    const image = await runWithTenant(serviceScope, () => createArtifactStore(db()).create({
+      jobId: conditionedJobId,
+      operationId: `${conditionedJobId}:ingest_conditioning`,
+      bytes: Buffer.from("verified-png-conditioning"),
+      contentType: "image/png",
+      trust: "operator",
+      producer: { kind: "operator_upload", id: "conditioning-upload-1", version: "1" },
+      retentionClass: "source",
+      rightsAuthorizationId: "license-conditioning-1",
+    }));
+    const conditionedPlan = videoProductionPlanSchema.parse({
+      ...basePlan,
+      id: conditionedPlanId,
+      jobId: conditionedJobId,
+      scenes: [{
+        ...basePlan.scenes[0],
+        video: {
+          ...basePlan.scenes[0].video,
+          mode: "image_to_video",
+          sourceImageArtifact: {
+            artifactId: image.id,
+            digest: image.sha256,
+            mime: image.contentType,
+            sizeBytes: image.byteCount,
+            rightsAuthorizationId: image.rightsAuthorizationId,
+          },
+        },
+      }],
+      operationCostsUsd: {
+        [`${conditionedPlanId}:generate_video:scene-1`]: "0.320000",
+        [`${conditionedPlanId}:generate_music`]: "0.120000",
+      },
+    });
+    await runWithTenant(serviceScope, () => proposeProductionPlan(conditionedPlan));
+    await runWithTenant(operatorScope, () => sealProductionPlan(conditionedPlan.id, {
+      planDigest: productionPlanDigest(conditionedPlan),
+    }));
+    await runWithTenant(operatorScope, () => approveProductionPlan(conditionedPlan.id, {
+      planDigest: productionPlanDigest(conditionedPlan),
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    }));
+    const operations = compileProductionOperations(conditionedPlan);
+    const resolve = operations.find((operation) => operation.type === "resolve_media")!;
+    const paid = operations.find((operation) => operation.type === "generate_video")!;
+    expect(await runWithTenant(serviceScope, () => listDispatchableProductionOutbox(
+      100, new Date("2098-01-01T00:00:00.000Z"),
+    ))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ planId: conditionedPlan.id, operationId: resolve.id, state: "pending" }),
+    ]));
+    await expect(runWithTenant(serviceScope, () => claimPaidProductionOperation(
+      conditionedPlan.id, paid.id, wake(conditionedPlan, "too-early-paid-worker"),
+    ))).rejects.toThrow(/dependency.*incomplete/i);
+
+    const resolved = await runWithTenant(serviceScope, () => claimProductionOperation(
+      conditionedPlan.id, resolve.id, wake(conditionedPlan, "conditioning-resolver"),
+    ));
+    await runWithTenant(serviceScope, () => completeInternalProductionOperation(
+      conditionedPlan.id, resolve.id, {
+        claimId: resolved.claim.id,
+        claimToken: "conditioning-resolver",
+        artifact: {
+          objectKey: `durable-artifacts/${workspaceId}/${brandId}/production/${conditionedPlan.id}/conditioning.png`,
+          mime: "image/png",
+          digest: image.sha256,
+          sizeBytes: image.byteCount,
+        },
+        operationMetadata: { kind: "verified_source_materialization", artifactId: image.id },
+      },
+    ));
+    expect(await runWithTenant(serviceScope, () => listDispatchableProductionOutbox(
+      100, new Date("2098-01-01T00:00:00.000Z"),
+    ))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ planId: conditionedPlan.id, operationId: paid.id, state: "pending" }),
+    ]));
+    const paidClaim = await runWithTenant(serviceScope, () => claimPaidProductionOperation(
+      conditionedPlan.id, paid.id, wake(conditionedPlan, "conditioned-paid-worker"),
+    ));
+    expect(paidClaim).toMatchObject({
+      outcome: "execute",
+      claim: {
+        kind: "paid",
+        inputDigests: [{ operationId: resolve.id, digest: image.sha256 }],
+      },
+      inputs: [{
+        operationId: resolve.id,
+        artifact: { mime: "image/png", digest: image.sha256, sizeBytes: image.byteCount },
+      }],
+    });
+  });
+
   it("transactionally rejects a second production plan identity for one job", async () => {
     const unique = Date.now();
     const jobId = `production-cardinality-${unique}`;

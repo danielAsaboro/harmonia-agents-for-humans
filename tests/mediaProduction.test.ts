@@ -35,6 +35,20 @@ const narrationRef = {
   sizeBytes: 4321,
   rightsAuthorizationId: "license-narration-1",
 } as const;
+const firstFrameRef = {
+  artifactId: "018f47a2-4f40-7b1f-b19f-8f6b916b7d13",
+  digest: "3".repeat(64),
+  mime: "image/png",
+  sizeBytes: 2048,
+  rightsAuthorizationId: "license-frame-first-1",
+} as const;
+const lastFrameRef = {
+  artifactId: "018f47a2-4f40-7b1f-b19f-8f6b916b7d14",
+  digest: "4".repeat(64),
+  mime: "image/jpeg",
+  sizeBytes: 4096,
+  rightsAuthorizationId: "license-frame-last-1",
+} as const;
 const basePlan = {
   id: "plan-1",
   jobId: "job-1",
@@ -67,21 +81,94 @@ describe("media production contracts", () => {
   it("rejects a Veo capability combination the selected model cannot execute", () => {
     expect(() => generatedVideoSpecSchema.parse({
       modelCapability: "veo-3.1-fast", mode: "extend_video", prompt: "continue",
-      sourceVideoArtifactId: "asset-1", durationSec: 4, aspectRatio: "9:16",
+      durationSec: 4, aspectRatio: "9:16",
       resolution: "4k", generateAudio: false, enhancePrompt: true, outputCount: 1,
     })).toThrow(/resolution/i);
   });
 
-  it("blocks provider controls whose real conditioning path is not implemented", () => {
+  it("seals supported Veo image conditioning and blocks modes without a selected-model path", () => {
+    expect(generatedVideoSpecSchema.parse({
+      ...basePlan.scenes[0].video,
+      mode: "first_last_frame",
+      sourceImageArtifact: firstFrameRef,
+      lastFrameArtifact: lastFrameRef,
+    })).toMatchObject({ sourceImageArtifact: firstFrameRef, lastFrameArtifact: lastFrameRef });
     expect(() => generatedVideoSpecSchema.parse({
       ...basePlan.scenes[0].video,
       mode: "image_to_video",
-      sourceImageArtifactId: "image-1",
-    })).toThrow(/mode/i);
+    })).toThrow();
+    expect(() => generatedVideoSpecSchema.parse({
+      ...basePlan.scenes[0].video,
+      mode: "image_to_video",
+      sourceImageArtifact: { ...firstFrameRef, mime: "video/mp4" },
+    })).toThrow(/image/i);
+    expect(() => generatedVideoSpecSchema.parse({
+      ...basePlan.scenes[0].video,
+      mode: "image_to_video",
+      sourceImageArtifact: { ...firstFrameRef, sizeBytes: 20 * 1024 * 1024 + 1 },
+    })).toThrow(/20.*MB|size/i);
+    expect(() => generatedVideoSpecSchema.parse({
+      ...basePlan.scenes[0].video,
+      mode: "reference_images",
+    })).toThrow(/mode|unrecognized/i);
+    expect(() => generatedVideoSpecSchema.parse({
+      ...basePlan.scenes[0].video,
+      mode: "extend_video",
+    })).toThrow(/mode|unrecognized/i);
     expect(() => generatedMusicSpecSchema.parse({
       ...basePlan.soundtrack,
       conditioningImageArtifactId: "image-1",
     })).toThrow(/conditioning|control/i);
+  });
+
+  it("runs verified conditioning resolvers before the exact paid Veo operation", () => {
+    const conditioned = videoProductionPlanSchema.parse({
+      ...basePlan,
+      scenes: [{
+        ...basePlan.scenes[0],
+        video: {
+          ...basePlan.scenes[0].video,
+          mode: "first_last_frame",
+          sourceImageArtifact: firstFrameRef,
+          lastFrameArtifact: lastFrameRef,
+        },
+      }],
+    });
+
+    const operations = compileProductionOperations(conditioned);
+    const resolved = operations.filter((operation) => operation.type === "resolve_media");
+    expect(resolved.map((operation) => operation.payload)).toEqual([firstFrameRef, lastFrameRef]);
+    expect(operations.find((operation) => operation.id === "plan-1:generate_video:scene-1")?.dependsOn)
+      .toEqual(resolved.map((operation) => operation.id));
+    expect(operations.find((operation) => operation.type === "build_composition")?.dependsOn)
+      .toEqual(["plan-1:generate_video:scene-1", "plan-1:generate_music"]);
+  });
+
+  it("rejects conflicting identities for one conditioning artifact", () => {
+    expect(() => videoProductionPlanSchema.parse({
+      ...basePlan,
+      scenes: [
+        {
+          ...basePlan.scenes[0], id: "scene-a",
+          video: { ...basePlan.scenes[0].video, mode: "image_to_video", sourceImageArtifact: firstFrameRef },
+        },
+        {
+          ...basePlan.scenes[0], id: "scene-b", order: 2, startSec: 4,
+          video: {
+            ...basePlan.scenes[0].video,
+            mode: "image_to_video",
+            sourceImageArtifact: { ...firstFrameRef, digest: "5".repeat(64) },
+          },
+        },
+      ],
+      operationCostsUsd: {
+        "plan-1:generate_video:scene-a": "0.320000",
+        "plan-1:generate_video:scene-b": "0.320000",
+        "plan-1:generate_music": "0.120000",
+      },
+      estimatedCostUsd: "0.760000",
+      maximumCostUsd: "0.800000",
+    })).toThrow(/conflicting sealed identities/i);
   });
 
   it("seals verified source and narration artifacts into the operation graph", () => {

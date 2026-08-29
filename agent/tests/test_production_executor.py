@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from pathlib import Path
 import hashlib
 import json
+import subprocess
 
 from harmonia_agent import production_executor
 from harmonia_agent.generative_media import GeneratedMedia, MediaOperationPending, MediaProviderError
@@ -47,10 +48,43 @@ def _claim(*, provider_operation_id: str | None = None) -> dict:
         "operationId": _operation()["id"],
         "reservedCostUsd": "0.320000",
         "state": "claimed",
+        "inputDigests": [],
     }
     if provider_operation_id:
         claim.update(provider="veo", providerOperationId=provider_operation_id)
-    return {"outcome": "execute", "claim": claim, "operation": _operation()}
+    return {"outcome": "execute", "claim": claim, "operation": _operation(), "inputs": []}
+
+
+def _conditioned_claim(*, provider_operation_id: str | None = None) -> dict:
+    reference = {
+        "artifactId": "018f47a2-4f40-7b1f-b19f-8f6b916b7d13",
+        "digest": "3" * 64,
+        "mime": "image/png",
+        "sizeBytes": 5,
+        "rightsAuthorizationId": "license-first",
+    }
+    operation = {
+        **_operation(),
+        "dependsOn": ["plan-1:resolve_media:018f47a2-4f40-7b1f-b19f-8f6b916b7d13"],
+        "payload": {
+            **_operation()["payload"],
+            "mode": "image_to_video",
+            "sourceImageArtifact": reference,
+        },
+    }
+    decision = _claim(provider_operation_id=provider_operation_id)
+    decision["operation"] = operation
+    decision["claim"]["inputDigests"] = [{
+        "operationId": operation["dependsOn"][0], "digest": reference["digest"],
+    }]
+    decision["inputs"] = [{
+        "operationId": operation["dependsOn"][0],
+        "artifact": {
+            "mime": "image/png", "digest": reference["digest"], "sizeBytes": 5,
+            "objectKey": "durable-artifacts/workspace-1/brand-1/production/frame.png",
+        },
+    }]
+    return decision
 
 
 def test_executor_claims_sealed_operation_before_provider_and_uploads_verified_bytes(monkeypatch):
@@ -63,9 +97,10 @@ def test_executor_claims_sealed_operation_before_provider_and_uploads_verified_b
     monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
     monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: object())
 
-    def generate(_self, *, request, existing_operation, persist_operation, authorized_output_prefix):
+    def generate(_self, *, request, existing_operation, persist_operation, authorized_output_prefix, conditioning_media):
         assert order == ["claim", "budget:0.320000", "submission"]
         assert existing_operation is None
+        assert conditioning_media == {}
         assert authorized_output_prefix == "gs://media-bucket/workspaces/workspace-1/brands/brand-1/jobs/job-1/plans/plan-1/claims/claim-1/"
         persist_operation("projects/p/locations/us-central1/operations/veo-1")
         return GeneratedMedia(
@@ -101,6 +136,59 @@ def test_executor_claims_sealed_operation_before_provider_and_uploads_verified_b
     assert inspected == [(b"real-video-bytes", "video/mp4")]
 
 
+def test_executor_materializes_exact_conditioning_input_before_budget_and_provider(monkeypatch):
+    order: list[str] = []
+    generated_inputs: list[dict] = []
+    monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _conditioned_claim())
+    monkeypatch.setattr(production_executor, "download_production_artifact", lambda *_args: order.append("download") or (b"first", "image/png", "3" * 64))
+    monkeypatch.setattr(production_executor, "inspect_conditioning_image_bytes", lambda data, mime: order.append(f"inspect:{mime}:{len(data)}") or {"video": {"width": 1080, "height": 1920}} , raising=False)
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
+    monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: order.append("budget"))
+    monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: order.append("submission"))
+    monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: object())
+    monkeypatch.setattr(production_executor, "record_production_provider_operation", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(production_executor, "inspect_generated_media_bytes", lambda *_args: {"durationSec": 4, "video": {"codec": "h264"}})
+    monkeypatch.setattr(production_executor, "upload_production_artifact", lambda *_args, **_kwargs: {"state": "succeeded"})
+    monkeypatch.setattr(production_executor, "report_usage", lambda _payload: None)
+
+    def generate(_self, *, conditioning_media, persist_operation, **_kwargs):
+        generated_inputs.append(conditioning_media)
+        assert order == ["download", "inspect:image/png:5", "budget", "submission"]
+        persist_operation("operations/conditioned")
+        return GeneratedMedia(
+            data=b"video", mime="video/mp4", model="veo-3.1-fast-generate-001",
+            provider_id="operations/conditioned", duration_sec=4, estimated_cost_usd="0.320000",
+        )
+
+    monkeypatch.setattr(production_executor.VeoGenerator, "generate", generate)
+
+    result = production_executor.execute_production_operation(
+        "plan-1", _operation()["id"], claim_token="conditioned-worker",
+    )
+
+    assert result["outcome"] == "succeeded"
+    assert generated_inputs == [{
+        "018f47a2-4f40-7b1f-b19f-8f6b916b7d13": (b"first", "image/png", "3" * 64),
+    }]
+
+
+def test_executor_fails_conditioning_identity_mismatch_before_budget_or_provider(monkeypatch):
+    failures: list[dict] = []
+    monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _conditioned_claim())
+    monkeypatch.setattr(production_executor, "download_production_artifact", lambda *_args: (b"first", "image/png", "9" * 64))
+    monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: (_ for _ in ()).throw(AssertionError("budget must not be reserved")))
+    monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("provider must not be armed")))
+    monkeypatch.setattr(production_executor, "record_production_operation_failure", lambda *args, **kwargs: failures.append(kwargs) or {"state": "failed"})
+
+    result = production_executor.execute_production_operation(
+        "plan-1", _operation()["id"], claim_token="bad-conditioning-worker",
+    )
+
+    assert result == {"outcome": "failed", "reason": "conditioning artifact verification failed"}
+    assert failures[0]["outcome"] == "failed"
+    assert "sealed identity" in failures[0]["reason"]
+
+
 def test_executor_resumes_persisted_veo_identity_without_duplicate_submission(monkeypatch):
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim(provider_operation_id="operations/existing"))
     monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
@@ -117,6 +205,29 @@ def test_executor_resumes_persisted_veo_identity_without_duplicate_submission(mo
     monkeypatch.setattr(production_executor, "record_production_provider_operation", lambda *_args, **_kwargs: None)
 
     result = production_executor.execute_production_operation("plan-1", _operation()["id"], claim_token="worker-2")
+
+    assert result == {"outcome": "waiting_provider", "providerOperationId": "operations/existing"}
+
+
+def test_executor_resumes_conditioned_veo_without_redownloading_inputs(monkeypatch):
+    monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _conditioned_claim(provider_operation_id="operations/existing"))
+    monkeypatch.setattr(production_executor, "download_production_artifact", lambda *_args: (_ for _ in ()).throw(AssertionError("resume must not rematerialize conditioning")))
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
+    monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: object())
+    monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: None)
+    monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("resume must not start a new submission")))
+    monkeypatch.setattr(production_executor, "record_production_provider_operation", lambda *_args, **_kwargs: None)
+
+    def pending(_self, *, conditioning_media, existing_operation, **_kwargs):
+        assert conditioning_media == {}
+        assert existing_operation == "operations/existing"
+        raise MediaOperationPending("operations/existing")
+
+    monkeypatch.setattr(production_executor.VeoGenerator, "generate", pending)
+
+    result = production_executor.execute_production_operation(
+        "plan-1", _operation()["id"], claim_token="conditioned-resume-worker",
+    )
 
     assert result == {"outcome": "waiting_provider", "providerOperationId": "operations/existing"}
 
@@ -335,6 +446,54 @@ def test_internal_resolve_media_materializes_only_the_sealed_source_claim(monkey
         "artifactDigest": reference["digest"],
         "rightsAuthorizationId": "license-source-1",
         "inspection": {"durationSec": 4.0, "video": {"codec": "h264"}},
+    }
+
+
+def test_internal_resolve_media_accepts_a_real_decodable_conditioning_image(monkeypatch, tmp_path: Path):
+    image_path = tmp_path / "conditioning.png"
+    subprocess.run([
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+        "color=c=blue:s=640x360", "-frames:v", "1", str(image_path),
+    ], check=True)
+    data = image_path.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    artifact_id = "018f47a2-4f40-7b1f-b19f-8f6b916b7d13"
+    operation_id = f"plan-1:resolve_media:{artifact_id}"
+    decision = {
+        "outcome": "execute",
+        "claim": {
+            "kind": "internal", "id": "resolve-image-claim", "operationId": operation_id,
+            "planDigest": "f" * 64, "inputDigests": [],
+        },
+        "operation": {
+            "id": operation_id, "type": "resolve_media", "executionAuthority": "internal",
+            "payload": {
+                "artifactId": artifact_id, "digest": digest, "mime": "image/png",
+                "sizeBytes": len(data), "rightsAuthorizationId": "license-conditioning-1",
+            },
+        },
+        "plan": {"id": "plan-1", "jobId": "job-1"},
+        "inputs": [],
+    }
+    uploads: list[dict] = []
+    monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: decision)
+    monkeypatch.setattr(
+        production_executor, "download_production_source",
+        lambda *args, **kwargs: (data, "image/png", digest), raising=False,
+    )
+    monkeypatch.setattr(
+        production_executor, "upload_production_artifact",
+        lambda *args, **kwargs: uploads.append(kwargs) or {"state": "succeeded"},
+    )
+
+    result = production_executor.execute_production_operation(
+        "plan-1", operation_id, claim_token="resolve-image-worker",
+    )
+
+    assert result == {"outcome": "succeeded", "claim": {"state": "succeeded"}}
+    assert uploads[0]["mime"] == "image/png"
+    assert uploads[0]["operation_metadata"]["inspection"]["video"] == {
+        "codec": "png", "width": 640, "height": 360, "frameRate": 25.0,
     }
 
 

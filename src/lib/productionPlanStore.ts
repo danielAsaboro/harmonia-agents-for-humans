@@ -67,6 +67,7 @@ export interface PaidProductionOperationClaim {
   claimedAt: string;
   leaseExpiresAt: string;
   attempt: number;
+  inputDigests: Array<{ operationId: string; digest: string }>;
   provider?: "veo" | "lyria";
   providerOperationId?: string;
   nextPollAt?: string;
@@ -142,6 +143,7 @@ export type PaidProductionClaimOutcome = {
   outcome: "execute" | "in_progress" | "already_succeeded" | "failed" | "uncertain";
   claim: PaidProductionOperationClaim;
   operation: ProductionOperation;
+  inputs: ProductionOperationInput[];
 };
 
 export type ProductionClaimOutcome =
@@ -822,6 +824,29 @@ export async function claimPaidProductionOperation(
       brandId: tenant.brandId,
       now: new Date(mandate.approvedAt),
     });
+    const dependencyRefs = operation.dependsOn.map((dependencyId) => {
+      const dependency = revision.operations.find((candidate) => candidate.id === dependencyId);
+      if (!dependency) throw new Error(`production dependency is missing from graph: ${dependencyId}`);
+      return aggregateRef.collection("operation_claims").doc(operationClaimId(
+        aggregate.currentRevision,
+        aggregate.currentPlanDigest,
+        dependencyId,
+        operationInternalRun(aggregate, dependency),
+      ));
+    });
+    const dependencySnaps = await Promise.all(dependencyRefs.map((reference) => tx.get(reference)));
+    const inputs: ProductionOperationInput[] = dependencySnaps.map((snapshot, index) => {
+      if (!snapshot.exists) throw new Error(`production dependency is incomplete: ${operation.dependsOn[index]}`);
+      const dependency = snapshot.data() as ProductionOperationClaim;
+      if (dependency.state !== "succeeded" || !dependency.artifact) {
+        throw new Error(`production dependency is incomplete: ${operation.dependsOn[index]}`);
+      }
+      return { operationId: operation.dependsOn[index], artifact: dependency.artifact };
+    });
+    const inputDigests = inputs.map((value) => ({
+      operationId: value.operationId,
+      digest: value.artifact.digest,
+    }));
     const existing = claimSnap.exists ? claimSnap.data() as PaidProductionOperationClaim : null;
     if (existing) {
       if (
@@ -835,15 +860,16 @@ export async function claimPaidProductionOperation(
         || existing.pricingVersion !== revision.plan.pricingVersion
         || existing.workspaceId !== tenant.workspaceId
         || existing.brandId !== tenant.brandId
+        || JSON.stringify(existing.inputDigests) !== JSON.stringify(inputDigests)
       ) throw new Error("production operation claim binding mismatch");
       if (existing.state === "succeeded") {
-        return { outcome: "already_succeeded", claim: existing, operation };
+        return { outcome: "already_succeeded", claim: existing, operation, inputs };
       }
       if (existing.state === "failed" || existing.state === "uncertain") {
-        return { outcome: existing.state, claim: existing, operation };
+        return { outcome: existing.state, claim: existing, operation, inputs };
       }
       if (Date.parse(existing.leaseExpiresAt) > claimedAtMs) {
-        return { outcome: "in_progress", claim: existing, operation };
+        return { outcome: "in_progress", claim: existing, operation, inputs };
       }
       if (
         (existing.state === "submitting" && !existing.providerOperationId)
@@ -860,7 +886,7 @@ export async function claimPaidProductionOperation(
         };
         tx.set(claimRef, uncertain);
         tx.set(productionOutboxRef(existing.id), { state: "completed", updatedAt: claimedAt }, { merge: true });
-        return { outcome: "uncertain", claim: uncertain, operation };
+        return { outcome: "uncertain", claim: uncertain, operation, inputs };
       }
     }
     if (!existing?.providerOperationId) {
@@ -899,6 +925,7 @@ export async function claimPaidProductionOperation(
       claimedAt,
       leaseExpiresAt,
       attempt: (existing?.attempt ?? 0) + 1,
+      inputDigests,
     };
     if (claimSnap.exists) tx.set(claimRef, claim);
     else tx.create(claimRef, claim);
@@ -907,7 +934,7 @@ export async function claimPaidProductionOperation(
       currentMandateReservedCostUsd: microsUsd(nextReserved),
       updatedAt: claimedAt,
     } satisfies ProductionPlanAggregate);
-    return { outcome: "execute", claim, operation };
+    return { outcome: "execute", claim, operation, inputs };
   });
 }
 

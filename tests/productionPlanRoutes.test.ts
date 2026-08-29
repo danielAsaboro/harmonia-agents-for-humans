@@ -220,6 +220,40 @@ describe("production plan routes", () => {
     );
   });
 
+  it("persists a verified conditioning image as a durable production artifact", async () => {
+    const bytes = new TextEncoder().encode("image");
+    const digest = "6105d6cc76af400325e94d588ce511be5bfdbb73b437dc51eca43917d7a43e3d";
+    const response = await uploadArtifactInternal(new Request(
+      "http://localhost/api/internal/production-plans/plan-1/operations/resolve-frame/artifact",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test-internal-token",
+          "x-workspace-id": "workspace-1",
+          "x-brand-id": "brand-1",
+          "x-claim-id": "claim-frame",
+          "x-claim-token": "worker-frame",
+          "x-artifact-mime": "image/png",
+          "x-artifact-digest": digest,
+          "x-operation-metadata": JSON.stringify({ kind: "verified_source_materialization" }),
+        },
+        body: bytes,
+      },
+    ), { params: Promise.resolve({ id: "plan-1", operationId: "resolve-frame" }) });
+
+    expect(response.status).toBe(200);
+    expect(storage.putDurableArtifactObject).toHaveBeenCalledWith(
+      expect.stringMatching(new RegExp(`/claim-frame/${digest}\\.png$`)),
+      bytes,
+      "image/png",
+    );
+    expect(store.completeProductionOperation).toHaveBeenCalledWith(
+      "plan-1",
+      "resolve-frame",
+      expect.objectContaining({ artifact: expect.objectContaining({ mime: "image/png", digest }) }),
+    );
+  });
+
   it("downloads only the current succeeded artifact after server-side digest verification", async () => {
     const response = await downloadArtifactInternal(new Request(
       "http://localhost/api/internal/production-plans/plan-1/operations/operation-1/artifact",

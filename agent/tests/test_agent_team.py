@@ -370,6 +370,9 @@ def test_team_applies_each_roles_generation_and_safety_policy():
     assert len(analyst.tools) == 2
     assert analyst.tools[1].name == "nimi_google_search_agent"
 
+    strategist = next(agent for agent in root.sub_agents if agent.name == "ryan_strategist")
+    assert strategist.generate_content_config.max_output_tokens == 8192
+
     planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
     copywriter = next(agent for agent in root.sub_agents if agent.name == "noni_copywriter")
     assert copywriter.generate_content_config.temperature == 0.8

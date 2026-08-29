@@ -154,7 +154,7 @@ _SPECIALIST_ROLES = {
 _MAX_OUTPUT_TOKENS = {
     "harmonia_coordinator": 1024,
     "nimi_analyst": 8192,
-    "ryan_strategist": 4096,
+    "ryan_strategist": 8192,
     "noni_copywriter": 2048,
     "dara_editor": 2048,
     "noni_artifact_producer": 8192,

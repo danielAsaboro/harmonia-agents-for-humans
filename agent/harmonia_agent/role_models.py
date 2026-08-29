@@ -144,7 +144,7 @@ def load_role_model_catalog() -> RoleModelCatalog:
             ("route",),
         ),
         strategist=_gemini(
-            "ryan_strategist", "STRATEGIST_MODEL_ID", "gemini-3.5-flash", 4096, 0.4,
+            "ryan_strategist", "STRATEGIST_MODEL_ID", "gemini-3.5-flash", 8192, 0.4,
             ("strategize",),
         ),
         analyst=_gemini(

@@ -110,6 +110,29 @@ export interface ProductionOperationInput {
   artifact: NonNullable<ProductionOperationClaim["artifact"]>;
 }
 
+export interface ProductionPlanWorkspaceOperation {
+  id: string;
+  type: ProductionOperation["type"];
+  executionAuthority: ProductionOperation["executionAuthority"];
+  dependsOn: string[];
+  estimatedCostUsd?: string;
+  state: "pending" | ProductionOperationClaim["state"];
+  attempt: number;
+  provider?: "veo" | "lyria";
+  providerOperationId?: string;
+  artifact?: { mime: string; digest: string; sizeBytes: number };
+  metadata?: Record<string, unknown>;
+  failureReason?: string;
+  claimedAt?: string;
+  completedAt?: string;
+}
+
+export interface ProductionPlanWorkspaceView {
+  aggregate: ProductionPlanAggregate;
+  revision: ProductionPlanRevision;
+  operations: ProductionPlanWorkspaceOperation[];
+}
+
 export type PaidProductionClaimOutcome = {
   outcome: "execute" | "in_progress" | "already_succeeded" | "failed" | "uncertain";
   claim: PaidProductionOperationClaim;
@@ -212,6 +235,13 @@ function planRef(planId: string) {
   return plans().doc(checkedDocumentId("production plan id", planId));
 }
 
+function productionPlanBindingRef(jobId: string) {
+  const tenant = currentTenant();
+  return db().collection("workspaces").doc(tenant.workspaceId)
+    .collection("jobs").doc(checkedDocumentId("production job id", jobId))
+    .collection("production_plan_binding").doc("current");
+}
+
 function productionOutbox() {
   const tenant = currentTenant();
   return db().collection("workspaces").doc(tenant.workspaceId)
@@ -278,6 +308,7 @@ export async function proposeProductionPlan(
   const aggregateRef = planRef(plan.id);
   const immutableRevisionRef = revisionRef(plan.id, plan.revision);
   const jobRef = db().collection("workspaces").doc(tenant.workspaceId).collection("jobs").doc(plan.jobId);
+  const bindingRef = productionPlanBindingRef(plan.jobId);
   const digest = productionPlanDigest(plan);
   const revision: ProductionPlanRevision = {
     revision: plan.revision,
@@ -287,16 +318,27 @@ export async function proposeProductionPlan(
     proposedAt,
   };
   return db().runTransaction(async (tx) => {
-    const [aggregateSnap, revisionSnap, jobSnap] = await Promise.all([
+    const [aggregateSnap, revisionSnap, jobSnap, bindingSnap] = await Promise.all([
       tx.get(aggregateRef),
       tx.get(immutableRevisionRef),
       tx.get(jobRef),
+      tx.get(bindingRef),
     ]);
     if (!jobSnap.exists) throw new Error("production plan job not found");
     if (jobSnap.get("workspaceId") !== tenant.workspaceId || jobSnap.get("brandId") !== tenant.brandId) {
       throw new Error("production plan job tenant mismatch");
     }
     if (revisionSnap.exists) throw new Error(`production plan revision ${plan.revision} already exists`);
+    if (bindingSnap.exists) {
+      const binding = bindingSnap.data();
+      if (binding?.workspaceId !== tenant.workspaceId || binding?.brandId !== tenant.brandId
+        || binding?.jobId !== plan.jobId) {
+        throw new Error("production plan binding tenant mismatch");
+      }
+      if (binding.planId !== plan.id) {
+        throw new Error(`production job ${plan.jobId} is already bound to production plan ${binding.planId}`);
+      }
+    }
     const existing = aggregateSnap.exists ? assertAggregate(aggregateSnap.data()) : null;
     const expectedRevision = existing ? existing.currentRevision + 1 : 1;
     if (plan.revision !== expectedRevision) throw new Error(`expected production plan revision ${expectedRevision}`);
@@ -333,6 +375,16 @@ export async function proposeProductionPlan(
     tx.create(immutableRevisionRef, revision);
     if (aggregateSnap.exists) tx.set(aggregateRef, aggregate);
     else tx.create(aggregateRef, aggregate);
+    if (!bindingSnap.exists) {
+      tx.create(bindingRef, {
+        planId: plan.id,
+        jobId: plan.jobId,
+        workspaceId: tenant.workspaceId,
+        brandId: tenant.brandId,
+        createdAt: proposedAt,
+        updatedAt: proposedAt,
+      });
+    }
     return aggregate;
   });
 }
@@ -348,6 +400,60 @@ export async function getProductionPlanRevision(
 ): Promise<ProductionPlanRevision | null> {
   const snap = await revisionRef(planId, revision).get();
   return snap.exists ? assertRevision(snap.data()) : null;
+}
+
+export async function getProductionPlanWorkspaceForJob(
+  jobId: string,
+): Promise<ProductionPlanWorkspaceView | null> {
+  checkedDocumentId("production job id", jobId);
+  const tenant = currentTenant();
+  const bindingSnap = await productionPlanBindingRef(jobId).get();
+  if (!bindingSnap.exists) return null;
+  const binding = bindingSnap.data();
+  if (binding?.workspaceId !== tenant.workspaceId || binding?.brandId !== tenant.brandId
+    || binding?.jobId !== jobId || typeof binding?.planId !== "string") {
+    throw new Error("production plan binding tenant mismatch");
+  }
+  const aggregate = await getProductionPlan(binding.planId);
+  if (!aggregate) throw new Error("bound production plan not found");
+  if (aggregate.jobId !== jobId) throw new Error("production plan binding job mismatch");
+  const revision = await getProductionPlanRevision(aggregate.id, aggregate.currentRevision);
+  if (!revision) throw new Error("production plan revision not found");
+  const claims = await planRef(aggregate.id).collection("operation_claims").get();
+  const claimsById = new Map(claims.docs.map((snapshot) => {
+    const claim = snapshot.data() as ProductionOperationClaim;
+    if (claim.workspaceId !== tenant.workspaceId || claim.brandId !== tenant.brandId || claim.planId !== aggregate.id) {
+      throw new Error("production operation claim tenant mismatch");
+    }
+    return [claim.id, claim] as const;
+  }));
+  const operations = revision.operations.map((operation): ProductionPlanWorkspaceOperation => {
+    const claim = claimsById.get(operationClaimId(
+      aggregate.currentRevision, aggregate.currentPlanDigest, operation.id,
+    ));
+    return {
+      id: operation.id,
+      type: operation.type,
+      executionAuthority: operation.executionAuthority,
+      dependsOn: [...operation.dependsOn],
+      ...(operation.estimatedCostUsd ? { estimatedCostUsd: operation.estimatedCostUsd } : {}),
+      state: claim?.state ?? "pending",
+      attempt: claim?.attempt ?? 0,
+      ...(claim?.kind === "paid" && claim.provider ? { provider: claim.provider } : {}),
+      ...(claim?.kind === "paid" && claim.providerOperationId ? { providerOperationId: claim.providerOperationId } : {}),
+      ...(claim?.artifact ? { artifact: {
+        mime: claim.artifact.mime,
+        digest: claim.artifact.digest,
+        sizeBytes: claim.artifact.sizeBytes,
+      } } : {}),
+      ...(claim?.kind === "paid" && claim.providerMetadata ? { metadata: claim.providerMetadata }
+        : claim?.kind === "internal" && claim.operationMetadata ? { metadata: claim.operationMetadata } : {}),
+      ...(claim?.failureReason ? { failureReason: claim.failureReason } : {}),
+      ...(claim?.claimedAt ? { claimedAt: claim.claimedAt } : {}),
+      ...(claim?.completedAt ? { completedAt: claim.completedAt } : {}),
+    };
+  });
+  return { aggregate, revision, operations };
 }
 
 export async function getProductionOperationArtifact(

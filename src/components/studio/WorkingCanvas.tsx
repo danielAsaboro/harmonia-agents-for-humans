@@ -14,6 +14,7 @@ import { StudioEmpty, StudioFailure, StudioLoading } from "./StudioStates";
 import { WrittenWorkspace } from "./WrittenWorkspace";
 import { ApprovalDock } from "./ApprovalDock";
 import { JobExecutionProof } from "./JobExecutionProof";
+import { ProductionWorkspace } from "./ProductionWorkspace";
 
 export type CanvasView = "board" | "written" | "visual" | "motion" | "audio" | "sources";
 
@@ -33,9 +34,11 @@ interface WorkingCanvasProps {
   onDecide?: (jobId: string, actionId: string, decision: "approved" | "rejected") => Promise<void> | void;
   onOperationDecision?: (operationId: string, decision: "approved" | "rejected") => Promise<void> | void;
   onRequestSurfaceRevision?: (message: string) => Promise<void> | void;
+  onSealProductionPlan?: (planId: string, planDigest: string) => Promise<void> | void;
+  onDecideProductionPlan?: (planId: string, planDigest: string, decision: "approved" | "rejected", feedback?: string) => Promise<void> | void;
 }
 
-export function WorkingCanvas({ job, events, receipts, loading, error, selectedArtifactId, onSelectedArtifactChange, onRetry, supplemental, operations = [], operationsLive = false, approvalBusy = false, onDecide, onOperationDecision, onRequestSurfaceRevision }: WorkingCanvasProps) {
+export function WorkingCanvas({ job, events, receipts, loading, error, selectedArtifactId, onSelectedArtifactChange, onRetry, supplemental, operations = [], operationsLive = false, approvalBusy = false, onDecide, onOperationDecision, onRequestSurfaceRevision, onSealProductionPlan, onDecideProductionPlan }: WorkingCanvasProps) {
   const [view, setView] = useState<CanvasView>("board");
   const [a2uiActionError, setA2uiActionError] = useState<string | null>(null);
   const model = job ? buildStudioWorkspace(job, receipts) : null;
@@ -45,6 +48,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
         : selectedArtifactId?.startsWith("audio:") ? "audio"
           : null;
   const visibleView = selectedView ?? view;
+  const reviewCount = (model?.pendingActions.length ?? 0) + (job?.productionPlan?.aggregate.state === "sealed" ? 1 : 0);
   let canvasOperations: unknown[] = [];
   let a2uiError: string | null = null;
   try {
@@ -79,7 +83,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
         <strong className="text-lg font-extrabold">harmonia</strong>
         <span className="min-w-0 truncate font-mono text-[9px] text-[#77736b]">/ {job ? (job.sourceAnalysis?.summary || `Source bundle ${job.config.sourceManifestId.slice(0, 8)}`).slice(0, 44) : "No campaign"} / Working set</span>
         <span className="ml-auto hidden rounded-full border border-black/10 px-2 py-1.5 font-mono text-[8px] text-[#77736b] sm:inline"><b className="text-[#33906a]">✓</b> autosaved</span>
-        <button type="button" onClick={() => { const details = document.querySelector<HTMLDetailsElement>("[aria-label='Approval boundary'] > details"); if (details) details.open = true; }} className="rounded-full bg-[#11110f] px-3 py-2.5 text-[9px] font-bold text-white">Review <b className="text-[#d8ff3e]">{model?.pendingActions.length ?? 0}</b></button>
+        <button type="button" onClick={() => { const production = document.getElementById("production-plan-review"); if (job?.productionPlan?.aggregate.state === "sealed" && production) production.scrollIntoView({ behavior: "smooth", block: "center" }); else { const details = document.querySelector<HTMLDetailsElement>("[aria-label='Approval boundary'] > details"); if (details) details.open = true; } }} className="rounded-full bg-[#11110f] px-3 py-2.5 text-[9px] font-bold text-white">Review <b className="text-[#d8ff3e]">{reviewCount}</b></button>
       </header>
       <div className="flex-1 overflow-y-auto px-[22px] py-5">
         {loading ? <StudioLoading /> : null}
@@ -105,6 +109,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
           }} /> : null}
           {a2uiActionError ? <div className="mb-5"><StudioFailure message={`A2UI action blocked: ${a2uiActionError}`} permanent /></div> : null}
           {supplemental ? <div className="mb-5">{supplemental}</div> : null}
+          <ProductionWorkspace job={job} busy={approvalBusy} onSeal={onSealProductionPlan} onDecide={onDecideProductionPlan} />
           <JobExecutionProof job={job} events={events} receipts={receipts} />
           {visibleView === "board" ? <ArtifactBoard job={job} model={model} onSelect={selectFromBoard} /> : null}
           {visibleView === "written" ? <WrittenWorkspace job={job} traceLinks={model.traceLinks} selectedArtifactId={selectedArtifactId} onSelect={onSelectedArtifactChange} /> : null}

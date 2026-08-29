@@ -6,6 +6,7 @@ import { planJobDeletion } from "@/lib/lifecycle";
 import { currentTenant } from "@/lib/tenancy";
 import { getArtifact } from "@/lib/storage";
 import { normalizedSourceSchema } from "@/lib/contracts";
+import { getProductionPlanWorkspaceForJob } from "@/lib/productionPlanStore";
 import { z } from "zod";
 
 async function get(
@@ -41,7 +42,7 @@ async function get(
     const parsed = normalizedSourceSchema.safeParse(JSON.parse(bytes.toString("utf8")));
     return parsed.success ? parsed.data : null;
   }))).filter(Boolean);
-  const [events, receipts, assets, decisions, replays, usage, claims] = await Promise.all([
+  const [events, receipts, assets, decisions, replays, usage, claims, productionPlan] = await Promise.all([
     listEvents(id),
     listReceipts(id),
     listAssets(id),
@@ -49,9 +50,10 @@ async function get(
     listReplayObservations(id),
     listUsageRecords(id),
     listEffectClaims(id),
+    getProductionPlanWorkspaceForJob(id),
   ]);
   return Response.json({
-    job: { ...job, sourceRecords, normalizedSources, actions: job.actions.map((action) => ({ ...action, payloadDigest: actionPayloadDigest(action) })) },
+    job: { ...job, sourceRecords, normalizedSources, productionPlan, actions: job.actions.map((action) => ({ ...action, payloadDigest: actionPayloadDigest(action) })) },
     events,
     receipts,
     decisions,

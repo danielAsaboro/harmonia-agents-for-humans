@@ -12,6 +12,7 @@ import {
   completeInternalProductionOperation,
   finalizeProductionOutboxPublish,
   getProductionPlan,
+  getProductionPlanWorkspaceForJob,
   getProductionPlanRevision,
   listDispatchableProductionOutbox,
   proposeProductionPlan,
@@ -70,6 +71,37 @@ const basePlan = videoProductionPlanSchema.parse({
 });
 
 describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
+  it("transactionally rejects a second production plan identity for one job", async () => {
+    const unique = Date.now();
+    const jobId = `production-cardinality-${unique}`;
+    const first = videoProductionPlanSchema.parse({
+      ...basePlan,
+      id: `plan-cardinality-a-${unique}`,
+      jobId,
+      operationCostsUsd: {
+        [`plan-cardinality-a-${unique}:generate_video:scene-1`]: "0.320000",
+        [`plan-cardinality-a-${unique}:generate_music`]: "0.120000",
+      },
+    });
+    const second = videoProductionPlanSchema.parse({
+      ...first,
+      id: `plan-cardinality-b-${unique}`,
+      operationCostsUsd: {
+        [`plan-cardinality-b-${unique}:generate_video:scene-1`]: "0.320000",
+        [`plan-cardinality-b-${unique}:generate_music`]: "0.120000",
+      },
+    });
+    await db().doc(`workspaces/${workspaceId}`).set({ defaultBrandId: brandId });
+    await db().doc(`workspaces/${workspaceId}/jobs/${jobId}`).set({
+      id: jobId, workspaceId, brandId, status: "active", stage: "publish",
+      config: { sourceManifestId: "manifest-1", desiredOutputs: [], allowedOutputs: [], platforms: [] },
+      actions: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    await runWithTenant(operatorScope, () => proposeProductionPlan(first));
+    await expect(runWithTenant(operatorScope, () => proposeProductionPlan(second)))
+      .rejects.toThrow(/already bound/i);
+  });
+
   it("atomically schedules and claims a cost-free composition after paid dependencies succeed", async () => {
     const internalJobId = `production-internal-${Date.now()}`;
     const { soundtrack: _soundtrack, ...planWithoutSoundtrack } = basePlan;
@@ -190,6 +222,16 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
         { operationId: "plan-internal:evaluate_delivery" },
       ],
     });
+    const workspace = await runWithTenant(operatorScope, () => getProductionPlanWorkspaceForJob(internalJobId));
+    expect(workspace).toMatchObject({
+      aggregate: { id: internalPlan.id, jobId: internalJobId, state: "approved" },
+      revision: { plan: { goal: internalPlan.goal, estimatedCostUsd: internalPlan.estimatedCostUsd } },
+    });
+    expect(workspace?.operations.find((item) => item.type === "build_composition")).toMatchObject({
+      state: "succeeded",
+      artifact: { digest: "1".repeat(64), mime: "application/zip", sizeBytes: 100 },
+    });
+    expect(JSON.stringify(workspace)).not.toContain("claimTokenDigest");
   });
 
   it("rejects a claimed operation if its revision is superseded before provider submission", async () => {
@@ -529,9 +571,14 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
   });
 
   it("persists an immutable rejection decision with verified operator provenance", async () => {
+    const rejectedJobId = `${jobId}-reject`;
+    await db().doc(`workspaces/${workspaceId}/jobs/${rejectedJobId}`).set({
+      id: rejectedJobId, workspaceId, brandId, status: "active", stage: "publish",
+    });
     const rejectedPlan = videoProductionPlanSchema.parse({
       ...basePlan,
       id: "plan-reject",
+      jobId: rejectedJobId,
       operationCostsUsd: {
         "plan-reject:generate_video:scene-1": "0.320000",
         "plan-reject:generate_music": "0.120000",

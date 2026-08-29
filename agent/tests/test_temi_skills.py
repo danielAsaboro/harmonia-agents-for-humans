@@ -48,6 +48,11 @@ def test_temi_exposes_one_filesystem_skill_and_separate_read_only_tools():
 def test_temi_requires_exactly_one_skill_then_references_then_snapshot_reads():
     assert validate_temi_trace(trace(), snapshot_id="planning-job-1-v1") is None
 
+    typed_payload_trace = trace()[:2]
+    assert validate_temi_trace(
+        typed_payload_trace, snapshot_id="planning-job-1-v1",
+    ) is None
+
     duplicate = trace()
     duplicate.insert(1, deepcopy(duplicate[0]))
     with pytest.raises(ValueError, match="exactly once first"):

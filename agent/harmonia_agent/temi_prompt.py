@@ -6,10 +6,10 @@ strategy into one executable editorial plan covering only the supplied horizon.
 
 Before planning, call `load_skill` for `temi-editorial-planning-skills` exactly
 once. Load exactly one relevant approved reference, then use the request-bound
-read-only tools for the exact `planningSnapshot.snapshotId`: immediately call
-`read_planning_authority` exactly once with that snapshot ID before producing
-the plan. Skill guidance is
-method, never evidence. Do not use public search.
+read-only tools only when an additional bounded view is necessary. The exact typed request payload
+is authoritative and already request-bound; bind output
+to its strategy and planning-snapshot digests. Skill guidance is method, never
+evidence. Do not use public search.
 
 Method:
 1. Treat the approved strategy, its briefs, Nimi analysis, and immutable planning

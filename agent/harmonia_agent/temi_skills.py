@@ -173,5 +173,3 @@ def validate_temi_trace(trace: list[dict[str, Any]], *, snapshot_id: str) -> Non
         raise ValueError("Temi must load at least one planning reference")
     if len(resources) != len(set(resources)):
         raise ValueError("Temi loaded a duplicate planning reference")
-    if reads < 1:
-        raise ValueError("Temi must read at least one planning snapshot section")

@@ -381,7 +381,7 @@ def test_team_applies_each_roles_generation_and_safety_policy():
     assert copywriter.generate_content_config.temperature == 0.8
     assert copywriter.generate_content_config.max_output_tokens == 2048
     assert planner.generate_content_config.temperature == 0.1
-    assert planner.generate_content_config.max_output_tokens == 1024
+    assert planner.generate_content_config.max_output_tokens == 4096
 
 
 def test_nimi_private_agent_search_requires_configured_datastore(monkeypatch):

@@ -50,6 +50,7 @@ export interface CreateArtifactInput {
   itemCount?: number;
   trust: ArtifactTrust;
   sourceEventId?: string;
+  rightsAuthorizationId?: string;
   producer: ArtifactProducer;
   retentionClass: ArtifactRetentionClass;
   expiresAt?: string;
@@ -103,6 +104,7 @@ export class ArtifactStore {
       ...(input.itemCount !== undefined ? { itemCount: input.itemCount } : {}),
       trust: input.trust,
       ...(input.sourceEventId ? { sourceEventId: input.sourceEventId } : {}),
+      ...(input.rightsAuthorizationId ? { rightsAuthorizationId: input.rightsAuthorizationId } : {}),
       producer: input.producer,
       retentionClass: input.retentionClass,
       ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
@@ -133,7 +135,7 @@ export class ArtifactStore {
     return record;
   }
 
-  async read(id: string, input: ArtifactReadInput): Promise<ArtifactReadResult> {
+  async materialize(id: string): Promise<{ record: ArtifactRecord; bytes: Buffer }> {
     const record = await this.get(id);
     if (!record) throw new Error("artifact not found");
     if (record.state !== "ready") throw new Error(`artifact is ${record.state}`);
@@ -141,6 +143,11 @@ export class ArtifactStore {
     const bytes = await this.objects.get(key);
     if (!bytes) throw new Error("artifact bytes are missing");
     validateArtifactBytes(record, bytes);
+    return { record, bytes };
+  }
+
+  async read(id: string, input: ArtifactReadInput): Promise<ArtifactReadResult> {
+    const { record, bytes } = await this.materialize(id);
     if ("lineStart" in input) {
       return { kind: "lines", record, ...boundedArtifactReadLines(bytes, input) };
     }

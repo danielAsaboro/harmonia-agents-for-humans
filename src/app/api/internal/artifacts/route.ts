@@ -16,6 +16,7 @@ const createArtifactSchema = z.object({
   itemCount: z.number().int().nonnegative().optional(),
   trust: z.enum(["system", "operator", "provider", "external_untrusted", "model_inference"]),
   sourceEventId: z.string().min(1).max(512).optional(),
+  rightsAuthorizationId: z.string().regex(/^[A-Za-z0-9:_-]{1,256}$/).optional(),
   producer: z.object({
     kind: z.string().min(1).max(100),
     id: z.string().min(1).max(200),
@@ -54,6 +55,7 @@ export async function POST(req: Request) {
       ...(body.itemCount !== undefined ? { itemCount: body.itemCount } : {}),
       trust: body.trust,
       ...(body.sourceEventId ? { sourceEventId: body.sourceEventId } : {}),
+      ...(body.rightsAuthorizationId ? { rightsAuthorizationId: body.rightsAuthorizationId } : {}),
       producer: body.producer,
       retentionClass: body.retentionClass,
       ...(body.expiresAt ? { expiresAt: body.expiresAt } : {}),

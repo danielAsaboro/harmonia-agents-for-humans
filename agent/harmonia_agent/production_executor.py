@@ -41,6 +41,7 @@ from .production_media import (
 from .web_client import (
     claim_production_operation,
     download_production_artifact,
+    download_production_source,
     record_production_provider_operation,
     record_production_operation_failure,
     report_usage,
@@ -163,21 +164,69 @@ def _execute_internal_operation(
     operation_type = operation.get("type")
     with tempfile.TemporaryDirectory() as directory:
         workspace = Path(directory)
-        if operation_type == "build_composition":
+        if operation_type == "resolve_media":
+            reference = operation.get("payload")
+            if not isinstance(reference, dict):
+                raise ProductionExecutionProtocolError("sealed source artifact reference is missing")
+            artifact_id = reference.get("artifactId")
+            expected_digest = reference.get("digest")
+            expected_mime = reference.get("mime")
+            expected_size = reference.get("sizeBytes")
+            rights_authorization_id = reference.get("rightsAuthorizationId")
+            if (
+                not isinstance(artifact_id, str)
+                or not isinstance(expected_digest, str)
+                or len(expected_digest) != 64
+                or not isinstance(expected_mime, str)
+                or not isinstance(expected_size, int)
+                or expected_size < 1
+                or not isinstance(rights_authorization_id, str)
+                or not rights_authorization_id
+            ):
+                raise ProductionExecutionProtocolError("sealed source artifact reference is malformed")
+            data, mime, digest = download_production_source(
+                plan_id,
+                operation_id,
+                claim_id=str(claim["id"]),
+                claim_token=token,
+            )
+            mime = mime.split(";", 1)[0]
+            if digest != expected_digest or mime != expected_mime or len(data) != expected_size:
+                raise ProductionExecutionProtocolError("materialized source does not match its sealed identity")
+            inspection = inspect_generated_media_bytes(data, mime)
+            metadata = {
+                "kind": "verified_source_materialization",
+                "artifactId": artifact_id,
+                "artifactDigest": digest,
+                "rightsAuthorizationId": rights_authorization_id,
+                "inspection": inspection,
+            }
+        elif operation_type == "build_composition":
             assets = workspace / "assets"
             assets.mkdir()
             scenes: list[dict[str, Any]] = []
             for scene in sorted(plan.get("scenes") or [], key=lambda value: value.get("order", 0)):
                 spec = scene.get("video")
-                if not isinstance(spec, dict):
-                    raise ProductionExecutionProtocolError("source-only scenes are not materialized for composition")
-                generated_type = "extend_video" if spec.get("mode") == "extend_video" else "generate_video"
-                source_id = f"{plan_id}:{generated_type}:{scene['id']}"
+                source_reference = scene.get("sourceArtifact")
+                if isinstance(source_reference, dict):
+                    artifact_id = source_reference.get("artifactId")
+                    if not isinstance(artifact_id, str):
+                        raise ProductionExecutionProtocolError("scene source artifact identity is missing")
+                    source_id = f"{plan_id}:resolve_media:{artifact_id}"
+                elif isinstance(spec, dict):
+                    generated_type = "extend_video" if spec.get("mode") == "extend_video" else "generate_video"
+                    source_id = f"{plan_id}:{generated_type}:{scene['id']}"
+                else:
+                    raise ProductionExecutionProtocolError("scene media source is missing")
                 if source_id not in downloaded:
-                    raise ProductionExecutionProtocolError("generated scene artifact is missing")
+                    raise ProductionExecutionProtocolError("scene artifact is missing")
                 data, mime, digest = downloaded[source_id]
                 if mime != "video/mp4":
                     raise ProductionExecutionProtocolError("scene input is not verified MP4 video")
+                if isinstance(source_reference, dict) and (
+                    source_reference.get("digest") != digest or source_reference.get("mime") != mime
+                ):
+                    raise ProductionExecutionProtocolError("scene source input does not match the sealed plan")
                 relative = f"assets/{digest}.mp4"
                 (workspace / relative).write_bytes(data)
                 scenes.append({
@@ -191,9 +240,31 @@ def _execute_internal_operation(
             music_id = f"{plan_id}:generate_music"
             if music_id in downloaded:
                 data, mime, digest = downloaded[music_id]
+                if not mime.startswith("audio/"):
+                    raise ProductionExecutionProtocolError("soundtrack input is not verified audio")
                 relative = f"assets/{digest}{_artifact_extension(mime)}"
                 (workspace / relative).write_bytes(data)
                 music = {"path": relative, "volume": 0.8}
+            narration: list[dict[str, Any]] = []
+            for clip in plan.get("narration") or []:
+                reference = clip.get("artifact") if isinstance(clip, dict) else None
+                artifact_id = reference.get("artifactId") if isinstance(reference, dict) else None
+                if not isinstance(artifact_id, str):
+                    raise ProductionExecutionProtocolError("narration artifact identity is missing")
+                source_id = f"{plan_id}:resolve_media:{artifact_id}"
+                if source_id not in downloaded:
+                    raise ProductionExecutionProtocolError("narration artifact is missing")
+                data, mime, digest = downloaded[source_id]
+                if not mime.startswith("audio/") or reference.get("digest") != digest or reference.get("mime") != mime:
+                    raise ProductionExecutionProtocolError("narration input does not match the sealed plan")
+                relative = f"assets/{digest}{_artifact_extension(mime)}"
+                (workspace / relative).write_bytes(data)
+                narration.append({
+                    "id": clip.get("id"),
+                    "path": relative,
+                    "startSec": clip.get("startSec"),
+                    "durationSec": clip.get("durationSec"),
+                })
             width, height = _target_dimensions(plan)
             manifest = compile_hyperframes_composition({
                 "id": plan_id,
@@ -201,7 +272,7 @@ def _execute_internal_operation(
                 "width": width,
                 "height": height,
                 "scenes": scenes,
-                "narration": [],
+                "narration": narration,
                 **({"music": music} if music else {}),
             }, workspace)
             try:

@@ -334,6 +334,28 @@ def download_production_artifact(plan_id: str, operation_id: str) -> tuple[bytes
     return res.content, res.headers.get("content-type") or "application/octet-stream", digest
 
 
+def download_production_source(
+    plan_id: str,
+    operation_id: str,
+    *,
+    claim_id: str,
+    claim_token: str,
+) -> tuple[bytes, str, str]:
+    with _client() as c:
+        res = c.get(
+            f"/api/internal/production-plans/{plan_id}/operations/{operation_id}/source",
+            headers={"x-claim-id": claim_id, "x-claim-token": claim_token},
+        )
+    if res.status_code != 200:
+        raise WebApiError(
+            f"production source download failed: {res.status_code} {res.text}", res.status_code,
+        )
+    digest = res.headers.get("x-artifact-digest") or ""
+    if not digest or hashlib.sha256(res.content).hexdigest() != digest:
+        raise WebApiError("production source download digest mismatch")
+    return res.content, res.headers.get("content-type") or "application/octet-stream", digest
+
+
 def get_insights() -> dict[str, Any]:
     """Cross-job reaction insights for the feedback loop (may be empty early)."""
     with _client() as c:

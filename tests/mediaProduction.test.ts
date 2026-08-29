@@ -21,6 +21,20 @@ const musicSpec = generatedMusicSpecSchema.parse({
   modelCapability: "lyria-3-clip", prompt: "Warm minimal electronic soundtrack, 100 BPM", instrumental: true,
   lyricsMode: "none", language: "en", targetDurationSec: 30, outputCount: 1,
 });
+const sourceRef = {
+  artifactId: "018f47a2-4f40-7b1f-b19f-8f6b916b7d11",
+  digest: "1".repeat(64),
+  mime: "video/mp4",
+  sizeBytes: 1234,
+  rightsAuthorizationId: "license-source-1",
+} as const;
+const narrationRef = {
+  artifactId: "018f47a2-4f40-7b1f-b19f-8f6b916b7d12",
+  digest: "2".repeat(64),
+  mime: "audio/wav",
+  sizeBytes: 4321,
+  rightsAuthorizationId: "license-narration-1",
+} as const;
 const basePlan = {
   id: "plan-1",
   jobId: "job-1",
@@ -33,10 +47,11 @@ const basePlan = {
   target: { platform: "linkedin", durationSec: 30, aspectRatio: "9:16", resolution: "1080p", frameRate: 30, format: "mp4" },
   scenes: [{
     id: "scene-1", order: 1, startSec: 0, durationSec: 4,
-    purpose: "establish the product", sourceArtifactIds: [],
+    purpose: "establish the product",
     video: videoSpec,
     overlays: [], captions: [], transitions: [],
   }],
+  narration: [],
   soundtrack: musicSpec,
   constraints: { allowLikeness: false, allowGeneratedVocals: false, requireLicensedSources: true },
   pricingVersion: "2026-08-31",
@@ -69,15 +84,63 @@ describe("media production contracts", () => {
     })).toThrow(/conditioning|control/i);
   });
 
-  it("blocks source-backed scenes until verified source materialization is implemented", () => {
+  it("seals verified source and narration artifacts into the operation graph", () => {
+    const sourceBacked = videoProductionPlanSchema.parse({
+      ...basePlan,
+      scenes: [{ ...basePlan.scenes[0], sourceArtifact: sourceRef, video: undefined }],
+      narration: [{ id: "voice-1", artifact: narrationRef, startSec: 0.25, durationSec: 3.5 }],
+      operationCostsUsd: { "plan-1:generate_music": "0.120000" },
+      estimatedCostUsd: "0.120000",
+      maximumCostUsd: "0.200000",
+    });
+    const operations = compileProductionOperations(sourceBacked);
+    const resolved = operations.filter((item) => item.type === "resolve_media");
+    expect(resolved.map((item) => item.payload)).toEqual([sourceRef, narrationRef]);
+    expect(resolved.every((item) => item.executionAuthority === "internal" && item.estimatedCostUsd === undefined)).toBe(true);
+    expect(operations.find((item) => item.type === "build_composition")?.dependsOn).toEqual([
+      ...resolved.map((item) => item.id),
+      "plan-1:generate_music",
+    ]);
+  });
+
+  it("rejects unsealed or ambiguous production media sources", () => {
     expect(() => videoProductionPlanSchema.parse({
       ...basePlan,
-      scenes: [{ ...basePlan.scenes[0], sourceArtifactIds: ["artifact-1"] }],
-    })).toThrow(/source artifact.*unavailable/i);
+      scenes: [{ ...basePlan.scenes[0], sourceArtifact: sourceRef }],
+    })).toThrow(/exactly one/i);
     expect(() => videoProductionPlanSchema.parse({
       ...basePlan,
-      scenes: [{ ...basePlan.scenes[0], video: undefined, sourceArtifactIds: [] }],
-    })).toThrow(/generated video.*required/i);
+      scenes: [{ ...basePlan.scenes[0], video: undefined }],
+    })).toThrow(/exactly one/i);
+    expect(() => videoProductionPlanSchema.parse({
+      ...basePlan,
+      scenes: [{ ...basePlan.scenes[0], sourceArtifact: { ...sourceRef, digest: "not-a-digest" }, video: undefined }],
+      operationCostsUsd: { "plan-1:generate_music": "0.120000" },
+      estimatedCostUsd: "0.120000",
+    })).toThrow(/digest/i);
+    const { rightsAuthorizationId: _rights, ...unlicensed } = sourceRef;
+    expect(() => videoProductionPlanSchema.parse({
+      ...basePlan,
+      scenes: [{ ...basePlan.scenes[0], sourceArtifact: unlicensed, video: undefined }],
+      operationCostsUsd: { "plan-1:generate_music": "0.120000" },
+      estimatedCostUsd: "0.120000",
+    })).toThrow(/authorization/i);
+    expect(() => videoProductionPlanSchema.parse({
+      ...basePlan,
+      scenes: [{ ...basePlan.scenes[0], sourceArtifact: { ...sourceRef, mime: "video/webm" }, video: undefined }],
+      operationCostsUsd: { "plan-1:generate_music": "0.120000" },
+      estimatedCostUsd: "0.120000",
+    })).toThrow(/mime|mp4/i);
+    expect(() => videoProductionPlanSchema.parse({
+      ...basePlan,
+      scenes: [{ ...basePlan.scenes[0], sourceArtifact: { ...sourceRef, sizeBytes: 64 * 1024 * 1024 + 1 }, video: undefined }],
+      operationCostsUsd: { "plan-1:generate_music": "0.120000" },
+      estimatedCostUsd: "0.120000",
+    })).toThrow(/size|too big|less than/i);
+    expect(() => videoProductionPlanSchema.parse({
+      ...basePlan,
+      narration: [{ id: "voice-late", artifact: narrationRef, startSec: 29, durationSec: 2 }],
+    })).toThrow(/narration.*target|timeline/i);
   });
 
   it("rejects Lyria lyrics when instrumental mode is selected", () => {

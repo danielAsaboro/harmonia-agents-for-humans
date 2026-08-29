@@ -110,7 +110,7 @@ export async function authorProductionPlan(input: {
     operationCostsUsd[`${id}:generate_video:${sceneId}`] = cost;
     const result = {
       id: sceneId, order: index + 1, startSec, durationSec: scene.durationSec,
-      purpose: scene.purpose, sourceArtifactIds: [],
+      purpose: scene.purpose,
       video: {
         modelCapability: "veo-3.1-fast" as const, mode: "text_to_video" as const,
         prompt: scene.prompt, durationSec: scene.durationSec,
@@ -135,7 +135,7 @@ export async function authorProductionPlan(input: {
     id, jobId: input.job.id, workspaceId: input.workspaceId, brandId: input.brandId, revision,
     goal: draft.goal, audience: draft.audience, tone: draft.tone,
     target: { platform: draft.platform, durationSec: startSec, aspectRatio: draft.aspectRatio, resolution: draft.resolution, frameRate: draft.frameRate, format: "mp4" },
-    scenes, ...(soundtrack ? { soundtrack } : {}),
+    scenes, narration: [], ...(soundtrack ? { soundtrack } : {}),
     constraints: { allowLikeness: false, allowGeneratedVocals: false, requireLicensedSources: true },
     pricingVersion: "google-media-2026-08-31", operationCostsUsd,
     estimatedCostUsd, maximumCostUsd: estimatedCostUsd,

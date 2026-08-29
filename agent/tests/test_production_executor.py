@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from pathlib import Path
+import hashlib
 import json
 
 from harmonia_agent import production_executor
@@ -279,6 +280,194 @@ def test_executor_surfaces_failed_veo_poll_rearm_for_pubsub_retry(monkeypatch):
         assert exc.status == 503
     else:
         raise AssertionError("failed durable re-arm must remain retryable")
+
+
+def test_internal_resolve_media_materializes_only_the_sealed_source_claim(monkeypatch):
+    operation_id = "plan-1:resolve_media:018f47a2-4f40-7b1f-b19f-8f6b916b7d11"
+    reference = {
+        "artifactId": "018f47a2-4f40-7b1f-b19f-8f6b916b7d11",
+        "digest": "a" * 64,
+        "mime": "video/mp4",
+        "sizeBytes": 21,
+        "rightsAuthorizationId": "license-source-1",
+    }
+    decision = {
+        "outcome": "execute",
+        "claim": {
+            "kind": "internal", "id": "resolve-claim", "operationId": operation_id,
+            "planDigest": "f" * 64, "inputDigests": [],
+        },
+        "operation": {
+            "id": operation_id, "type": "resolve_media", "executionAuthority": "internal",
+            "payload": reference,
+        },
+        "plan": {"id": "plan-1", "jobId": "job-1"},
+        "inputs": [],
+    }
+    uploads: list[dict] = []
+    monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: decision)
+    monkeypatch.setattr(
+        production_executor,
+        "download_production_source",
+        lambda *args, **kwargs: (b"verified-source-video", "video/mp4", "a" * 64),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        production_executor,
+        "inspect_generated_media_bytes",
+        lambda data, mime: {"durationSec": 4.0, "video": {"codec": "h264"}},
+    )
+    monkeypatch.setattr(
+        production_executor,
+        "upload_production_artifact",
+        lambda *args, **kwargs: uploads.append(kwargs) or {"state": "succeeded"},
+    )
+
+    result = production_executor.execute_production_operation(
+        "plan-1", operation_id, claim_token="resolve-worker",
+    )
+
+    assert result == {"outcome": "succeeded", "claim": {"state": "succeeded"}}
+    assert uploads[0]["data"] == b"verified-source-video"
+    assert uploads[0]["operation_metadata"] == {
+        "kind": "verified_source_materialization",
+        "artifactId": reference["artifactId"],
+        "artifactDigest": reference["digest"],
+        "rightsAuthorizationId": "license-source-1",
+        "inspection": {"durationSec": 4.0, "video": {"codec": "h264"}},
+    }
+
+
+def test_internal_resolve_media_rejects_malformed_bytes_declared_as_video(monkeypatch):
+    data = b"not-an-mp4"
+    digest = hashlib.sha256(data).hexdigest()
+    operation_id = "plan-1:resolve_media:018f47a2-4f40-7b1f-b19f-8f6b916b7d11"
+    decision = {
+        "outcome": "execute",
+        "claim": {
+            "kind": "internal", "id": "resolve-bad-claim", "operationId": operation_id,
+            "planDigest": "f" * 64, "inputDigests": [],
+        },
+        "operation": {
+            "id": operation_id, "type": "resolve_media", "executionAuthority": "internal",
+            "payload": {
+                "artifactId": "018f47a2-4f40-7b1f-b19f-8f6b916b7d11",
+                "digest": digest, "mime": "video/mp4", "sizeBytes": len(data),
+                "rightsAuthorizationId": "license-source-1",
+            },
+        },
+        "plan": {"id": "plan-1", "jobId": "job-1"},
+        "inputs": [],
+    }
+    failures: list[dict] = []
+    monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: decision)
+    monkeypatch.setattr(
+        production_executor, "download_production_source",
+        lambda *args, **kwargs: (data, "video/mp4", digest), raising=False,
+    )
+    monkeypatch.setattr(
+        production_executor, "inspect_generated_media_bytes",
+        lambda *_args: (_ for _ in ()).throw(production_executor.MediaInspectionError("invalid media")),
+    )
+    monkeypatch.setattr(
+        production_executor, "upload_production_artifact",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("invalid media must not upload")),
+    )
+    monkeypatch.setattr(
+        production_executor, "record_production_operation_failure",
+        lambda *args, **kwargs: failures.append(kwargs),
+    )
+
+    try:
+        production_executor.execute_production_operation(
+            "plan-1", operation_id, claim_token="resolve-bad-worker",
+        )
+    except production_executor.MediaInspectionError as exc:
+        assert str(exc) == "invalid media"
+    else:
+        raise AssertionError("malformed declared media must fail closed")
+
+    assert failures == [{
+        "claim_id": "resolve-bad-claim",
+        "claim_token": "resolve-bad-worker",
+        "outcome": "failed",
+        "reason": "MediaInspectionError: invalid media",
+    }]
+
+
+def test_internal_build_composes_verified_source_and_narration_with_voiceover_carve(monkeypatch, tmp_path: Path):
+    source_artifact_id = "018f47a2-4f40-7b1f-b19f-8f6b916b7d11"
+    narration_artifact_id = "018f47a2-4f40-7b1f-b19f-8f6b916b7d12"
+    source_operation_id = f"plan-1:resolve_media:{source_artifact_id}"
+    narration_operation_id = f"plan-1:resolve_media:{narration_artifact_id}"
+    operation_id = "plan-1:build_composition"
+    decision = {
+        "outcome": "execute",
+        "claim": {
+            "kind": "internal", "id": "build-source-claim", "operationId": operation_id,
+            "planDigest": "f" * 64,
+            "inputDigests": [
+                {"operationId": source_operation_id, "digest": "a" * 64},
+                {"operationId": narration_operation_id, "digest": "b" * 64},
+                {"operationId": "plan-1:generate_music", "digest": "c" * 64},
+            ],
+        },
+        "operation": {
+            "id": operation_id, "type": "build_composition", "executionAuthority": "internal",
+        },
+        "plan": {
+            "id": "plan-1", "jobId": "job-1",
+            "target": {"durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p", "frameRate": 30},
+            "scenes": [{
+                "id": "scene-1", "order": 1, "startSec": 0, "durationSec": 4,
+                "purpose": "Operator footage",
+                "sourceArtifact": {
+                    "artifactId": source_artifact_id, "digest": "a" * 64,
+                    "mime": "video/mp4", "sizeBytes": 20,
+                    "rightsAuthorizationId": "license-source-1",
+                },
+            }],
+            "narration": [{
+                "id": "voice-1", "startSec": 0.25, "durationSec": 3.5,
+                "artifact": {
+                    "artifactId": narration_artifact_id, "digest": "b" * 64,
+                    "mime": "audio/wav", "sizeBytes": 21,
+                    "rightsAuthorizationId": "license-narration-1",
+                },
+            }],
+        },
+        "inputs": [
+            {"operationId": source_operation_id, "artifact": {"mime": "video/mp4", "digest": "a" * 64}},
+            {"operationId": narration_operation_id, "artifact": {"mime": "audio/wav", "digest": "b" * 64}},
+            {"operationId": "plan-1:generate_music", "artifact": {"mime": "audio/mpeg", "digest": "c" * 64}},
+        ],
+    }
+    uploads: list[dict] = []
+    downloaded = {
+        source_operation_id: (b"verified-source-video", "video/mp4", "a" * 64),
+        narration_operation_id: (b"verified-narration-wav", "audio/wav", "b" * 64),
+        "plan-1:generate_music": (b"verified-lyria-music", "audio/mpeg", "c" * 64),
+    }
+    monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: decision)
+    monkeypatch.setattr(production_executor, "download_production_artifact", lambda _plan, op: downloaded[op])
+    monkeypatch.setattr(production_executor, "upload_production_artifact", lambda *args, **kwargs: uploads.append(kwargs) or {"state": "succeeded"})
+    monkeypatch.setattr(production_executor.subprocess, "run", lambda *_args, **_kwargs: SimpleNamespace(stdout="0.8.20\n"))
+
+    result = production_executor.execute_production_operation(
+        "plan-1", operation_id, claim_token="build-source-worker",
+    )
+
+    assert result == {"outcome": "succeeded", "claim": {"state": "succeeded"}}
+    extracted = tmp_path / "source-composition"
+    production_executor.extract_verified_archive(uploads[0]["data"], extracted)
+    manifest = json.loads((extracted / "composition-manifest.json").read_text())
+    html = (extracted / "index.html").read_text()
+    assert manifest["voiceoverCarve"] == {
+        "enabled": True, "sources": ["voiceover"], "strength": 0.25, "dynamic": True,
+    }
+    assert 'data-audio-group="voiceover"' in html
+    assert (extracted / "assets" / f"{'a' * 64}.mp4").read_bytes() == b"verified-source-video"
+    assert (extracted / "assets" / f"{'b' * 64}.wav").read_bytes() == b"verified-narration-wav"
 
 
 def test_internal_build_compiles_verified_inputs_to_a_durable_composition_archive(monkeypatch, tmp_path: Path):

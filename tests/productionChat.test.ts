@@ -8,10 +8,11 @@ const plan = videoProductionPlanSchema.parse({
   goal: "Explain the launch", audience: "founders", tone: ["clear"],
   target: { platform: "linkedin", durationSec: 4, aspectRatio: "9:16", resolution: "1080p", frameRate: 30, format: "mp4" },
   scenes: [{
-    id: "scene-1", order: 1, startSec: 0, durationSec: 4, purpose: "Show the workflow", sourceArtifactIds: [],
+    id: "scene-1", order: 1, startSec: 0, durationSec: 4, purpose: "Show the workflow",
     video: { modelCapability: "veo-3.1-fast", mode: "text_to_video", prompt: "A measured product workflow", durationSec: 4, aspectRatio: "9:16", resolution: "1080p", generateAudio: false, enhancePrompt: true, outputCount: 1 },
     overlays: [], captions: [], transitions: [],
   }],
+  narration: [],
   constraints: { allowLikeness: false, allowGeneratedVocals: false, requireLicensedSources: true },
   pricingVersion: "2026-08-31", operationCostsUsd: { "plan-chat:generate_video:scene-1": "0.320000" }, estimatedCostUsd: "0.320000", maximumCostUsd: "0.400000",
 });

@@ -39,6 +39,7 @@ def test_compiler_emits_deterministic_hyperframes_timeline_and_grouped_voice_car
     assert "Launch &lt;now&gt;" in html
     assert "font:700 clamp(24px,6vw,64px)/1.05" in html
     assert "overflow-wrap:anywhere" in html
+    assert "background:rgba(7,11,20,.92)" in html
     assert manifest["inputs"] == ["assets/music.mp3", "assets/shot.mp4", "assets/voice.wav"]
     assert manifest["voiceoverCarve"]["sources"] == ["voiceover"]
 
@@ -62,6 +63,23 @@ def test_compiler_rejects_untrusted_scene_ids_before_html_generation(tmp_path: P
                 "videoPath": "shot.mp4",
             }],
             "narration": [],
+        }, tmp_path)
+
+
+def test_compiler_rejects_narration_outside_composition_timeline(tmp_path: Path):
+    (tmp_path / "shot.mp4").write_bytes(b"video")
+    (tmp_path / "voice.wav").write_bytes(b"voice")
+    with pytest.raises(CompositionCompileError, match="narration.*timeline"):
+        compile_hyperframes_composition({
+            "id": "plan-1", "durationSec": 4, "width": 1080, "height": 1920,
+            "scenes": [{
+                "id": "scene-1", "startSec": 0, "durationSec": 4,
+                "videoPath": "shot.mp4",
+            }],
+            "narration": [{
+                "id": "voice-1", "path": "voice.wav", "startSec": 3,
+                "durationSec": 2,
+            }],
         }, tmp_path)
 
 

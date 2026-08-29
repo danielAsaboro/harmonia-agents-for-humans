@@ -28,6 +28,7 @@ export interface ArtifactRecord {
   preview: string;
   trust: ArtifactTrust;
   sourceEventId?: string;
+  rightsAuthorizationId?: string;
   producer: ArtifactProducer;
   retentionClass: ArtifactRetentionClass;
   state: ArtifactState;
@@ -50,6 +51,7 @@ export interface CreateArtifactRecordInput {
   itemCount?: number;
   trust: ArtifactTrust;
   sourceEventId?: string;
+  rightsAuthorizationId?: string;
   producer: ArtifactProducer;
   retentionClass: ArtifactRetentionClass;
   expiresAt?: string;
@@ -129,6 +131,7 @@ export function createArtifactRecord(input: CreateArtifactRecordInput): Artifact
     preview: textPreview(input.bytes, input.contentType),
     trust: input.trust,
     ...(input.sourceEventId ? { sourceEventId: input.sourceEventId } : {}),
+    ...(input.rightsAuthorizationId ? { rightsAuthorizationId: input.rightsAuthorizationId } : {}),
     producer: { ...input.producer },
     retentionClass: input.retentionClass,
     state: "writing",

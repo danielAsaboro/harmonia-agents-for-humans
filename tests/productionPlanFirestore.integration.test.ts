@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 
 import { firebasePrincipal, servicePrincipal } from "@/lib/authority";
+import { createArtifactStore } from "@/lib/artifactStore";
 import { db } from "@/lib/firestore";
 import { compileProductionOperations, createProductionMandate, generatedMusicSpecSchema, generatedVideoSpecSchema, productionPlanDigest, videoProductionPlanSchema } from "@/lib/mediaProduction";
 import {
@@ -14,6 +15,7 @@ import {
   getProductionPlan,
   getProductionPlanWorkspaceForJob,
   getProductionPlanRevision,
+  getProductionSourceArtifact,
   listDispatchableProductionOutbox,
   proposeProductionPlan,
   rejectProductionPlan,
@@ -56,10 +58,11 @@ const basePlan = videoProductionPlanSchema.parse({
   target: { platform: "linkedin", durationSec: 30, aspectRatio: "9:16", resolution: "1080p", frameRate: 30, format: "mp4" },
   scenes: [{
     id: "scene-1", order: 1, startSec: 0, durationSec: 4,
-    purpose: "establish the product", sourceArtifactIds: [],
+    purpose: "establish the product",
     video: videoSpec,
     overlays: [], captions: [], transitions: [],
   }],
+  narration: [],
   soundtrack: musicSpec,
   constraints: { allowLikeness: false, allowGeneratedVocals: false, requireLicensedSources: true },
   pricingVersion: "2026-08-31",
@@ -81,6 +84,83 @@ function wake(plan: typeof basePlan, claimToken: string, expectedInternalRun = 0
 }
 
 describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
+  it("schedules and materializes a digest- and rights-bound source operation", async () => {
+    const sourceJobId = `production-source-${Date.now()}`;
+    const sourcePlanId = `plan-source-${Date.now()}`;
+    await db().doc(`workspaces/${workspaceId}`).set({ defaultBrandId: brandId });
+    await db().doc(`workspaces/${workspaceId}/jobs/${sourceJobId}`).set({
+      id: sourceJobId, workspaceId, brandId, status: "active", stage: "draft",
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    const source = await runWithTenant(serviceScope, () => createArtifactStore(db()).create({
+      jobId: sourceJobId,
+      operationId: `${sourceJobId}:ingest_source`,
+      bytes: Buffer.from("verified-source-video"),
+      contentType: "video/mp4",
+      trust: "operator",
+      producer: { kind: "operator_upload", id: "source-upload-1", version: "1" },
+      retentionClass: "source",
+      rightsAuthorizationId: "license-source-1",
+    }));
+    const { video: _generatedVideo, ...sourceScene } = basePlan.scenes[0];
+    void _generatedVideo;
+    const { soundtrack: _generatedSoundtrack, ...sourceOnlyBase } = basePlan;
+    void _generatedSoundtrack;
+    const sealedPlan = videoProductionPlanSchema.parse({
+      ...sourceOnlyBase,
+      id: sourcePlanId,
+      jobId: sourceJobId,
+      target: { ...basePlan.target, durationSec: 4 },
+      scenes: [{
+        ...sourceScene,
+        sourceArtifact: {
+          artifactId: source.id,
+          digest: source.sha256,
+          mime: source.contentType,
+          sizeBytes: source.byteCount,
+          rightsAuthorizationId: source.rightsAuthorizationId,
+        },
+      }],
+      operationCostsUsd: {},
+      estimatedCostUsd: "0.000000",
+      maximumCostUsd: "0.000000",
+    });
+    await runWithTenant(serviceScope, () => proposeProductionPlan(sealedPlan));
+    await runWithTenant(operatorScope, () => sealProductionPlan(sealedPlan.id, {
+      planDigest: productionPlanDigest(sealedPlan),
+    }));
+    expect(await runWithTenant(operatorScope, () => approveProductionPlan(sealedPlan.id, {
+      planDigest: productionPlanDigest(sealedPlan),
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    }))).toBeNull();
+    const resolve = compileProductionOperations(sealedPlan).find((item) => item.type === "resolve_media")!;
+    expect(await runWithTenant(serviceScope, () => listDispatchableProductionOutbox(
+      100, new Date("2098-01-01T00:00:00.000Z"),
+    ))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ planId: sealedPlan.id, operationId: resolve.id, state: "pending" }),
+    ]));
+    const claimed = await runWithTenant(serviceScope, () => claimProductionOperation(
+      sealedPlan.id, resolve.id, wake(sealedPlan, "source-worker"),
+    ));
+    expect(claimed).toMatchObject({ outcome: "execute", claim: { kind: "internal" } });
+    const materialized = await runWithTenant(serviceScope, () => getProductionSourceArtifact(
+      sealedPlan.id,
+      resolve.id,
+      { claimId: claimed.claim.id, claimToken: "source-worker" },
+    ));
+    expect(materialized.record).toMatchObject({
+      id: source.id,
+      sha256: source.sha256,
+      rightsAuthorizationId: "license-source-1",
+    });
+    expect(materialized.bytes.toString()).toBe("verified-source-video");
+    await expect(runWithTenant(serviceScope, () => getProductionSourceArtifact(
+      sealedPlan.id,
+      resolve.id,
+      { claimId: claimed.claim.id, claimToken: "wrong-worker" },
+    ))).rejects.toThrow(/ownership/i);
+  });
+
   it("transactionally rejects a second production plan identity for one job", async () => {
     const unique = Date.now();
     const jobId = `production-cardinality-${unique}`;
@@ -404,6 +484,7 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
       approvedAt: "2026-08-31T00:00:00.000Z",
       expiresAt: "2099-01-01T00:00:00.000Z",
     }));
+    if (!mandate) throw new Error("paid production plan requires a mandate");
     const initialOutbox = await db().collection(
       `workspaces/${workspaceId}/brands/${brandId}/production_operation_outbox`,
     ).get();
@@ -608,6 +689,7 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
       planDigest: productionPlanDigest(revisionTwo),
       expiresAt: "2099-01-01T00:00:00.000Z",
     }));
+    if (!revisionTwoMandate) throw new Error("paid production revision requires a mandate");
     const revisionTwoOperation = compileProductionOperations(revisionTwo).find((operation) => operation.type === "generate_video")!;
     const revisionTwoClaim = await runWithTenant(serviceScope, () => claimPaidProductionOperation(
       revisionTwo.id,

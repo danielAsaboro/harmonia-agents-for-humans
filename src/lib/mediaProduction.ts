@@ -4,6 +4,16 @@ import { z } from "zod";
 const usd = z.string().regex(/^\d+\.\d{6}$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const identifier = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
+const artifactId = z.string().uuid();
+
+export const verifiedProductionArtifactRefSchema = z.object({
+  artifactId,
+  digest,
+  mime: z.enum(["video/mp4", "audio/mpeg", "audio/wav"]),
+  sizeBytes: z.number().int().positive().max(64 * 1024 * 1024),
+  rightsAuthorizationId: z.string().regex(/^[A-Za-z0-9:_-]{1,256}$/),
+}).strict();
+export type VerifiedProductionArtifactRef = z.infer<typeof verifiedProductionArtifactRefSchema>;
 
 export const VEO_CAPABILITIES = {
   "veo-3.1-fast": { model: "veo-3.1-fast-generate-001", resolutions: ["720p", "1080p"], durations: [4, 6, 8], modes: ["text_to_video"], usdPerSecond: "0.080000", preview: false },
@@ -85,14 +95,25 @@ export const generatedMusicSpecSchema = z.object({
 
 const sceneSchema = z.object({
   id: identifier, order: z.number().int().positive(), startSec: z.number().nonnegative(), durationSec: z.number().positive(),
-  purpose: z.string().min(1), sourceArtifactIds: z.array(z.string().min(1)), video: generatedVideoSpecSchema.optional(),
+  purpose: z.string().min(1), sourceArtifact: verifiedProductionArtifactRefSchema.optional(), video: generatedVideoSpecSchema.optional(),
   overlays: z.array(z.record(z.string(), z.unknown())), captions: z.array(z.record(z.string(), z.unknown())), transitions: z.array(z.record(z.string(), z.unknown())),
 }).strict().superRefine((value, context) => {
-  if (value.sourceArtifactIds.length > 0) {
-    context.addIssue({ code: "custom", path: ["sourceArtifactIds"], message: "source artifact materialization is unavailable" });
+  if (Boolean(value.sourceArtifact) === Boolean(value.video)) {
+    context.addIssue({ code: "custom", path: ["sourceArtifact"], message: "scene requires exactly one verified source artifact or generated video" });
   }
-  if (!value.video) {
-    context.addIssue({ code: "custom", path: ["video"], message: "generated video is required until source materialization is implemented" });
+  if (value.sourceArtifact && !value.sourceArtifact.mime.startsWith("video/")) {
+    context.addIssue({ code: "custom", path: ["sourceArtifact", "mime"], message: "scene source artifact must be video" });
+  }
+});
+
+const narrationClipSchema = z.object({
+  id: identifier,
+  artifact: verifiedProductionArtifactRefSchema,
+  startSec: z.number().nonnegative(),
+  durationSec: z.number().positive(),
+}).strict().superRefine((value, context) => {
+  if (!value.artifact.mime.startsWith("audio/")) {
+    context.addIssue({ code: "custom", path: ["artifact", "mime"], message: "narration artifact must be audio" });
   }
 });
 
@@ -100,12 +121,34 @@ export const videoProductionPlanSchema = z.object({
   id: identifier, jobId: identifier, workspaceId: identifier, brandId: identifier, revision: z.number().int().positive(),
   goal: z.string().min(1), audience: z.string().min(1), tone: z.array(z.string().min(1)).min(1),
   target: z.object({ platform: z.string().min(1), durationSec: z.number().positive(), aspectRatio: z.enum(["16:9", "9:16"]), resolution: z.enum(["720p", "1080p", "4k"]), frameRate: z.union([z.literal(24), z.literal(25), z.literal(30), z.literal(60)]), format: z.literal("mp4") }).strict(),
-  scenes: z.array(sceneSchema).min(1), soundtrack: generatedMusicSpecSchema.optional(),
+  scenes: z.array(sceneSchema).min(1), narration: z.array(narrationClipSchema).max(100), soundtrack: generatedMusicSpecSchema.optional(),
   constraints: z.object({ allowLikeness: z.boolean(), allowGeneratedVocals: z.boolean(), requireLicensedSources: z.boolean() }).strict(),
   pricingVersion: z.string().min(1), operationCostsUsd: z.record(z.string().regex(/^[A-Za-z0-9:_-]{1,512}$/), usd), estimatedCostUsd: usd, maximumCostUsd: usd,
 }).strict().superRefine((value, context) => {
   if (Number(value.maximumCostUsd) < Number(value.estimatedCostUsd)) context.addIssue({ code: "custom", path: ["maximumCostUsd"], message: "maximum cost must cover estimated cost" });
   if (!value.constraints.allowGeneratedVocals && value.soundtrack && !value.soundtrack.instrumental) context.addIssue({ code: "custom", path: ["soundtrack"], message: "generated vocals are forbidden by the plan" });
+  for (const [index, clip] of value.narration.entries()) {
+    if (clip.startSec + clip.durationSec > value.target.durationSec) {
+      context.addIssue({
+        code: "custom",
+        path: ["narration", index, "durationSec"],
+        message: "narration clip extends beyond the target timeline",
+      });
+    }
+  }
+  const artifactIdentities = new Map<string, string>();
+  const references = [
+    ...value.scenes.flatMap((scene) => scene.sourceArtifact ? [scene.sourceArtifact] : []),
+    ...value.narration.map((clip) => clip.artifact),
+  ];
+  for (const reference of references) {
+    const identity = canonical(reference);
+    const existing = artifactIdentities.get(reference.artifactId);
+    if (existing && existing !== identity) {
+      context.addIssue({ code: "custom", path: ["scenes"], message: `artifact ${reference.artifactId} has conflicting sealed identities` });
+    }
+    artifactIdentities.set(reference.artifactId, identity);
+  }
   const requiredOperationIds = value.scenes.flatMap((scene) => {
     if (!scene.video) return [];
     const type = scene.video.mode === "extend_video" ? "extend_video" : "generate_video";
@@ -285,6 +328,20 @@ export function estimateGeneratedMediaCost(spec: GeneratedVideoSpec | GeneratedM
 }
 
 export function compileProductionOperations(plan: VideoProductionPlan): ProductionOperation[] {
+  const references = [
+    ...plan.scenes.flatMap((scene) => scene.sourceArtifact ? [scene.sourceArtifact] : []),
+    ...plan.narration.map((clip) => clip.artifact),
+  ];
+  const uniqueReferences = [...new Map(references.map((reference) => [reference.artifactId, reference])).values()];
+  const resolved: ProductionOperation[] = uniqueReferences.map((reference) => ({
+    id: `${plan.id}:resolve_media:${reference.artifactId}`,
+    jobId: plan.jobId,
+    type: "resolve_media",
+    dependsOn: [],
+    payload: reference,
+    requestDigest: sha(reference),
+    executionAuthority: "internal",
+  }));
   const paid: ProductionOperation[] = [];
   for (const scene of [...plan.scenes].sort((a, b) => a.order - b.order)) if (scene.video) {
     const type = scene.video.mode === "extend_video" ? "extend_video" : "generate_video";
@@ -299,7 +356,7 @@ export function compileProductionOperations(plan: VideoProductionPlan): Producti
   }
   const buildId = `${plan.id}:build_composition`;
   const chain: ProductionOperation[] = [
-    { id: buildId, jobId: plan.jobId, type: "build_composition", dependsOn: paid.map((item) => item.id), payload: { planDigest: productionPlanDigest(plan) }, requestDigest: sha({ planDigest: productionPlanDigest(plan) }), executionAuthority: "internal" },
+    { id: buildId, jobId: plan.jobId, type: "build_composition", dependsOn: [...resolved, ...paid].map((item) => item.id), payload: { planDigest: productionPlanDigest(plan) }, requestDigest: sha({ planDigest: productionPlanDigest(plan) }), executionAuthority: "internal" },
   ];
   for (const type of ["render_composition", "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production"] as const) {
     const previous = chain.at(-1)!.id;
@@ -335,5 +392,5 @@ export function compileProductionOperations(plan: VideoProductionPlan): Producti
     requestDigest: sha({ type: exportType, planDigest }),
     executionAuthority: "internal",
   });
-  return [...paid, ...chain];
+  return [...resolved, ...paid, ...chain];
 }

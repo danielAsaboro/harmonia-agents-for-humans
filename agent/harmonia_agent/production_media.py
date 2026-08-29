@@ -149,6 +149,8 @@ def compile_hyperframes_composition(plan: dict[str, Any], workspace: Path) -> di
         voice_id = _safe_id(voice.get("id") or f"voice-{index + 1}", "narration id")
         start = _number(voice.get("startSec"), "narration.startSec")
         voice_duration = _number(voice.get("durationSec"), "narration.durationSec", minimum=0.01)
+        if start + voice_duration > duration + 0.001:
+            raise CompositionCompileError("narration extends beyond composition timeline")
         audio_markup.append(
             f'<audio id="hf-{plan_id}-{voice_id}" src="{html.escape(source, quote=True)}" '
             f'data-start="{start:g}" data-duration="{voice_duration:g}" data-track-index="{200 + index}" '
@@ -176,7 +178,7 @@ def compile_hyperframes_composition(plan: dict[str, Any], workspace: Path) -> di
     index_html = f'''<!doctype html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width={width}, height={height}">
 <title>Harmonia production {html.escape(plan_id)}</title><script src="vendor/gsap.min.js"></script>
-<style>html,body{{margin:0;width:{width}px;height:{height}px;background:#070b14;color:white;overflow:hidden}}#root{{position:relative;width:{width}px;height:{height}px;overflow:hidden}}.clip{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}}.title{{display:grid;place-items:end start;padding:8%;box-sizing:border-box}}h2{{font:700 clamp(24px,6vw,64px)/1.05 Inter,system-ui,sans-serif;margin:0;max-width:100%;overflow-wrap:anywhere}}</style></head>
+<style>html,body{{margin:0;width:{width}px;height:{height}px;background:#070b14;color:white;overflow:hidden}}#root{{position:relative;width:{width}px;height:{height}px;overflow:hidden}}.clip{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}}.title{{display:grid;place-items:end start;padding:8%;box-sizing:border-box}}h2{{font:700 clamp(24px,6vw,64px)/1.05 Inter,system-ui,sans-serif;margin:0;max-width:100%;overflow-wrap:anywhere;background:rgba(7,11,20,.92);padding:.35em .45em;border-radius:.2em;box-sizing:border-box}}</style></head>
 <body><div id="root" data-composition-id="{composition_id}" data-start="0" data-width="{width}" data-height="{height}" data-duration="{duration:g}">
 {''.join(scene_markup)}{''.join(audio_markup)}</div>
 <script>window.__timelines=window.__timelines||{{}};const tl=gsap.timeline({{paused:true}});window.__timelines["{composition_id}"]=tl;</script></body></html>'''

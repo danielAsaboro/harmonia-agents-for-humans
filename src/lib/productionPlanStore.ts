@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 
 import { db } from "./firestore";
+import { createArtifactStore } from "./artifactStore";
+import type { ArtifactRecord } from "./artifacts";
 import {
   assertProductionMandateAuthorizes,
   compileProductionOperations,
@@ -8,6 +10,7 @@ import {
   productionMandateSchema,
   productionOperationSchema,
   productionPlanDigest,
+  verifiedProductionArtifactRefSchema,
   videoProductionPlanSchema,
   type ProductionMandate,
   type ProductionOperation,
@@ -502,6 +505,58 @@ export async function getProductionOperationArtifact(
   return claim.artifact;
 }
 
+export async function getProductionSourceArtifact(
+  planId: string,
+  operationId: string,
+  input: { claimId: string; claimToken: string },
+): Promise<{ record: ArtifactRecord; bytes: Buffer }> {
+  const tenant = currentTenant();
+  requireService(tenant);
+  const aggregate = await getProductionPlan(planId);
+  if (!aggregate || aggregate.state !== "approved") throw new Error("approved production plan not found");
+  const revision = await getProductionPlanRevision(planId, aggregate.currentRevision);
+  if (!revision || revision.planDigest !== aggregate.currentPlanDigest) {
+    throw new Error("production plan revision not found");
+  }
+  const operation = revision.operations.find((candidate) => candidate.id === operationId);
+  if (!operation || operation.type !== "resolve_media" || operation.executionAuthority !== "internal") {
+    throw new Error("production operation is not a source materialization step");
+  }
+  const claimId = operationClaimId(
+    aggregate.currentRevision, aggregate.currentPlanDigest, operationId, aggregate.internalRun,
+  );
+  if (claimId !== input.claimId) throw new Error("production operation claim ownership mismatch");
+  const claimSnap = await planRef(planId).collection("operation_claims").doc(claimId).get();
+  if (!claimSnap.exists) throw new Error("production operation claim not found");
+  const claim = claimSnap.data() as ProductionOperationClaim;
+  if (
+    claim.kind !== "internal"
+    || claim.operationId !== operationId
+    || claim.planRevision !== aggregate.currentRevision
+    || claim.planDigest !== aggregate.currentPlanDigest
+    || claim.internalRun !== aggregate.internalRun
+    || claim.state !== "claimed"
+  ) throw new Error("production source claim binding mismatch");
+  assertClaimOwner(claim, input.claimId, input.claimToken);
+  if (Date.parse(claim.leaseExpiresAt) <= Date.now()) throw new Error("production source claim lease expired");
+
+  const reference = verifiedProductionArtifactRefSchema.parse(operation.payload);
+  const materialized = await createArtifactStore(db()).materialize(reference.artifactId);
+  const { record, bytes } = materialized;
+  if (
+    record.id !== reference.artifactId
+    || record.jobId !== revision.plan.jobId
+    || record.sha256 !== reference.digest
+    || record.contentType !== reference.mime
+    || record.byteCount !== reference.sizeBytes
+    || record.rightsAuthorizationId !== reference.rightsAuthorizationId
+  ) throw new Error("production source artifact does not match its sealed identity");
+  if (record.retentionClass !== "source" || record.trust === "external_untrusted" || record.trust === "model_inference") {
+    throw new Error("production source artifact is not an authorized source record");
+  }
+  return { record, bytes };
+}
+
 export async function sealProductionPlan(
   planId: string,
   input: { planDigest: string; sealedAt?: string },
@@ -523,7 +578,7 @@ export async function sealProductionPlan(
 export async function approveProductionPlan(
   planId: string,
   input: { planDigest: string; approvedAt?: string; expiresAt: string },
-): Promise<ProductionMandate> {
+): Promise<ProductionMandate | null> {
   const tenant = currentTenant();
   const operator = requireProductionOperator(tenant);
   const aggregateRef = planRef(planId);
@@ -540,13 +595,16 @@ export async function approveProductionPlan(
     if (decisionSnap.exists) throw new Error("production plan revision already decided");
     if (!revisionSnap.exists) throw new Error("production plan revision not found");
     const revision = assertRevision(revisionSnap.data());
-    const mandate = createProductionMandate(revision.plan, {
+    const hasPaidOperations = revision.operations.some(
+      (operation) => operation.executionAuthority === "production_mandate",
+    );
+    const mandate = hasPaidOperations ? createProductionMandate(revision.plan, {
       operatorSubjectId: operator.subjectId,
       authenticationId: operator.authenticationId,
       approvedAt,
       expiresAt: input.expiresAt,
-    });
-    tx.create(aggregateRef.collection("mandates").doc(mandate.id), mandate);
+    }) : null;
+    if (mandate) tx.create(aggregateRef.collection("mandates").doc(mandate.id), mandate);
     tx.create(decisionRef, {
       decision: "approved",
       planDigest: input.planDigest,
@@ -554,16 +612,16 @@ export async function approveProductionPlan(
       actorSubjectId: operator.subjectId,
       authenticationId: operator.authenticationId,
       decidedAt: approvedAt,
-      mandateId: mandate.id,
+      mandateId: mandate?.id ?? null,
     });
-    for (const operation of revision.operations.filter((item) => item.executionAuthority === "production_mandate")) {
+    for (const operation of revision.operations.filter((item) => item.dependsOn.length === 0)) {
       const record = productionOutboxRecord(aggregate, operation, approvedAt);
       tx.create(productionOutboxRef(record.id), record);
     }
     tx.set(aggregateRef, {
       ...aggregate,
       state: "approved",
-      activeMandateId: mandate.id,
+      activeMandateId: mandate?.id ?? null,
       currentMandateReservedCostUsd: "0.000000",
       decidedAt: approvedAt,
       updatedAt: approvedAt,

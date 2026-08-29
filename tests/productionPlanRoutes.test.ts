@@ -5,6 +5,7 @@ const store = vi.hoisted(() => ({
   claimProductionOperation: vi.fn(),
   completeProductionOperation: vi.fn(),
   getProductionOperationArtifact: vi.fn(),
+  getProductionSourceArtifact: vi.fn(),
   getProductionPlan: vi.fn(),
   getProductionPlanRevision: vi.fn(),
   proposeProductionPlan: vi.fn(),
@@ -31,13 +32,14 @@ import { POST as claimInternal } from "@/app/api/internal/production-plans/[id]/
 import { POST as recordProviderInternal } from "@/app/api/internal/production-plans/[id]/operations/[operationId]/provider/route";
 import { POST as uploadArtifactInternal } from "@/app/api/internal/production-plans/[id]/operations/[operationId]/artifact/route";
 import { GET as downloadArtifactInternal } from "@/app/api/internal/production-plans/[id]/operations/[operationId]/artifact/route";
+import { GET as downloadSourceInternal } from "@/app/api/internal/production-plans/[id]/operations/[operationId]/source/route";
 
 const plan = {
   id: "plan-1", jobId: "job-1", workspaceId: "workspace-1", brandId: "brand-1", revision: 1,
   goal: "Launch reel", audience: "founders", tone: ["clear"],
   target: { platform: "linkedin", durationSec: 30, aspectRatio: "9:16", resolution: "1080p", frameRate: 30, format: "mp4" },
   scenes: [{
-    id: "scene-1", order: 1, startSec: 0, durationSec: 4, purpose: "Open", sourceArtifactIds: [],
+    id: "scene-1", order: 1, startSec: 0, durationSec: 4, purpose: "Open",
     video: {
       modelCapability: "veo-3.1-fast", mode: "text_to_video", prompt: "A clean product launch",
       durationSec: 4, aspectRatio: "9:16", resolution: "1080p", generateAudio: false,
@@ -45,6 +47,7 @@ const plan = {
     },
     overlays: [], captions: [], transitions: [],
   }],
+  narration: [],
   constraints: { allowLikeness: false, allowGeneratedVocals: false, requireLicensedSources: true },
   pricingVersion: "2026-08-31",
   operationCostsUsd: { "plan-1:generate_video:scene-1": "0.320000" },
@@ -76,6 +79,17 @@ describe("production plan routes", () => {
       mime: "video/mp4",
       digest: "0cab1c9617404faf2b24e221e189ca5945813e14d3f766345b09ca13bbe28ffc",
       sizeBytes: 5,
+    });
+    store.getProductionSourceArtifact.mockResolvedValue({
+      record: {
+        id: "018f47a2-4f40-7b1f-b19f-8f6b916b7d11",
+        jobId: "job-1",
+        contentType: "video/mp4",
+        sha256: "0cab1c9617404faf2b24e221e189ca5945813e14d3f766345b09ca13bbe28ffc",
+        byteCount: 5,
+        rightsAuthorizationId: "license-source-1",
+      },
+      bytes: Buffer.from("video"),
     });
     storage.getDurableArtifactObject.mockResolvedValue(Buffer.from("video"));
   });
@@ -218,6 +232,36 @@ describe("production plan routes", () => {
       },
     ), { params: Promise.resolve({ id: "plan-1", operationId: "operation-1" }) });
     expect(response.status).toBe(200);
+    expect(response.headers.get("x-artifact-digest")).toBe(
+      "0cab1c9617404faf2b24e221e189ca5945813e14d3f766345b09ca13bbe28ffc",
+    );
+    expect(await response.text()).toBe("video");
+  });
+
+  it("materializes source bytes only through the exact owned resolve-media claim", async () => {
+    const request = new Request(
+      "http://localhost/api/internal/production-plans/plan-1/operations/plan-1:resolve_media:source/source",
+      {
+        headers: {
+          authorization: "Bearer test-internal-token",
+          "x-workspace-id": "workspace-1",
+          "x-brand-id": "brand-1",
+          "x-claim-id": "resolve-claim-1",
+          "x-claim-token": "worker-resolve-1",
+        },
+      },
+    );
+    const response = await downloadSourceInternal(request, {
+      params: Promise.resolve({ id: "plan-1", operationId: "plan-1:resolve_media:source" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(store.getProductionSourceArtifact).toHaveBeenCalledWith(
+      "plan-1",
+      "plan-1:resolve_media:source",
+      { claimId: "resolve-claim-1", claimToken: "worker-resolve-1" },
+    );
+    expect(response.headers.get("content-type")).toBe("video/mp4");
     expect(response.headers.get("x-artifact-digest")).toBe(
       "0cab1c9617404faf2b24e221e189ca5945813e14d3f766345b09ca13bbe28ffc",
     );

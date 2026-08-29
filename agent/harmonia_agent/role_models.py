@@ -126,6 +126,7 @@ def _gemini(
     max_output_tokens: int,
     temperature: float,
     eligible_tasks: tuple[str, ...],
+    timeout_seconds: int = 120,
 ) -> RoleModelConfig:
     return RoleModelConfig(
         role=role,
@@ -134,6 +135,7 @@ def _gemini(
         max_output_tokens=max_output_tokens,
         generation=_policy(temperature),
         eligible_tasks=eligible_tasks,
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -145,7 +147,7 @@ def load_role_model_catalog() -> RoleModelCatalog:
         ),
         strategist=_gemini(
             "ryan_strategist", "STRATEGIST_MODEL_ID", "gemini-3.5-flash", 8192, 0.1,
-            ("strategize",),
+            ("strategize",), 300,
         ),
         analyst=_gemini(
             "nimi_analyst", "ANALYST_MODEL_ID", "gemini-3.5-flash", 8192, 0.2,

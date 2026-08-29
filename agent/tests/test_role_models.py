@@ -58,6 +58,14 @@ def test_every_role_has_versioned_generation_and_safety_policy(monkeypatch):
     assert all(role.pricing_version == "2026-08-23" for role in catalog.roles())
 
 
+def test_strategist_has_enough_time_to_complete_the_strategy_contract():
+    """Catches the worker cancelling Ryan at the former 120-second limit."""
+
+    catalog = load_role_model_catalog()
+
+    assert catalog.strategist.timeout_seconds == 300
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

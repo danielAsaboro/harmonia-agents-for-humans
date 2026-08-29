@@ -108,7 +108,7 @@ class AgentEngineTeamRuntime:
                 raise AgentEngineProviderError(
                     "google-cloud-aiplatform agent_engines support is not installed"
                 ) from exc
-            client = vertexai.Client()
+            client = vertexai.Client(http_options={"timeout": 300_000})
         try:
             return client.agent_engines.get(name=self.resource_name)
         except Exception as exc:  # noqa: BLE001 - normalized at provider boundary

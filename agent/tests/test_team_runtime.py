@@ -70,6 +70,31 @@ def test_runtime_module_exposes_managed_runtime_only():
     assert not hasattr(runtime, "RuntimeMode")
 
 
+def test_runtime_configures_managed_client_for_long_role_streams(monkeypatch):
+    """Catches the SDK's default request timeout cutting off Ryan mid-stream."""
+
+    import vertexai
+
+    captured = {}
+
+    class AgentEngines:
+        def get(self, *, name):
+            return {"name": name}
+
+    def client(**kwargs):
+        captured.update(kwargs)
+        return type("Client", (), {"agent_engines": AgentEngines()})()
+
+    monkeypatch.setattr(vertexai, "Client", client)
+    runtime = AgentEngineTeamRuntime(
+        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
+    )
+
+    runtime._remote()
+
+    assert captured["http_options"] == {"timeout": 300_000}
+
+
 def test_agent_engine_runtime_seeds_a_deterministic_persistent_session_and_collects_deltas():
     remote = _RemoteAgent()
     runtime = AgentEngineTeamRuntime(

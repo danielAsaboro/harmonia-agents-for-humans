@@ -29,6 +29,7 @@ from .production_media import (
     MediaInspectionError,
     compile_hyperframes_composition,
     create_deterministic_archive,
+    create_delivery_previews,
     evaluate_media_quality,
     extract_verified_archive,
     finalize_media,
@@ -319,6 +320,9 @@ def _execute_internal_operation(
             pack.mkdir()
             (pack / "final.mp4").write_bytes(final_input[0])
             (pack / "qa.json").write_bytes(qa_input[0])
+            create_delivery_previews(
+                pack / "final.mp4", pack / "thumbnail.jpg", pack / "contact-sheet.jpg",
+            )
             receipt = {
                 "schemaVersion": 1,
                 "planId": plan_id,

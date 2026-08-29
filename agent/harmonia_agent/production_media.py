@@ -447,6 +447,45 @@ def repair_media(
     return repaired, {"attempt": 1, "inputIssues": sorted(set(issues)), "qa": qa}
 
 
+def create_delivery_previews(
+    source: Path,
+    thumbnail: Path,
+    contact_sheet: Path,
+) -> tuple[Path, Path]:
+    """Create deterministic JPEG thumbnail and four-frame contact sheet."""
+    inspection = inspect_media(source)
+    if not inspection.get("video"):
+        raise MediaInspectionError("delivery preview input has no video stream")
+    duration = float(inspection.get("durationSec") or 0)
+    if duration <= 0:
+        raise MediaInspectionError("delivery preview input has invalid duration")
+    thumbnail.parent.mkdir(parents=True, exist_ok=True)
+    contact_sheet.parent.mkdir(parents=True, exist_ok=True)
+    sample_rate = 4.0 / duration
+    commands = [
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-ss", f"{duration / 2:.6f}", "-i", str(source), "-frames:v", "1",
+            "-vf", "scale=640:-2", "-q:v", "2", "-update", "1", str(thumbnail),
+        ],
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
+            "-vf", f"fps={sample_rate:.9f},scale=320:-2,tile=2x2:padding=8:margin=8",
+            "-frames:v", "1", "-q:v", "2", "-update", "1", str(contact_sheet),
+        ],
+    ]
+    try:
+        for command in commands:
+            subprocess.run(command, check=True, timeout=300)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise MediaInspectionError("ffmpeg delivery preview generation failed") from exc
+    for artifact in (thumbnail, contact_sheet):
+        data = artifact.read_bytes() if artifact.is_file() else b""
+        if len(data) < 4 or not data.startswith(b"\xff\xd8\xff"):
+            raise MediaInspectionError("ffmpeg delivery preview is not a valid JPEG")
+    return thumbnail, contact_sheet
+
+
 def evaluate_media_quality(inspection: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
     """Apply deterministic delivery checks; failed checks never become success."""
     issues: list[str] = []

@@ -382,3 +382,59 @@ def test_internal_repair_consumes_sealed_final_and_qa_inputs_once(monkeypatch):
     }]
     assert uploads[0]["data"] == b"repaired-video"
     assert uploads[0]["operation_metadata"]["receipt"]["attempt"] == 1
+
+
+def test_internal_export_contains_verified_video_qa_and_previews(monkeypatch, tmp_path: Path):
+    import subprocess
+
+    video = tmp_path / "final.mp4"
+    subprocess.run([
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "testsrc2=s=320x240:r=24:d=1",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", str(video),
+    ], check=True)
+    video_bytes = video.read_bytes()
+    video_digest = production_executor.hashlib.sha256(video_bytes).hexdigest()
+    qa_bytes = b'{"passed":true,"issues":[]}'
+    qa_digest = production_executor.hashlib.sha256(qa_bytes).hexdigest()
+    operation_id = "plan-1:assemble_export"
+    final_id = "plan-1:repair_media"
+    qa_id = "plan-1:evaluate_delivery"
+    decision = {
+        "outcome": "execute",
+        "claim": {
+            "kind": "internal", "id": "export-claim", "operationId": operation_id,
+            "planDigest": "f" * 64,
+            "inputDigests": [
+                {"operationId": final_id, "digest": video_digest},
+                {"operationId": qa_id, "digest": qa_digest},
+            ],
+        },
+        "operation": {"id": operation_id, "type": "assemble_export", "executionAuthority": "internal"},
+        "plan": {},
+        "inputs": [
+            {"operationId": final_id, "artifact": {"mime": "video/mp4", "digest": video_digest}},
+            {"operationId": qa_id, "artifact": {"mime": "application/json", "digest": qa_digest}},
+        ],
+    }
+    uploads: list[dict] = []
+    monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: decision)
+    monkeypatch.setattr(
+        production_executor, "download_production_artifact",
+        lambda _plan, operation: (video_bytes, "video/mp4", video_digest)
+        if operation == final_id else (qa_bytes, "application/json", qa_digest),
+    )
+    monkeypatch.setattr(
+        production_executor, "upload_production_artifact",
+        lambda *args, **kwargs: uploads.append(kwargs) or {"state": "succeeded"},
+    )
+
+    production_executor.execute_production_operation(
+        "plan-1", operation_id, claim_token="export-worker",
+    )
+
+    extracted = tmp_path / "export"
+    names = production_executor.extract_verified_archive(uploads[0]["data"], extracted)
+    assert names == ["contact-sheet.jpg", "export-receipt.json", "final.mp4", "qa.json", "thumbnail.jpg"]
+    assert (extracted / "final.mp4").read_bytes() == video_bytes
+    assert (extracted / "thumbnail.jpg").read_bytes().startswith(b"\xff\xd8\xff")

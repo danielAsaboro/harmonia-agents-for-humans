@@ -8,6 +8,7 @@ from harmonia_agent.production_media import (
     apply_voiceover_carve,
     compile_hyperframes_composition,
     create_deterministic_archive,
+    create_delivery_previews,
     evaluate_media_quality,
     extract_verified_archive,
     finalize_media,
@@ -219,3 +220,22 @@ def test_deterministic_repair_normalizes_only_cost_free_delivery_defects(tmp_pat
     assert inspect_media(repaired)["video"]["width"] == 270
     with pytest.raises(MediaInspectionError, match="not deterministically repairable"):
         repair_media(source, tmp_path / "bad.mp4", target=target, issues=["excessive_silence"])
+
+
+def test_delivery_previews_are_real_jpeg_artifacts(tmp_path: Path):
+    import subprocess
+
+    source = tmp_path / "source.mp4"
+    subprocess.run([
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "testsrc2=s=320x240:r=24:d=2",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", str(source),
+    ], check=True)
+    thumbnail, contact_sheet = create_delivery_previews(
+        source, tmp_path / "thumbnail.jpg", tmp_path / "contact-sheet.jpg",
+    )
+
+    assert thumbnail.read_bytes().startswith(b"\xff\xd8\xff")
+    assert contact_sheet.read_bytes().startswith(b"\xff\xd8\xff")
+    assert thumbnail.stat().st_size > 1000
+    assert contact_sheet.stat().st_size > 1000

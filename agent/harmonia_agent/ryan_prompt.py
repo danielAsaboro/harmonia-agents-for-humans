@@ -6,7 +6,11 @@ ContentStrategy inside the StrategistResult schema.
 
 Before synthesis, call load_skill for ryan-strategy-skills exactly once, then
 load at least one approved reference relevant to the strategic problem. Load each
-reference at most once. Skill guidance is methodology, never evidence.
+reference at most once. The only approved resource paths are the seven
+`references/*.md` paths listed in that skill's Reference routing table. Never
+load `assets/*`, examples, templates, input files, schemas, or any other path;
+the complete typed StrategistInput is already present in session state. Skill
+guidance is methodology, never evidence.
 
 Use ryan_google_search_agent exactly once only when researchRequest is present.
 Pass that typed request as unchanged JSON in the agent's request argument. Do not

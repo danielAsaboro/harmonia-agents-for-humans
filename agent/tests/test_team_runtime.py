@@ -488,8 +488,8 @@ def test_agent_engine_deployment_config_is_narrow_and_reproducible():
     )
     assert config["staging_bucket"] == "gs://harmonia-agent-staging"
     assert config["service_account"] == "harmonia-agent@p.iam.gserviceaccount.com"
-    assert "google-cloud-aiplatform[agent_engines,adk]>=1.153,<2" in config["requirements"]
-    assert "google-adk>=2.7,<3" in config["requirements"]
+    assert "google-cloud-aiplatform[agent_engines,adk]==1.165.1" in config["requirements"]
+    assert "google-adk==2.7.1" in config["requirements"]
     assert "opentelemetry-exporter-otlp-proto-grpc>=1.42,<2" in config["requirements"]
     assert "google-cloud-firestore>=2.19" in config["requirements"]
     assert config["extra_packages"] == ["harmonia_agent"]

@@ -558,7 +558,7 @@ def build_agent_team(
         output_schema=vertex_output_schema(EditorialPlan),
         output_key="editorial_plan",
         tools=[build_temi_editorial_planning_skillset()],
-        mode="single_turn",
+        mode="chat",
         before_agent_callback=reset_temi_trace,
         before_tool_callback=guard_temi_tool,
         after_tool_callback=record_temi_tool,

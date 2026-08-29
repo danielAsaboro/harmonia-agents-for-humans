@@ -273,7 +273,7 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
     assert [(a.name, a.mode) for a in root.sub_agents] == [
         ("ryan_strategist", "single_turn"),
         ("nimi_analyst", "single_turn"),
-        ("temi_editorial_planner", "single_turn"),
+        ("temi_editorial_planner", "chat"),
         ("noni_copywriter", "single_turn"),
         ("dara_editor", "single_turn"),
         ("noni_artifact_producer", "single_turn"),
@@ -500,6 +500,7 @@ def test_temi_runs_as_a_distinct_skill_backed_typed_specialist():
 
     assert planner.input_schema is EditorialPlannerInput
     assert planner.output_schema == vertex_output_schema(EditorialPlan)
+    assert planner.mode == "chat"
     assert len(planner.tools) == 1
     assert "write final post" in " ".join(planner.instruction.split())
 

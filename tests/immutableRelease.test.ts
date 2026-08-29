@@ -11,6 +11,14 @@ describe("immutable release inputs", () => {
     expect(agent).toMatch(/^FROM python:[^\s]+@sha256:[a-f0-9]{64}/m);
   });
 
+  it("runs the web build and runtime on the Node version required by Google Cloud clients", () => {
+    expect(web.match(/^FROM node:([^\s@]+)/gm)).toEqual([
+      "FROM node:22-bookworm-slim",
+      "FROM node:22-bookworm-slim",
+      "FROM node:22-bookworm-slim",
+    ]);
+  });
+
   it("records deployed revision and image digests for both services", () => {
     expect(deploy).toContain("record_release_identity harmonia-web");
     expect(deploy).toContain("record_release_identity harmonia-agent");

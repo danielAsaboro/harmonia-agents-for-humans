@@ -89,9 +89,10 @@ secret_exists() {
 
 record_release_identity() {
   local service="$1"
-  local revision digest source_commit
+  local revision image_identity digest source_commit
   revision="$(gcloud run services describe "${service}" --region "${REGION}" --project "${PROJECT_ID}" --format 'value(status.latestReadyRevisionName)')"
-  digest="$(gcloud run revisions describe "${revision}" --region "${REGION}" --project "${PROJECT_ID}" --format 'value(status.imageDigest)')"
+  image_identity="$(gcloud run revisions describe "${revision}" --region "${REGION}" --project "${PROJECT_ID}" --format 'value(status.imageDigest)')"
+  digest="${image_identity##*@}"
   if [[ -z "${revision}" || ! "${digest}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
     echo "could not resolve immutable release identity for ${service}" >&2
     exit 2

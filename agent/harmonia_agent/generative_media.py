@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Protocol
@@ -252,6 +253,72 @@ def _decode(value: Any, *, media: str) -> bytes:
     return data
 
 
+_PROVENANCE_EXCLUDED_KEYS = {
+    "audioContent", "bytesBase64Encoded", "bytes_base64_encoded", "data", "input", "prompt",
+}
+
+
+def _bounded_provenance(value: Any, *, depth: int = 0) -> Any:
+    """Copy small JSON metadata while excluding prompts and encoded media payloads."""
+    if depth > 4:
+        return None
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return value[:512]
+    if isinstance(value, list):
+        return [_bounded_provenance(item, depth=depth + 1) for item in value[:8]]
+    if isinstance(value, dict):
+        return {
+            str(key)[:128]: _bounded_provenance(item, depth=depth + 1)
+            for key, item in list(value.items())[:16]
+            if str(key) not in _PROVENANCE_EXCLUDED_KEYS
+        }
+    return str(value)[:1000]
+
+
+def _common_provider_provenance(response: dict[str, Any]) -> dict[str, Any]:
+    usage = response.get("usageMetadata") or response.get("usage_metadata") or response.get("usage")
+    model_status = (
+        response.get("modelStatus") or response.get("model_status")
+        or response.get("releaseStatus") or response.get("release_status")
+    )
+    cost = response.get("costMetadata") or response.get("cost_metadata")
+    return {
+        **({"usageMetadata": _bounded_provenance(usage)} if usage else {}),
+        **({"modelStatus": _bounded_provenance(model_status)} if model_status else {}),
+        **({"costMetadata": _bounded_provenance(cost)} if cost else {}),
+    }
+
+
+def _fit_provider_metadata(metadata: dict[str, Any], *, maximum_bytes: int = 3072) -> dict[str, Any]:
+    """Keep prioritized provenance fields within the artifact transport's header budget."""
+    result: dict[str, Any] = {}
+    truncated = False
+    for key, value in metadata.items():
+        candidate = {**result, key: value}
+        if len(json.dumps(candidate, separators=(",", ":")).encode("utf-8")) <= maximum_bytes:
+            result[key] = value
+            continue
+        truncated = True
+        if isinstance(value, str):
+            low, high = 0, len(value)
+            while low < high:
+                midpoint = (low + high + 1) // 2
+                candidate = {**result, key: value[:midpoint]}
+                if len(json.dumps(candidate, separators=(",", ":")).encode("utf-8")) <= maximum_bytes - 32:
+                    low = midpoint
+                else:
+                    high = midpoint - 1
+            if low:
+                result[key] = value[:low]
+    if truncated:
+        marker = {**result, "provenanceTruncated": True}
+        if len(json.dumps(marker, separators=(",", ":")).encode("utf-8")) <= maximum_bytes:
+            result["provenanceTruncated"] = True
+    return result
+
+
 class VeoGenerator:
     def __init__(self, *, transport: MediaTransport) -> None:
         self.transport = transport
@@ -317,8 +384,11 @@ class VeoGenerator:
             response = polled.get("response") or {}
             provider_metadata = {
                 **({"gcsUri": gcs_uri} if gcs_uri else {}),
-                **({"raiMediaFilteredCount": response["raiMediaFilteredCount"]} if "raiMediaFilteredCount" in response else {}),
-                **({"raiMediaFilteredReasons": response["raiMediaFilteredReasons"]} if "raiMediaFilteredReasons" in response else {}),
+                **({"raiMediaFilteredCount": _bounded_provenance(response["raiMediaFilteredCount"])} if "raiMediaFilteredCount" in response else {}),
+                **({"raiMediaFilteredReasons": _bounded_provenance(response["raiMediaFilteredReasons"])} if "raiMediaFilteredReasons" in response else {}),
+                **_common_provider_provenance(response),
+                **({"watermark": _bounded_provenance(video["watermark"])} if "watermark" in video else {}),
+                **({"c2pa": _bounded_provenance(video["c2pa"])} if "c2pa" in video else {}),
             }
             return GeneratedMedia(
                 data=data,
@@ -327,7 +397,7 @@ class VeoGenerator:
                 provider_id=operation_name,
                 duration_sec=duration_sec,
                 estimated_cost_usd=estimate_media_cost(request),
-                provider_metadata=provider_metadata,
+                provider_metadata=_fit_provider_metadata(provider_metadata),
             )
 
 
@@ -353,9 +423,26 @@ class LyriaGenerator:
             )
             if output is None:
                 raise MediaProtocolError("Lyria completed without an audio output")
-            provider_id = response.get("id") or response.get("object")
+            provider_id = response.get("id")
             if not isinstance(provider_id, str) or not provider_id:
                 raise MediaProtocolError("Lyria response is missing an interaction id")
+            text_outputs = [
+                str(item.get("text"))[:12000]
+                for item in response.get("outputs", [])
+                if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str)
+            ]
+            provider_metadata = {
+                **{
+                    key: _bounded_provenance(response[key])
+                    for key in ("object", "status", "role", "model", "created", "updated")
+                    if key in response
+                },
+                **({"lyrics": text_outputs[0]} if text_outputs else {}),
+                **({"description": text_outputs[1]} if len(text_outputs) > 1 else {}),
+                **({"watermark": _bounded_provenance(response["watermark"])} if "watermark" in response else {}),
+                **({"c2pa": _bounded_provenance(output["c2pa"])} if "c2pa" in output else {}),
+                **_common_provider_provenance(response),
+            }
             return GeneratedMedia(
                 data=_decode(output.get("data"), media="audio"),
                 mime=str(output.get("mime_type") or "audio/mpeg"),
@@ -363,4 +450,5 @@ class LyriaGenerator:
                 provider_id=provider_id,
                 duration_sec=duration_sec,
                 estimated_cost_usd=estimated_cost_usd,
+                provider_metadata=_fit_provider_metadata(provider_metadata),
             )

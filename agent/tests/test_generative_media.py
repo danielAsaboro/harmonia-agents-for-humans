@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import pytest
 
 from harmonia_agent.generative_media import (
@@ -72,10 +73,17 @@ def test_veo_uses_only_its_authorized_gcs_output_prefix_and_retains_filtering_me
                 "response": {
                     "raiMediaFilteredCount": 0,
                     "raiMediaFilteredReasons": [],
+                    "usageMetadata": {"generatedVideoCount": 1, "billedDurationSeconds": 4},
+                    "modelStatus": "GA",
+                    "costMetadata": {"currency": "USD", "billedUnits": 4},
                     "videos": [{
                         "gcsUri": "gs://media-bucket/workspaces/w1/brands/b1/jobs/j1/plans/p1/claims/c1/123/sample_0.mp4",
                         "mimeType": "video/mp4",
+                        "watermark": {"type": "SynthID", "embedded": True},
+                        "c2pa": {"manifestId": "manifest-1"},
+                        "bytesBase64Encoded": "must-not-be-persisted",
                     }],
+                    "prompt": "must-not-be-persisted",
                 },
             }
 
@@ -99,6 +107,11 @@ def test_veo_uses_only_its_authorized_gcs_output_prefix_and_retains_filtering_me
         "gcsUri": "gs://media-bucket/workspaces/w1/brands/b1/jobs/j1/plans/p1/claims/c1/123/sample_0.mp4",
         "raiMediaFilteredCount": 0,
         "raiMediaFilteredReasons": [],
+        "usageMetadata": {"generatedVideoCount": 1, "billedDurationSeconds": 4},
+        "modelStatus": "GA",
+        "costMetadata": {"currency": "USD", "billedUnits": 4},
+        "watermark": {"type": "SynthID", "embedded": True},
+        "c2pa": {"manifestId": "manifest-1"},
     }
 
 
@@ -144,7 +157,25 @@ def test_veo_resumes_existing_operation_without_starting_a_duplicate():
 
 
 def test_lyria_returns_one_bounded_audio_clip_and_provider_interaction_id():
-    result = LyriaGenerator(transport=FakeTransport()).generate(
+    class ProvenanceTransport(FakeTransport):
+        def generate_lyria(self, **kwargs):
+            return {
+                "id": "interaction-1", "object": "interaction", "status": "completed",
+                "role": "model", "model": "lyria-3-clip-preview",
+                "created": "2026-08-31T10:00:00Z", "updated": "2026-08-31T10:00:12Z",
+                "usage": {"generated_audio_seconds": 30},
+                "release_status": "preview",
+                "cost_metadata": {"currency": "USD", "billedGenerations": 1},
+                "watermark": {"type": "SynthID", "embedded": True},
+                "outputs": [
+                    {"type": "text", "text": "These are generated lyrics"},
+                    {"type": "text", "text": "Warm electronic instrumental description"},
+                    {"type": "audio", "mime_type": "audio/mpeg", "data": "YXVkaW8=", "c2pa": {"manifestId": "music-1"}},
+                ],
+                "input": "must-not-be-persisted",
+            }
+
+    result = LyriaGenerator(transport=ProvenanceTransport()).generate(
         request=validate_lyria_request({"modelCapability": "lyria-3-clip", "prompt": "instrumental optimistic technology pulse", "instrumental": True, "lyricsMode": "none", "language": "en", "targetDurationSec": 30, "outputCount": 1}),
         estimated_cost_usd="0.120000",
     )
@@ -152,6 +183,18 @@ def test_lyria_returns_one_bounded_audio_clip_and_provider_interaction_id():
     assert result.mime == "audio/mpeg"
     assert result.model == "lyria-3-clip-preview"
     assert result.provider_id == "interaction-1"
+    assert result.provider_metadata == {
+        "object": "interaction", "status": "completed", "role": "model",
+        "model": "lyria-3-clip-preview", "created": "2026-08-31T10:00:00Z",
+        "updated": "2026-08-31T10:00:12Z",
+        "usageMetadata": {"generated_audio_seconds": 30},
+        "modelStatus": "preview",
+        "costMetadata": {"currency": "USD", "billedGenerations": 1},
+        "watermark": {"type": "SynthID", "embedded": True},
+        "lyrics": "These are generated lyrics",
+        "description": "Warm electronic instrumental description",
+        "c2pa": {"manifestId": "music-1"},
+    }
 
 
 def test_media_generators_reject_malformed_success_without_fallback():
@@ -161,6 +204,45 @@ def test_media_generators_reject_malformed_success_without_fallback():
 
     with pytest.raises(MediaProtocolError, match="audio"):
         LyriaGenerator(transport=EmptyLyria()).generate(request=validate_lyria_request({"modelCapability": "lyria-3-clip", "prompt": "pulse", "instrumental": True, "lyricsMode": "none", "language": "en", "targetDurationSec": 30, "outputCount": 1}), estimated_cost_usd="0.120000")
+
+
+def test_lyria_requires_a_unique_interaction_id_and_never_uses_the_object_type_as_identity():
+    class MissingIdentity(FakeTransport):
+        def generate_lyria(self, **kwargs):
+            return {"object": "interaction", "status": "completed", "outputs": [{
+                "type": "audio", "mime_type": "audio/mpeg", "data": "YXVkaW8=",
+            }]}
+
+    with pytest.raises(MediaProtocolError, match="interaction id"):
+        LyriaGenerator(transport=MissingIdentity()).generate(
+            request=validate_lyria_request({"modelCapability": "lyria-3-clip", "prompt": "pulse", "instrumental": True, "lyricsMode": "none", "language": "en", "targetDurationSec": 30, "outputCount": 1}),
+            estimated_cost_usd="0.120000",
+        )
+
+
+def test_provider_provenance_is_globally_bounded_below_the_artifact_metadata_header_limit():
+    class OversizedProvenance(FakeTransport):
+        def generate_lyria(self, **kwargs):
+            return {
+                "id": "interaction-large", "object": "interaction", "status": "completed",
+                "usage": {f"metric_{index}": "u" * 2000 for index in range(100)},
+                "watermark": {"manifest": "w" * 20000},
+                "outputs": [
+                    {"type": "text", "text": "lyrics-" + "l" * 20000},
+                    {"type": "text", "text": "description-" + "d" * 20000},
+                    {"type": "audio", "mime_type": "audio/mpeg", "data": "YXVkaW8=", "c2pa": {"manifest": "c" * 20000}},
+                ],
+            }
+
+    result = LyriaGenerator(transport=OversizedProvenance()).generate(
+        request=validate_lyria_request({"modelCapability": "lyria-3-clip", "prompt": "pulse", "instrumental": True, "lyricsMode": "none", "language": "en", "targetDurationSec": 30, "outputCount": 1}),
+        estimated_cost_usd="0.120000",
+    )
+
+    encoded = json.dumps(result.provider_metadata, separators=(",", ":")).encode()
+    assert len(encoded) <= 3072
+    assert result.provider_metadata["lyrics"].startswith("lyrics-")
+    assert "data" not in encoded.decode()
 
 
 def test_media_pending_is_retryable_but_malformed_output_is_permanent():

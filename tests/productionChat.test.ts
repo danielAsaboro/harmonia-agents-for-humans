@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { createOrReviseProductionPlanFromChat, productionModelExplanation, productionStatusReply } from "@/lib/chatHandler";
+import { describe, expect, it, vi } from "vitest";
+import { createOrReviseProductionPlanFromChat, productionModelExplanation, productionStatusReply, requestProductionRerenderFromChat } from "@/lib/chatHandler";
 import { compileProductionOperations, productionPlanDigest, videoProductionPlanSchema } from "@/lib/mediaProduction";
 import type { ProductionPlanWorkspaceView } from "@/lib/productionPlanStore";
 
@@ -18,7 +18,7 @@ const plan = videoProductionPlanSchema.parse({
 const digest = productionPlanDigest(plan);
 const compiled = compileProductionOperations(plan);
 const workspace: ProductionPlanWorkspaceView = {
-  aggregate: { id: plan.id, jobId: plan.jobId, workspaceId: plan.workspaceId, brandId: plan.brandId, state: "approved", currentRevision: 1, currentPlanDigest: digest, activeMandateId: "mandate-1", currentMandateReservedCostUsd: "0.320000", createdAt: "2026-08-31T00:00:00.000Z", updatedAt: "2026-08-31T00:00:00.000Z" },
+  aggregate: { id: plan.id, jobId: plan.jobId, workspaceId: plan.workspaceId, brandId: plan.brandId, state: "approved", currentRevision: 1, currentPlanDigest: digest, activeMandateId: "mandate-1", currentMandateReservedCostUsd: "0.320000", internalRun: 0, createdAt: "2026-08-31T00:00:00.000Z", updatedAt: "2026-08-31T00:00:00.000Z" },
   revision: { revision: 1, plan, planDigest: digest, operations: compiled, proposedAt: "2026-08-31T00:00:00.000Z" },
   operations: compiled.map((operation, index) => ({ id: operation.id, type: operation.type, executionAuthority: operation.executionAuthority, dependsOn: operation.dependsOn, ...(operation.estimatedCostUsd ? { estimatedCostUsd: operation.estimatedCostUsd } : {}), state: index === 0 ? "waiting_provider" : "pending", attempt: index === 0 ? 1 : 0, ...(index === 0 ? { provider: "veo" as const } : {}) })),
 };
@@ -49,5 +49,26 @@ describe("production chat projections", () => {
     }, { getJob: getJob as never, getWorkspace, author: author as never, propose: propose as never, tenant: { workspaceId: plan.workspaceId, brandId: plan.brandId } });
     expect(result.plan.revision).toBe(2);
     expect(result.aggregate).toMatchObject({ state: "proposed", currentRevision: 2 });
+  });
+
+  it("binds a cost-free rerender request to the durable chat event across plan revisions", async () => {
+    const request = vi.fn().mockResolvedValue({ id: "rerender-1", internalRun: 1, state: "scheduled" });
+    const first = await requestProductionRerenderFromChat("job-chat", "chat-run-123", {
+      getWorkspace: async () => workspace,
+      request: request as never,
+    });
+    await requestProductionRerenderFromChat("job-chat", "chat-run-123", {
+      getWorkspace: async () => ({
+        ...workspace,
+        aggregate: { ...workspace.aggregate, currentRevision: 2, currentPlanDigest: "f".repeat(64) },
+      }),
+      request: request as never,
+    });
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request.mock.calls[0]).toEqual([plan.id, {
+      requestId: expect.stringMatching(/^rerender-[a-f0-9]{24}$/),
+    }]);
+    expect(request.mock.calls[1]).toEqual(request.mock.calls[0]);
+    expect(first).toMatchObject({ internalRun: 1, state: "scheduled" });
   });
 });

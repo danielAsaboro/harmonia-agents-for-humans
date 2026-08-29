@@ -214,10 +214,18 @@ def save_media_operation(
         )
 
 
-def claim_production_operation(plan_id: str, operation_id: str, claim_token: str) -> dict[str, Any]:
+def claim_production_operation(
+    plan_id: str, operation_id: str, claim_token: str,
+    expected_plan_revision: int, expected_plan_digest: str, expected_internal_run: int,
+) -> dict[str, Any]:
     return post(
         f"/api/internal/production-plans/{plan_id}/operations/{operation_id}/claim",
-        {"claimToken": claim_token},
+        {
+            "claimToken": claim_token,
+            "expectedPlanRevision": expected_plan_revision,
+            "expectedPlanDigest": expected_plan_digest,
+            "expectedInternalRun": expected_internal_run,
+        },
     )
 
 

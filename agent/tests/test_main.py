@@ -128,9 +128,9 @@ def test_health_reports_durable_runtime_capabilities_without_secrets() -> None:
 def test_production_execution_endpoint_applies_tenant_scope_and_exact_operation(monkeypatch) -> None:
     observed = []
 
-    def execute(plan_id, operation_id):
+    def execute(plan_id, operation_id, *, plan_revision, plan_digest, internal_run):
         tenant = current_tenant()
-        observed.append((tenant.workspace_id, tenant.brand_id, plan_id, operation_id))
+        observed.append((tenant.workspace_id, tenant.brand_id, plan_id, operation_id, plan_revision, plan_digest, internal_run))
         return {"outcome": "waiting_provider", "providerOperationId": "operations/1"}
 
     monkeypatch.setattr(main, "execute_production_operation", execute)
@@ -139,11 +139,14 @@ def test_production_execution_endpoint_applies_tenant_scope_and_exact_operation(
         "brandId": "brand-1",
         "planId": "plan-1",
         "operationId": "plan-1:generate_video:scene-1",
+        "planRevision": 2,
+        "planDigest": "a" * 64,
+        "internalRun": 3,
     })
 
     assert response.status_code == 200
     assert response.json()["outcome"] == "waiting_provider"
-    assert observed == [("workspace-1", "brand-1", "plan-1", "plan-1:generate_video:scene-1")]
+    assert observed == [("workspace-1", "brand-1", "plan-1", "plan-1:generate_video:scene-1", 2, "a" * 64, 3)]
 
 
 def test_production_pubsub_delivery_uses_the_same_claimed_executor(monkeypatch) -> None:
@@ -153,19 +156,53 @@ def test_production_pubsub_delivery_uses_the_same_claimed_executor(monkeypatch) 
         "brandId": "brand-1",
         "planId": "plan-1",
         "operationId": "plan-1:generate_video:scene-1",
+        "planRevision": 2,
+        "planDigest": "a" * 64,
+        "internalRun": 4,
     }
-    monkeypatch.setattr(main, "execute_production_operation", lambda plan_id, operation_id: observed.append((current_tenant().workspace_id, plan_id, operation_id)) or {"outcome": "in_progress"})
+    monkeypatch.setattr(main, "execute_production_operation", lambda plan_id, operation_id, *, plan_revision, plan_digest, internal_run: observed.append((current_tenant().workspace_id, plan_id, operation_id, plan_revision, plan_digest, internal_run)) or {"outcome": "in_progress"})
     response = TestClient(main.app).post("/pubsub/production", json={
         "message": {
             "messageId": "production-delivery-1",
             "data": base64.b64encode(json.dumps(payload).encode()).decode(),
-            "attributes": {"workspaceId": "workspace-1", "brandId": "brand-1"},
+            "attributes": {
+                "workspaceId": "workspace-1", "brandId": "brand-1", "planId": "plan-1",
+                "planRevision": "2", "planDigest": "a" * 64,
+                "operationId": "plan-1:generate_video:scene-1", "internalRun": "4",
+            },
         },
     })
 
     assert response.status_code == 200
     assert response.json() == {"ack": True, "outcome": "in_progress"}
-    assert observed == [("workspace-1", "plan-1", "plan-1:generate_video:scene-1")]
+    assert observed == [("workspace-1", "plan-1", "plan-1:generate_video:scene-1", 2, "a" * 64, 4)]
+
+
+def test_production_pubsub_acknowledges_a_permanently_superseded_run(monkeypatch) -> None:
+    from harmonia_agent.web_client import WebApiError
+
+    payload = {
+        "workspaceId": "workspace-1", "brandId": "brand-1", "planId": "plan-1",
+        "operationId": "plan-1:build_composition", "internalRun": 0,
+        "planRevision": 1, "planDigest": "b" * 64,
+    }
+    monkeypatch.setattr(
+        main, "execute_production_operation",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(WebApiError("superseded internal run", 409)),
+    )
+    response = TestClient(main.app).post("/pubsub/production", json={
+        "message": {
+            "messageId": "stale-production-delivery",
+            "data": base64.b64encode(json.dumps(payload).encode()).decode(),
+            "attributes": {
+                "workspaceId": "workspace-1", "brandId": "brand-1", "planId": "plan-1",
+                "planRevision": "1", "planDigest": "b" * 64,
+                "operationId": "plan-1:build_composition", "internalRun": "0",
+            },
+        },
+    })
+    assert response.status_code == 200
+    assert response.json() == {"ack": True, "permanent": True, "error": "production operation rejected"}
 
 
 def test_recovery_wake_uses_bounded_config(monkeypatch) -> None:

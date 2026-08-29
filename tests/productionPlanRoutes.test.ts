@@ -129,7 +129,12 @@ describe("production plan routes", () => {
 
   it("requires service authentication before resolving a paid-operation mandate", async () => {
     const url = "http://localhost/api/internal/production-plans/plan-1/operations/operation-1/claim";
-    const claim = { claimToken: "worker-claim-1" };
+    const claim = {
+      claimToken: "worker-claim-1",
+      expectedPlanRevision: 1,
+      expectedPlanDigest: "a".repeat(64),
+      expectedInternalRun: 0,
+    };
     const unauthorized = await claimInternal(jsonRequest(url, claim), {
       params: Promise.resolve({ id: "plan-1", operationId: "operation-1" }),
     });

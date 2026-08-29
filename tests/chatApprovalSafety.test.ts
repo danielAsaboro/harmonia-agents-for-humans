@@ -62,7 +62,7 @@ describe("chat approval safety", () => {
       aggregate: {
         id: "media-plan-1", jobId: "job-1", workspaceId: "workspace-1", brandId: "brand-1",
         state: "sealed", currentRevision: 2, currentPlanDigest: "b".repeat(64), activeMandateId: null,
-        currentMandateReservedCostUsd: "0.000000", createdAt: "2026-08-31T00:00:00.000Z", updatedAt: "2026-08-31T00:00:00.000Z",
+        currentMandateReservedCostUsd: "0.000000", internalRun: 0, createdAt: "2026-08-31T00:00:00.000Z", updatedAt: "2026-08-31T00:00:00.000Z",
       },
       revision: { revision: 2, plan: { goal: "Launch film", maximumCostUsd: "0.400000" } as never, planDigest: "b".repeat(64), operations: [], proposedAt: "2026-08-31T00:00:00.000Z" },
       operations: [],

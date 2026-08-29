@@ -98,6 +98,7 @@ export default function ChatDrawer({ onJobCreated }: { onJobCreated?: (id: strin
   async function send() {
     const message = input.trim();
     if (!message || busy) return;
+    const requestId = crypto.randomUUID();
     setInput("");
     setBusy(true);
     setMessages((m) => [...m, { role: "user", text: context ? `[${CONTEXT_LABEL[context.kind]}] ${message}` : message }]);
@@ -108,6 +109,7 @@ export default function ChatDrawer({ onJobCreated }: { onJobCreated?: (id: strin
         body: JSON.stringify({
           message,
           surface: "dashboard",
+          requestId,
           ...(context ? { context: { kind: context.kind, id: context.id } } : {}),
         }),
       });

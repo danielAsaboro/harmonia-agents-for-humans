@@ -18,6 +18,7 @@ import {
   proposeProductionPlan,
   rejectProductionPlan,
   recordProductionProviderOperation,
+  requestProductionRerender,
   startProductionProviderSubmission,
   sealProductionPlan,
 } from "@/lib/productionPlanStore";
@@ -69,6 +70,15 @@ const basePlan = videoProductionPlanSchema.parse({
   estimatedCostUsd: "0.440000",
   maximumCostUsd: "0.500000",
 });
+
+function wake(plan: typeof basePlan, claimToken: string, expectedInternalRun = 0) {
+  return {
+    claimToken,
+    expectedPlanRevision: plan.revision,
+    expectedPlanDigest: productionPlanDigest(plan),
+    expectedInternalRun,
+  };
+}
 
 describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
   it("transactionally rejects a second production plan identity for one job", async () => {
@@ -128,7 +138,7 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
     }));
     const paid = compileProductionOperations(internalPlan).find((item) => item.type === "generate_video")!;
     const paidClaim = await runWithTenant(serviceScope, () => claimProductionOperation(
-      internalPlan.id, paid.id, { claimToken: "internal-paid-worker" },
+      internalPlan.id, paid.id, wake(internalPlan, "internal-paid-worker"),
     ));
     expect(paidClaim).toMatchObject({ outcome: "execute", claim: { kind: "paid" } });
     await runWithTenant(serviceScope, () => startProductionProviderSubmission(
@@ -165,7 +175,7 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
       expect.objectContaining({ planId: internalPlan.id, operationId: build.id, state: "pending" }),
     ]));
     const buildClaim = await runWithTenant(serviceScope, () => claimProductionOperation(
-      internalPlan.id, build.id, { claimToken: "internal-build-worker" },
+      internalPlan.id, build.id, wake(internalPlan, "internal-build-worker"),
     ));
     expect(buildClaim).toMatchObject({
       outcome: "execute",
@@ -192,7 +202,7 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
       const operation = compileProductionOperations(internalPlan).find((item) => item.type === type)!;
       const token = `internal-chain-worker-${index}`;
       const claimed = await runWithTenant(serviceScope, () => claimProductionOperation(
-        internalPlan.id, operation.id, { claimToken: token },
+        internalPlan.id, operation.id, wake(internalPlan, token),
       ));
       expect(claimed).toMatchObject({ outcome: "execute", claim: { kind: "internal" } });
       const json = type === "inspect_media" || type === "evaluate_production"
@@ -213,7 +223,7 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
     }
     const assemble = compileProductionOperations(internalPlan).find((item) => item.type === "assemble_export")!;
     const assembleClaim = await runWithTenant(serviceScope, () => claimProductionOperation(
-      internalPlan.id, assemble.id, { claimToken: "internal-export-worker" },
+      internalPlan.id, assemble.id, wake(internalPlan, "internal-export-worker"),
     ));
     expect(assembleClaim).toMatchObject({
       outcome: "execute",
@@ -221,6 +231,24 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
         { operationId: "plan-internal:repair_media" },
         { operationId: "plan-internal:evaluate_delivery" },
       ],
+    });
+    const aggregateRef = db().doc(`workspaces/${workspaceId}/brands/${brandId}/production_plans/${internalPlan.id}`);
+    await aggregateRef.update({ currentRevision: 2, currentPlanDigest: "f".repeat(64), internalRun: 0 });
+    await expect(runWithTenant(serviceScope, () => completeInternalProductionOperation(
+      internalPlan.id, assemble.id, {
+        claimId: assembleClaim.claim.id,
+        claimToken: "internal-export-worker",
+        artifact: {
+          objectKey: `durable-artifacts/${workspaceId}/${brandId}/production/plan-internal/stale-revision.zip`,
+          mime: "application/zip", digest: "f".repeat(64), sizeBytes: 100,
+        },
+        operationMetadata: { kind: "stale_revision_export" },
+      },
+    ))).rejects.toThrow(/superseded by a newer plan revision or render run/i);
+    await aggregateRef.update({
+      currentRevision: internalPlan.revision,
+      currentPlanDigest: productionPlanDigest(internalPlan),
+      internalRun: 0,
     });
     const workspace = await runWithTenant(operatorScope, () => getProductionPlanWorkspaceForJob(internalJobId));
     expect(workspace).toMatchObject({
@@ -232,6 +260,46 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
       artifact: { digest: "1".repeat(64), mime: "application/zip", sizeBytes: 100 },
     });
     expect(JSON.stringify(workspace)).not.toContain("claimTokenDigest");
+
+    const rerendered = await runWithTenant(operatorScope, () => requestProductionRerender(
+      internalPlan.id, { requestId: "rerender-internal-1" },
+    ));
+    expect(rerendered).toMatchObject({ internalRun: 1, state: "scheduled" });
+    expect(await runWithTenant(operatorScope, () => requestProductionRerender(
+      internalPlan.id, { requestId: "rerender-internal-1" },
+    ))).toEqual(rerendered);
+    expect(await runWithTenant(operatorScope, () => getProductionPlan(internalPlan.id)))
+      .toMatchObject({ internalRun: 1 });
+    await expect(runWithTenant(serviceScope, () => completeInternalProductionOperation(
+      internalPlan.id, assemble.id, {
+        claimId: assembleClaim.claim.id,
+        claimToken: "internal-export-worker",
+        artifact: {
+          objectKey: `durable-artifacts/${workspaceId}/${brandId}/production/plan-internal/stale-export.zip`,
+          mime: "application/zip", digest: "f".repeat(64), sizeBytes: 100,
+        },
+        operationMetadata: { kind: "stale_export" },
+      },
+    ))).rejects.toThrow(/superseded by a newer plan revision or render run/i);
+    expect(await runWithTenant(serviceScope, () => listDispatchableProductionOutbox(
+      100, new Date("2098-01-02T00:00:00.000Z"),
+    ))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ planId: internalPlan.id, operationId: build.id, internalRun: 1, state: "pending" }),
+    ]));
+    await expect(runWithTenant(serviceScope, () => claimProductionOperation(
+      internalPlan.id, build.id, wake(internalPlan, "stale-build-wake", 0),
+    ))).rejects.toThrow(/superseded internal run/i);
+    const rerenderBuild = await runWithTenant(serviceScope, () => claimProductionOperation(
+      internalPlan.id, build.id, wake(internalPlan, "internal-build-rerender-worker", 1),
+    ));
+    expect(rerenderBuild).toMatchObject({
+      outcome: "execute", claim: { kind: "internal", internalRun: 1 },
+      inputs: [{ operationId: paid.id, artifact: { digest: "e".repeat(64) } }],
+    });
+    expect(rerenderBuild.claim.id).not.toBe(buildClaim.claim.id);
+    expect(await runWithTenant(serviceScope, () => claimProductionOperation(
+      internalPlan.id, paid.id, wake(internalPlan, "paid-must-not-rerun"),
+    ))).toMatchObject({ outcome: "already_succeeded", claim: { id: paidClaim.claim.id } });
   });
 
   it("rejects a claimed operation if its revision is superseded before provider submission", async () => {
@@ -290,7 +358,7 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
       initialWake.id, "d".repeat(64),
     ))).toMatchObject({ outcome: "publish", record: { state: "publishing", publishAttempt: 3 } });
     const claimed = await runWithTenant(serviceScope, () => claimPaidProductionOperation(
-      racePlan.id, operation.id, { claimToken: "race-worker" },
+      racePlan.id, operation.id, wake(racePlan, "race-worker"),
     ));
     const revisionTwo = videoProductionPlanSchema.parse({
       ...racePlan,
@@ -346,10 +414,10 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
     const paidOperation = compileProductionOperations(basePlan).find((operation) => operation.type === "generate_video")!;
     const claims = await runWithTenant(serviceScope, () => Promise.all([
       claimPaidProductionOperation(basePlan.id, paidOperation.id, {
-        claimToken: "worker-a",
+        ...wake(basePlan, "worker-a"),
       }),
       claimPaidProductionOperation(basePlan.id, paidOperation.id, {
-        claimToken: "worker-b",
+        ...wake(basePlan, "worker-b"),
       }),
     ]));
     expect(claims.map((claim) => claim.outcome).sort()).toEqual(["execute", "in_progress"]);
@@ -411,7 +479,7 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
     const resumed = await runWithTenant(serviceScope, () => claimPaidProductionOperation(
       basePlan.id,
       paidOperation.id,
-      { claimToken: "worker-resume" },
+      wake(basePlan, "worker-resume"),
     ));
     expect(resumed).toMatchObject({
       outcome: "execute",
@@ -443,7 +511,7 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
     const duplicate = await runWithTenant(serviceScope, () => claimPaidProductionOperation(
       basePlan.id,
       paidOperation.id,
-      { claimToken: "worker-duplicate" },
+      wake(basePlan, "worker-duplicate"),
     ));
     expect(duplicate).toMatchObject({
       outcome: "already_succeeded",
@@ -459,7 +527,7 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
     const musicClaim = await runWithTenant(serviceScope, () => claimPaidProductionOperation(
       basePlan.id,
       musicOperation.id,
-      { claimToken: "worker-music" },
+      wake(basePlan, "worker-music"),
     ));
     expect(musicClaim).toMatchObject({ outcome: "execute", claim: { reservedCostUsd: "0.120000" } });
     await runWithTenant(serviceScope, () => startProductionProviderSubmission(
@@ -485,7 +553,7 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
     const quarantinedMusic = await runWithTenant(serviceScope, () => claimPaidProductionOperation(
       basePlan.id,
       musicOperation.id,
-      { claimToken: "worker-music-retry" },
+      wake(basePlan, "worker-music-retry"),
     ));
     expect(quarantinedMusic).toMatchObject({ outcome: "uncertain", claim: { state: "uncertain" } });
     const expiredMandate = createProductionMandate(basePlan, {
@@ -500,7 +568,7 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
     const completedAfterExpiry = await runWithTenant(serviceScope, () => claimPaidProductionOperation(
       basePlan.id,
       paidOperation.id,
-      { claimToken: "worker-after-expiry" },
+      wake(basePlan, "worker-after-expiry"),
     ));
     expect(completedAfterExpiry).toMatchObject({ outcome: "already_succeeded" });
     expect(await runWithTenant(operatorScope, () => getProductionPlan(basePlan.id))).toMatchObject({
@@ -529,7 +597,7 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
       basePlan.id,
       paidOperation.id,
       {
-        claimToken: "worker-c",
+        ...wake(revisionTwo, "worker-c"),
       },
     ))).rejects.toThrow(/active production mandate/i);
 
@@ -544,7 +612,7 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
     const revisionTwoClaim = await runWithTenant(serviceScope, () => claimPaidProductionOperation(
       revisionTwo.id,
       revisionTwoOperation.id,
-      { claimToken: "worker-v2" },
+      wake(revisionTwo, "worker-v2"),
     ));
     expect(revisionTwoClaim).toMatchObject({
       outcome: "execute",
@@ -565,7 +633,7 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
     const ambiguousSubmission = await runWithTenant(serviceScope, () => claimPaidProductionOperation(
       revisionTwo.id,
       revisionTwoOperation.id,
-      { claimToken: "worker-v2-redelivery" },
+      wake(revisionTwo, "worker-v2-redelivery"),
     ));
     expect(ambiguousSubmission).toMatchObject({ outcome: "uncertain", claim: { state: "uncertain" } });
   });

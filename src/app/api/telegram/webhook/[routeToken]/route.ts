@@ -68,7 +68,7 @@ export async function POST(
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             message: verified.message, surface: "telegram",
-            conversationId: "telegram", attachmentIds: [],
+            conversationId: "telegram", requestId: `telegram-${verified.updateId}`, attachmentIds: [],
           }),
         }));
         const payload = await chatResponse.json().catch(() => null) as (ChatResponse & { error?: string }) | null;

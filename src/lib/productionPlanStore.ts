@@ -30,6 +30,7 @@ export interface ProductionPlanAggregate {
   currentPlanDigest: string;
   activeMandateId: string | null;
   currentMandateReservedCostUsd: string;
+  internalRun: number;
   createdAt: string;
   updatedAt: string;
   sealedAt?: string;
@@ -95,6 +96,7 @@ export interface InternalProductionOperationClaim {
   claimedAt: string;
   leaseExpiresAt: string;
   attempt: number;
+  internalRun: number;
   inputDigests: Array<{ operationId: string; digest: string }>;
   artifact?: NonNullable<PaidProductionOperationClaim["artifact"]>;
   operationMetadata?: Record<string, unknown>;
@@ -158,6 +160,7 @@ export interface ProductionOperationOutboxRecord {
   planRevision: number;
   planDigest: string;
   operationId: string;
+  internalRun: number;
   state: "pending" | "publishing" | "published" | "completed" | "superseded";
   availableAt: string;
   publishAttempt: number;
@@ -187,8 +190,13 @@ function claimTokenDigest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function operationClaimId(revision: number, planDigest: string, operationId: string): string {
-  return createHash("sha256").update(`${revision}\n${planDigest}\n${operationId}`).digest("hex");
+function operationClaimId(revision: number, planDigest: string, operationId: string, internalRun = 0): string {
+  const identity = `${revision}\n${planDigest}\n${operationId}`;
+  return createHash("sha256").update(internalRun > 0 ? `${identity}\ninternal-run:${internalRun}` : identity).digest("hex");
+}
+
+function operationInternalRun(aggregate: ProductionPlanAggregate, operation: ProductionOperation): number {
+  return operation.executionAuthority === "internal" ? aggregate.internalRun : 0;
 }
 
 function productionOutboxRecord(
@@ -197,7 +205,8 @@ function productionOutboxRecord(
   availableAt: string,
 ): ProductionOperationOutboxRecord {
   const tenant = currentTenant();
-  const id = operationClaimId(aggregate.currentRevision, aggregate.currentPlanDigest, operation.id);
+  const internalRun = operationInternalRun(aggregate, operation);
+  const id = operationClaimId(aggregate.currentRevision, aggregate.currentPlanDigest, operation.id, internalRun);
   return {
     id,
     workspaceId: tenant.workspaceId,
@@ -207,6 +216,7 @@ function productionOutboxRecord(
     planRevision: aggregate.currentRevision,
     planDigest: aggregate.currentPlanDigest,
     operationId: operation.id,
+    internalRun,
     state: "pending",
     availableAt,
     publishAttempt: 0,
@@ -272,6 +282,9 @@ function assertAggregate(value: unknown): ProductionPlanAggregate {
   }
   if (!Number.isSafeInteger(aggregate.currentRevision) || aggregate.currentRevision < 1) {
     throw new Error("invalid current production plan revision");
+  }
+  if (!Number.isSafeInteger(aggregate.internalRun) || aggregate.internalRun < 0) {
+    throw new Error("invalid production internal run");
   }
   if (!/^[a-f0-9]{64}$/.test(aggregate.currentPlanDigest)) {
     throw new Error("invalid current production plan digest");
@@ -348,11 +361,17 @@ export async function proposeProductionPlan(
       if (!priorRevisionSnap.exists) throw new Error("current production plan revision not found");
       const priorOperations = assertRevision(priorRevisionSnap.data()).operations;
       const priorOutboxSnaps = await Promise.all(priorOperations.map((operation) => tx.get(productionOutboxRef(
-        operationClaimId(existing.currentRevision, existing.currentPlanDigest, operation.id),
+        operationClaimId(
+          existing.currentRevision, existing.currentPlanDigest, operation.id,
+          operationInternalRun(existing, operation),
+        ),
       ))));
       for (const [index, operation] of priorOperations.entries()) {
         if (!priorOutboxSnaps[index].exists) continue;
-        const priorOutboxId = operationClaimId(existing.currentRevision, existing.currentPlanDigest, operation.id);
+        const priorOutboxId = operationClaimId(
+          existing.currentRevision, existing.currentPlanDigest, operation.id,
+          operationInternalRun(existing, operation),
+        );
         tx.set(productionOutboxRef(priorOutboxId), {
           state: "superseded",
           updatedAt: proposedAt,
@@ -369,6 +388,7 @@ export async function proposeProductionPlan(
       currentPlanDigest: digest,
       activeMandateId: null,
       currentMandateReservedCostUsd: "0.000000",
+      internalRun: 0,
       createdAt: existing?.createdAt ?? proposedAt,
       updatedAt: proposedAt,
     };
@@ -430,6 +450,7 @@ export async function getProductionPlanWorkspaceForJob(
   const operations = revision.operations.map((operation): ProductionPlanWorkspaceOperation => {
     const claim = claimsById.get(operationClaimId(
       aggregate.currentRevision, aggregate.currentPlanDigest, operation.id,
+      operationInternalRun(aggregate, operation),
     ));
     return {
       id: operation.id,
@@ -468,7 +489,12 @@ export async function getProductionOperationArtifact(
   if (!revision?.operations.some((operation) => operation.id === operationId)) {
     throw new Error("production operation not found in current revision");
   }
-  const id = operationClaimId(aggregate.currentRevision, aggregate.currentPlanDigest, operationId);
+  const operation = revision.operations.find((candidate) => candidate.id === operationId);
+  if (!operation) throw new Error("production operation not found in current revision");
+  const id = operationClaimId(
+    aggregate.currentRevision, aggregate.currentPlanDigest, operationId,
+    operationInternalRun(aggregate, operation),
+  );
   const snap = await planRef(planId).collection("operation_claims").doc(id).get();
   if (!snap.exists) throw new Error("production operation claim not found");
   const claim = snap.data() as ProductionOperationClaim;
@@ -586,10 +612,109 @@ export async function rejectProductionPlan(
   });
 }
 
+export interface ProductionRerenderRequest {
+  id: string;
+  planId: string;
+  jobId: string;
+  workspaceId: string;
+  brandId: string;
+  planRevision: number;
+  planDigest: string;
+  internalRun: number;
+  state: "scheduled";
+  requestedBySubjectId: string;
+  authenticationId: string;
+  requestedAt: string;
+}
+
+export async function requestProductionRerender(
+  planId: string,
+  input: { requestId: string; requestedAt?: string },
+): Promise<ProductionRerenderRequest> {
+  const tenant = currentTenant();
+  const operator = requireProductionOperator(tenant);
+  const requestId = checkedDocumentId("production rerender request id", input.requestId);
+  const requestedAt = input.requestedAt ?? new Date().toISOString();
+  const aggregateRef = planRef(planId);
+  const requestRef = aggregateRef.collection("rerender_requests").doc(requestId);
+  return db().runTransaction(async (tx) => {
+    const [aggregateSnap, requestSnap] = await Promise.all([tx.get(aggregateRef), tx.get(requestRef)]);
+    if (!aggregateSnap.exists) throw new Error("production plan not found");
+    const aggregate = assertAggregate(aggregateSnap.data());
+    if (requestSnap.exists) {
+      const existing = requestSnap.data() as ProductionRerenderRequest;
+      if (existing.planId !== planId || existing.workspaceId !== tenant.workspaceId
+        || existing.brandId !== tenant.brandId || existing.id !== requestId) {
+        throw new Error("production rerender request binding mismatch");
+      }
+      return existing;
+    }
+    if (aggregate.state !== "approved") throw new Error("approved production plan required for rerender");
+    const immutableRevisionRef = revisionRef(planId, aggregate.currentRevision);
+    const revisionSnap = await tx.get(immutableRevisionRef);
+    if (!revisionSnap.exists) throw new Error("production plan revision not found");
+    const revision = assertRevision(revisionSnap.data());
+    if (revision.planDigest !== aggregate.currentPlanDigest) throw new Error("production plan revision binding mismatch");
+    const operationById = new Map(revision.operations.map((operation) => [operation.id, operation]));
+    const paidOperations = revision.operations.filter((operation) => operation.executionAuthority === "production_mandate");
+    const internalOperations = revision.operations.filter((operation) => operation.executionAuthority === "internal");
+    const roots = internalOperations.filter((operation) => operation.dependsOn.every(
+      (dependencyId) => operationById.get(dependencyId)?.executionAuthority !== "internal",
+    ));
+    if (!internalOperations.length || !roots.length) throw new Error("production plan has no rerenderable internal graph");
+    const paidClaimRefs = paidOperations.map((operation) => aggregateRef.collection("operation_claims").doc(
+      operationClaimId(aggregate.currentRevision, aggregate.currentPlanDigest, operation.id),
+    ));
+    const currentOutboxRefs = internalOperations.map((operation) => productionOutboxRef(operationClaimId(
+      aggregate.currentRevision, aggregate.currentPlanDigest, operation.id, aggregate.internalRun,
+    )));
+    const [paidClaimSnaps, currentOutboxSnaps] = await Promise.all([
+      Promise.all(paidClaimRefs.map((ref) => tx.get(ref))),
+      Promise.all(currentOutboxRefs.map((ref) => tx.get(ref))),
+    ]);
+    for (const [index, operation] of paidOperations.entries()) {
+      const claim = paidClaimSnaps[index].exists ? paidClaimSnaps[index].data() as ProductionOperationClaim : null;
+      if (claim?.kind !== "paid" || claim.state !== "succeeded" || !claim.artifact) {
+        throw new Error(`paid production asset is not reusable: ${operation.id}`);
+      }
+    }
+    const internalRun = aggregate.internalRun + 1;
+    const updatedAggregate: ProductionPlanAggregate = { ...aggregate, internalRun, updatedAt: requestedAt };
+    const record: ProductionRerenderRequest = {
+      id: requestId,
+      planId,
+      jobId: aggregate.jobId,
+      workspaceId: tenant.workspaceId,
+      brandId: tenant.brandId,
+      planRevision: aggregate.currentRevision,
+      planDigest: aggregate.currentPlanDigest,
+      internalRun,
+      state: "scheduled",
+      requestedBySubjectId: operator.subjectId,
+      authenticationId: operator.authenticationId,
+      requestedAt,
+    };
+    tx.create(requestRef, record);
+    tx.set(aggregateRef, updatedAggregate);
+    for (const [index, snapshot] of currentOutboxSnaps.entries()) {
+      if (!snapshot.exists) continue;
+      const outbox = assertProductionOutboxRecord(snapshot.data());
+      if (outbox.state !== "completed" && outbox.state !== "superseded") {
+        tx.set(currentOutboxRefs[index], { state: "superseded", updatedAt: requestedAt }, { merge: true });
+      }
+    }
+    for (const operation of roots) {
+      const outbox = productionOutboxRecord(updatedAggregate, operation, requestedAt);
+      tx.create(productionOutboxRef(outbox.id), outbox);
+    }
+    return record;
+  });
+}
+
 export async function claimPaidProductionOperation(
   planId: string,
   operationId: string,
-  input: { claimToken: string },
+  input: { claimToken: string; expectedPlanRevision: number; expectedPlanDigest: string; expectedInternalRun: number },
 ): Promise<PaidProductionClaimOutcome> {
   const tenant = currentTenant();
   requireService(tenant);
@@ -603,6 +728,13 @@ export async function claimPaidProductionOperation(
     const aggregateSnap = await tx.get(aggregateRef);
     if (!aggregateSnap.exists) throw new Error("production plan not found");
     const aggregate = assertAggregate(aggregateSnap.data());
+    if (input.expectedPlanRevision !== aggregate.currentRevision
+      || input.expectedPlanDigest !== aggregate.currentPlanDigest) {
+      throw new Error("production operation wake targets a superseded plan revision");
+    }
+    if (input.expectedInternalRun !== 0) {
+      throw new Error("paid production operation wake has an invalid internal run");
+    }
     if (aggregate.state !== "approved" || !aggregate.activeMandateId) {
       throw new Error("active production mandate required");
     }
@@ -724,7 +856,7 @@ export async function claimPaidProductionOperation(
 async function claimInternalProductionOperation(
   planId: string,
   operationId: string,
-  input: { claimToken: string },
+  input: { claimToken: string; expectedPlanRevision: number; expectedPlanDigest: string; expectedInternalRun: number },
 ): Promise<Extract<ProductionClaimOutcome, { claim: InternalProductionOperationClaim }>> {
   const tenant = currentTenant();
   requireService(tenant);
@@ -736,6 +868,13 @@ async function claimInternalProductionOperation(
     const aggregateSnap = await tx.get(aggregateRef);
     if (!aggregateSnap.exists) throw new Error("production plan not found");
     const aggregate = assertAggregate(aggregateSnap.data());
+    if (input.expectedPlanRevision !== aggregate.currentRevision
+      || input.expectedPlanDigest !== aggregate.currentPlanDigest) {
+      throw new Error("production operation wake targets a superseded plan revision");
+    }
+    if (input.expectedInternalRun !== aggregate.internalRun) {
+      throw new Error("production operation wake targets a superseded internal run");
+    }
     if (aggregate.state !== "approved") throw new Error("approved production plan required");
     const revisionSnap = await tx.get(revisionRef(planId, aggregate.currentRevision));
     if (!revisionSnap.exists) throw new Error("production plan revision not found");
@@ -744,11 +883,18 @@ async function claimInternalProductionOperation(
     const operation = revision.operations.find((candidate) => candidate.id === operationId);
     if (!operation) throw new Error("production operation not found in sealed graph");
     if (operation.executionAuthority !== "internal") throw new Error("operation is not an internal production step");
-    const claimId = operationClaimId(aggregate.currentRevision, aggregate.currentPlanDigest, operation.id);
+    const claimId = operationClaimId(
+      aggregate.currentRevision, aggregate.currentPlanDigest, operation.id, aggregate.internalRun,
+    );
     const claimRef = aggregateRef.collection("operation_claims").doc(claimId);
-    const dependencyRefs = operation.dependsOn.map((dependencyId) => aggregateRef.collection("operation_claims").doc(
-      operationClaimId(aggregate.currentRevision, aggregate.currentPlanDigest, dependencyId),
-    ));
+    const dependencyRefs = operation.dependsOn.map((dependencyId) => {
+      const dependency = revision.operations.find((candidate) => candidate.id === dependencyId);
+      if (!dependency) throw new Error(`production dependency is missing from graph: ${dependencyId}`);
+      return aggregateRef.collection("operation_claims").doc(operationClaimId(
+        aggregate.currentRevision, aggregate.currentPlanDigest, dependencyId,
+        operationInternalRun(aggregate, dependency),
+      ));
+    });
     const [claimSnap, ...dependencySnaps] = await Promise.all([
       tx.get(claimRef),
       ...dependencyRefs.map((ref) => tx.get(ref)),
@@ -770,6 +916,7 @@ async function claimInternalProductionOperation(
         || existing.planRevision !== aggregate.currentRevision
         || existing.planDigest !== aggregate.currentPlanDigest
         || existing.operationId !== operation.id
+        || existing.internalRun !== aggregate.internalRun
         || existing.requestDigest !== operation.requestDigest
         || JSON.stringify(existing.inputDigests) !== JSON.stringify(inputDigests)
       ) throw new Error("internal production claim binding mismatch");
@@ -799,6 +946,7 @@ async function claimInternalProductionOperation(
       claimedAt,
       leaseExpiresAt: new Date(now.getTime() + 15 * 60 * 1000).toISOString(),
       attempt: (existing?.attempt ?? 0) + 1,
+      internalRun: aggregate.internalRun,
       inputDigests,
     };
     if (claimSnap.exists) tx.set(claimRef, claim);
@@ -810,7 +958,7 @@ async function claimInternalProductionOperation(
 export async function claimProductionOperation(
   planId: string,
   operationId: string,
-  input: { claimToken: string },
+  input: { claimToken: string; expectedPlanRevision: number; expectedPlanDigest: string; expectedInternalRun: number },
 ): Promise<ProductionClaimOutcome> {
   const tenant = currentTenant();
   requireService(tenant);
@@ -1007,6 +1155,7 @@ export async function completePaidProductionOperation(
     const dependencySnaps = await Promise.all(otherDependencyIds.map((dependencyId) => tx.get(
       aggregateRef.collection("operation_claims").doc(operationClaimId(
         claim.planRevision, claim.planDigest, dependencyId,
+        operationInternalRun(aggregate, revision.operations.find((candidate) => candidate.id === dependencyId)!),
       )),
     )));
     const dependencyStates = new Map(otherDependencyIds.map((dependencyId, index) => [
@@ -1066,6 +1215,10 @@ export async function completeInternalProductionOperation(
     if (claim.kind !== "internal" || claim.operationId !== operationId) {
       throw new Error("internal production operation claim binding mismatch");
     }
+    if (claim.planRevision !== aggregate.currentRevision || claim.planDigest !== aggregate.currentPlanDigest
+      || claim.internalRun !== aggregate.internalRun) {
+      throw new Error("internal production operation was superseded by a newer plan revision or render run");
+    }
     assertClaimOwner(claim, input.claimId, input.claimToken);
     if (claim.state === "succeeded") {
       if (JSON.stringify(claim.artifact) !== JSON.stringify(input.artifact)) {
@@ -1091,6 +1244,7 @@ export async function completeInternalProductionOperation(
     const dependencySnaps = await Promise.all(otherDependencyIds.map((dependencyId) => tx.get(
       aggregateRef.collection("operation_claims").doc(operationClaimId(
         claim.planRevision, claim.planDigest, dependencyId,
+        operationInternalRun(aggregate, revision.operations.find((candidate) => candidate.id === dependencyId)!),
       )),
     )));
     const dependencyStates = new Map(otherDependencyIds.map((dependencyId, index) => [
@@ -1207,6 +1361,7 @@ function assertProductionOutboxRecord(value: unknown): ProductionOperationOutbox
   checkedDocumentId("production plan id", record.planId);
   checkedDocumentId("production job id", record.jobId);
   if (!Number.isSafeInteger(record.planRevision) || record.planRevision < 1) throw new Error("invalid production outbox revision");
+  if (!Number.isSafeInteger(record.internalRun) || record.internalRun < 0) throw new Error("invalid production outbox internal run");
   if (!/^[a-f0-9]{64}$/.test(record.planDigest)) throw new Error("invalid production outbox digest");
   if (!["pending", "publishing", "published", "completed", "superseded"].includes(record.state)) {
     throw new Error("invalid production outbox state");

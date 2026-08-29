@@ -346,9 +346,14 @@ def execute_production_operation(
     operation_id: str,
     *,
     claim_token: str | None = None,
+    plan_revision: int = 0,
+    plan_digest: str = "0" * 64,
+    internal_run: int = 0,
 ) -> dict[str, Any]:
     token = claim_token or secrets.token_urlsafe(32)
-    decision = claim_production_operation(plan_id, operation_id, token)
+    decision = claim_production_operation(
+        plan_id, operation_id, token, plan_revision, plan_digest, internal_run,
+    )
     outcome = str(decision.get("outcome") or "")
     claim = decision.get("claim")
     if not isinstance(claim, dict):

@@ -4,7 +4,12 @@ import { internalTenantHandler } from "@/lib/internalAuth";
 import { productionPlanError } from "@/lib/productionPlanHttp";
 import { claimProductionOperation } from "@/lib/productionPlanStore";
 
-const bodySchema = z.object({ claimToken: z.string().min(1).max(512) }).strict();
+const bodySchema = z.object({
+  claimToken: z.string().min(1).max(512),
+  expectedPlanRevision: z.number().int().positive(),
+  expectedPlanDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  expectedInternalRun: z.number().int().nonnegative(),
+}).strict();
 
 async function post(
   request: Request,

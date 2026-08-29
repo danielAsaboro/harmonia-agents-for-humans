@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import { requestAgentAnswer } from "@/lib/agentAskClient";
 import { answerFromContext, fetchContextRecord, isValidContext } from "@/lib/contextAnswer";
 import {
@@ -20,7 +21,7 @@ import { hasRightsAttestation, RIGHTS_ATTESTATION_PHRASE, sourceRightsAuthorizat
 import { createSourceJob } from "@/lib/sourceManifest";
 import { latestHealthySnapshot, listLibraryConnections } from "@/lib/brandLibraries/repository";
 import { outputKindSchema } from "@/lib/contracts";
-import { getProductionPlanWorkspaceForJob, proposeProductionPlan, type ProductionPlanAggregate, type ProductionPlanWorkspaceView } from "@/lib/productionPlanStore";
+import { getProductionPlanWorkspaceForJob, proposeProductionPlan, requestProductionRerender, type ProductionPlanAggregate, type ProductionPlanWorkspaceView, type ProductionRerenderRequest } from "@/lib/productionPlanStore";
 import { authorProductionPlan } from "@/lib/productionPlanAuthor";
 import type { VideoProductionPlan } from "@/lib/mediaProduction";
 
@@ -28,6 +29,7 @@ const chatSchema = z.object({
   message: z.string().min(1).max(2000),
   surface: z.enum(["dashboard", "telegram"]).default("dashboard"),
   conversationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).default("primary"),
+  requestId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
   /** Grounded Q&A about one record ("chat with any item"). */
   context: z
     .object({
@@ -295,13 +297,27 @@ export async function createOrReviseProductionPlanFromChat(
   return { plan, aggregate };
 }
 
+export async function requestProductionRerenderFromChat(
+  jobId: string,
+  stableRequestId: string,
+  dependencies: {
+    getWorkspace?: typeof getProductionPlanWorkspaceForJob;
+    request?: typeof requestProductionRerender;
+  } = {},
+): Promise<ProductionRerenderRequest> {
+  const workspace = await (dependencies.getWorkspace ?? getProductionPlanWorkspaceForJob)(jobId);
+  if (!workspace) throw new Error(`job ${jobId} has no production plan to rerender`);
+  const requestId = `rerender-${createHash("sha256").update(stableRequestId).digest("hex").slice(0, 24)}`;
+  return (dependencies.request ?? requestProductionRerender)(workspace.aggregate.id, { requestId });
+}
+
 export async function handleChat(req: Request, options: { chatRunId?: string } = {}): Promise<Response> {
   const body = await req.json().catch(() => null);
   const parsed = chatSchema.safeParse(body);
   if (!parsed.success) {
     return Response.json({ error: "invalid chat payload" }, { status: 400 });
   }
-  const { message, surface, conversationId, context, attachmentIds } = parsed.data;
+  const { message, surface, conversationId, requestId, context, attachmentIds } = parsed.data;
 
   let attachments: ChatAttachment[] = [];
   try {
@@ -313,7 +329,7 @@ export async function handleChat(req: Request, options: { chatRunId?: string } =
   let payload: ChatResponse;
   let status = 200;
   try {
-    const result = await buildResponse(req, message, surface, context, attachments);
+    const result = await buildResponse(req, message, surface, context, attachments, requestId);
     if ("__http" in result) return result.__http; // e.g. operator forbidden
     payload = result.payload;
     status = result.status ?? 200;
@@ -365,7 +381,7 @@ type HandlerResult =
   | { payload: ChatResponse; status?: number }
   | { __http: Response };
 
-async function buildResponse(req: Request, message: string, surface: "dashboard" | "telegram", context?: { kind: "job" | "content_item" | "proposal"; id: string }, attachments: ChatAttachment[] = []): Promise<HandlerResult> {
+async function buildResponse(req: Request, message: string, surface: "dashboard" | "telegram", context?: { kind: "job" | "content_item" | "proposal"; id: string }, attachments: ChatAttachment[] = [], requestId?: string): Promise<HandlerResult> {
 
   // Grounded Q&A about a specific record ("chat with any item").
   if (context && isValidContext(context)) {
@@ -530,11 +546,23 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
     }
 
     case "rerender_production_plan": {
+      if (!intent.jobId) return { payload: {
+        intent: intent.intent,
+        reply: "Specify the exact job ID to rerender without changing paid assets.",
+      } satisfies ChatResponse };
+      if (!requestId) return { payload: {
+        intent: intent.intent,
+        reply: "Rerendering requires a durable request identity; no render run was scheduled.",
+        jobId: intent.jobId,
+      } satisfies ChatResponse, status: 409 };
+      const rerender = await requestProductionRerenderFromChat(
+        intent.jobId, requestId,
+      );
       return { payload: {
         intent: intent.intent,
-        reply: "Cost-free rerendering is visibly blocked until Harmonia can create a new durable internal render attempt while preserving the paid artifact claims and their audit history. No provider request, mandate charge, or publication action was created.",
-        ...(intent.jobId ? { jobId: intent.jobId } : {}),
-      } satisfies ChatResponse, status: 409 };
+        reply: `Scheduled cost-free internal render run ${rerender.internalRun} for production plan ${rerender.planId}. Existing paid provider artifacts and mandate charges are unchanged; publication remains separately gated.`,
+        jobId: intent.jobId,
+      } satisfies ChatResponse, status: 202 };
     }
 
     case "list_artifacts": {

@@ -23,7 +23,7 @@ const job: JobFull = {
   id: "job-1", status: "active", stage: "publish", createdAt: "2026-08-31T00:00:00.000Z", updatedAt: "2026-08-31T00:00:00.000Z",
   config: { sourceManifestId: "manifest-1", desiredOutputs: [], allowedOutputs: [], platforms: [] }, actions: [],
   productionPlan: {
-    aggregate: { id: plan.id, jobId: jobId(), workspaceId: plan.workspaceId, brandId: plan.brandId, state: "sealed", currentRevision: 1, currentPlanDigest: digest, activeMandateId: null, currentMandateReservedCostUsd: "0.000000", createdAt: "2026-08-31T00:00:00.000Z", updatedAt: "2026-08-31T00:00:00.000Z" },
+    aggregate: { id: plan.id, jobId: jobId(), workspaceId: plan.workspaceId, brandId: plan.brandId, state: "sealed", currentRevision: 1, currentPlanDigest: digest, activeMandateId: null, currentMandateReservedCostUsd: "0.000000", internalRun: 0, createdAt: "2026-08-31T00:00:00.000Z", updatedAt: "2026-08-31T00:00:00.000Z" },
     revision: { revision: 1, plan, planDigest: digest, operations, proposedAt: "2026-08-31T00:00:00.000Z" },
     operations: operations.map((operation, index) => ({ id: operation.id, type: operation.type, executionAuthority: operation.executionAuthority, dependsOn: operation.dependsOn, ...(operation.estimatedCostUsd ? { estimatedCostUsd: operation.estimatedCostUsd } : {}), state: index === 0 ? "waiting_provider" : "pending", attempt: index === 0 ? 1 : 0 })),
   },

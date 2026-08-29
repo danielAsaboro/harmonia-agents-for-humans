@@ -36,7 +36,7 @@ describe("tenant-bound production messages", () => {
       {
         id: "outbox-production-1", workspaceId: "workspace-a", brandId: "brand-a",
         planId: "plan-1", jobId: "job-1", planRevision: 2, planDigest: "a".repeat(64),
-        operationId: "plan-1:generate_video:scene-1", state: "pending",
+        operationId: "plan-1:generate_video:scene-1", internalRun: 0, state: "pending",
         availableAt: "2026-08-31T12:00:00.000Z", publishAttempt: 0,
         createdAt: "2026-08-31T12:00:00.000Z", updatedAt: "2026-08-31T12:00:00.000Z",
       },
@@ -45,13 +45,19 @@ describe("tenant-bound production messages", () => {
       workspaceId: "workspace-a",
       brandId: "brand-a",
       planId: "plan-1",
+      planRevision: 2,
+      planDigest: "a".repeat(64),
       operationId: "plan-1:generate_video:scene-1",
+      internalRun: 0,
     });
     expect(built.attributes).toMatchObject({
       workspaceId: "workspace-a",
       brandId: "brand-a",
       planId: "plan-1",
+      planRevision: "2",
+      planDigest: "a".repeat(64),
       operationId: "plan-1:generate_video:scene-1",
+      internalRun: "0",
       outboxId: "outbox-production-1",
     });
   });

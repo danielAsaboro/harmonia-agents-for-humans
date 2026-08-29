@@ -30,7 +30,7 @@ from .tenant_context import tenant_scope
 from .durable_tick import run_durable_tick
 from .operation_context import operation_scope
 from .production_executor import execute_production_operation
-from .web_client import claim_event_inbox, claim_operation, complete_event_inbox
+from .web_client import WebApiError, claim_event_inbox, claim_operation, complete_event_inbox
 
 configure_telemetry()
 
@@ -132,7 +132,7 @@ async def durable_tick() -> dict[str, Any]:
     }
 
 
-def _valid_production_wake(body: Any) -> dict[str, str] | None:
+def _valid_production_wake(body: Any) -> dict[str, Any] | None:
     if not isinstance(body, dict):
         return None
     required = ("workspaceId", "brandId", "planId", "operationId")
@@ -140,15 +140,29 @@ def _valid_production_wake(body: Any) -> dict[str, str] | None:
         return None
     if any(len(body[key]) > 256 for key in required):
         return None
-    return {key: body[key] for key in required}
+    if not isinstance(body.get("internalRun"), int) or body["internalRun"] < 0:
+        return None
+    if not isinstance(body.get("planRevision"), int) or body["planRevision"] < 1:
+        return None
+    plan_digest = body.get("planDigest")
+    if not isinstance(plan_digest, str) or len(plan_digest) != 64 or any(char not in "0123456789abcdef" for char in plan_digest):
+        return None
+    return {
+        **{key: body[key] for key in required},
+        "planRevision": body["planRevision"], "planDigest": plan_digest,
+        "internalRun": body["internalRun"],
+    }
 
 
-async def _run_production_wake(body: dict[str, str]) -> dict[str, Any]:
+async def _run_production_wake(body: dict[str, Any]) -> dict[str, Any]:
     with tenant_scope(body["workspaceId"], body["brandId"]):
         return await asyncio.to_thread(
             execute_production_operation,
             body["planId"],
             body["operationId"],
+            plan_revision=body["planRevision"],
+            plan_digest=body["planDigest"],
+            internal_run=body["internalRun"],
         )
 
 
@@ -172,13 +186,28 @@ async def production_pubsub_push(request: Request) -> JSONResponse:
         message = envelope["message"]
         body = _valid_production_wake(json.loads(base64.b64decode(message["data"])))
         attributes = message.get("attributes") or {}
-        if body is None or any(attributes.get(key) != body[key] for key in ("workspaceId", "brandId")):
+        expected_attributes = {
+            "workspaceId": body["workspaceId"] if body else None,
+            "brandId": body["brandId"] if body else None,
+            "planId": body["planId"] if body else None,
+            "planRevision": str(body["planRevision"]) if body else None,
+            "planDigest": body["planDigest"] if body else None,
+            "operationId": body["operationId"] if body else None,
+            "internalRun": str(body["internalRun"]) if body else None,
+        }
+        if body is None or any(attributes.get(key) != value for key, value in expected_attributes.items()):
             raise ValueError("production wake scope mismatch")
     except Exception as exc:  # noqa: BLE001 - poison message must not redeliver forever
         logger.error("malformed production push envelope: %s", exc)
         return JSONResponse({"ack": True, "error": "malformed production envelope"})
     try:
         result = await _run_production_wake(body)
+    except WebApiError as exc:
+        if exc.permanent:
+            logger.warning("production operation wake permanently rejected: %s", exc)
+            return JSONResponse({"ack": True, "permanent": True, "error": "production operation rejected"})
+        logger.exception("production operation execution failed")
+        return JSONResponse({"ack": False, "retryable": True}, status_code=503)
     except Exception:  # noqa: BLE001 - transient/uncertain state is durably fenced by the claim
         logger.exception("production operation execution failed")
         return JSONResponse({"ack": False, "retryable": True}, status_code=503)

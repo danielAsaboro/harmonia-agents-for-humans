@@ -95,13 +95,19 @@ export function buildProductionMessage(
     workspaceId: tenant.workspaceId,
     brandId: tenant.brandId,
     planId: record.planId,
+    planRevision: record.planRevision,
+    planDigest: record.planDigest,
     operationId: record.operationId,
+    internalRun: record.internalRun,
   };
   const attributes: Record<string, string> = {
     workspaceId: tenant.workspaceId,
     brandId: tenant.brandId,
     planId: record.planId,
+    planRevision: String(record.planRevision),
+    planDigest: record.planDigest,
     operationId: record.operationId,
+    internalRun: String(record.internalRun),
     outboxId: record.id,
   };
   injectTraceContext(attributes);

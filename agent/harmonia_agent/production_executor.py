@@ -34,6 +34,7 @@ from .production_media import (
     finalize_media,
     inspect_media,
     mix_media_audio,
+    repair_media as repair_media_artifact,
     render_hyperframes_composition,
 )
 from .web_client import (
@@ -250,7 +251,7 @@ def _execute_internal_operation(
             data = output.read_bytes()
             mime = "video/mp4"
             metadata = {"kind": kind, "inspection": inspect_media(output)}
-        elif operation_type == "inspect_media":
+        elif operation_type in {"inspect_media", "inspect_delivery"}:
             source = next(iter(downloaded.values()), None)
             if source is None or source[1] != "video/mp4":
                 raise ProductionExecutionProtocolError("inspection input is not verified MP4 video")
@@ -259,8 +260,8 @@ def _execute_internal_operation(
             report = inspect_media(path)
             data = _json_bytes(report)
             mime = "application/json"
-            metadata = {"kind": "ffprobe_inspection", "report": report}
-        elif operation_type == "evaluate_production":
+            metadata = {"kind": operation_type, "report": report}
+        elif operation_type in {"evaluate_production", "evaluate_delivery"}:
             source = next(iter(downloaded.values()), None)
             if source is None or source[1] != "application/json":
                 raise ProductionExecutionProtocolError("QA input is not an inspection receipt")
@@ -272,16 +273,46 @@ def _execute_internal_operation(
                 "height": height,
                 "frameRate": plan["target"]["frameRate"],
             })
-            if not report["passed"]:
+            if operation_type == "evaluate_delivery" and not report["passed"]:
                 raise ProductionExecutionProtocolError(
                     "production QA failed: " + ",".join(report["issues"])
                 )
             data = _json_bytes(report)
             mime = "application/json"
-            metadata = {"kind": "production_qa", "report": report}
-        elif operation_type == "assemble_export":
+            metadata = {"kind": operation_type, "report": report}
+        elif operation_type == "repair_media":
             final_input = next((value for key, value in downloaded.items() if key.endswith(":ffmpeg_finalize")), None)
             qa_input = next((value for key, value in downloaded.items() if key.endswith(":evaluate_production")), None)
+            if final_input is None or final_input[1] != "video/mp4" or qa_input is None or qa_input[1] != "application/json":
+                raise ProductionExecutionProtocolError("deterministic repair inputs are incomplete")
+            try:
+                qa = json.loads(qa_input[0])
+            except json.JSONDecodeError as exc:
+                raise ProductionExecutionProtocolError("deterministic repair QA receipt is malformed") from exc
+            source_path = workspace / "final.mp4"
+            source_path.write_bytes(final_input[0])
+            if qa.get("passed") is True:
+                output = source_path
+                repair_receipt = {"attempt": 0, "inputIssues": [], "qa": qa}
+            else:
+                width, height = _target_dimensions(plan)
+                output, repair_receipt = repair_media_artifact(
+                    source_path,
+                    workspace / "repaired.mp4",
+                    target={
+                        "durationSec": plan["target"]["durationSec"],
+                        "width": width,
+                        "height": height,
+                        "frameRate": plan["target"]["frameRate"],
+                    },
+                    issues=list(qa.get("issues") or []),
+                )
+            data = output.read_bytes()
+            mime = "video/mp4"
+            metadata = {"kind": "deterministic_repair", "receipt": repair_receipt, "inspection": inspect_media(output)}
+        elif operation_type == "assemble_export":
+            final_input = next((value for key, value in downloaded.items() if key.endswith(":repair_media")), None)
+            qa_input = next((value for key, value in downloaded.items() if key.endswith(":evaluate_delivery")), None)
             if final_input is None or final_input[1] != "video/mp4" or qa_input is None or qa_input[1] != "application/json":
                 raise ProductionExecutionProtocolError("content pack inputs are incomplete")
             pack = workspace / "pack"

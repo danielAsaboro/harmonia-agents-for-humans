@@ -324,3 +324,61 @@ def test_internal_media_failure_is_persisted_as_terminal(monkeypatch):
         "outcome": "failed",
         "reason": "MediaInspectionError: strict render failed",
     }]
+
+
+def test_internal_repair_consumes_sealed_final_and_qa_inputs_once(monkeypatch):
+    operation_id = "plan-1:repair_media"
+    final_id = "plan-1:ffmpeg_finalize"
+    qa_id = "plan-1:evaluate_production"
+    qa = {"passed": False, "issues": ["integrated_loudness_out_of_range"]}
+    decision = {
+        "outcome": "execute",
+        "claim": {
+            "kind": "internal", "id": "repair-claim", "operationId": operation_id,
+            "planDigest": "f" * 64,
+            "inputDigests": [
+                {"operationId": final_id, "digest": "a" * 64},
+                {"operationId": qa_id, "digest": "b" * 64},
+            ],
+        },
+        "operation": {"id": operation_id, "type": "repair_media", "executionAuthority": "internal"},
+        "plan": {"target": {"durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p", "frameRate": 30}},
+        "inputs": [
+            {"operationId": final_id, "artifact": {"mime": "video/mp4", "digest": "a" * 64}},
+            {"operationId": qa_id, "artifact": {"mime": "application/json", "digest": "b" * 64}},
+        ],
+    }
+    uploads: list[dict] = []
+    repairs: list[dict] = []
+    monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: decision)
+    monkeypatch.setattr(
+        production_executor,
+        "download_production_artifact",
+        lambda _plan, operation: (b"final-video", "video/mp4", "a" * 64)
+        if operation == final_id else (json.dumps(qa).encode(), "application/json", "b" * 64),
+    )
+
+    def repair(source, output, *, target, issues):
+        repairs.append({"source": source.read_bytes(), "target": target, "issues": issues})
+        output.write_bytes(b"repaired-video")
+        return output, {"attempt": 1, "qa": {"passed": True}}
+
+    monkeypatch.setattr(production_executor, "repair_media_artifact", repair)
+    monkeypatch.setattr(production_executor, "inspect_media", lambda _path: {"video": {"codec": "h264"}})
+    monkeypatch.setattr(
+        production_executor, "upload_production_artifact",
+        lambda *args, **kwargs: uploads.append(kwargs) or {"state": "succeeded"},
+    )
+
+    result = production_executor.execute_production_operation(
+        "plan-1", operation_id, claim_token="repair-worker",
+    )
+
+    assert result["outcome"] == "succeeded"
+    assert repairs == [{
+        "source": b"final-video",
+        "target": {"durationSec": 4, "width": 1080, "height": 1920, "frameRate": 30},
+        "issues": ["integrated_loudness_out_of_range"],
+    }]
+    assert uploads[0]["data"] == b"repaired-video"
+    assert uploads[0]["operation_metadata"]["receipt"]["attempt"] == 1

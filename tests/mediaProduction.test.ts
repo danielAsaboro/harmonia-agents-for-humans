@@ -226,11 +226,12 @@ describe("media production contracts", () => {
     const operations = compileProductionOperations(videoProductionPlanSchema.parse(basePlan));
     expect(operations.map((operation) => operation.type)).toEqual([
       "generate_video", "generate_music", "build_composition", "render_composition",
-      "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production", "assemble_export",
+      "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production", "repair_media",
+      "inspect_delivery", "evaluate_delivery", "assemble_export",
     ]);
     expect(operations[2].dependsOn).toEqual([operations[0].id, operations[1].id]);
     expect(operations.at(-1)?.dependsOn).toEqual([
-      "plan-1:ffmpeg_finalize", "plan-1:evaluate_production",
+      "plan-1:repair_media", "plan-1:evaluate_delivery",
     ]);
     expect(operations.slice(0, 2).map((operation) => operation.estimatedCostUsd)).toEqual(["0.320000", "0.120000"]);
   });

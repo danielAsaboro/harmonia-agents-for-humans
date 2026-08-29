@@ -125,7 +125,7 @@ export type GeneratedVideoSpec = z.infer<typeof generatedVideoSpecSchema>;
 export type GeneratedMusicSpec = z.infer<typeof generatedMusicSpecSchema>;
 export type VideoProductionPlan = z.infer<typeof videoProductionPlanSchema>;
 
-const operationTypes = ["extract_source_segment", "normalize_media", "generate_video", "extend_video", "generate_music", "generate_image", "generate_voice", "resolve_media", "build_composition", "render_composition", "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production", "assemble_export", "publish_external"] as const;
+const operationTypes = ["extract_source_segment", "normalize_media", "generate_video", "extend_video", "generate_music", "generate_image", "generate_voice", "resolve_media", "build_composition", "render_composition", "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production", "repair_media", "inspect_delivery", "evaluate_delivery", "assemble_export", "publish_external"] as const;
 export const productionOperationSchema = z.object({ id: z.string().min(1), jobId: z.string().min(1), type: z.enum(operationTypes), dependsOn: z.array(z.string().min(1)), payload: z.record(z.string(), z.unknown()), requestDigest: digest, estimatedCostUsd: usd.optional(), executionAuthority: z.enum(["production_mandate", "internal", "publication_approval"]) }).strict().superRefine((value, context) => {
   if (value.executionAuthority === "production_mandate" && !value.estimatedCostUsd) context.addIssue({ code: "custom", path: ["estimatedCostUsd"], message: "paid operation requires a sealed cost quote" });
   if (value.executionAuthority !== "production_mandate" && value.estimatedCostUsd) context.addIssue({ code: "custom", path: ["estimatedCostUsd"], message: "only paid operations carry cost quotes" });
@@ -306,16 +306,33 @@ export function compileProductionOperations(plan: VideoProductionPlan): Producti
     const id = `${plan.id}:${type}`;
     chain.push({ id, jobId: plan.jobId, type, dependsOn: [previous], payload: { planDigest: productionPlanDigest(plan) }, requestDigest: sha({ type, planDigest: productionPlanDigest(plan) }), executionAuthority: "internal" });
   }
-  const finalId = `${plan.id}:ffmpeg_finalize`;
-  const evaluationId = `${plan.id}:evaluate_production`;
+  const planDigest = productionPlanDigest(plan);
+  const repairId = `${plan.id}:repair_media`;
+  chain.push({
+    id: repairId,
+    jobId: plan.jobId,
+    type: "repair_media",
+    dependsOn: [`${plan.id}:ffmpeg_finalize`, `${plan.id}:evaluate_production`],
+    payload: { planDigest },
+    requestDigest: sha({ type: "repair_media", planDigest }),
+    executionAuthority: "internal",
+  });
+  for (const type of ["inspect_delivery", "evaluate_delivery"] as const) {
+    const previous = chain.at(-1)!.id;
+    const id = `${plan.id}:${type}`;
+    chain.push({
+      id, jobId: plan.jobId, type, dependsOn: [previous], payload: { planDigest },
+      requestDigest: sha({ type, planDigest }), executionAuthority: "internal",
+    });
+  }
   const exportType = "assemble_export" as const;
   chain.push({
     id: `${plan.id}:${exportType}`,
     jobId: plan.jobId,
     type: exportType,
-    dependsOn: [finalId, evaluationId],
-    payload: { planDigest: productionPlanDigest(plan) },
-    requestDigest: sha({ type: exportType, planDigest: productionPlanDigest(plan) }),
+    dependsOn: [repairId, `${plan.id}:evaluate_delivery`],
+    payload: { planDigest },
+    requestDigest: sha({ type: exportType, planDigest }),
     executionAuthority: "internal",
   });
   return [...paid, ...chain];

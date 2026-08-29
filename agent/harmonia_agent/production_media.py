@@ -412,6 +412,41 @@ def mix_media_audio(source: Path, output: Path) -> Path:
     return output
 
 
+def repair_media(
+    source: Path,
+    output: Path,
+    *,
+    target: dict[str, Any],
+    issues: list[str],
+) -> tuple[Path, dict[str, Any]]:
+    """Perform one bounded, cost-free delivery normalization repair."""
+    repairable = {
+        "video_codec_not_h264",
+        "video_dimensions_mismatch",
+        "frame_rate_mismatch",
+        "audio_sample_rate_mismatch",
+        "audio_channel_count_mismatch",
+        "integrated_loudness_out_of_range",
+        "true_peak_too_high",
+    }
+    unsupported = sorted(set(issues) - repairable)
+    if not issues or unsupported:
+        detail = ",".join(unsupported or ["no reported defect"])
+        raise MediaInspectionError(f"production defect is not deterministically repairable: {detail}")
+    repaired = finalize_media(
+        source,
+        output,
+        width=int(target["width"]),
+        height=int(target["height"]),
+        frame_rate=int(target["frameRate"]),
+    )
+    inspection = inspect_media(repaired)
+    qa = evaluate_media_quality(inspection, target)
+    if not qa["passed"]:
+        raise MediaInspectionError("deterministic production repair did not pass QA: " + ",".join(qa["issues"]))
+    return repaired, {"attempt": 1, "inputIssues": sorted(set(issues)), "qa": qa}
+
+
 def evaluate_media_quality(inspection: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
     """Apply deterministic delivery checks; failed checks never become success."""
     issues: list[str] = []

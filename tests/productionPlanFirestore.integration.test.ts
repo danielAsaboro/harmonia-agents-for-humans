@@ -155,6 +155,7 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
     ));
     for (const [index, type] of [
       "render_composition", "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production",
+      "repair_media", "inspect_delivery", "evaluate_delivery",
     ].entries()) {
       const operation = compileProductionOperations(internalPlan).find((item) => item.type === type)!;
       const token = `internal-chain-worker-${index}`;
@@ -162,7 +163,8 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
         internalPlan.id, operation.id, { claimToken: token },
       ));
       expect(claimed).toMatchObject({ outcome: "execute", claim: { kind: "internal" } });
-      const json = type === "inspect_media" || type === "evaluate_production";
+      const json = type === "inspect_media" || type === "evaluate_production"
+        || type === "inspect_delivery" || type === "evaluate_delivery";
       await runWithTenant(serviceScope, () => completeInternalProductionOperation(
         internalPlan.id, operation.id, {
           claimId: claimed.claim.id,
@@ -184,8 +186,8 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
     expect(assembleClaim).toMatchObject({
       outcome: "execute",
       inputs: [
-        { operationId: "plan-internal:ffmpeg_finalize" },
-        { operationId: "plan-internal:evaluate_production" },
+        { operationId: "plan-internal:repair_media" },
+        { operationId: "plan-internal:evaluate_delivery" },
       ],
     });
   });

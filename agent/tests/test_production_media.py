@@ -4,6 +4,7 @@ import pytest
 
 from harmonia_agent.production_media import (
     CompositionCompileError,
+    MediaInspectionError,
     apply_voiceover_carve,
     compile_hyperframes_composition,
     create_deterministic_archive,
@@ -11,6 +12,7 @@ from harmonia_agent.production_media import (
     extract_verified_archive,
     finalize_media,
     inspect_media,
+    repair_media,
     render_hyperframes_composition,
 )
 
@@ -194,3 +196,26 @@ def test_qa_rejects_unmeasured_or_unsafe_audio():
     assert set(unsafe["issues"]) >= {
         "integrated_loudness_out_of_range", "true_peak_too_high", "excessive_silence",
     }
+
+
+def test_deterministic_repair_normalizes_only_cost_free_delivery_defects(tmp_path: Path):
+    import subprocess
+
+    source = tmp_path / "source.mp4"
+    subprocess.run([
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-f", "lavfi", "-i", "color=c=blue:s=320x240:r=24:d=1",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=1",
+        "-c:v", "libx264", "-c:a", "aac", str(source),
+    ], check=True)
+    target = {"durationSec": 1, "width": 270, "height": 480, "frameRate": 30}
+    repaired, receipt = repair_media(
+        source, tmp_path / "repaired.mp4", target=target,
+        issues=["video_dimensions_mismatch", "frame_rate_mismatch", "audio_sample_rate_mismatch"],
+    )
+
+    assert receipt["attempt"] == 1
+    assert receipt["qa"]["passed"] is True
+    assert inspect_media(repaired)["video"]["width"] == 270
+    with pytest.raises(MediaInspectionError, match="not deterministically repairable"):
+        repair_media(source, tmp_path / "bad.mp4", target=target, issues=["excessive_silence"])

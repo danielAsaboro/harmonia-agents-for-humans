@@ -10,6 +10,7 @@ import pytest
 from harmonia_agent import stages
 from harmonia_agent.agents import AgentProtocolError
 from harmonia_agent.agent_models import ContentDraft, DraftWorkflowResult, EditorialPlan, EditorialReview
+from harmonia_agent.operation_context import operation_scope
 from tests.test_ryan_stages import job as ryan_job
 from tests.test_ryan_strategy import strategy
 from tests.test_temi_editorial_plan import plan
@@ -132,7 +133,8 @@ def test_plan_runs_temi_and_persists_complete_plan_before_any_draft(monkeypatch)
     monkeypatch.setattr(stages, "draft_with_team", lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("Noni ran before plan persistence")))
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
 
-    asyncio.run(stages.run_plan("job-1"))
+    with operation_scope("job:job-1:stage:plan:generation:12", 1):
+        asyncio.run(stages.run_plan("job-1"))
 
     request, invocation = calls[0]
     assert request.strategyDigest == "a" * 64
@@ -140,6 +142,7 @@ def test_plan_runs_temi_and_persists_complete_plan_before_any_draft(monkeypatch)
     assert request.planningSnapshot.snapshotId == "planning-job-1-v1"
     assert request.planningSnapshotDigest == "d" * 64
     assert invocation.stage == "plan"
+    assert invocation.operation_id == "job:job-1:stage:plan:generation:12"
     assert posts == [("/api/internal/editorial-plan", {
         "jobId": "job-1", "stage": "plan", "revision": 1,
         "plan": plan(), "modelUsed": stages.content.model_used(),

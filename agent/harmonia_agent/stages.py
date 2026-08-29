@@ -505,6 +505,7 @@ async def run_strategize(job_id: str) -> None:
 
 
 async def run_plan(job_id: str) -> None:
+    fence = current_operation()
     job = get_job(job_id)
     strategy = job.get("contentStrategy")
     digest = job.get("strategyDigest")
@@ -537,7 +538,7 @@ async def run_plan(job_id: str) -> None:
     result = await plan_with_team(planner_input, invocation=InvocationContext(
         job_id=job_id, workspace_id=job["workspaceId"], brand_id=job["brandId"],
         user_id=job["createdByUserId"], stage="plan",
-        operation_id=f"{job_id}:plan:{revision - 1}",
+        operation_id=fence.operation_id if fence is not None else f"{job_id}:plan:{revision - 1}",
     ))
     web_post("/api/internal/editorial-plan", {
         "jobId": job_id, "stage": "plan", "revision": revision,

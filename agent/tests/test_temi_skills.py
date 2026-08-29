@@ -14,6 +14,7 @@ from harmonia_agent.temi_skills import (
     TEMI_TRACE_KEY,
     build_temi_editorial_planning_skillset,
     guard_temi_tool,
+    read_planning_authority,
     validate_temi_trace,
 )
 
@@ -36,6 +37,7 @@ def test_temi_exposes_one_filesystem_skill_and_separate_read_only_tools():
     names = loader_names | set(toolset._provided_tools_by_name)
     assert {"load_skill", "load_skill_resource"}.issubset(loader_names)
     assert {
+        "read_planning_authority",
         "read_editorial_commitments", "read_production_capacity",
         "read_asset_readiness", "read_posting_window_observations",
         "read_calendar_projection", "read_blocked_dependencies",
@@ -85,3 +87,27 @@ def test_guard_rejects_unknown_tools_and_wrong_snapshot_before_execution():
             {"snapshot_id": "planning-other-v1"}, context,
         )
     assert TEMI_TRACE_KEY
+
+
+def test_temi_reads_exact_request_bound_planning_authority_from_session_state():
+    state = {
+        "strategy": {"strategyId": "strategy-real"},
+        "strategyDigest": "a" * 64,
+        "strategyVersion": 1,
+        "strategyApproval": {"decision": "approved", "payloadDigest": "a" * 64},
+        "analysis": {"summary": "real source analysis"},
+        "planningSnapshot": {
+            "snapshotId": "planning-job-1-v1",
+            "productionCapacity": {"maxItems": 1},
+        },
+        "planningSnapshotDigest": "b" * 64,
+        "revision": 1,
+    }
+
+    result = read_planning_authority(
+        "planning-job-1-v1", SimpleNamespace(state=state),
+    )
+
+    assert result == {"snapshotId": "planning-job-1-v1", **state}
+    result["strategy"]["strategyId"] = "mutated"
+    assert state["strategy"]["strategyId"] == "strategy-real"

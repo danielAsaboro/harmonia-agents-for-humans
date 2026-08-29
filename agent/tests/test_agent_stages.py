@@ -13,6 +13,7 @@ from harmonia_agent.agent_models import SourceAnalysis
 from harmonia_agent.agents import AnalysisRunResult
 from harmonia_agent.content_production import ProductionResult
 from harmonia_agent.effect_executor import ExecutionResult
+from harmonia_agent.operation_context import operation_scope
 from harmonia_agent.web_client import EffectClaimInProgress, EffectClaimUncertain
 from tests.test_ryan_strategy import strategy as _content_strategy
 from tests.test_temi_editorial_plan import plan as _editorial_plan
@@ -81,7 +82,8 @@ def test_understand_written_source_routes_through_nimi_without_fake_timestamps(m
     monkeypatch.setattr(stages, "analyze_with_team", fake_analyze)
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
 
-    asyncio.run(stages.run_understand("job-1"))
+    with operation_scope("job:job-1:stage:understand:generation:7", 1):
+        asyncio.run(stages.run_understand("job-1"))
 
     request, invocation = requests[0]
     assert request.sourceKind == "document"
@@ -90,7 +92,7 @@ def test_understand_written_source_routes_through_nimi_without_fake_timestamps(m
     assert request.memoryFacts == []
     assert invocation.job_id == "job-1"
     assert invocation.stage == "understand"
-    assert invocation.operation_id == "job-1:understand:0"
+    assert invocation.operation_id == "job:job-1:stage:understand:generation:7"
     path, payload = posts[0]
     assert path == "/api/internal/analysis"
     assert set(payload) == {

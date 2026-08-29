@@ -60,7 +60,7 @@ from .usage import InvocationContext
 from .effect_executor import execute_effect_command, production_adapters
 from .extraction import extract_docx, extract_html, extract_media, extract_pdf, extract_text
 from .extraction.security import assert_public_url
-from .operation_context import operation_scope
+from .operation_context import current_operation, operation_scope
 from .web_client import (
     EffectClaimInProgress,
     EffectClaimUncertain,
@@ -345,12 +345,14 @@ async def run_understand(job_id: str) -> None:
     normalized_sources = source_package.get("normalizedSources") or []
     if not normalized_sources:
         raise RuntimeError("job has no normalized sources")
+    operation = current_operation()
     invocation = InvocationContext(
         job_id=job_id,
         workspace_id=job["workspaceId"],
         brand_id=job["brandId"],
         user_id=job["createdByUserId"],
-        stage="understand", operation_id=f"{job_id}:understand:0",
+        stage="understand",
+        operation_id=(operation.operation_id if operation else f"{job_id}:understand:0"),
     )
     performance: list[AnalystPerformanceObservation] = []
     try:

@@ -372,6 +372,7 @@ def test_team_applies_each_roles_generation_and_safety_policy():
 
     strategist = next(agent for agent in root.sub_agents if agent.name == "ryan_strategist")
     assert strategist.generate_content_config.max_output_tokens == 8192
+    assert strategist.generate_content_config.temperature == 0.1
 
     planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
     copywriter = next(agent for agent in root.sub_agents if agent.name == "noni_copywriter")

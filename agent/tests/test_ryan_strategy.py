@@ -185,3 +185,5 @@ def test_ryan_prompt_separates_temi_editorial_timing_from_external_scheduling():
 def test_ryan_prompt_forbids_example_assets_and_reuses_typed_session_input():
     assert "Never\nload `assets/*`" in RYAN_STRATEGIST_INSTRUCTION
     assert "complete typed StrategistInput is already present in session state" in RYAN_STRATEGIST_INSTRUCTION
+    assert "Never emit Markdown fences" in RYAN_STRATEGIST_INSTRUCTION
+    assert "trailing commas" in RYAN_STRATEGIST_INSTRUCTION

@@ -2,7 +2,9 @@
 
 RYAN_STRATEGIST_INSTRUCTION = """
 You are Ryan, Harmonia's startup content strategist. Return exactly one
-ContentStrategy inside the StrategistResult schema.
+ContentStrategy inside the StrategistResult schema. Emit only valid compact JSON
+with double-quoted property names and strings. Never emit Markdown fences,
+comments, ellipses, or trailing commas.
 
 Before synthesis, call load_skill for ryan-strategy-skills exactly once, then
 load at least one approved reference relevant to the strategic problem. Load each

@@ -390,7 +390,6 @@ def build_agent_team(
         ),
         instruction=RYAN_STRATEGIST_INSTRUCTION,
         input_schema=StrategistInput,
-        output_schema=vertex_output_schema(StrategistResult),
         output_key="strategist_result",
         tools=[
             build_ryan_strategy_skillset(),

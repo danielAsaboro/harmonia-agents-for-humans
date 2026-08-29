@@ -102,6 +102,9 @@ export const generatedMusicSpecSchema = z.object({
   ) context.addIssue({ code: "custom", path: ["conditioningImageArtifactId"], message: "advanced Lyria conditioning and music controls are unavailable until their real provider path is implemented" });
   const maximum = Math.max(...capability.durations);
   if (value.targetDurationSec > maximum) context.addIssue({ code: "custom", path: ["targetDurationSec"], message: `duration exceeds ${maximum} seconds` });
+  if (value.modelCapability === "lyria-3-clip" && value.targetDurationSec !== 30) {
+    context.addIssue({ code: "custom", path: ["targetDurationSec"], message: "Lyria 3 Clip always generates a 30-second provider output" });
+  }
 });
 
 const sceneSchema = z.object({

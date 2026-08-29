@@ -125,6 +125,8 @@ def validate_lyria_request(request: dict[str, Any]) -> dict[str, Any]:
         raise MediaProtocolError("Lyria outputCount must be exactly one")
     if int(value.get("targetDurationSec") or 0) > capability["maximumDurationSec"]:
         raise MediaProtocolError("duration exceeds the selected Lyria model")
+    if capability_name == "lyria-3-clip" and value.get("targetDurationSec") != 30:
+        raise MediaProtocolError("Lyria 3 Clip always generates a 30-second provider output")
     if value.get("instrumental") and value.get("lyricsMode") != "none":
         raise MediaProtocolError("instrumental music cannot include lyrics")
     if value.get("lyricsMode") == "provided" and not value.get("providedLyrics"):

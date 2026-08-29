@@ -370,6 +370,8 @@ def test_preview_lyria_requires_deployment_pricing_and_rejects_invalid_instrumen
     assert estimate_media_cost(request, {"lyria-3-clip": "0.120000"}) == "0.120000"
     with pytest.raises(MediaProtocolError, match="lyrics"):
         validate_lyria_request({**request, "lyricsMode": "provided", "providedLyrics": "hello"})
+    with pytest.raises(MediaProtocolError, match="30-second"):
+        validate_lyria_request({**request, "targetDurationSec": 4})
 
 
 def test_unwired_conditioning_and_music_controls_are_not_advertised_as_executable():

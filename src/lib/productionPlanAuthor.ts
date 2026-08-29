@@ -30,6 +30,30 @@ type DraftGenerator = (input: {
   job: JobContext;
   existing?: VideoProductionPlan;
 }) => Promise<ProductionCreativeDraft>;
+export interface ProductionPricingCatalog {
+  version: string;
+  veo31FastUsdPerSecond: string;
+  lyria3ClipFixedUsd: string;
+}
+
+const priceSchema = z.string().regex(/^\d+\.\d{6}$/).refine((value) => BigInt(value.replace(".", "")) > BigInt(0));
+
+function productionPricingCatalog(configured?: ProductionPricingCatalog): ProductionPricingCatalog {
+  if (configured) {
+    if (!priceSchema.safeParse(configured.veo31FastUsdPerSecond).success) throw new Error("Veo 3.1 Fast pricing is unavailable");
+    if (!priceSchema.safeParse(configured.lyria3ClipFixedUsd).success) throw new Error("Lyria 3 Clip pricing is unavailable");
+    if (!configured.version.trim()) throw new Error("media pricing version is unavailable");
+    return configured;
+  }
+  const config = getConfig();
+  if (!config.VEO_3_1_COST_PER_SECOND_USD) throw new Error("Veo 3.1 Fast pricing is unavailable");
+  if (!config.LYRIA_3_CLIP_COST_USD) throw new Error("Lyria 3 Clip pricing is unavailable");
+  return {
+    version: config.MODEL_PRICING_VERSION,
+    veo31FastUsdPerSecond: config.VEO_3_1_COST_PER_SECOND_USD,
+    lyria3ClipFixedUsd: config.LYRIA_3_CLIP_COST_USD,
+  };
+}
 
 const responseSchema = {
   type: "object",
@@ -94,6 +118,7 @@ export async function authorProductionPlan(input: {
   request: string;
   existing?: VideoProductionPlan;
   generateDraft?: DraftGenerator;
+  pricing?: ProductionPricingCatalog;
 }): Promise<VideoProductionPlan> {
   const request = input.request.trim();
   if (!request) throw new Error("production plan request is required");
@@ -102,11 +127,12 @@ export async function authorProductionPlan(input: {
   }));
   const id = input.existing?.id ?? stablePlanId(input.job.id);
   const revision = (input.existing?.revision ?? 0) + 1;
+  const pricing = productionPricingCatalog(input.pricing);
   let startSec = 0;
   const operationCostsUsd: Record<string, string> = {};
   const scenes = draft.scenes.map((scene, index) => {
     const sceneId = `scene-${index + 1}`;
-    const cost = usdFromMicros(BigInt(scene.durationSec) * BigInt(80_000));
+    const cost = usdFromMicros(BigInt(scene.durationSec) * BigInt(pricing.veo31FastUsdPerSecond.replace(".", "")));
     operationCostsUsd[`${id}:generate_video:${sceneId}`] = cost;
     const result = {
       id: sceneId, order: index + 1, startSec, durationSec: scene.durationSec,
@@ -123,11 +149,11 @@ export async function authorProductionPlan(input: {
     return result;
   });
   const soundtrack = draft.soundtrack.include ? {
-    modelCapability: "lyria-2" as const,
+    modelCapability: "lyria-3-clip" as const,
     prompt: draft.soundtrack.prompt!, instrumental: true, lyricsMode: "none" as const,
-    language: "en", targetDurationSec: startSec, outputCount: 1 as const,
+    language: "en", targetDurationSec: 30, outputCount: 1 as const,
   } : undefined;
-  if (soundtrack) operationCostsUsd[`${id}:generate_music`] = "0.060000";
+  if (soundtrack) operationCostsUsd[`${id}:generate_music`] = pricing.lyria3ClipFixedUsd;
   const estimatedMicros = Object.values(operationCostsUsd)
     .reduce((sum, cost) => sum + BigInt(cost.replace(".", "")), BigInt(0));
   const estimatedCostUsd = usdFromMicros(estimatedMicros);
@@ -137,7 +163,7 @@ export async function authorProductionPlan(input: {
     target: { platform: draft.platform, durationSec: startSec, aspectRatio: draft.aspectRatio, resolution: draft.resolution, frameRate: draft.frameRate, format: "mp4" },
     scenes, narration: [], ...(soundtrack ? { soundtrack } : {}),
     constraints: { allowLikeness: false, allowGeneratedVocals: false, requireLicensedSources: true },
-    pricingVersion: "google-media-2026-08-31", operationCostsUsd,
+    pricingVersion: pricing.version, operationCostsUsd,
     estimatedCostUsd, maximumCostUsd: estimatedCostUsd,
   });
 }

@@ -78,6 +78,16 @@ const basePlan = {
 } as const;
 
 describe("media production contracts", () => {
+  it("requires Lyria 3 Clip plans to quote its fixed 30-second provider output", () => {
+    const soundtrack = {
+      modelCapability: "lyria-3-clip" as const,
+      prompt: "Minimal instrumental pulse", instrumental: true, lyricsMode: "none" as const,
+      language: "en", targetDurationSec: 4, outputCount: 1 as const,
+    };
+
+    expect(generatedMusicSpecSchema.safeParse(soundtrack).success).toBe(false);
+    expect(generatedMusicSpecSchema.safeParse({ ...soundtrack, targetDurationSec: 30 }).success).toBe(true);
+  });
   it("rejects a Veo capability combination the selected model cannot execute", () => {
     expect(() => generatedVideoSpecSchema.parse({
       modelCapability: "veo-3.1-fast", mode: "extend_video", prompt: "continue",

@@ -10,6 +10,7 @@ import pytest
 from harmonia_agent import stages
 from harmonia_agent.agent_models import SourceAnalysis
 from harmonia_agent.agents import AnalysisRunResult, StrategyRunResult
+from harmonia_agent.operation_context import operation_scope
 from tests.test_ryan_strategy import strategy
 
 
@@ -90,6 +91,28 @@ def test_strategize_receives_typed_analysis_context_and_performance(monkeypatch)
     assert posts[0][1]["sourceIds"] == ["m1", "a1"]
     assert posts[1][0] == "/api/internal/strategy"
     assert posts[1][1]["strategy"]["briefs"][0]["id"] == "brief-1"
+
+
+def test_strategize_uses_current_durable_operation_for_managed_usage(monkeypatch):
+    invocations = []
+
+    async def fake_strategy(request, *, invocation, **_kwargs):
+        invocations.append(invocation)
+        return StrategyRunResult(strategy=strategy(), searchEvidence={}, groundingMetadata=None)
+
+    async def fake_prepare(request, *, invocation):
+        return request
+
+    monkeypatch.setattr(stages, "get_job", lambda _id: job())
+    monkeypatch.setattr(stages, "get_insights", lambda: {})
+    monkeypatch.setattr(stages, "strategize_with_team", fake_strategy)
+    monkeypatch.setattr(stages, "prepare_strategist_input", fake_prepare)
+    monkeypatch.setattr(stages, "web_post", lambda *_args: None)
+
+    with operation_scope("job:job-1:stage:strategize:generation:4", 2):
+        asyncio.run(stages.run_strategize("job-1"))
+
+    assert invocations[0].operation_id == "job:job-1:stage:strategize:generation:4"
 
 
 def test_strategize_persists_request_bound_search_evidence_and_native_metadata(monkeypatch):

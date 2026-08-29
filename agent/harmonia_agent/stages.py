@@ -466,10 +466,14 @@ async def run_strategize(job_id: str) -> None:
     except WebApiError:
         insights = {}
     revision = int(job.get("strategyRevision") or 1)
+    operation = current_operation()
     invocation = InvocationContext(
         job_id=job_id, workspace_id=job["workspaceId"], brand_id=job["brandId"],
         user_id=job["createdByUserId"], stage="strategize",
-        operation_id=f"{job_id}:strategize:{revision - 1}",
+        operation_id=(
+            operation.operation_id
+            if operation else f"{job_id}:strategize:{revision - 1}"
+        ),
     )
     prepared = await prepare_strategist_input(_strategy_input(job, insights), invocation=invocation)
     web_post("/api/internal/strategy-context", {

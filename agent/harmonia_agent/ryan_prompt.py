@@ -6,6 +6,26 @@ ContentStrategy inside the StrategistResult schema. Emit only valid compact JSON
 with double-quoted property names and strings. Never emit Markdown fences,
 comments, ellipses, or trailing commas.
 
+The current strict output vocabulary is authoritative over every skill resource.
+The top-level object is {"strategy": {...}}. The strategy object must contain
+exactly these keys: strategyId, version, horizonWeeks, thesis,
+differentiatedNarrative (a string), objectives, audiencePriorities, funnelIntent
+(one stage string), intendedConversions, pillars, campaignThemes, channelRoles,
+contentMix, cadenceGuidance (a string), priorityRules, ctaGuidance (an array of
+strings), kpis, successCriteria (an array of strings), constraints, exclusions,
+brandSafety, briefs, assumptions, confidence. Each objective is {text,
+evidenceRefs}; each audience priority is {audienceId, priority, reason,
+evidenceRefs}; each pillar is {name, purpose, evidenceRefs}; each campaign theme
+is {name, message, evidenceRefs}; each channel role is {channel, role,
+operationallySupported, formats, cadence, evidenceRefs}; each content-mix item is
+{format, percentage}; each KPI is {name, target, measurement, evidenceRefs}; each
+assumption is {text, evidenceRefs, confidence}. Each brief is exactly {id, title,
+objective, audienceId, funnelStage, keyMessage, channelCandidates,
+formatCandidates, ctaIntent, intendedConversion, kpi, priority, dependencies,
+constraints, evidenceRefs}. All priority values are integers from 1 through 5.
+Do not use legacy brief keys such as pillarId, themeId, channels, formats, or cta.
+Do not replace structured fields with explanatory objects.
+
 Before synthesis, call load_skill for ryan-strategy-skills exactly once, then
 load at least one approved reference relevant to the strategic problem. Load each
 reference at most once. The only approved resource paths are the seven

@@ -59,13 +59,19 @@ Noni revision, validates the complete batch, and prepares effect proposals from 
 
 Every action lands with `requiresApproval`, risk level, and its own idempotency key material.
 
+## optional media production plan
+
+Accepted content can be expanded into a versioned production plan for clips, reels, generated b-roll, soundtrack, captions, and deterministic composition. The plan binds every scene to authorized source excerpts or approved conditioning artifacts, records exact estimated and maximum cost, and remains inert until the operator seals and approves the current revision. Revision, explanation, status, approval confirmation, and cost-free rerender requests are available through the same conversational surface.
+
+Paid provider operations are isolated behind the production outbox and immutable mandate. Provider operation identities, submitted source digests, generated artifacts, and failures are persisted independently. A cost-free rerender may reuse verified provider artifacts but cannot create another paid operation or alter publication authority.
+
 ## awaiting_approval
 
-Hard gate for X and LinkedIn publishing and paid Veo/Lyria generation. Approvals arrive through the dashboard queue, chat ("approve job \<id\>"), or a Telegram inline-button callback — all through the same decision engine. Verified content-artifact export, Gemini image generation, and local ffmpeg rendering are internal actions with `approvalState: not_required`.
+Hard gate for X and LinkedIn publishing, image generation, and paid Veo/Lyria generation. Approvals arrive through the dashboard queue, chat confirmation, or a Telegram inline-button callback — all through the same decision engine. Conversational intent can locate and explain a decision, but cannot manufacture approval. Deterministic content-artifact export and local ffmpeg rendering remain internal actions with `approvalState: not_required`.
 
 ## publish
 
-Executes policy-authorized actions in order, checking effect claims and receipts first for idempotency. Approval-required actions must carry the exact matching decision; internal artifact actions execute under their deterministic safe-action mandate:
+Executes policy-authorized actions in dependency order, checking effect claims and receipts first for idempotency. Dependencies are part of the immutable command digest and are rechecked transactionally before claim ownership is granted. Approval-required actions must carry the exact matching decision; internal artifact actions execute under their deterministic safe-action mandate:
 
 | Action | Effect |
 |---|---|
@@ -73,7 +79,7 @@ Executes policy-authorized actions in order, checking effect claims and receipts
 | `publish_x_thread` | Ordered, resumable X reply chain with each confirmed post id durably checkpointed |
 | `publish_linkedin_post` | Official LinkedIn API post to an exact connected destination |
 | `export_content_artifact` | Immutable canonical JSON plus deterministic Markdown; both byte streams are hash-verified |
-| `generate_image` | Gemini image bytes into the asset store |
+| `generate_image` | Approval-gated Gemini image bytes into the asset store |
 | `render_clip` / `render_reel` | Real ffmpeg cuts/captions/reframes into the asset store |
 
 Failures are classified: permanent errors stop the job visibly, transient errors nack for redelivery.

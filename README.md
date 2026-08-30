@@ -1,6 +1,6 @@
 # Harmonia
 
-**Harmonia is an asynchronous social media content agent for startups.** Give it authorized source material and it creates a durable content job: Nimi extracts evidence, Ryan proposes a four-week strategy for human approval, Temi operationalizes approved briefs, Noni and Dara produce reviewed typed artifacts, and deterministic code authorizes and verifies exact effects.
+**Harmonia is an asynchronous social media content agent for startups.** An operator can begin with ordinary language rather than internal product vocabulary. Harmonia reads the durable workspace context, identifies the intended outcome, checks connected platforms, asks only for genuinely blocking information, and creates the appropriate durable content job. Nimi extracts evidence, Ryan proposes a four-week strategy for human approval, Temi operationalizes approved briefs, Noni and Dara produce reviewed typed artifacts, and deterministic code authorizes and verifies exact effects.
 
 The dashboard and authenticated web chat are active operator surfaces. Telegram’s official Bot API integration routes ordinary allow-listed messages through the canonical chat router, configures its webhook through `setWebhook`, and retains the nonce-bound inline-button approval boundary. Those paths are covered locally but are not live-evidenced against a real bot, so Telegram is not yet claimed as a production-verified equivalent surface.
 
@@ -26,8 +26,8 @@ collect_sources → extract_sources → understand → strategize → awaiting_s
 - **Strategize**: Ryan uses typed company, campaign, audience, performance, and eligible Memory Bank context to propose a provenance-linked four-week strategy and complete content briefs. A human must approve the exact strategy digest before Temi runs.
 - **Plan**: deterministic code persists a tenant-scoped planning snapshot, then Temi loads `temi-editorial-planning-skills` and uses only request-bound read views over that immutable snapshot to operationalize the approved Ryan strategy. Deterministic code validates both snapshot and plan digests, persists the complete four-week plan, and selects exactly one supported, eligible item; Temi cannot search, write final copy, mutate calendars, or authorize effects.
 - **Draft**: Noni receives the approved output plan and exact referenced evidence, then produces the requested typed artifact batch. Dara applies seven format-aware checks; deterministic code permits at most one issue-bound revision, seals immutable accepted artifacts, and derives effects from their exact digests.
-- **Awaiting approval**: X and LinkedIn publishing and paid Veo/Lyria actions wait for exact operator approval. Immutable content-artifact export, image generation, and ffmpeg rendering are internal actions and never imply publication.
-- **Publish**: executable actions run idempotently. Official publishers currently cover X posts, resumable X threads, and LinkedIn posts. Every accepted written/spec artifact is exportable as canonical JSON plus deterministic Markdown; a content-pack manifest runs only after every constituent export independently rereads and verifies.
+- **Awaiting approval**: X and LinkedIn publishing, image generation, and paid Veo/Lyria actions wait for exact operator approval. Deterministic artifact export and local ffmpeg rendering remain internal effects and never imply publication.
+- **Publish**: executable actions run idempotently. Official publishers currently cover X posts, resumable X threads, and LinkedIn posts. Every accepted written/spec artifact is exportable as canonical JSON plus deterministic Markdown; a content-pack command is dependency-bound and cannot run until every constituent export has independently completed.
 - **Verify**: provider effects are confirmed by fresh independent API reads and internal artifacts by digest read-back — never because a model said so.
 
 ## Architecture
@@ -93,7 +93,7 @@ flowchart LR
 |---|---|---|
 | Collection and extraction | source registry + `agent/harmonia_agent/extraction/` | immutable manifests, scheduled library snapshots, bounded normalization, and authorized media download |
 | Understanding / artifact production | `agent/harmonia_agent/content.py`, `content_artifacts.py`, `agents.py` | Gemini media extraction, multimodal Nimi, Ryan strategy, Temi planning, typed multi-format Noni production, and Dara review |
-| Intent parsing (chat + Telegram) | web `src/lib/chatIntent.ts` | Gemini structured output: `{intent, youtubeUrl?, jobId?}` |
+| Intent routing (chat + Telegram) | Harmonia ADK router + web `src/lib/chatIntent.ts` | typed outcome, sources, output concepts, platform recommendations, connection suggestions, assumptions, clarification state, and strategy context |
 | Generative interface composition | ADK `maya_presenter` + web `src/lib/a2ui/` | exact-context, reference-only `SurfacePlan`; deterministic validation and server hydration from authenticated Firestore records |
 | Approval gate | web `src/lib/policy.ts`, `src/lib/decisions.ts` | deterministic risk rules; single decision writer shared by REST, chat, and Telegram |
 | Effects | `agent/harmonia_agent/effect_executor.py` | immutable export plus official X post/thread and LinkedIn publishers, all idempotent |

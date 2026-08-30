@@ -23,5 +23,8 @@ Secrets belong in server-side environment injection or Secret Manager. Never exp
 | `PUBSUB_STAGE_TOPIC` | `harmonia-stages` | Web and agent runtime | Ordinary job-stage trigger transport. |
 | `PUBSUB_DATA_TOPIC` | `harmonia-data-work` | Web data-plane dispatcher | Large-batch work-item trigger transport. |
 | `PUBSUB_PRODUCTION_TOPIC` | `harmonia-production` | Web and agent runtime | Mandate-authorized paid production-operation wake transport. |
+| `HARMONIA_TIME_ORIGIN` | host time | Next.js server | Optional ISO-8601 UTC origin for replayable server time. |
+| `HARMONIA_TIME_SPEED` | `1` | Next.js server | Positive multiplier relative to the configured origin. |
+| `STRATEGIST_TIMEOUT_SECONDS` | `300` | ADK worker | Ryan's bounded strategy invocation timeout. Other roles accept the corresponding `<ROLE>_TIMEOUT_SECONDS` variable and default to 120 seconds. |
 
 Production infrastructure must provision all three before enabling their corresponding dispatch paths. `infra/setup.sh` creates the topics with the selected-region message storage policy.

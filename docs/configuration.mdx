@@ -26,6 +26,8 @@ This page documents supported operator-facing configuration. It deliberately exc
 | `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | yes | — | Identity Platform project |
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | yes | — | Registered web application identifier |
 | `DEFAULT_WORKSPACE_BUDGET_USD` | no | `100.00` | Workspace-wide reservation and usage ceiling |
+| `HARMONIA_TIME_ORIGIN` | no | host time | Optional UTC origin for replayable or accelerated workflows; does not change the operating-system clock |
+| `HARMONIA_TIME_SPEED` | no | `1` | Server-time multiplier applied relative to `HARMONIA_TIME_ORIGIN`; must be positive |
 
 ## Worker (FastAPI)
 
@@ -49,6 +51,7 @@ This page documents supported operator-facing configuration. It deliberately exc
 | `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` | yes in cloud | `false` | Disable ADK legacy content-bearing span attributes |
 | `COORDINATOR_MODEL_ID` | no | `gemini-3.5-flash-lite` | Low-cost coordinator routing model |
 | `STRATEGIST_MODEL_ID` | no | `gemini-3.5-flash` | Ryan's synthesis model |
+| `STRATEGIST_TIMEOUT_SECONDS` | no | `300` | Bounded Ryan strategy invocation timeout |
 | `ANALYST_MODEL_ID` | no | `gemini-3.5-flash` | Nimi's multimodal video/audio/text model |
 | `NIMI_AGENT_SEARCH_DATASTORE_ID` | no | unset | Real Vertex AI Search datastore resource enabling Nimi's isolated private-index research agent |
 | `COPYWRITER_MODEL_ID` | no | `gemini-3.5-flash` | Noni's skill-capable writing model |
@@ -61,6 +64,8 @@ This page documents supported operator-facing configuration. It deliberately exc
 | `GENERATIVE_MEDIA_ENABLED` | no | `false` | Add approval-gated Veo and Lyria proposals |
 | `ALLOW_GLOBAL_LYRIA` | with generative media | `false` | Explicitly acknowledge the approved policy exception required by Lyria's global endpoint |
 | `VERTEX_MEDIA_LOCATION` | no | `us-central1` | Veo Vertex region; must match the deployment residency region |
+
+Every role model variable also accepts a matching `*_TIMEOUT_SECONDS` override, for example `ANALYST_TIMEOUT_SECONDS` and `PLANNER_TIMEOUT_SECONDS`. The default is 120 seconds unless a role declares a larger bounded default. Timeouts limit one specialist invocation; they do not authorize an additional effect attempt.
 
 The pricing catalog uses decimal arithmetic and labels estimates with its version. A configured model without a catalog entry is not budget-authorized. Image calls reserve the configured maximum instead of being represented as free.
 

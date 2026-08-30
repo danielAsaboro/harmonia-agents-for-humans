@@ -5,6 +5,8 @@ description: "Strict inputs, outputs, evidence requirements, and authority limit
 
 Python contracts live in `agent/harmonia_agent/agent_models.py`; shared application representations live in `src/lib/types.ts`. Pydantic models forbid unknown fields and deterministic validators reject ungrounded or authority-expanding output.
 
+The ADK root is `HarmoniaCoordinator`, a deterministic `BaseAgent`. Specialist selection comes from host-owned session state. Models cannot choose arbitrary recipients or establish workflow authority through prose.
+
 | Agent | Input | Output | Boundary |
 |---|---|---|---|
 | Nimi | `AnalystInput` | `SourceAnalysis` | Evidence analysis only |
@@ -18,6 +20,17 @@ Python contracts live in `agent/harmonia_agent/agent_models.py`; shared applicat
 Evidence identifiers form a closed world per invocation: references not supplied in the input are invalid. Memory facts retain Firestore provenance and remain advisory. See the [agent team](/agents/overview) for role-by-role detail.
 
 ## Durable handoffs
+
+Every cognitive delegation includes a host-created `harmonia.handoff/v1` envelope. Its identity is derived from the operation, receiver, and canonical input digest. The paired acknowledgement repeats the handoff identity and expected output contract. Neither object is authored by the specialist.
+
+| Field | Owner | Rule |
+|---|---|---|
+| handoff ID and input digest | Harmonia host | Canonical and deterministic; never accepted from model output |
+| receiver and task | Harmonia coordinator | Must resolve to a registered specialist |
+| authority reads | Authenticated host tools | Recorded from actual values and bound to their authority identity |
+| semantic result | Specialist | Must satisfy the role's structured schema and evidence rules |
+| artifact/action IDs and digests | Application code | Computed after semantic validation |
+| approval, receipt, verification | Human and deterministic effect system | Outside specialist authority |
 
 | From | To | Exact handoff | Deterministic gate |
 |---|---|---|---|

@@ -35,6 +35,18 @@ class WebApiError(RuntimeError):
         return self.status is not None and 400 <= self.status < 500 and self.status != 429
 
 
+class ConnectionAuthorizationError(WebApiError):
+    """The operator's platform connection cannot authorize an effect."""
+
+    def __init__(self, platform: str, status: int) -> None:
+        self.platform = platform
+        super().__init__(
+            f"{platform} connection unavailable",
+            status,
+            details={"platform": platform},
+        )
+
+
 def _response_error(path: str, response: httpx.Response) -> WebApiError:
     details: dict[str, str | int | bool] = {"endpoint": path}
     try:
@@ -102,7 +114,7 @@ def get_connection(platform: str) -> dict[str, Any]:
     with _client() as c:
         res = c.get(f"/api/internal/connection/{platform}")
     if res.status_code != 200:
-        raise WebApiError(f"{platform} connection unavailable: {res.status_code}", res.status_code)
+        raise ConnectionAuthorizationError(platform, res.status_code)
     return dict(res.json()["connection"])
 
 

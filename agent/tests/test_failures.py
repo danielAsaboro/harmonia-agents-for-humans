@@ -9,7 +9,13 @@ from harmonia_agent.generative_media import MediaProviderError
 from harmonia_agent.memory_bank import MemoryProviderError
 from harmonia_agent.model_catalog import UnknownModelPrice
 from harmonia_agent.team_runtime import AgentEngineProviderError
-from harmonia_agent.web_client import EffectClaimInProgress, EffectClaimUncertain, WebApiError, _response_error
+from harmonia_agent.web_client import (
+    ConnectionAuthorizationError,
+    EffectClaimInProgress,
+    EffectClaimUncertain,
+    WebApiError,
+    _response_error,
+)
 from harmonia_agent.x_client import XError
 from harmonia_agent import stages
 
@@ -87,6 +93,21 @@ def test_internal_contract_rejection_is_not_reported_as_a_provider_failure():
     assert result.details["path"] == "sourceIds"
     assert result.details["issueCode"] == "too_big"
     assert "private details" not in result.model_dump_json()
+
+
+def test_missing_platform_connection_is_an_authorization_failure():
+    result = normalize_failure(
+        ConnectionAuthorizationError("linkedin", 400),
+        stage="publish",
+        operation_id="job:1:stage:publish:generation:2",
+        trace_id="a" * 32,
+        attempt=0,
+    )
+
+    assert result.category == FailureCategory.AUTHORIZATION
+    assert result.code == "platform_connection_unavailable"
+    assert result.retryable is False
+    assert result.details["platform"] == "linkedin"
 
 
 def test_internal_contract_response_extracts_only_safe_diagnostics():

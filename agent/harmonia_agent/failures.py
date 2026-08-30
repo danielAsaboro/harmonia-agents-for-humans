@@ -14,7 +14,12 @@ from .generative_media import MediaProtocolError, MediaProviderError
 from .memory_bank import MemoryProtocolError, MemoryProviderError
 from .model_catalog import UnknownModelPrice
 from .team_runtime import AgentEngineProtocolError, AgentEngineProviderError
-from .web_client import EffectClaimInProgress, EffectClaimUncertain, WebApiError
+from .web_client import (
+    ConnectionAuthorizationError,
+    EffectClaimInProgress,
+    EffectClaimUncertain,
+    WebApiError,
+)
 from .x_client import XError
 from .youtube import IngestError
 
@@ -72,6 +77,8 @@ def _classification(exc: Exception) -> tuple[FailureCategory, str, bool]:
     status = _status(exc)
     if isinstance(exc, AgentContractError):
         return FailureCategory.PROTOCOL, exc.code, False
+    if isinstance(exc, ConnectionAuthorizationError):
+        return FailureCategory.AUTHORIZATION, "platform_connection_unavailable", False
     if isinstance(exc, EffectClaimInProgress):
         return FailureCategory.DEPENDENCY, "effect_claim_in_progress", True
     if isinstance(exc, EffectClaimUncertain):

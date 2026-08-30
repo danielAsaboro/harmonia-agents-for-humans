@@ -30,10 +30,11 @@ def safety_settings(profile: str) -> list[types.SafetySetting]:
 def generation_config(role: RoleModelConfig) -> types.GenerateContentConfig:
     """Build the concrete request configuration for a cognitive role."""
     policy = role.generation
+    modern_defaults = role.model_id.startswith("gemini-3.7-")
     return types.GenerateContentConfig(
-        temperature=policy.temperature,
-        top_p=policy.top_p,
-        top_k=policy.top_k,
+        temperature=None if modern_defaults else policy.temperature,
+        top_p=None if modern_defaults else policy.top_p,
+        top_k=None if modern_defaults else policy.top_k,
         max_output_tokens=role.max_output_tokens,
         safety_settings=safety_settings(policy.safety_profile),
         http_options=types.HttpOptions(

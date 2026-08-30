@@ -66,7 +66,17 @@ def test_every_role_has_versioned_generation_and_safety_policy(monkeypatch):
     assert all(role.eligible_tasks for role in catalog.roles())
     assert catalog.planner.eligible_tasks == ("propose_editorial_plan",)
     assert all(role.minimum_pass_rate == Decimal("0.95") for role in catalog.roles())
-    assert all(role.pricing_version == "2026-08-23" for role in catalog.roles())
+    assert all(role.pricing_version == "2026-09-02" for role in catalog.roles())
+
+
+def test_gemini_37_uses_provider_reasoning_defaults_without_deprecated_sampling():
+    role = load_role_model_catalog().analyst
+    config = generation_config(role)
+
+    assert role.model_id == "gemini-3.7-flash"
+    assert config.temperature is None
+    assert config.top_p is None
+    assert config.top_k is None
 
 
 def test_strategist_has_enough_time_to_complete_the_strategy_contract():

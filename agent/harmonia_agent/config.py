@@ -84,7 +84,7 @@ class Settings:
         return cls(
             web_internal_url=_require("WEB_INTERNAL_URL").rstrip("/"),
             internal_api_token=_require("INTERNAL_API_TOKEN"),
-            model_id=os.environ.get("MODEL_ID", "gemini-3.5-flash"),
+            model_id=os.environ.get("MODEL_ID", "gemini-3.7-flash"),
             gemini_api_key=gemini_key,
             github_token=os.environ.get("GITHUB_TOKEN"),
             gcp_project=os.environ.get("GOOGLE_CLOUD_PROJECT", "harmonia-local"),

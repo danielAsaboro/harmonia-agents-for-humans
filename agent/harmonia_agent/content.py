@@ -21,7 +21,7 @@ from .usage import InvocationContext, UsageAccumulator, UsageRecord, estimate_re
 from .web_client import report_usage, reserve_budget, resolve_budget_reservation
 from . import youtube
 
-MODEL = "gemini-3.5-flash"
+MODEL = "gemini-3.7-flash"
 IMAGE_MODEL = os.environ.get("IMAGE_MODEL_ID", "gemini-3.5-flash-image")
 # Base64 expands bytes by roughly 4/3. Keep inline media comfortably below
 # generateContent's 20 MiB total-request limit, including the text envelope.

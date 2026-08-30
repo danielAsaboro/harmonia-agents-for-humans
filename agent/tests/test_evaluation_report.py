@@ -108,13 +108,13 @@ def test_loader_verifies_artifact_usage_and_catalog_linkage(tmp_path):
     usage = tmp_path / "usage.json"
     artifact.write_text(json.dumps({
         "runId": "run-1", "role": "nimi_analyst", "modelId": "candidate-model",
-        "policyVersion": "gear-2026-08-24", "pricingVersion": "2026-08-23",
+        "policyVersion": "gear-2026-08-24", "pricingVersion": "2026-09-02",
         "minimumPassRate": "0.95", "usageRecordIds": ["usage-1"],
         "cases": [{"caseId": "grounding", "passed": True, "latencyMs": 250}],
     }, sort_keys=True))
     usage.write_text(json.dumps([{
         "id": "usage-1", "role": "nimi_analyst", "model": "candidate-model",
-        "estimatedCostUsd": "0.012000", "pricingVersion": "2026-08-23",
+        "estimatedCostUsd": "0.012000", "pricingVersion": "2026-09-02",
         "modelPolicy": load_role_model_catalog().analyst.policy_snapshot(),
     }], sort_keys=True))
 

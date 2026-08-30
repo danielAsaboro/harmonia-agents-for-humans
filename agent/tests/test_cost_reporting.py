@@ -230,7 +230,7 @@ def test_transcription_reservation_prices_audio_duration_instead_of_encoded_byte
         usage_reporter=lambda _item: None,
     )
 
-    assert 0.05 < float(reservations[0]["estimatedCostUsd"]) < 0.25
+    assert 0.02 < float(reservations[0]["estimatedCostUsd"]) < 0.10
 
 
 def test_large_transcription_uses_files_api_instead_of_inline_base64(monkeypatch):

@@ -63,7 +63,7 @@ def build_deployment_config(
             key: value for key, value in environment.items()
             if key in _FORWARDED_ENV and value
         } | {
-            # Gemini 3.5 is verified on Vertex's global endpoint. Pin both the
+            # Gemini 3.7 is verified on Vertex's global endpoint. Pin both the
             # provider and location so Agent Engine's regional runtime defaults
             # cannot silently move model traffic or consume Developer API quota.
             "GOOGLE_GENAI_USE_VERTEXAI": "true",

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
-PRICING_VERSION = "2026-08-23"
+PRICING_VERSION = "2026-09-02"
 RATE_SOURCE = "https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing"
 MILLION = Decimal("1000000")
 
@@ -24,6 +24,12 @@ class PricingEntry:
 
 
 CATALOG = {
+    "gemini-3.7-flash": PricingEntry(
+        model="gemini-3.7-flash",
+        input_usd_per_million=Decimal("0.75"),
+        output_usd_per_million=Decimal("3.75"),
+        source="https://ai.google.dev/gemini-api/docs/pricing",
+    ),
     "gemini-3.5-flash": PricingEntry(
         model="gemini-3.5-flash",
         input_usd_per_million=Decimal("1.50"),

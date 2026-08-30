@@ -417,12 +417,12 @@ def test_team_applies_each_roles_generation_and_safety_policy():
     assert not hasattr(root, "generate_content_config")
 
     intent_router = next(agent for agent in root.sub_agents if agent.name == "harmonia_intent_router")
-    assert intent_router.generate_content_config.temperature == 0.1
+    assert intent_router.generate_content_config.temperature is None
     assert intent_router.generate_content_config.max_output_tokens == 4096
     assert len(intent_router.generate_content_config.safety_settings) == 4
 
     analyst = next(agent for agent in root.sub_agents if agent.name == "nimi_analyst")
-    assert analyst.generate_content_config.temperature == 0.2
+    assert analyst.generate_content_config.temperature is None
     assert analyst.generate_content_config.max_output_tokens == 8192
     assert analyst.tools == []
     assert "sourceDigest" not in analyst.output_schema["properties"]
@@ -439,15 +439,15 @@ def test_team_applies_each_roles_generation_and_safety_policy():
 
     strategist = next(agent for agent in root.sub_agents if agent.name == "ryan_strategist")
     assert strategist.generate_content_config.max_output_tokens == 8192
-    assert strategist.generate_content_config.temperature == 0.1
+    assert strategist.generate_content_config.temperature is None
     assert strategist.output_schema is not None
     assert strategist.output_key == "strategist_result"
 
     planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
     copywriter = next(agent for agent in root.sub_agents if agent.name == "noni_copywriter")
-    assert copywriter.generate_content_config.temperature == 0.8
+    assert copywriter.generate_content_config.temperature is None
     assert copywriter.generate_content_config.max_output_tokens == 2048
-    assert planner.generate_content_config.temperature == 0.1
+    assert planner.generate_content_config.temperature is None
     assert planner.generate_content_config.max_output_tokens == 8192
 
 
@@ -543,9 +543,9 @@ def test_agent_reservations_record_exact_model_policy():
     analyst = next(item for item in reservations if item["role"] == "nimi_analyst")
     assert analyst["modelPolicy"] == {
         "policyVersion": "gear-2026-08-24",
-        "pricingVersion": "2026-08-23",
-        "temperature": 0.2,
-        "topP": 0.9,
+        "pricingVersion": "2026-09-02",
+        "temperature": None,
+        "topP": None,
         "topK": None,
         "safetyProfile": "harmonia-standard",
             "maxOutputTokens": 8192,

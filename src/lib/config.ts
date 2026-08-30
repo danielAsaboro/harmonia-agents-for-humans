@@ -10,7 +10,7 @@ const envSchema = z.object({
   INTERNAL_API_TOKEN: z.string().min(1),
   AGENT_SERVICE_URL: z.string().url(),
   GEMINI_API_KEY: z.string().min(1).optional(),
-  MODEL_ID: z.string().default("gemini-3.5-flash"),
+  MODEL_ID: z.string().default("gemini-3.7-flash"),
   MODEL_PRICING_VERSION: z.string().min(1).default("unconfigured"),
   LYRIA_3_CLIP_COST_USD: z.preprocess((value) => value === "" ? undefined : value, z.string().regex(/^\d+\.\d{6}$/).optional()),
   VEO_3_1_COST_PER_SECOND_USD: z.preprocess((value) => value === "" ? undefined : value, z.string().regex(/^\d+\.\d{6}$/).optional()),

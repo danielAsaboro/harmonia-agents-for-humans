@@ -610,5 +610,5 @@ def test_role_models_default_to_gemini_developer_api_even_when_location_is_prese
 
     models = _resolve_role_models()
 
-    assert models.coordinator.model == "gemini-3.5-flash"
+    assert models.coordinator.model == "gemini-3.7-flash"
     assert models.coordinator.client_kwargs == {"vertexai": False}

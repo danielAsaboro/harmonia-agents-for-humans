@@ -70,12 +70,13 @@ class RoleModelConfig(BaseModel):
 
     def policy_snapshot(self) -> dict[str, Any]:
         """Return the exact immutable policy fields recorded with an invocation."""
+        modern_defaults = self.model_id.startswith("gemini-3.7-")
         return {
             "policyVersion": self.policy_version,
             "pricingVersion": self.pricing_version,
-            "temperature": self.generation.temperature,
-            "topP": self.generation.top_p,
-            "topK": self.generation.top_k,
+            "temperature": None if modern_defaults else self.generation.temperature,
+            "topP": None if modern_defaults else self.generation.top_p,
+            "topK": None if modern_defaults else self.generation.top_k,
             "safetyProfile": self.generation.safety_profile,
             "maxOutputTokens": self.max_output_tokens,
             "timeoutSeconds": self.timeout_seconds,
@@ -143,35 +144,35 @@ def _gemini(
 def load_role_model_catalog() -> RoleModelCatalog:
     return RoleModelCatalog(
         coordinator=_gemini(
-            "harmonia_coordinator", "COORDINATOR_MODEL_ID", "gemini-3.5-flash", 1024, 0.1,
+            "harmonia_coordinator", "COORDINATOR_MODEL_ID", "gemini-3.7-flash", 1024, 0.1,
             ("route",),
         ),
         strategist=_gemini(
-            "ryan_strategist", "STRATEGIST_MODEL_ID", "gemini-3.5-flash", 8192, 0.1,
+            "ryan_strategist", "STRATEGIST_MODEL_ID", "gemini-3.7-flash", 8192, 0.1,
             ("strategize",), 300,
         ),
         analyst=_gemini(
-            "nimi_analyst", "ANALYST_MODEL_ID", "gemini-3.5-flash", 8192, 0.2,
+            "nimi_analyst", "ANALYST_MODEL_ID", "gemini-3.7-flash", 8192, 0.2,
             ("analyze_media", "analyze_sources"),
         ),
         copywriter=_gemini(
-            "noni_copywriter", "COPYWRITER_MODEL_ID", "gemini-3.5-flash", 2048, 0.8,
+            "noni_copywriter", "COPYWRITER_MODEL_ID", "gemini-3.7-flash", 2048, 0.8,
             ("draft_or_revise_x",),
         ),
         editor=_gemini(
-            "dara_editor", "EDITOR_MODEL_ID", "gemini-3.5-flash", 2048, 0.2,
+            "dara_editor", "EDITOR_MODEL_ID", "gemini-3.7-flash", 2048, 0.2,
             ("review_drafts",),
         ),
         planner=_gemini(
-            "temi_editorial_planner", "PLANNER_MODEL_ID", "gemini-3.5-flash-lite", 8192, 0.1,
+            "temi_editorial_planner", "PLANNER_MODEL_ID", "gemini-3.7-flash", 8192, 0.1,
             ("propose_editorial_plan",),
         ),
         presenter=_gemini(
-            "maya_presenter", "PRESENTER_MODEL_ID", "gemini-3.5-flash", 2048, 0.2,
+            "maya_presenter", "PRESENTER_MODEL_ID", "gemini-3.7-flash", 2048, 0.2,
             ("compose_surface",),
         ),
         liaison=_gemini(
-            "nova_liaison", "LIAISON_MODEL_ID", "gemini-3.5-flash", 2048, 0.2,
+            "nova_liaison", "LIAISON_MODEL_ID", "gemini-3.7-flash", 2048, 0.2,
             ("answer_status", "answer_insights"),
         ),
     )

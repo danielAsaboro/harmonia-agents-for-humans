@@ -12,7 +12,7 @@ from harmonia_agent.model_catalog import (
 
 
 def test_flash_cost_uses_decimal_rates():
-    assert PRICING_VERSION == "2026-08-23"
+    assert PRICING_VERSION == "2026-09-02"
     entry = lookup_pricing("gemini-3.5-flash")
     assert entry.input_usd_per_million == Decimal("1.50")
     assert entry.output_usd_per_million == Decimal("9.00")
@@ -24,6 +24,13 @@ def test_gemini_36_flash_introductory_price_is_budget_authorized():
     assert entry.input_usd_per_million == Decimal("0.75")
     assert entry.output_usd_per_million == Decimal("3.75")
     assert estimate_text_cost("gemini-3.6-flash", 100_000, 10_000) == Decimal("0.112500")
+
+
+def test_gemini_37_flash_introductory_price_is_budget_authorized():
+    entry = lookup_pricing("gemini-3.7-flash")
+    assert entry.input_usd_per_million == Decimal("0.75")
+    assert entry.output_usd_per_million == Decimal("3.75")
+    assert estimate_text_cost("gemini-3.7-flash", 100_000, 10_000) == Decimal("0.112500")
 
 
 def test_unknown_model_price_is_not_treated_as_free():

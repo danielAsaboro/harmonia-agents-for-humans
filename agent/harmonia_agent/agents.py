@@ -404,7 +404,7 @@ def _model(model: str | BaseLlm | None = None) -> str | BaseLlm:
     configured = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if configured:
         os.environ.setdefault("GOOGLE_API_KEY", configured)
-    return model or os.environ.get("MODEL_ID", "gemini-3.5-flash")
+    return model or os.environ.get("MODEL_ID", "gemini-3.7-flash")
 
 
 def _instance_model_id(model: str | BaseLlm) -> str:

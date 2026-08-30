@@ -16,8 +16,8 @@ This page documents supported operator-facing configuration. It deliberately exc
 | `FIRESTORE_EMULATOR_HOST` | local dev | — | e.g. `127.0.0.1:8081`; unset = real Firestore |
 | `GOOGLE_CLOUD_PROJECT` | cloud | `harmonia-local` | Project id |
 | `GCS_BUCKET` | production media | local `.data/artifacts` | Cloud Storage bucket for generated assets and direct resumable chat uploads; configure bucket CORS for the web origin |
-| `MALWARE_SCANNER_URL` | production uploads | — | Private malware-scanner endpoint; upload completion stays fail-closed when absent |
-| `MALWARE_SCANNER_TOKEN` | production uploads | — | Scanner bearer credential mounted from Secret Manager; never exposed to clients |
+| `MALWARE_SCANNER_URL` | production uploads | deployed automatically | IAM-private Harmonia ClamAV endpoint; upload completion stays fail-closed when absent |
+| `MALWARE_SCANNER_TOKEN` | production setup override | generated automatically | Secondary scanner credential mounted from Secret Manager; never exposed to clients |
 | `YOUTUBE_API_KEY` | recommended | — | Data API metadata during YouTube source extraction (ffprobe duration fallback otherwise) |
 | `GOOGLE_CLIENT_ID` | Google Calendar or YouTube OAuth | — | Server-side OAuth web-client ID; Calendar requests only `calendar.app.created` |
 | `GOOGLE_CLIENT_SECRET` | Google Calendar or YouTube OAuth | — | Server-side OAuth web-client secret; never exposed to the browser |

@@ -108,7 +108,7 @@ for topic in harmonia-stages harmonia-stages-dlq harmonia-production harmonia-pr
 done
 
 echo "-- Service accounts"
-for sa in harmonia-web harmonia-agent harmonia-pubsub-push harmonia-scheduler; do
+for sa in harmonia-web harmonia-agent harmonia-pubsub-push harmonia-scheduler harmonia-malware-scanner; do
   gcloud iam service-accounts create "$sa" --project "${PROJECT_ID}" \
     --display-name "Harmonia ${sa}" 2>/dev/null || echo "sa $sa exists"
 done
@@ -226,11 +226,11 @@ if [[ -n "${X_CLIENT_ID:-}" || -n "${X_CLIENT_SECRET:-}" ]]; then
 else
   echo "  X OAuth credentials not provided; X connection and publishing will remain unavailable."
 fi
-if [[ -n "${MALWARE_SCANNER_TOKEN:-}" ]]; then
-  printf '%s' "${MALWARE_SCANNER_TOKEN}" | gcloud secrets create malware-scanner-token --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
-    || printf '%s' "${MALWARE_SCANNER_TOKEN}" | gcloud secrets versions add malware-scanner-token --data-file=- --project "${PROJECT_ID}"
-else
-  echo "  MALWARE_SCANNER_TOKEN not provided; production deployment will refuse upload enablement."
+if ! gcloud secrets describe malware-scanner-token --project "${PROJECT_ID}" >/dev/null 2>&1; then
+  SCANNER_TOKEN="${MALWARE_SCANNER_TOKEN:-$(openssl rand -hex 32)}"
+  printf '%s' "${SCANNER_TOKEN}" | gcloud secrets create malware-scanner-token --data-file=- --project "${PROJECT_ID}"
+elif [[ -n "${MALWARE_SCANNER_TOKEN:-}" ]]; then
+  printf '%s' "${MALWARE_SCANNER_TOKEN}" | gcloud secrets versions add malware-scanner-token --data-file=- --project "${PROJECT_ID}"
 fi
 INTERNAL_TOKEN="$(openssl rand -hex 32)"
 printf '%s' "${INTERNAL_TOKEN}" | gcloud secrets create internal-api-token --data-file=- --project "${PROJECT_ID}" 2>/dev/null \
@@ -253,6 +253,9 @@ done
 gcloud secrets add-iam-policy-binding malware-scanner-token \
   --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true
+gcloud secrets add-iam-policy-binding malware-scanner-token \
+  --member "serviceAccount:harmonia-malware-scanner@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null
 gcloud secrets add-iam-policy-binding youtube-api-key \
   --member "serviceAccount:harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role roles/secretmanager.secretAccessor --project "${PROJECT_ID}" >/dev/null 2>&1 || true

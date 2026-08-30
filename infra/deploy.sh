@@ -112,6 +112,34 @@ resolve_built_image_digest() {
   printf '%s' "${digest}"
 }
 
+if ! secret_exists malware-scanner-token; then
+  echo "required upload scanner secret 'malware-scanner-token' not found; run infra/setup.sh" >&2
+  exit 2
+fi
+
+echo "== Deploying authenticated ClamAV scanner =="
+SCANNER_IMAGE_TAG="${IMAGE_REPOSITORY}/harmonia-malware-scanner:${SOURCE_COMMIT}"
+gcloud builds submit . \
+  --config cloudbuild.scanner.yaml \
+  --substitutions "_IMAGE=${SCANNER_IMAGE_TAG}" \
+  --project "${PROJECT_ID}"
+SCANNER_IMAGE_DIGEST="$(resolve_built_image_digest "${SCANNER_IMAGE_TAG}")"
+gcloud run deploy harmonia-malware-scanner \
+  --image "${SCANNER_IMAGE_TAG}@${SCANNER_IMAGE_DIGEST}" \
+  --region "${REGION}" \
+  --service-account "harmonia-malware-scanner@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --no-allow-unauthenticated \
+  --min-instances 0 --max-instances 2 \
+  --memory 1Gi --cpu 1 --timeout 60 \
+  --set-secrets "MALWARE_SCANNER_TOKEN=malware-scanner-token:latest" \
+  --project "${PROJECT_ID}"
+record_release_identity harmonia-malware-scanner
+SCANNER_URL="$(gcloud run services describe harmonia-malware-scanner --region "${REGION}" --project "${PROJECT_ID}" --format 'value(status.url)')"
+gcloud run services add-iam-policy-binding harmonia-malware-scanner \
+  --region "${REGION}" --project "${PROJECT_ID}" \
+  --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role roles/run.invoker
+
 WEB_SECRETS="INTERNAL_API_TOKEN=internal-api-token:latest"
 if secret_exists gemini-api-key; then
   WEB_SECRETS="${WEB_SECRETS},GEMINI_API_KEY=gemini-api-key:latest"
@@ -139,13 +167,8 @@ if secret_exists x-oauth-client-id || secret_exists x-oauth-client-secret; then
     WEB_SECRETS="${WEB_SECRETS},${env_name}=${secret_name}:latest"
   done
 fi
-WEB_ENV="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GCS_BUCKET=${GCS_BUCKET},PUBSUB_DATA_TOPIC=harmonia-data-work,PUBSUB_PRODUCTION_TOPIC=harmonia-production,MODEL_ID=${MODEL_ID},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},LYRIA_3_CLIP_COST_USD=${LYRIA_3_CLIP_COST_USD},VEO_3_1_COST_PER_SECOND_USD=${VEO_3_1_COST_PER_SECOND_USD},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},DEFAULT_WORKSPACE_BUDGET_USD=${DEFAULT_WORKSPACE_BUDGET_USD},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-web,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false"
-if [[ -n "${MALWARE_SCANNER_URL:-}" ]] && secret_exists malware-scanner-token; then
-  WEB_SECRETS="${WEB_SECRETS},MALWARE_SCANNER_TOKEN=malware-scanner-token:latest"
-  WEB_ENV="${WEB_ENV},MALWARE_SCANNER_URL=${MALWARE_SCANNER_URL}"
-else
-  echo "  malware scanner not configured; upload completion remains fail-closed"
-fi
+WEB_ENV="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GCS_BUCKET=${GCS_BUCKET},PUBSUB_DATA_TOPIC=harmonia-data-work,PUBSUB_PRODUCTION_TOPIC=harmonia-production,MODEL_ID=${MODEL_ID},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},LYRIA_3_CLIP_COST_USD=${LYRIA_3_CLIP_COST_USD},VEO_3_1_COST_PER_SECOND_USD=${VEO_3_1_COST_PER_SECOND_USD},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},DEFAULT_WORKSPACE_BUDGET_USD=${DEFAULT_WORKSPACE_BUDGET_USD},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-web,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false,MALWARE_SCANNER_URL=${SCANNER_URL}/scan"
+WEB_SECRETS="${WEB_SECRETS},MALWARE_SCANNER_TOKEN=malware-scanner-token:latest"
 
 echo "== Deploying harmonia-web (Next.js) =="
 WEB_IMAGE_TAG="${IMAGE_REPOSITORY}/harmonia-web:${SOURCE_COMMIT}"

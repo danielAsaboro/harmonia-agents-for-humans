@@ -25,6 +25,7 @@ const EXECUTABLE_COLLECTIONS = new Set([
   "recovery_work",
   "scheduled_effects",
   "scheduler_outbox",
+  "stage_executions",
   "stage_outbox",
 ]);
 

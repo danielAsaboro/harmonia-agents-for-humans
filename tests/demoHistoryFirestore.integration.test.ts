@@ -31,6 +31,11 @@ describe.skipIf(!emulator)("demo history Firestore copy", () => {
       jobId: "j1",
       createdAt: "2026-08-30T01:00:00.000Z",
     });
+    await db().doc(`workspaces/${workspaceId}/jobs/j1/stage_executions/e1`).set({
+      jobId: "j1",
+      state: "claimed",
+      leaseExpiresAt: "2026-08-30T01:30:00.000Z",
+    });
     await db().doc(`workspaces/${workspaceId}/brands/${brandId}/production_plans/p1`).set({
       id: "p1",
       jobId: "j1",
@@ -88,7 +93,8 @@ describe.skipIf(!emulator)("demo history Firestore copy", () => {
       .where("demoProvenance.datasetId", "==", datasetId).get()).size).toBe(1);
     expect((await db().collection(`workspaces/${workspaceId}/brands/${brandId}/production_operation_outbox`)
       .where("demoProvenance.datasetId", "==", datasetId).get()).empty).toBe(true);
-    expect((await db().collection(`${manifestPath}/records`).where("quarantined", "==", true).get()).size).toBe(2);
+    expect((await db().collection(`${manifestPath}/records`).where("quarantined", "==", true).get()).size).toBe(3);
+    expect((await demoJobs.docs[0].ref.collection("stage_executions").get()).empty).toBe(true);
     expect((await db().doc(`workspaces/${workspaceId}/jobs/j1`).get()).data()).toEqual(sourceBefore);
     expect(manifest.minimumDemoTimestamp).toBe("2026-08-27T00:00:00.000Z");
 

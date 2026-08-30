@@ -64,6 +64,13 @@ def test_accepts_complete_typed_input_and_analysis():
     assert SourceAnalysis.model_validate(source_analysis()).angles[0].evidenceRefs == ["moment-1", "segment-1"]
 
 
+def test_source_angle_accepts_complete_host_bound_source_package():
+    value = source_analysis()
+    value["angles"][0]["evidenceRefs"] = [f"segment-{index}" for index in range(1, 19)]
+
+    assert len(SourceAnalysis.model_validate(value).angles[0].evidenceRefs) == 18
+
+
 @pytest.mark.parametrize("field", ["sourceIds", "sourceKind", "sourceDigest", "title", "sourceSegments", "performanceObservations", "memoryFacts"])
 def test_input_requires_every_typed_field(field):
     value = analyst_input()

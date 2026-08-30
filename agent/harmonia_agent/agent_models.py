@@ -280,7 +280,9 @@ class Angle(StrictModel):
     evidenceKind: Literal["source", "public_context", "private_context", "performance", "memory"]
     title: StrictStr = Field(min_length=1, max_length=300)
     rationale: StrictStr = Field(min_length=1, max_length=1_000)
-    evidenceRefs: list[StrictIdentifier] = Field(min_length=1, max_length=12)
+    # The coordinator binds source angles to the complete authoritative source
+    # package (up to 500 normalized segments plus bounded moment records).
+    evidenceRefs: list[StrictIdentifier] = Field(min_length=1, max_length=512)
     assumptions: list[StrictAssumptionText] = Field(max_length=8)
     confidence: Literal["low", "medium", "high"]
 

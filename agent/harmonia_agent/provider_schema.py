@@ -7,18 +7,19 @@ from typing import Any
 from pydantic import BaseModel
 
 
-def _without_vertex_unsupported_cardinality(value: Any) -> Any:
+def _adapt_vertex_schema(value: Any) -> Any:
     if isinstance(value, dict):
-        return {
-            key: _without_vertex_unsupported_cardinality(item)
+        adapted = {
+            ("anyOf" if key == "oneOf" else key): _adapt_vertex_schema(item)
             for key, item in value.items()
-            if key not in {"minItems", "maxItems"}
+            if key not in {"minItems", "maxItems", "discriminator"}
         }
+        return adapted
     if isinstance(value, list):
-        return [_without_vertex_unsupported_cardinality(item) for item in value]
+        return [_adapt_vertex_schema(item) for item in value]
     return value
 
 
 def vertex_output_schema(model: type[BaseModel]) -> dict[str, Any]:
     """Adapt a strict model schema to Vertex; local validation stays complete."""
-    return _without_vertex_unsupported_cardinality(model.model_json_schema())
+    return _adapt_vertex_schema(model.model_json_schema())

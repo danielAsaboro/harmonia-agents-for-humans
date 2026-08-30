@@ -1,6 +1,7 @@
 """Provider-facing structured-output schema compatibility."""
 
 from harmonia_agent.agent_models import SourceAnalysis
+from harmonia_agent.content_artifacts import ProductionBatch
 from harmonia_agent.provider_schema import vertex_output_schema
 
 
@@ -14,3 +15,11 @@ def test_vertex_output_schema_removes_only_unsupported_array_cardinality():
     assert schema["properties"]["summary"]["maxLength"] == 2000
     assert schema["additionalProperties"] is False
 
+
+def test_vertex_output_schema_converts_discriminated_unions_for_vertex():
+    schema = vertex_output_schema(ProductionBatch)
+    payload = schema["$defs"]["ContentArtifactDraft"]["properties"]["payload"]
+
+    assert "discriminator" not in payload
+    assert "oneOf" not in payload
+    assert len(payload["anyOf"]) == 11

@@ -345,6 +345,8 @@ def _role_task(role: str, specialist: str, payload: BaseModel) -> str:
     return {
         "noni_copywriter": "draft_or_revise_x",
         "dara_editor": "review_drafts",
+        "noni_artifact_producer": "produce_artifacts",
+        "dara_artifact_editor": "review_artifacts",
         "temi_editorial_planner": "propose_editorial_plan",
         "maya_presenter": "compose_surface",
         "nova_liaison": "answer_status",

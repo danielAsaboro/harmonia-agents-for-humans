@@ -33,6 +33,7 @@ from harmonia_agent.agents import (
     _enforce_requested_specialist_transfer,
     _reservation_payloads,
     _resolve_role_models,
+    _role_task,
     _run_coordinator,
     _validate_run_output,
     _validate_strategy_result,
@@ -49,6 +50,11 @@ from harmonia_agent.tenant_context import tenant_scope
 from harmonia_agent.generation_policy import safety_settings
 from harmonia_agent.provider_schema import vertex_output_schema
 from harmonia_agent.usage import InvocationContext
+
+
+def test_artifact_specialists_have_budget_eligibility_tasks():
+    assert _role_task("noni_artifact_producer", "noni_artifact_producer", _planner_input()) == "produce_artifacts"
+    assert _role_task("dara_artifact_editor", "dara_artifact_editor", _planner_input()) == "review_artifacts"
 
 
 def _temi_plan():

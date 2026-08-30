@@ -134,6 +134,7 @@ describe("Google Cloud deployment automation", () => {
     const log = fake.log();
     expect(log).toContain("builds submit . --config cloudbuild.scanner.yaml");
     expect(log).toContain("run deploy harmonia-malware-scanner");
+    expect(log).toContain("--memory 2Gi");
     expect(log).toContain("MALWARE_SCANNER_TOKEN=malware-scanner-token:latest");
     expect(log).toContain("MALWARE_SCANNER_URL=https://malware-scanner.example.run.app/scan");
   });

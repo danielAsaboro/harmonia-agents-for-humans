@@ -130,7 +130,7 @@ gcloud run deploy harmonia-malware-scanner \
   --service-account "harmonia-malware-scanner@${PROJECT_ID}.iam.gserviceaccount.com" \
   --no-allow-unauthenticated \
   --min-instances 0 --max-instances 2 \
-  --memory 1Gi --cpu 1 --timeout 60 \
+  --memory 2Gi --cpu 1 --timeout 60 \
   --set-secrets "MALWARE_SCANNER_TOKEN=malware-scanner-token:latest" \
   --project "${PROJECT_ID}"
 record_release_identity harmonia-malware-scanner

@@ -138,6 +138,10 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
       target: { ...basePlan.target, durationSec: 4 },
       scenes: [{
         ...sourceScene,
+        sourceWindow: { startSec: 0, durationSec: 4 },
+        sourceSegmentRefs: ["segment-source-1"],
+        preserveSourceAudio: true,
+        reframe: { xPercent: 50, yPercent: 50, scale: 1 },
         sourceArtifact: {
           artifactId: source.id,
           digest: source.sha256,

@@ -18,8 +18,12 @@ def test_vertex_output_schema_removes_only_unsupported_array_cardinality():
 
 def test_vertex_output_schema_converts_discriminated_unions_for_vertex():
     schema = vertex_output_schema(ProductionBatch)
-    payload = schema["$defs"]["ContentArtifactDraft"]["properties"]["payload"]
+    payload = schema["properties"]["artifacts"]["items"]["properties"]["payload"]
 
     assert "discriminator" not in payload
     assert "oneOf" not in payload
     assert len(payload["anyOf"]) == 11
+    assert "$defs" not in schema
+    assert "$ref" not in str(schema)
+    Schema.model_validate(schema)
+from google.genai.types import Schema

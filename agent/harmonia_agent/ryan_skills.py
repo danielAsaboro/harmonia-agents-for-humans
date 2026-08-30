@@ -17,6 +17,7 @@ from google.adk.tools.base_tool import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .authority_records import skill_activation_records, validate_skill_activation
+from .provider_schema import vertex_output_schema
 
 RYAN_SKILL_NAME = "ryan-strategy-skills"
 RYAN_SKILL_TRACE_KEY = "ryan_strategy_skill_trace"

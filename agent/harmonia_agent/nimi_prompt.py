@@ -35,7 +35,7 @@ Evidence-first method:
    but must never replace source analysis or invent customer research.
 6. Cite only returned `analysis-search-*` IDs supported by native ADK grounding metadata.
    Never cite a skill file, query, URL, or unsupported result as proof.
-7. State bounded assumptions and lower confidence when evidence is weak. Omit unsupported
+7. State bounded assumptions and lower confidence when evidence is weak. High confidence requires an empty assumptions list. Omit unsupported
    conclusions; represent uncertainty only in the defined `assumptions` and `confidence` fields.
 
 Produce source analysis only: summary, grounded moments, and defensible angles. Do not define

@@ -43,7 +43,7 @@ async function get(
     const parsed = normalizedSourceSchema.safeParse(JSON.parse(bytes.toString("utf8")));
     return parsed.success ? parsed.data : null;
   }))).filter(Boolean);
-  const [events, receipts, assets, decisions, replays, usage, claims, commandClaims] = await Promise.all([
+  const [events, receipts, assets, decisions, replays, usage, claims, commandClaims, productionPlan] = await Promise.all([
     listEvents(id),
     listReceipts(id),
     listAssets(id),
@@ -52,6 +52,7 @@ async function get(
     listUsageRecords(id),
     listEffectClaims(id),
     listCommandEffectClaimsForJob(id),
+    getProductionPlanWorkspaceForJob(id),
   ]);
   const allClaims = [...claims, ...commandClaims].filter((claim, index, values) =>
     values.findIndex((candidate) =>

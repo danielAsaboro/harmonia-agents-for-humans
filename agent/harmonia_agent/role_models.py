@@ -134,10 +134,9 @@ def _gemini(
         provider="gemini",
         model_id=os.environ.get(env_name, default),
         max_output_tokens=max_output_tokens,
-        timeout_seconds=int(os.environ.get(timeout_env, "120")),
+        timeout_seconds=int(os.environ.get(timeout_env, str(timeout_seconds))),
         generation=_policy(temperature),
         eligible_tasks=eligible_tasks,
-        timeout_seconds=timeout_seconds,
     )
 
 
@@ -148,8 +147,8 @@ def load_role_model_catalog() -> RoleModelCatalog:
             ("route",),
         ),
         strategist=_gemini(
-            "ryan_strategist", "STRATEGIST_MODEL_ID", "gemini-3.5-flash", 8192, 0.4,
-            ("strategize",),
+            "ryan_strategist", "STRATEGIST_MODEL_ID", "gemini-3.5-flash", 8192, 0.1,
+            ("strategize",), 300,
         ),
         analyst=_gemini(
             "nimi_analyst", "ANALYST_MODEL_ID", "gemini-3.5-flash", 8192, 0.2,

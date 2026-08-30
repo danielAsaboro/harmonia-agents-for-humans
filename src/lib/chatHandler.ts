@@ -330,7 +330,7 @@ export async function handleChat(req: Request, options: { chatRunId?: string } =
   let payload: ChatResponse;
   let status = 200;
   try {
-    const result = await buildResponse(req, message, surface, conversationId, context, attachments);
+    const result = await buildResponse(req, message, surface, conversationId, context, attachments, requestId);
     if ("__http" in result) return result.__http; // e.g. operator forbidden
     payload = result.payload;
     status = result.status ?? 200;
@@ -390,7 +390,7 @@ function connectionGuidance(platforms: string[] | undefined): string {
   return ` ${labels.join(" and ")} ${labels.length === 1 ? "is" : "are"} a good fit but not connected yet. Connect ${labels.length === 1 ? "it" : "them"} in Settings before publishing; Harmonia can still prepare the strategy and drafts now.`;
 }
 
-async function buildResponse(req: Request, message: string, surface: "dashboard" | "telegram", conversationId: string, context?: { kind: "job" | "content_item" | "proposal"; id: string }, attachments: ChatAttachment[] = []): Promise<HandlerResult> {
+async function buildResponse(req: Request, message: string, surface: "dashboard" | "telegram", conversationId: string, context?: { kind: "job" | "content_item" | "proposal"; id: string }, attachments: ChatAttachment[] = [], requestId?: string): Promise<HandlerResult> {
 
   // Grounded Q&A about a specific record ("chat with any item").
   if (context && isValidContext(context)) {

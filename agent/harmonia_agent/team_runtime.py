@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import traceback
@@ -343,6 +344,10 @@ class AgentEngineTeamRuntime:
                         _invoke_sync_remote, remote, user_id=user_id,
                         session_id=session_id, seeded_state=seeded_state, prompt=prompt,
                     ))
+                    if not state:
+                        raise AgentEngineProtocolError("Agent Engine returned no state delta")
+                    span.set_attribute("state.key_count", len(state))
+                    return state
                 else:
                     try:
                         session = await remote.async_get_session(
@@ -351,8 +356,20 @@ class AgentEngineTeamRuntime:
                     except Exception as exc:  # provider SDK wraps this in multiple exception types
                         if not _is_missing_session_error(exc):
                             raise
-                if _session_id(session) != session_id:
-                    raise AgentEngineProtocolError("Agent Engine returned the wrong managed session")
+                        session = None
+                    if session is None:
+                        try:
+                            session = await remote.async_create_session(
+                                user_id=user_id, session_id=session_id, state=seeded_state,
+                            )
+                        except Exception:  # a concurrent creator may have won
+                            session = await remote.async_get_session(
+                                user_id=user_id, session_id=session_id,
+                            )
+                            if session is None:
+                                raise
+                    if _session_id(session) != session_id:
+                        raise AgentEngineProtocolError("Agent Engine returned the wrong managed session")
                 prompt = (
                     f"Delegate this request to {specialist} exactly once. "
                     "Use the typed payload already present in managed session state."
@@ -376,15 +393,26 @@ class AgentEngineTeamRuntime:
                         " Read _harmonia_output_contract and require the specialist's payloadJson "
                         "to follow that exact host-authorized schema."
                     )
-                events: AsyncIterator[Any] = remote.async_stream_query(
-                    user_id=user_id,
-                    session_id=session_id,
-                    message=prompt,
-                )
-                async for event in events:
-                    state.update(_state_delta(event))
-                    if metadata := _grounding_metadata(event):
-                        state["_adk_grounding_metadata"] = metadata
+                try:
+                    events: AsyncIterator[Any] = remote.async_stream_query(
+                        user_id=user_id,
+                        session_id=session_id,
+                        message=prompt,
+                    )
+                    async for event in events:
+                        state.update(_state_delta(event))
+                        if metadata := _grounding_metadata(event):
+                            state["_adk_grounding_metadata"] = metadata
+                except Exception:
+                    recovered = _persisted_delta(
+                        await remote.async_get_session(
+                            user_id=user_id, session_id=session_id,
+                        ),
+                        seeded_state,
+                    )
+                    if not recovered:
+                        raise
+                    state.update(recovered)
             except AgentEngineProtocolError:
                 raise
             except Exception as exc:  # noqa: BLE001 - normalized at provider boundary

@@ -97,9 +97,10 @@ _ACTIVE_STAGE_OPERATION_ID: ContextVar[str | None] = ContextVar(
 def _invocation_operation_id(legacy_operation_id: str, active_suffix: str | None = None) -> str:
     """Bind model accounting to the durable stage generation when dispatched."""
     active = _ACTIVE_STAGE_OPERATION_ID.get()
-    if active is None:
-        return legacy_operation_id
-    return f"{active}:{active_suffix}" if active_suffix else active
+    if active is not None:
+        return f"{active}:{active_suffix}" if active_suffix else active
+    fence = current_operation()
+    return fence.operation_id if fence is not None else legacy_operation_id
 
 
 class ClipRenderError(RuntimeError):

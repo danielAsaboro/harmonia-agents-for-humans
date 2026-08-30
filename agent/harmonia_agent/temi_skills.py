@@ -247,3 +247,7 @@ def validate_temi_trace(
         raise ValueError("Temi must load at least one planning reference")
     if len(resources) != len(set(resources)):
         raise ValueError("Temi loaded a duplicate planning reference")
+    if reads == 0:
+        raise ValueError(
+            "Temi must read a planning snapshot section with a request-bound planning snapshot read tool"
+        )

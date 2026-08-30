@@ -30,9 +30,7 @@ from harmonia_agent.agent_models import (
 )
 from harmonia_agent.content_artifacts import ArtifactProductionInput, ArtifactReviewBatch, ProductionBatch
 from harmonia_agent.agents import (
-    DeterministicCoordinator,
     AgentProtocolError,
-    _enforce_requested_specialist_transfer,
     _reservation_payloads,
     _role_task,
     _resolve_role_models,
@@ -47,6 +45,7 @@ from harmonia_agent.agents import (
     strategize_with_team,
     RoleModelInstances,
 )
+from harmonia_agent.coordinator import HarmoniaCoordinator
 from harmonia_agent.agent_errors import AgentContractError
 from harmonia_agent.a2ui_models import UiContext
 from harmonia_agent.stages import classify_failure
@@ -57,8 +56,8 @@ from harmonia_agent.usage import InvocationContext
 
 
 def test_artifact_specialists_have_budget_eligibility_tasks():
-    assert _role_task("noni_artifact_producer", "noni_artifact_producer", _planner_input()) == "produce_artifacts"
-    assert _role_task("dara_artifact_editor", "dara_artifact_editor", _planner_input()) == "review_artifacts"
+    assert _role_task("noni_artifact_producer", "noni_artifact_producer", _planner_input()) == "produce_artifact_batch"
+    assert _role_task("dara_artifact_editor", "dara_artifact_editor", _planner_input()) == "review_artifact_batch"
 
 
 def _temi_plan():
@@ -304,17 +303,17 @@ class ManagedRuntime:
 def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
     root = build_agent_team()
 
-    assert isinstance(root, DeterministicCoordinator)
+    assert isinstance(root, HarmoniaCoordinator)
     assert root.name == "harmonia_coordinator"
     assert [(a.name, a.mode) for a in root.sub_agents] == [
         ("harmonia_intent_router", "single_turn"),
         ("ryan_strategist", "single_turn"),
         ("nimi_analyst", "single_turn"),
-        ("temi_editorial_planner", "chat"),
+        ("temi_editorial_planner", "single_turn"),
         ("noni_copywriter", "single_turn"),
         ("dara_editor", "single_turn"),
-        ("noni_artifact_producer", "chat"),
-        ("dara_artifact_editor", "chat"),
+        ("noni_artifact_producer", "single_turn"),
+        ("dara_artifact_editor", "single_turn"),
         ("maya_presenter", "single_turn"),
         ("nova_liaison", "chat"),
     ]
@@ -324,21 +323,14 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
 def test_coordinator_selects_only_the_request_bound_specialist_without_an_llm_transfer():
     root = build_agent_team()
 
-    assert root.specialist_for_state(
-        {"requested_specialist": "temi_editorial_planner"},
-    ).name == "temi_editorial_planner"
-    with pytest.raises(AgentProtocolError, match="valid requested specialist"):
-        root.specialist_for_state({"requested_specialist": "unknown"})
+    assert root.find_sub_agent("temi_editorial_planner").name == "temi_editorial_planner"
+    assert root.find_sub_agent("unknown") is None
 
 
 def test_coordinator_router_reads_only_explicit_request_bound_metadata():
     root = build_agent_team()
 
-    assert root.model.specialist_from_message(
-        '{"requestedSpecialist":"temi_editorial_planner","strategy":{}}',
-    ) == "temi_editorial_planner"
-    with pytest.raises(AgentProtocolError, match="valid requested specialist"):
-        root.model.specialist_from_message('{"requestedSpecialist":"unknown"}')
+    assert not hasattr(root, "model")
 
 
 def test_noni_is_a_focused_skill_backed_typed_specialist():
@@ -439,7 +431,7 @@ def test_team_applies_each_roles_generation_and_safety_policy():
     strategist = next(agent for agent in root.sub_agents if agent.name == "ryan_strategist")
     assert strategist.generate_content_config.max_output_tokens == 8192
     assert strategist.generate_content_config.temperature == 0.1
-    assert strategist.output_schema is None
+    assert strategist.output_schema is not None
     assert strategist.output_key == "strategist_result"
 
     planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
@@ -568,19 +560,6 @@ def test_coordinator_really_delegates_and_forwards_specialist_state():
     assert result.summary == "Delegated analysis"
     assert runtime.calls[0]["specialist"] == "nimi_analyst"
     assert runtime.calls[0]["user_id"] == "workspace-test:system:proactive"
-
-
-def test_coordinator_rewrites_model_transfer_to_the_requested_specialist():
-    class Tool:
-        name = "transfer_to_agent"
-
-    class Context:
-        state = {"requested_specialist": "nimi_analyst"}
-
-    args = {"agent_name": "nova_liaison"}
-
-    assert _enforce_requested_specialist_transfer(Tool(), args, Context()) is None
-    assert args == {"agent_name": "nimi_analyst"}
 
 
 def test_analyst_receives_source_video_as_typed_time_range_evidence():

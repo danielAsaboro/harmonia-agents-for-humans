@@ -23,6 +23,7 @@ from harmonia_agent.team_runtime import (
 from harmonia_agent.agent_models import SourceAnalysis
 from harmonia_agent.agent_engine_app import build_agent_engine_app
 from harmonia_agent.agent_engine_deploy import build_deployment_config
+from harmonia_agent.agents import _resolve_role_models
 from harmonia_agent.coordinator import HarmoniaCoordinator
 
 
@@ -212,9 +213,7 @@ def test_agent_engine_runtime_seeds_a_deterministic_persistent_session_and_colle
     }]
     assert remote.created[0]["session_id"].startswith("harmonia-")
     assert remote.queries[0]["session_id"] == remote.created[0]["session_id"]
-    assert json.loads(remote.queries[0]["message"]) == {
-        "title": "Demo", "transcript": "proof", "requestedSpecialist": "nimi_analyst",
-    }
+    assert "Delegate this request to nimi_analyst exactly once" in remote.queries[0]["message"]
     assert "specialist_payload" not in remote.queries[0]["message"]
     assert remote.deleted == []
 
@@ -464,8 +463,8 @@ def test_runtime_explicitly_directs_agents_to_the_pinned_projection_when_present
         session_key="op-1:projection-a",
     ))
     assert "# AUTHORITY" not in remote.queries[0]["message"]
-    assert "_durable_context_projection" not in remote.queries[0]["message"]
-    assert "Read _durable_context_projection" not in remote.queries[0]["message"]
+    assert "_durable_context_projection" in remote.queries[0]["message"]
+    assert "Read _durable_context_projection" in remote.queries[0]["message"]
 
 
 def test_runtime_preserves_native_google_search_grounding_metadata():

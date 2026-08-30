@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import web_client
 from .authority_records import skill_activation_records, validate_skill_activation
+from .provider_schema import vertex_output_schema
 from .tool_contracts import ToolContract, error, evidence, provider_error, success, validate_tool_envelope
 
 NONI_SKILL_NAME = "noni-writing-skills"

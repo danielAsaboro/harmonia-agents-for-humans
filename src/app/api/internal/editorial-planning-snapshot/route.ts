@@ -1,7 +1,8 @@
 import { getOrCreateEditorialPlanningSnapshot } from "@/lib/firestore";
 import { isInternalAuthorized, unauthorized, withInternalTenant } from "@/lib/internalAuth";
 
-async function get(req: Request) {
+export async function GET(req: Request) {
+  if (!isInternalAuthorized(req)) return unauthorized();
   const jobId = new URL(req.url).searchParams.get("jobId");
   if (!jobId) return Response.json({ error: "jobId is required" }, { status: 400 });
   return withInternalTenant(req, async () => {
@@ -12,5 +13,3 @@ async function get(req: Request) {
     }
   });
 }
-
-export const GET = internalTenantHandler(get);

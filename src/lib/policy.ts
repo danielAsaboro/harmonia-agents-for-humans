@@ -68,8 +68,8 @@ export function evaluateActionPolicy(
     case "render_reel":
       return {
         risk: "low",
-        requiresApproval: false,
-        reason: "renders an internal video clip locally with ffmpeg; nothing is published",
+        requiresApproval: true,
+        reason: "renders the reviewed video selection with ffmpeg after approval; nothing is published",
       };
   }
 }

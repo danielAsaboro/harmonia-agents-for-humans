@@ -85,6 +85,7 @@ from .web_client import (
     patch as web_patch,
     report_usage,
     transition_effect_command,
+    web_post_raw_asset,
 )
 
 logger = logging.getLogger("harmonia.stages")
@@ -225,24 +226,6 @@ def _segments_in_window(job_id: str, start: float, end: float) -> list[dict[str,
                 result.append({"id": f"{source['sourceId']}:{segment['id']}", "startSec": start_sec, "endSec": end_sec, "text": segment["text"]})
     return result
 
-
-def web_post_raw_asset(job_id: str, action_id: str, mime: str, digest: str, data: bytes) -> None:
-    """Uploads binary asset bytes via octet-stream (clips are too big for JSON)."""
-    import httpx as _httpx
-
-    cfg = settings()
-    url = f"{cfg.web_internal_url}/api/internal/asset"
-    headers = {
-        "Authorization": f"Bearer {cfg.internal_api_token}",
-        "x-job-id": job_id,
-        "x-action-id": action_id,
-        "x-mime": mime,
-        "x-digest": digest,
-    }
-    inject_context(headers)
-    res = _httpx.post(url, content=data, headers=headers, timeout=180)
-    if res.status_code >= 300:
-        raise WebApiError(f"asset upload failed: {res.status_code} {res.text}", res.status_code)
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()

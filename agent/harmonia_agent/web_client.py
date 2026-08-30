@@ -173,6 +173,18 @@ def get_due_effect_command_ids() -> list[str]:
     return [str(value) for value in res.json().get("commandIds") or []]
 
 
+def web_post_raw_asset(job_id: str, action_id: str, mime: str, digest: str, data: bytes) -> None:
+    """Upload bytes through the same tenant/operation boundary as other writes."""
+    with _client() as client:
+        res = client.post("/api/internal/asset", content=data, headers={
+            "content-type": "application/octet-stream",
+            "x-job-id": job_id, "x-action-id": action_id,
+            "x-mime": mime, "x-digest": digest,
+        }, timeout=180)
+    if res.status_code >= 300:
+        raise WebApiError(f"asset upload failed: {res.status_code} {res.text}", res.status_code)
+
+
 def get_asset(job_id: str, action_id: str) -> dict[str, Any] | None:
     """Independent re-read of a stored asset for verification."""
     with _client() as c:

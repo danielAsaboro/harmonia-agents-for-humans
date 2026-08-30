@@ -361,6 +361,8 @@ def test_multiformat_specialists_use_strict_batch_contracts():
     assert (dara.output_schema, dara.output_key) == (
         vertex_output_schema(ArtifactReviewBatch), "artifact_review_batch",
     )
+    assert "first action must be to call load_skill" in noni.instruction
+    assert "first action must be to call load_skill" in dara.instruction
 
 
 def test_team_assigns_the_configured_model_to_each_role():

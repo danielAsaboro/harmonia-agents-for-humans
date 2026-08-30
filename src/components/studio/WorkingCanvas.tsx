@@ -11,6 +11,7 @@ import { ArtifactBoard } from "./ArtifactBoard";
 import { MediaWorkspace } from "./MediaWorkspace";
 import { SourcesWorkspace } from "./SourcesWorkspace";
 import { StudioEmpty, StudioFailure, StudioLoading } from "./StudioStates";
+import { OutputCorrection } from "./OutputCorrection";
 import { WrittenWorkspace } from "./WrittenWorkspace";
 import { ApprovalDock } from "./ApprovalDock";
 import { JobExecutionProof } from "./JobExecutionProof";
@@ -88,7 +89,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
       <div className="flex-1 overflow-y-auto px-[22px] py-5">
         {loading ? <StudioLoading /> : null}
         {!loading && error ? <StudioFailure message={error} onRetry={onRetry} /> : null}
-        {!loading && !error && job?.failure ? <div className="mb-5"><StudioFailure message={job.failure.publicMessage} permanent={!job.failure.retryable} onRetry={onRetry} /></div> : null}
+        {!loading && !error && job?.failure ? <div className="mb-5"><StudioFailure message={job.failure.publicMessage} permanent={!job.failure.retryable} onRetry={onRetry} /><OutputCorrection key={`${job.id}:${job.controlEpoch}`} job={job} /></div> : null}
         {!loading && !error && !job ? <StudioEmpty title="Your working canvas is ready">Start a conversation or open a real job. Written posts, visual concepts, clips, video, audio, sources, policy, and verification will assemble here.</StudioEmpty> : null}
         {!loading && !error && job && model ? <>
           {job.failure ? <div className="mb-5"><StudioFailure message={`Job failed at ${job.failure.stage}: ${job.failure.publicMessage}`} onRetry={onRetry} /></div> : null}

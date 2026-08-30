@@ -8,6 +8,7 @@ import {
 } from "./presentationPolicy";
 import { contentArtifactPreview } from "@/lib/contentArtifacts/presentation";
 import type { ContentArtifact } from "@/lib/contentArtifacts/contracts";
+import { jobProgressState } from "./jobProgress";
 
 export interface HydratedSurfaceSet {
   canvas: Record<string, unknown>[];
@@ -26,7 +27,6 @@ type PlannedSurface = SurfacePlan["surfaces"][number];
 type PlannedNode = PlannedSurface["nodes"][number];
 type CatalogRecord = Record<string, unknown> & { id: string; component: string };
 
-const STAGES = ["queued", "collect_sources", "extract_sources", "awaiting_source_resolution", "understand", "strategize", "awaiting_strategy_approval", "plan", "draft", "awaiting_approval", "publish", "verify", "learn", "complete"];
 
 function isHttpUrl(value: string | undefined): value is string {
   if (!value) return false;
@@ -153,24 +153,11 @@ function hydrateNode(surface: PlannedSurface, node: PlannedNode, job: JobFull | 
         angles: (job.sourceAnalysis?.angles ?? []).slice(0, 20),
       }) as CatalogRecord;
     case "JobProgress": {
-      const current = Math.max(0, STAGES.indexOf(job.stage));
       return parseCatalogComponent({
         ...base,
         component: node.component,
         ...framing(surface, node, "Content workflow", node.component, { failed: job.status === "failed" }),
-        stage: job.stage,
-        status: job.status,
-        stages: STAGES.map((stage, index) => ({
-          id: stage,
-          label: stage.replaceAll("_", " "),
-          status: job.status === "failed" && stage === job.stage
-            ? "failed"
-            : index < current || job.stage === "complete"
-              ? "complete"
-              : index === current
-                ? "active"
-                : "pending",
-        })),
+        ...jobProgressState(job),
       }) as CatalogRecord;
     }
     case "MomentExplorer": {

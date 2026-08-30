@@ -5,6 +5,7 @@ import type { JobFull, Receipt } from "@/components/jobTypes";
 import type { TimelineEvent } from "@/components/Timeline";
 import { buildStudioWorkspace } from "@/lib/studio/workspaceModel";
 import { latestSurfaceOperations } from "@/lib/a2ui/surfaceSlots";
+import { currentJobProgressOperations } from "@/lib/a2ui/liveJobProgress";
 import { surfaceRevisionRequest } from "@/lib/a2ui/workspaceActions";
 import { HarmoniaA2uiHost } from "@/components/a2ui/HarmoniaCatalog";
 import { ArtifactBoard } from "./ArtifactBoard";
@@ -49,12 +50,14 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
         : selectedArtifactId?.startsWith("audio:") ? "audio"
           : null;
   const visibleView = selectedView ?? view;
-  const reviewCount = (model?.pendingActions.length ?? 0) + (job?.productionPlan?.aggregate.state === "sealed" ? 1 : 0);
+  const reviewCount = (model?.pendingActions.length ?? 0) + (job?.productionPlan?.aggregate.state === "sealed" ? 1 : 0) + (job?.stage === "awaiting_strategy_approval" ? 1 : 0);
   let canvasOperations: unknown[] = [];
   let a2uiError: string | null = null;
   try {
     canvasOperations = operations.length ? latestSurfaceOperations(operations, "canvas") : [];
+    if (job) canvasOperations = currentJobProgressOperations(canvasOperations, job);
   } catch (partitionError) {
+    canvasOperations = [];
     a2uiError = partitionError instanceof Error ? partitionError.message : String(partitionError);
   }
 
@@ -96,7 +99,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
           <div className="mb-4 flex items-end gap-4"><div><p className="font-mono text-[7px] uppercase tracking-[0.12em] text-[#817d74]">Current working set</p><h1 className="mt-1 text-[31px] font-extrabold leading-none tracking-[-0.05em]">One conversation,<br /><em className="font-serif text-[#5165ff]">{model.written.length + model.visual.length + model.motion.length + model.audio.length} living artifacts.</em></h1></div><div className="ml-auto text-right font-mono text-[8px] text-[#77736b]">{job.stage}<br />updated from persisted state</div></div>
           <nav className="mb-[14px] flex gap-1 overflow-x-auto" aria-label="Canvas views">{tabs.map((tab) => <button key={tab.key} type="button" onClick={() => { setView(tab.key); onSelectedArtifactChange(null); }} aria-current={visibleView === tab.key ? "page" : undefined} className={`shrink-0 rounded-full px-2.5 py-1.5 font-mono text-[8px] ${visibleView === tab.key ? "bg-[#11110f] text-white" : "bg-[#e3ded4] text-[#77736b]"}`}><b className={visibleView === tab.key ? "text-[#d8ff3e]" : ""}>{tab.label}</b>{tab.count !== undefined ? ` ${tab.count}` : ""}</button>)}</nav>
           {a2uiError ? <div className="mb-5"><StudioFailure message={`A2UI protocol error: ${a2uiError}`} permanent /></div> : null}
-          {canvasOperations.length ? <HarmoniaA2uiHost operations={canvasOperations} live={operationsLive} className="mb-5 flex w-full flex-col gap-3" onAction={(action) => {
+          {canvasOperations.length ? <HarmoniaA2uiHost key={`${job.id}:${job.stage}:${job.status}`} operations={canvasOperations} live={operationsLive} className="mb-5 flex w-full flex-col gap-3" onAction={(action) => {
             if (action.name !== "request_surface_revision") {
               setA2uiActionError(`Unknown A2UI action: ${action.name}`);
               return;

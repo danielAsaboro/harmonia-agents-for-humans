@@ -316,7 +316,11 @@ export async function proposeProductionPlan(
   input: VideoProductionPlan,
   proposedAt = new Date().toISOString(),
 ): Promise<ProductionPlanAggregate> {
-  const plan = videoProductionPlanSchema.parse(input);
+  const parsedPlan = videoProductionPlanSchema.parse(input);
+  // Zod preserves explicitly supplied optional `undefined` properties, while
+  // Firestore rejects them. Reparse the JSON-safe shape so the immutable digest
+  // and stored revision describe the same field set.
+  const plan = videoProductionPlanSchema.parse(JSON.parse(JSON.stringify(parsedPlan)));
   const tenant = currentTenant();
   if (plan.workspaceId !== tenant.workspaceId || plan.brandId !== tenant.brandId) {
     throw new Error("production plan tenant mismatch");

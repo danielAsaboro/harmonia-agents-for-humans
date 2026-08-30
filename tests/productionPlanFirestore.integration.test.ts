@@ -84,6 +84,31 @@ function wake(plan: typeof basePlan, claimToken: string, expectedInternalRun = 0
 }
 
 describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
+  it("persists plans with explicitly undefined optional media fields", async () => {
+    const optionalJobId = `production-optional-${Date.now()}`;
+    const optionalPlanId = `plan-optional-${Date.now()}`;
+    await db().doc(`workspaces/${workspaceId}`).set({ defaultBrandId: brandId });
+    await db().doc(`workspaces/${workspaceId}/jobs/${optionalJobId}`).set({
+      id: optionalJobId, workspaceId, brandId, status: "active", stage: "draft",
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    const plan = videoProductionPlanSchema.parse({
+      ...basePlan,
+      id: optionalPlanId,
+      jobId: optionalJobId,
+      soundtrack: undefined,
+      operationCostsUsd: { [`${optionalPlanId}:generate_video:scene-1`]: "0.320000" },
+      estimatedCostUsd: "0.320000",
+      maximumCostUsd: "0.320000",
+    });
+    await expect(runWithTenant(operatorScope, () => proposeProductionPlan(plan))).resolves.toMatchObject({
+      id: optionalPlanId,
+      state: "proposed",
+    });
+    const persisted = await runWithTenant(operatorScope, () => getProductionPlanRevision(optionalPlanId, 1));
+    expect(persisted?.plan).not.toHaveProperty("soundtrack");
+  });
+
   it("schedules and materializes a digest- and rights-bound source operation", async () => {
     const sourceJobId = `production-source-${Date.now()}`;
     const sourcePlanId = `plan-source-${Date.now()}`;

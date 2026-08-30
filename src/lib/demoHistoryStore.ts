@@ -229,6 +229,13 @@ export async function discoverDemoHistory(input: DemoHistoryInput): Promise<Demo
   assertDocumentId("dataset id", input.datasetId);
   if (!isIsoInstant(input.anchor)) throw new Error("invalid demo history anchor");
 
+  const normalizedInput: DemoHistoryInput = {
+    workspaceId: input.workspaceId,
+    brandId: input.brandId,
+    datasetId: input.datasetId,
+    anchor: new Date(input.anchor).toISOString(),
+  };
+
   const jobSnapshots = await db().collection(`workspaces/${input.workspaceId}/jobs`)
     .where("brandId", "==", input.brandId).get();
   const sourceJobs = jobSnapshots.docs.filter((snapshot) => !snapshot.get("demoProvenance"));
@@ -294,8 +301,7 @@ export async function discoverDemoHistory(input: DemoHistoryInput): Promise<Demo
   });
   const unsafeLiveDestinationCount = records.filter((record) => !record.quarantined && isExecutablePath(record.intendedDestinationPath)).length;
   const base = {
-    ...input,
-    anchor: new Date(input.anchor).toISOString(),
+    ...normalizedInput,
     manifestPath,
     offsetMs,
     minimumSourceTimestamp: new Date(minimumSourceMs).toISOString(),

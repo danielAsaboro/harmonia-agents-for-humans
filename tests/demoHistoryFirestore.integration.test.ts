@@ -58,19 +58,26 @@ describe.skipIf(!emulator)("demo history Firestore copy", () => {
     });
 
     const sourceBefore = (await db().doc(`workspaces/${workspaceId}/jobs/j1`).get()).data();
-    const plan = await discoverDemoHistory({
+    const discoveryInput = {
       workspaceId,
       brandId,
       datasetId,
       anchor: "2026-08-27T00:00:00.000Z",
-    });
+    };
+    const plan = await discoverDemoHistory({ ...discoveryInput, mode: "dry-run" } as typeof discoveryInput);
+    const applyPlan = await discoverDemoHistory({
+      ...discoveryInput,
+      mode: "apply",
+      expectedDigest: plan.digest,
+    } as typeof discoveryInput);
 
     expect(plan.sourceJobCount).toBe(1);
     expect(plan.minimumSourceTimestamp).toBe("2026-08-30T00:00:00.000Z");
     expect(plan.minimumDemoTimestamp).toBe("2026-08-27T00:00:00.000Z");
     expect(plan.unsafeLiveDestinationCount).toBe(0);
+    expect(applyPlan.digest).toBe(plan.digest);
 
-    const manifest = await applyDemoHistory(plan, plan.digest);
+    const manifest = await applyDemoHistory(applyPlan, plan.digest);
     const demoJobs = await db().collection(`workspaces/${workspaceId}/jobs`)
       .where("demoProvenance.datasetId", "==", datasetId).get();
     expect(demoJobs.size).toBe(1);

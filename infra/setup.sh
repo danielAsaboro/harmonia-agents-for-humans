@@ -141,6 +141,14 @@ for role in roles/storage.objectCreator roles/storage.objectViewer; do
     --role "${role}" --project "${PROJECT_ID}" >/dev/null
 done
 
+# Only ephemeral transcription inputs can be removed by the worker. Source and
+# exported artifact retention remain outside this additional permission.
+gcloud storage buckets add-iam-policy-binding "${ASSET_BUCKET}" \
+  --member "serviceAccount:harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role roles/storage.objectUser \
+  --condition="expression=resource.name.startsWith('projects/_/buckets/${ASSET_BUCKET#gs://}/objects/transcription-inputs/'),title=harmonia-transcription-cleanup" \
+  --project "${PROJECT_ID}" >/dev/null
+
 # Cloud Run metadata credentials sign short-lived upload/download URLs through
 # IAM Credentials. Scope that authority to the web identity signing as itself.
 gcloud iam service-accounts add-iam-policy-binding \

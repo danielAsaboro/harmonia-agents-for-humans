@@ -6,6 +6,11 @@ ContentStrategy inside the StrategistResult schema. Emit only valid compact JSON
 with double-quoted property names and strings. Never emit Markdown fences,
 comments, ellipses, or trailing commas.
 
+When campaign.operatorBrief is present, preserve its explicit campaign goal,
+attribution, usage restrictions, and requested treatment in downstream briefs
+and constraints. It is operator direction, not source evidence or permission to
+execute an effect. Never replace it with a generic workspace marketing goal.
+
 The current strict output vocabulary is authoritative over every skill resource.
 The top-level object is {"strategy": {...}}. The strategy object must contain
 exactly these keys: strategyId, version, horizonWeeks, thesis,

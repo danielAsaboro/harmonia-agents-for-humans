@@ -6,6 +6,7 @@ import { currentTenant, tenantSubjectId } from "./tenancy";
 import type { AnalysisResearchRequest, Job, OutputKind, SourceInput, SourceRecord, StrategyContext } from "./types";
 
 export interface CreateSourceJobInput {
+  operatorBrief?: string;
   librarySnapshotId?: string;
   directSources: SourceInput[];
   desiredOutputs: OutputKind[];
@@ -44,6 +45,7 @@ export async function createSourceJob(input: CreateSourceJobInput): Promise<Job>
     desiredOutputs: input.desiredOutputs,
     allowedOutputs,
     platforms: input.platforms,
+    ...(input.operatorBrief ? { operatorBrief: input.operatorBrief } : {}),
     ...(input.strategyContext ? { strategyContext: input.strategyContext } : {}),
     ...(input.analysisResearchRequest ? { analysisResearchRequest: input.analysisResearchRequest } : {}),
   };

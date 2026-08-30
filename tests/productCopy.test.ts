@@ -134,6 +134,7 @@ describe("source-agnostic product copy", () => {
     expect(response.status).toBe(200);
     expect(sourceManifest.createSourceJob).toHaveBeenCalledWith(expect.objectContaining({
       platforms: ["linkedin"], strategyContext,
+      operatorBrief: "Can you help more founders find us? Here's our site: https://example.com",
     }));
   });
 });

@@ -19,6 +19,18 @@ from tests.test_ryan_strategy import strategy as _content_strategy
 from tests.test_temi_editorial_plan import plan as _editorial_plan
 
 
+def test_strategy_input_preserves_original_operator_brief_separate_from_evidence():
+    from tests.test_ryan_strategy import strategist_input
+    original = strategist_input()
+    context = {**original.company.model_dump(exclude={"evidenceId"}),
+               **original.campaign.model_dump(exclude={"evidenceId", "operatorBrief"})}
+    brief = "Credit NASA; export only; use a small-team analogy."
+    prepared = stages._strategy_input({"config": {"strategyContext": context, "operatorBrief": brief},
+                                      "sourceAnalysis": original.analysis.model_dump()}, {})
+    assert prepared.campaign.operatorBrief == brief
+    assert prepared.analysis == original.analysis
+
+
 def _analysis() -> dict:
     return {
         "sourceDigest": "a" * 64,
@@ -110,7 +122,7 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
     persisted_plan = _editorial_plan()
     job = {
         "workspaceId": "workspace-test", "brandId": "brand-test", "createdByUserId": "user-test",
-        "config": {"brief": "Activation launch"},
+        "config": {"brief": "Activation launch", "operatorBrief": "Credit NASA; use a small-team analogy; export only."},
         "sourceAnalysis": _analysis(),
         "campaignOutputPlan": {
             "id": "output-plan-job-1",
@@ -131,6 +143,7 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
         "editorialItemStates": {persisted_plan["selectedNextItemId"]: {"status": "selected"}},
     }
     async def fake_produce(*_args, **kwargs):
+        assert _args[0].operatorBrief == "Credit NASA; use a small-team analogy; export only."
         invocations.append(kwargs["invocation"])
         artifact = {
             "id": "artifact-linkedin-post",

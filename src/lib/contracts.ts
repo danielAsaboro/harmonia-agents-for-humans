@@ -14,6 +14,7 @@ export const OUTPUT_KINDS = [
 export const outputKindSchema = z.enum(OUTPUT_KINDS);
 
 export const createJobInputSchema = z.object({
+  operatorBrief: z.string().min(1).max(2000).optional(),
   librarySnapshotId: z.string().min(1).optional(),
   directSources: z.array(sourceInputSchema).max(10).default([]),
   desiredOutputs: z.array(outputKindSchema).min(1),

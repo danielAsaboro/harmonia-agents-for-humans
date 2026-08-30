@@ -17,6 +17,7 @@ const scope = {
 describe.skipIf(!emulator)("source job Firestore persistence", () => {
   it("creates a source job when optional strategy inputs are absent", async () => {
     const job = await runWithTenant(scope, () => createSourceJob({
+      operatorBrief: "Credit NASA; export only; use a small-team analogy.",
       directSources: [{
         kind: "web",
         url: "https://example.com",
@@ -28,6 +29,7 @@ describe.skipIf(!emulator)("source job Firestore persistence", () => {
 
     const persisted = await runWithTenant(scope, () => getJob(job.id));
     expect(persisted?.config).toEqual({
+      operatorBrief: "Credit NASA; export only; use a small-team analogy.",
       sourceManifestId: expect.any(String),
       desiredOutputs: ["linkedin_post"],
       allowedOutputs: ["linkedin_post"],

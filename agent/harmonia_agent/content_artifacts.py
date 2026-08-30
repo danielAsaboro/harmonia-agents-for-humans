@@ -401,6 +401,7 @@ def assemble_content_pack_draft(
 
 
 class ArtifactProductionInput(StrictModel):
+    operatorBrief: str | None = Field(default=None, min_length=1, max_length=2000)
     outputPlanId: str = Field(min_length=1)
     outputPlanDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
     requests: list[ArtifactRequest] = Field(min_length=1, max_length=30)

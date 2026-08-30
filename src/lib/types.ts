@@ -127,6 +127,7 @@ export interface ProposedOutput { id: string; outputType: OutputKind; quantity: 
 export interface CampaignOutputPlan { id: string; desiredOutputs: OutputKind[]; allowedOutputs: OutputKind[]; outputs: ProposedOutput[]; digest: string }
 
 export interface JobConfig {
+  operatorBrief?: string;
   sourceManifestId: string;
   desiredOutputs: OutputKind[];
   allowedOutputs: OutputKind[];

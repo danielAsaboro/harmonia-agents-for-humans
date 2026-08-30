@@ -416,6 +416,7 @@ class CompanyContext(StrictModel):
 
 
 class CampaignContext(StrictModel):
+    operatorBrief: str | None = Field(default=None, min_length=1, max_length=2000)
     evidenceId: str = Field(min_length=1, max_length=100)
     businessObjectives: list[str] = Field(min_length=1, max_length=8)
     campaignObjectives: list[str] = Field(min_length=1, max_length=8)

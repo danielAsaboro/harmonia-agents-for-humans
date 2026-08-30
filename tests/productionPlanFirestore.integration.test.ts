@@ -694,6 +694,20 @@ describe.skipIf(!emulator)("production plan Firestore aggregate", () => {
       },
       operation: { id: paidOperation.id },
     });
+    await expect(runWithTenant(serviceScope, () => recordProductionProviderOperation(
+      basePlan.id,
+      paidOperation.id,
+      {
+        claimId: activeClaim.claim.id,
+        claimToken: "worker-resume",
+        provider: "veo",
+        providerOperationId: "projects/p/locations/us-central1/operations/veo-1",
+        nextPollAt: "2000-01-01T00:00:01.000Z",
+      },
+    ))).resolves.toMatchObject({
+      state: "waiting_provider",
+      providerOperationId: "projects/p/locations/us-central1/operations/veo-1",
+    });
     await runWithTenant(serviceScope, () => completePaidProductionOperation(
       basePlan.id,
       paidOperation.id,

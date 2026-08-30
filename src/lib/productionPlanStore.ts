@@ -1206,7 +1206,8 @@ export async function recordProductionProviderOperation(
     const claim = snap.data() as PaidProductionOperationClaim;
     if (claim.kind !== "paid" || claim.operationId !== operationId) throw new Error("production operation claim binding mismatch");
     assertClaimOwner(claim, input.claimId, input.claimToken);
-    if (claim.state !== "submitting" && claim.state !== "waiting_provider") {
+    const isResumedProviderPoll = claim.state === "claimed" && Boolean(claim.providerOperationId);
+    if (claim.state !== "submitting" && claim.state !== "waiting_provider" && !isResumedProviderPoll) {
       throw new Error(`production operation cannot wait for provider from '${claim.state}'`);
     }
     if (claim.providerOperationId && (

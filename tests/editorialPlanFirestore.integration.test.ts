@@ -20,6 +20,10 @@ const snapshot = {
   provenanceIds: ["policy:editorial-planning-v1"],
 };
 const snapshotDigest = editorialPlanningSnapshotDigest(snapshot);
+const campaignOutputPlan = {
+  id: "output-plan-1", digest: "b".repeat(64), desiredOutputs: ["x_post"], allowedOutputs: ["x_post"],
+  outputs: [{ id: "output-1", outputType: "x_post", quantity: 1, destinations: ["x"], evidenceRefs: ["source-1:seg-1"], costClass: "local", approvalClass: "effect" }],
+};
 const item = {
   id: "item-1", briefId: "brief-1", campaignTheme: "Proof", contentPillar: "Outcomes", objective: "Earn consideration",
   audienceId: "founders", funnelStage: "consideration" as const, intendedConversion: "Request demo", ctaIntent: "See workflow", kpi: "Qualified demos",
@@ -46,6 +50,7 @@ describe.skipIf(!emulator)("Temi editorial plan Firestore boundary", () => {
       config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, contentStrategy: strategy, strategyDigest, strategyRevision: 1,
       strategyApprovalState: "approved", strategyApproval: { decision: "approved", payloadDigest: strategyDigest, revision: 1, actorSubjectId: "operator-test", decidedAt: "2026-08-27T00:00:00Z", expiresAt: "2026-08-28T00:00:00Z" },
       editorialPlanningSnapshot: snapshot, editorialPlanningSnapshotDigest: snapshotDigest,
+      campaignOutputPlan,
     });
 
     const accepted = await runWithTenant(scope, () => acceptEditorialPlan(jobId, plan, 1));
@@ -56,6 +61,7 @@ describe.skipIf(!emulator)("Temi editorial plan Firestore boundary", () => {
     expect(stored.editorialPlanHistory?.v1.plan).toEqual(plan);
     expect(stored.editorialPlanHistory?.v1.strategyDigest).toBe(strategyDigest);
     expect(stored.editorialItemStates).toEqual({ [item.id]: expect.objectContaining({ status: "selected" }) });
+    expect(stored.campaignOutputPlan).toEqual(campaignOutputPlan);
     expect(accepted.selectedNextItemId).toBe(item.id);
     await expect(runWithTenant(otherScope, () => getJob(jobId))).rejects.toThrow("job not found");
   });

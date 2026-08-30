@@ -159,7 +159,7 @@ describe("Google Cloud deployment automation", () => {
     expect(deploy.log()).toContain("HARMONIA_CONNECTION_ENVELOPE_KEY=harmonia-connection-envelope-key:latest");
     expect(deploy.log()).toContain("X_CLIENT_ID=x-oauth-client-id:latest");
     expect(deploy.log()).toContain("X_CLIENT_SECRET=x-oauth-client-secret:latest");
-    expect(deploy.log()).toContain("PUBLIC_BASE_URL=https://harmonia-web.example.run.app");
+    expect(deploy.log()).toContain("PUBLIC_BASE_URL=https://useharmonia.xyz");
   });
 
   it("deploys the managed scanner without external scanner configuration", () => {

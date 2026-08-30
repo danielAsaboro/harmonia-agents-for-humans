@@ -3,6 +3,7 @@
 import AskAiButton from "@/components/AskAiButton";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type { ContentItem } from "@/lib/types";
 import { PlatformIcon } from "@/components/socialIcons";
 import { calendarSyncActionLabel } from "@/lib/calendarSyncState";
@@ -330,7 +331,7 @@ export default function ItemDrawer({
             </>
           ) : (
             <p className="mt-1 text-xs leading-5 text-blue-700 dark:text-blue-300">
-              <a href="/dashboard/settings" className="font-medium underline">Connect Google Calendar</a> to sync this schedule into a dedicated Harmonia calendar.
+              <Link href="/dashboard/settings" className="font-medium underline">Connect Google Calendar</Link> to sync this schedule into a dedicated Harmonia calendar.
             </p>
           )}
         </section>

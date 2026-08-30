@@ -23,6 +23,7 @@ type TransformResult = {
 
 type ScriptArgs = {
   targetIso: string;
+  targetEndIso?: string;
   dryRun: boolean;
   batchSize: number;
 };
@@ -342,6 +343,9 @@ function parseArgs(): ScriptArgs {
     if (arg === "--target") {
       parsed.targetIso = args[i + 1] ?? "";
       i += 1;
+    } else if (arg === "--target-end") {
+      parsed.targetEndIso = args[i + 1] ?? "";
+      i += 1;
     } else if (arg === "--dry-run") {
       parsed.dryRun = true;
     } else if (arg === "--batch-size") {
@@ -362,9 +366,10 @@ function parseArgs(): ScriptArgs {
 function printUsage(error?: string): void {
   if (error) process.stdout.write(`${error}\n`);
   process.stdout.write(`Usage:
-  npx tsx scripts/reanchor-timestamps.ts [--target "YYYY-MM-DDTHH:mm:ssZ"] [--dry-run] [--batch-size N]
+  npx tsx scripts/reanchor-timestamps.ts [--target "YYYY-MM-DDTHH:mm:ssZ"] [--target-end "YYYY-MM-DDTHH:mm:ssZ"] [--dry-run] [--batch-size N]
 
   --target      Base timestamp to re-anchor history.
+  --target-end  Compress the full history into the inclusive target range.
   --dry-run     Enumerate what would be changed without writing.
   --batch-size  Firestore batch write size (default 250)
 
@@ -514,17 +519,31 @@ function scanForEarliest(value: unknown, key: string, current: { firstTimestampM
   }
 }
 
+function remapValue(value: unknown, mapMs: (ms: number) => number): TransformResult {
+  if (isFirestoreTimestamp(value) || value instanceof Date || typeof value === "string") {
+    const ms = timestampMsFromValue(value); if (ms === null) return { value, changed: false, touchedTimestampValues: 0 };
+    const mapped = mapMs(ms); const next = isFirestoreTimestamp(value) ? Timestamp.fromMillis(mapped) : value instanceof Date ? new Date(mapped) : new Date(mapped).toISOString();
+    return { value: next, changed: mapped !== ms, touchedTimestampValues: mapped === ms ? 0 : 1 };
+  }
+  if (Array.isArray(value)) { let changed = false; let touchedTimestampValues = 0; const next = value.map((item) => { const result = remapValue(item, mapMs); changed ||= result.changed; touchedTimestampValues += result.touchedTimestampValues; return result.value; }); return { value: changed ? next : value, changed, touchedTimestampValues }; }
+  if (isPlainRecord(value)) { let changed = false; let touchedTimestampValues = 0; const next: Record<string, unknown> = {}; for (const [key, item] of Object.entries(value)) { const result = remapValue(item, mapMs); changed ||= result.changed; touchedTimestampValues += result.touchedTimestampValues; next[key] = result.value; } return { value: changed ? next : value, changed, touchedTimestampValues }; }
+  return { value, changed: false, touchedTimestampValues: 0 };
+}
+
 type DocVisitor = (ref: DocumentReference, data: DocumentData) => Promise<void>;
 
 async function walkCollection(collectionRef: CollectionReference, visitor: DocVisitor): Promise<void> {
   const snapshot = await collectionRef.get();
-  for (const document of snapshot.docs) {
-    await visitor(document.ref, document.data());
-    const subCollections = await document.ref.listCollections();
-    for (const sub of subCollections) {
-      await walkCollection(sub, visitor);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(20, snapshot.docs.length) }, async () => {
+    while (nextIndex < snapshot.docs.length) {
+      const document = snapshot.docs[nextIndex++];
+      await visitor(document.ref, document.data());
+      const subCollections = await document.ref.listCollections();
+      await Promise.all(subCollections.map((sub) => walkCollection(sub, visitor)));
     }
-  }
+  });
+  await Promise.all(workers);
 }
 
 async function walkDatabase(
@@ -539,7 +558,12 @@ async function walkDatabase(
 
 async function findTimestampOrigin(db: Firestore): Promise<number | null> {
   const state = { firstTimestampMs: null as number | null };
-  await walkDatabase(db, async (_ref, data) => {
+  let scannedDocuments = 0;
+  await walkDatabase(db, async (ref, data) => {
+    scannedDocuments += 1;
+    if (scannedDocuments % 10 === 0) {
+      process.stdout.write(`Scanned ${scannedDocuments} documents; current path: ${ref.path}\n`);
+    }
     const payload = data as Record<string, unknown>;
     for (const [key, value] of Object.entries(payload)) {
       scanForEarliest(value, key, state);
@@ -548,12 +572,22 @@ async function findTimestampOrigin(db: Firestore): Promise<number | null> {
   return state.firstTimestampMs;
 }
 
+async function findTimestampRange(db: Firestore): Promise<{ first: number; last: number } | null> {
+  let first: number | null = null; let last: number | null = null;
+  await walkDatabase(db, async (_ref, data) => {
+    const visit = (value: unknown): void => { const ms = timestampMsFromValue(value); if (ms !== null) { first = first === null ? ms : Math.min(first, ms); last = last === null ? ms : Math.max(last, ms); return; } if (Array.isArray(value)) value.forEach(visit); else if (isPlainRecord(value)) Object.values(value).forEach(visit); };
+    visit(data);
+  });
+  return first === null || last === null ? null : { first, last };
+}
+
 async function applyShift(
   db: Firestore,
   deltaMs: number,
   nowIso: string,
   dryRun: boolean,
   batchSize: number,
+  mapMs?: (ms: number) => number,
 ): Promise<MigrationStats> {
   const stats: MigrationStats = {
     scannedDocs: 0,
@@ -567,6 +601,7 @@ async function applyShift(
 
   let batch = db.batch();
   let queuedWrites = 0;
+  let writeChain = Promise.resolve();
 
   async function flushBatch(): Promise<void> {
     if (queuedWrites === 0) return;
@@ -578,7 +613,7 @@ async function applyShift(
   await walkDatabase(db, async (ref, data) => {
     stats.scannedDocs += 1;
     countTimestampValues(data as unknown, "", stats);
-    const transformed = shiftValue(data, "", deltaMs);
+    const transformed = mapMs ? remapValue(data, mapMs) : shiftValue(data, "", deltaMs);
     const controlPlane = inertCollectionForPath(ref.path);
     let nextData = transformed.value;
     let touchedControlPlane = false;
@@ -601,15 +636,17 @@ async function applyShift(
       stats.updatedTimestampValues += transformed.touchedTimestampValues;
       if (touchedControlPlane) stats.neutralizedDocs += 1;
       if (!dryRun) {
-        batch.set(ref, nextData as DocumentData, { merge: true });
-        queuedWrites += 1;
-        if (queuedWrites >= batchSize) {
-          await flushBatch();
-        }
+        writeChain = writeChain.then(async () => {
+          batch.set(ref, nextData as DocumentData, { merge: true });
+          queuedWrites += 1;
+          if (queuedWrites >= batchSize) await flushBatch();
+        });
+        await writeChain;
       }
     }
   });
 
+  await writeChain;
   await flushBatch();
   return stats;
 }
@@ -625,23 +662,31 @@ async function main(): Promise<void> {
   }
 
   const db = new Firestore({ projectId: process.env.GOOGLE_CLOUD_PROJECT || undefined });
-  const initialMs = await findTimestampOrigin(db);
-  if (initialMs === null) {
-    process.stdout.write("No timestamp-like values found. No documents to re-anchor.\n");
-    return;
+  try {
+    const range = args.targetEndIso ? await findTimestampRange(db) : null;
+    const initialMs = range?.first ?? await findTimestampOrigin(db);
+    if (initialMs === null) {
+      process.stdout.write("No timestamp-like values found. No documents to re-anchor.\n");
+      return;
+    }
+
+    const targetEndMs = args.targetEndIso ? Date.parse(args.targetEndIso) : null;
+    if (targetEndMs !== null && (!Number.isFinite(targetEndMs) || targetEndMs <= targetMs)) throw new Error("Invalid --target-end value");
+    const deltaMs = targetMs - initialMs;
+    process.stdout.write(`Discovered earliest timestamp: ${new Date(initialMs).toISOString()}\n`);
+    process.stdout.write(`Re-anchoring target: ${new Date(targetMs).toISOString()}\n`);
+    process.stdout.write(`Computed shift: ${deltaMs >= 0 ? "+" : ""}${deltaMs}ms\n`);
+    if (args.dryRun) process.stdout.write("Running in dry-run mode; no writes will be made.\n");
+
+    const anchorNowIso = new Date(targetMs).toISOString();
+    const mapMs = range && targetEndMs !== null ? (ms: number) => Math.round(targetMs + ((ms - range.first) * (targetEndMs - targetMs)) / Math.max(1, range.last - range.first)) : undefined;
+    const stats = await applyShift(db, deltaMs, anchorNowIso, args.dryRun, args.batchSize, mapMs);
+    stats.firstTimestampMs = initialMs;
+    process.stdout.write(`${JSON.stringify(stats, null, 2)}\n`);
+    process.stdout.write("Re-anchor operation complete.\n");
+  } finally {
+    await db.terminate();
   }
-
-  const deltaMs = targetMs - initialMs;
-  process.stdout.write(`Discovered earliest timestamp: ${new Date(initialMs).toISOString()}\n`);
-  process.stdout.write(`Re-anchoring target: ${new Date(targetMs).toISOString()}\n`);
-  process.stdout.write(`Computed shift: ${deltaMs >= 0 ? "+" : ""}${deltaMs}ms\n`);
-  if (args.dryRun) process.stdout.write("Running in dry-run mode; no writes will be made.\n");
-
-  const anchorNowIso = new Date(targetMs).toISOString();
-  const stats = await applyShift(db, deltaMs, anchorNowIso, args.dryRun, args.batchSize);
-  stats.firstTimestampMs = initialMs;
-  process.stdout.write(`${JSON.stringify(stats, null, 2)}\n`);
-  process.stdout.write("Re-anchor operation complete.\n");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

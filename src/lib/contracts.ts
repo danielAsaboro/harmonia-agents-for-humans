@@ -342,6 +342,7 @@ export const strategyContextSchema = z.object({
   supportedChannels: z.array(z.string().min(1).max(100)).min(1).max(8), horizonWeeks: z.number().int().min(1).max(12).default(4),
   researchRequest: strategyResearchRequestSchema.optional(),
 }).strict();
+export const MAX_STRATEGY_SOURCE_IDS = (12 * 500) + (12 * 512) + 24;
 export const contentStrategySchema = z.object({
   strategyId: z.string().min(1).max(100), version: z.number().int().min(1).max(2), horizonWeeks: z.number().int().min(1).max(12),
   thesis: z.string().min(1).max(600), differentiatedNarrative: z.string().min(1).max(600),
@@ -516,7 +517,7 @@ export const editorialPlanSubmissionSchema = z.object({
 
 export const strategyInvocationContextSchema = z.object({
   jobId: z.string().min(1), stage: z.literal("strategize"), revision: z.number().int().min(1).max(2),
-  sourceIds: z.array(z.string().min(1).max(100)).min(1).max(24),
+  sourceIds: z.array(z.string().min(1).max(100)).min(1).max(MAX_STRATEGY_SOURCE_IDS),
   operatorContextIds: z.array(z.string().min(1).max(100)).length(2),
   performance: z.array(z.object({ id: z.string().min(1).max(100), firestoreEvidenceRef: z.string().min(1).max(500) }).strict()).max(12),
   memoryFacts: z.array(z.object({ id: z.string().min(1).max(100), firestoreEvidenceRef: z.string().min(1).max(500) }).strict()).max(5),

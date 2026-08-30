@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
+import os
 import traceback
 from collections.abc import AsyncIterator
 from hashlib import sha256
@@ -237,6 +239,27 @@ def _persisted_delta(session: Any, seeded_state: dict[str, Any]) -> dict[str, An
     }
 
 
+async def _managed_session_call(remote: Any, operation: str, **kwargs: Any) -> Any:
+    """Use Agent Engine's async session surface when it is available.
+
+    Recent Agent Engine remotes expose ``async_get_session`` and
+    ``async_create_session`` without their synchronous counterparts. Older
+    deployed engines expose the synchronous methods. Support exactly either
+    documented surface; a missing operation remains a protocol failure.
+    """
+    async_method = getattr(remote, f"async_{operation}", None)
+    if callable(async_method):
+        result = async_method(**kwargs)
+        return await result if inspect.isawaitable(result) else result
+    method = getattr(remote, operation, None)
+    if not callable(method):
+        raise AgentEngineProtocolError(
+            f"Agent Engine does not expose {operation} or async_{operation}"
+        )
+    result = await asyncio.to_thread(method, **kwargs)
+    return await result if inspect.isawaitable(result) else result
+
+
 def _is_missing_session_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return "session not found" in message and (
@@ -376,7 +399,22 @@ class AgentEngineTeamRuntime:
                 raise AgentEngineProviderError(
                     "google-cloud-aiplatform agent_engines support is not installed"
                 ) from exc
-            client = vertexai.Client(http_options={"timeout": 300_000})
+            project = os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
+            location = os.environ.get("GOOGLE_CLOUD_LOCATION", "").strip()
+            if not project or not location:
+                raise AgentEngineProviderError(
+                    "GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION are required "
+                    "for the managed Agent Engine client"
+                )
+            client = vertexai.Client(
+                project=project,
+                location=location,
+                http_options={"timeout": 300_000},
+            )
+            # Engine handles share the parent's BaseApiClient. Retain the
+            # parent for this runtime's lifetime or its async transport may be
+            # finalized before async_get_session/async_stream_query executes.
+            self._client = client
         try:
             return client.agent_engines.get(name=self.resource_name)
         except Exception as exc:  # noqa: BLE001 - normalized at provider boundary
@@ -404,16 +442,19 @@ class AgentEngineTeamRuntime:
                 "resource": self.resource_name,
             }))
             try:
-                required = (
-                    "get_session", "create_session", "async_stream_query",
-                )
-                if not all(callable(getattr(remote, name, None)) for name in required):
+                if not callable(getattr(remote, "async_stream_query", None)) or not any(
+                    callable(getattr(remote, name, None))
+                    for name in ("get_session", "async_get_session")
+                ) or not any(
+                    callable(getattr(remote, name, None))
+                    for name in ("create_session", "async_create_session")
+                ):
                     raise AgentEngineProtocolError(
                         "Agent Engine does not expose Harmonia's required async ADK interface"
                     )
                 try:
-                    session = await asyncio.to_thread(
-                        remote.get_session, user_id=user_id, session_id=session_id,
+                    session = await _managed_session_call(
+                        remote, "get_session", user_id=user_id, session_id=session_id,
                     )
                 except Exception as exc:  # provider SDK wraps this in multiple exception types
                     if not _is_missing_session_error(exc):
@@ -421,13 +462,13 @@ class AgentEngineTeamRuntime:
                     session = None
                 if session is None:
                     try:
-                        session = await asyncio.to_thread(
-                            remote.create_session,
+                        session = await _managed_session_call(
+                            remote, "create_session",
                             user_id=user_id, session_id=session_id, state=seeded_state,
                         )
                     except Exception:  # a concurrent creator may have won
-                        session = await asyncio.to_thread(
-                            remote.get_session, user_id=user_id, session_id=session_id,
+                        session = await _managed_session_call(
+                            remote, "get_session", user_id=user_id, session_id=session_id,
                         )
                         if session is None:
                             raise
@@ -453,8 +494,8 @@ class AgentEngineTeamRuntime:
                             state["_adk_grounding_metadata"] = metadata
                 except Exception:
                     recovered = _persisted_delta(
-                        await asyncio.to_thread(
-                            remote.get_session, user_id=user_id, session_id=session_id,
+                        await _managed_session_call(
+                            remote, "get_session", user_id=user_id, session_id=session_id,
                         ),
                         seeded_state,
                     )
@@ -466,8 +507,8 @@ class AgentEngineTeamRuntime:
                     # is not guaranteed to carry the output_key state delta.
                     try:
                         state.update(_persisted_delta(
-                            await asyncio.to_thread(
-                                remote.get_session, user_id=user_id, session_id=session_id,
+                            await _managed_session_call(
+                                remote, "get_session", user_id=user_id, session_id=session_id,
                             ),
                             seeded_state,
                         ))

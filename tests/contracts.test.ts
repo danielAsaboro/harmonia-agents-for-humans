@@ -7,11 +7,23 @@ import {
   receiptSubmissionSchema,
   stageExecutionClaimSchema,
   stageExecutionFinalizeSchema,
+  strategyInvocationContextSchema,
   usageRecordSchema,
   verificationSubmissionSchema,
 } from "@/lib/contracts";
 
 describe("internal contracts", () => {
+  it("accepts complete multi-segment strategy evidence across the Python-TypeScript boundary", () => {
+    expect(strategyInvocationContextSchema.safeParse({
+      jobId: "job-1", stage: "strategize", revision: 1,
+      sourceIds: Array.from({ length: 53 }, (_, index) => `segment-${index + 1}`),
+      operatorContextIds: ["context:company", "context:campaign"],
+      performance: [], memoryFacts: [], audienceIds: ["founders"],
+      requestedChannels: ["x"], supportedChannels: ["x"], horizonWeeks: 4,
+      researchRequest: null, searchEvidence: [],
+    }).success).toBe(true);
+  });
+
   it("accepts provider-default sampling in Gemini 3.7 budget and usage evidence", () => {
     const reservation = {
       jobId: "j1", operationId: "j1:understand:nimi:0", stage: "understand",

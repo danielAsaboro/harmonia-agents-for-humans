@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CalendarEvent, CalendarItem } from "@/app/api/calendar/route";
 import type { ContentItem } from "@/lib/types";
@@ -135,7 +136,7 @@ export default function CalendarView() {
       <AlertBanner
         tone={googleCalendar?.connected ? "success" : "info"}
         title={googleCalendar?.connected ? "Google Calendar connected" : "Keep the external calendar in sync"}
-        actions={!googleCalendar?.connected ? <a href="/dashboard/settings" className="dash-button dash-button--secondary">Connect calendar</a> : undefined}
+        actions={!googleCalendar?.connected ? <Link href="/dashboard/settings" className="dash-button dash-button--secondary">Connect calendar</Link> : undefined}
       >
         {googleCalendar?.connected
           ? `${googleCalendar.calendarTitle ?? "Harmonia Content Calendar"} is available. Each external change still requires an explicit approved sync.`

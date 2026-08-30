@@ -21,14 +21,46 @@ from .operation_context import operation_headers
 
 
 class WebApiError(RuntimeError):
-    def __init__(self, message: str, status: int | None = None) -> None:
+    def __init__(
+        self, message: str, status: int | None = None,
+        *, details: dict[str, str | int | bool] | None = None,
+    ) -> None:
         super().__init__(message)
         self.status = status
+        self.details = details or {}
 
     @property
     def permanent(self) -> bool:
         # 4xx (except 429) means our payload/flow is wrong; retrying will not help.
         return self.status is not None and 400 <= self.status < 500 and self.status != 429
+
+
+def _response_error(path: str, response: httpx.Response) -> WebApiError:
+    details: dict[str, str | int | bool] = {"endpoint": path}
+    try:
+        body = response.json()
+    except (ValueError, TypeError):
+        body = None
+    if isinstance(body, dict):
+        revision = body.get("contractRevision")
+        if isinstance(revision, str):
+            details["contractRevision"] = revision[:120]
+        issues = body.get("issues")
+        if isinstance(issues, list) and issues and isinstance(issues[0], dict):
+            issue = issues[0]
+            for source_key, target_key in (("path", "path"), ("code", "issueCode")):
+                value = issue.get(source_key)
+                if isinstance(value, str):
+                    details[target_key] = value[:240]
+            for key in ("maximum", "minimum"):
+                value = issue.get(key)
+                if isinstance(value, int) and not isinstance(value, bool):
+                    details[key] = value
+    return WebApiError(
+        f"{path} failed with HTTP {response.status_code}",
+        response.status_code,
+        details=details,
+    )
 
 
 class EffectClaimInProgress(RuntimeError):
@@ -487,7 +519,7 @@ def post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     with _client() as c:
         res = c.post(path, json=payload)
     if res.status_code >= 300:
-        raise WebApiError(f"{path} failed: {res.status_code} {res.text}", res.status_code)
+        raise _response_error(path, res)
     return res.json()
 
 
@@ -495,7 +527,7 @@ def patch(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     with _client() as c:
         res = c.patch(path, json=payload)
     if res.status_code >= 300:
-        raise WebApiError(f"{path} failed: {res.status_code} {res.text}", res.status_code)
+        raise _response_error(path, res)
     return res.json()
 
 

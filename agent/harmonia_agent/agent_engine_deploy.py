@@ -79,6 +79,10 @@ def deploy(*, project: str, location: str, staging_bucket: str, service_account:
         import vertexai
     except ImportError as exc:  # pragma: no cover - deployment-only dependency
         raise RuntimeError("install the agent requirements before deployment") from exc
+    # AdkApp serialization reads Vertex's global initializer, while the client
+    # below only scopes API calls. Set both explicitly so a clean deployment
+    # environment cannot serialize an app with an unconfigured project.
+    vertexai.init(project=project, location=location)
     client = vertexai.Client(project=project, location=location)
     remote = client.agent_engines.create(
         agent=build_agent_engine_app(vertex_location="global"),

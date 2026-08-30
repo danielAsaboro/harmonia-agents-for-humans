@@ -9,7 +9,7 @@ from harmonia_agent.generative_media import MediaProviderError
 from harmonia_agent.memory_bank import MemoryProviderError
 from harmonia_agent.model_catalog import UnknownModelPrice
 from harmonia_agent.team_runtime import AgentEngineProviderError
-from harmonia_agent.web_client import EffectClaimInProgress, EffectClaimUncertain, WebApiError
+from harmonia_agent.web_client import EffectClaimInProgress, EffectClaimUncertain, WebApiError, _response_error
 from harmonia_agent.x_client import XError
 from harmonia_agent import stages
 
@@ -70,11 +70,50 @@ def test_policy_failure_is_explicit_and_never_retryable():
 
 
 def test_internal_contract_rejection_is_not_reported_as_a_provider_failure():
-    result = envelope(WebApiError("invalid payload with private details", 400))
+    result = envelope(WebApiError(
+        "invalid payload with private details", 400,
+        details={
+            "endpoint": "/api/internal/strategy-context",
+            "path": "sourceIds",
+            "issueCode": "too_big",
+            "maximum": 24,
+            "contractRevision": "internal-contract-2026-09-04",
+        },
+    ))
     assert result.category == FailureCategory.VALIDATION
     assert result.code == "internal_contract_rejected"
     assert result.retryable is False
+    assert result.details["endpoint"] == "/api/internal/strategy-context"
+    assert result.details["path"] == "sourceIds"
+    assert result.details["issueCode"] == "too_big"
     assert "private details" not in result.model_dump_json()
+
+
+def test_internal_contract_response_extracts_only_safe_diagnostics():
+    response = httpx.Response(
+        400,
+        request=httpx.Request("POST", "https://useharmonia.xyz/api/internal/strategy-context"),
+        json={
+            "error": "invalid payload",
+            "contractRevision": "internal-contract-2026-09-04.1",
+            "issues": [{
+                "path": "sourceIds",
+                "code": "too_big",
+                "maximum": 24,
+                "privateInput": "private-source-content",
+            }],
+        },
+    )
+
+    error = _response_error("/api/internal/strategy-context", response)
+    assert error.details == {
+        "endpoint": "/api/internal/strategy-context",
+        "contractRevision": "internal-contract-2026-09-04.1",
+        "path": "sourceIds",
+        "issueCode": "too_big",
+        "maximum": 24,
+    }
+    assert "private-source-content" not in str(error)
 
 
 def test_effect_claim_contention_retries_but_uncertain_effect_requires_operator():

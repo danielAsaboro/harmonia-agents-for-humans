@@ -136,6 +136,13 @@ def normalize_failure(
         safe_details["role"] = exc.role
         if exc.path:
             safe_details["path"] = exc.path
+    if isinstance(exc, WebApiError):
+        for key, value in exc.details.items():
+            normalized = key.lower().replace("-", "_")
+            if any(forbidden in normalized for forbidden in ("body", "content", "cookie", "prompt", "response", "secret", "text", "token", "transcript")):
+                continue
+            if isinstance(value, (str, int, bool)):
+                safe_details[key] = value
     status = _status(exc)
     if status is not None:
         safe_details["status"] = status

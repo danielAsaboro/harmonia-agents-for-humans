@@ -23,7 +23,7 @@ from harmonia_agent.team_runtime import (
 )
 from harmonia_agent.agent_models import SourceAnalysis
 from harmonia_agent.agent_engine_app import build_agent_engine_app
-from harmonia_agent.agent_engine_deploy import build_deployment_config
+from harmonia_agent.agent_engine_deploy import build_deployment_config, deploy
 from harmonia_agent.agents import _resolve_role_models
 from harmonia_agent.coordinator import HarmoniaCoordinator
 
@@ -199,13 +199,20 @@ def test_runtime_configures_managed_client_for_long_role_streams(monkeypatch):
         return type("Client", (), {"agent_engines": AgentEngines()})()
 
     monkeypatch.setattr(vertexai, "Client", client)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
     runtime = AgentEngineTeamRuntime(
         resource_name="projects/p/locations/us-central1/reasoningEngines/42",
     )
 
     runtime._remote()
 
-    assert captured["http_options"] == {"timeout": 300_000}
+    assert runtime._client is not None
+    assert captured == {
+        "project": "p",
+        "location": "us-central1",
+        "http_options": {"timeout": 300_000},
+    }
 
 
 def test_agent_engine_runtime_seeds_a_deterministic_persistent_session_and_collects_deltas():
@@ -238,6 +245,28 @@ def test_agent_engine_runtime_seeds_a_deterministic_persistent_session_and_colle
         "title": "Demo", "transcript": "proof",
     }
     assert remote.deleted == []
+
+
+def test_agent_engine_runtime_accepts_async_only_session_api():
+    class AsyncOnlyRemote(_RemoteAgent):
+        get_session = None
+        create_session = None
+
+    remote = AsyncOnlyRemote()
+    runtime = AgentEngineTeamRuntime(
+        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
+        client=_Client(remote),
+    )
+
+    state = asyncio.run(runtime.invoke(
+        specialist="nimi_analyst",
+        payload={"title": "Demo", "transcript": "proof"},
+        user_id="job-123",
+        session_key="job-123:understand:0:nimi_analyst",
+    ))
+
+    assert state["source_analysis"]["summary"] == "Managed analysis"
+    assert len(remote.created) == 1
 
 
 def test_runtime_creates_session_when_managed_sdk_raises_not_found():
@@ -592,6 +621,41 @@ def test_agent_engine_deployment_config_is_narrow_and_reproducible():
         "INTERNAL_API_TOKEN": {"secret": "internal-api-token", "version": "latest"},
         "GEMINI_API_KEY": {"secret": "gemini-api-key", "version": "latest"},
     }
+
+
+def test_agent_engine_deploy_initializes_vertex_before_serializing_app(monkeypatch):
+    import vertexai
+    import harmonia_agent.agent_engine_deploy as deployment
+
+    initialized = {}
+
+    class Remote:
+        api_resource = type("Resource", (), {
+            "name": "projects/p/locations/us-central1/reasoningEngines/42",
+        })()
+
+    class AgentEngines:
+        def create(self, **kwargs):
+            assert kwargs["agent"] == "serialized-app"
+            return Remote()
+
+    monkeypatch.setattr(vertexai, "init", lambda **kwargs: initialized.update(kwargs))
+    monkeypatch.setattr(
+        vertexai, "Client", lambda **kwargs: type("Client", (), {
+            "agent_engines": AgentEngines(),
+        })(),
+    )
+    monkeypatch.setattr(
+        deployment, "build_agent_engine_app", lambda **kwargs: "serialized-app",
+    )
+
+    resource = deploy(
+        project="p", location="us-central1", staging_bucket="gs://p-staging",
+        service_account="harmonia-agent@p.iam.gserviceaccount.com",
+    )
+
+    assert initialized == {"project": "p", "location": "us-central1"}
+    assert resource.endswith("reasoningEngines/42")
 
 
 def test_role_models_use_explicit_global_vertex_location(monkeypatch):

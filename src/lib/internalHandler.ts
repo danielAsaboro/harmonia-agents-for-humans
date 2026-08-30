@@ -8,6 +8,8 @@ import { currentTenant } from "./tenancy";
 class OperationFenceHeaderError extends Error {}
 class OperationFenceConflict extends Error {}
 
+export const INTERNAL_CONTRACT_REVISION = "internal-contract-2026-09-04.1";
+
 export function isOperationFenceConflict(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   return [
@@ -49,8 +51,17 @@ export async function internalRoute<S extends z.ZodType>(
   const bodyJson = await req.json().catch(() => null);
   const parsed = schema.safeParse(bodyJson);
   if (!parsed.success) {
+    const issues = parsed.error.issues.slice(0, 12).map((issue) => {
+      const bounded = issue as typeof issue & { maximum?: number | bigint; minimum?: number | bigint };
+      return {
+        path: issue.path.map(String).join(".") || "<root>",
+        code: issue.code,
+        ...(typeof bounded.maximum === "number" ? { maximum: bounded.maximum } : {}),
+        ...(typeof bounded.minimum === "number" ? { minimum: bounded.minimum } : {}),
+      };
+    });
     return Response.json(
-      { error: "invalid payload", detail: parsed.error.flatten() },
+      { error: "invalid payload", contractRevision: INTERNAL_CONTRACT_REVISION, issues },
       { status: 400 },
     );
   }

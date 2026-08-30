@@ -418,11 +418,16 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
   }
 
   let intent;
+  let history: Awaited<ReturnType<typeof listChatMessages>> = [];
+  let effectiveMessage = message;
+  let effectiveAttachments = attachments;
+  const rightsAttested = hasRightsAttestation(message);
   try {
     const attachmentContext = attachments.length
       ? `\n\nAttached files: ${attachments.map((attachment) => `${attachment.filename} (${attachment.mime})`).join(", ")}`
       : "";
-    const recentConversation = (await listChatMessages(8, surface, conversationId))
+    history = await listChatMessages(8, surface, conversationId);
+    const recentConversation = history
       .filter((turn): turn is typeof turn & { role: "user" | "assistant" } => turn.role === "user" || turn.role === "assistant")
       .map((turn) => ({ role: turn.role, text: turn.text }));
     intent = await parseIntent(`${message}${attachmentContext}`, attachments.length, recentConversation);
@@ -433,24 +438,48 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
     ) };
   }
 
+  if (rightsAttested && attachments.length === 0) {
+    const priorSourceTurn = [...history].reverse().find((turn) => {
+      if (turn.role !== "user" || !turn.data || typeof turn.data !== "object") return false;
+      const summaries = (turn.data as { attachments?: unknown }).attachments;
+      return Array.isArray(summaries) && summaries.some((summary) => summary && typeof summary === "object" && typeof (summary as { attachmentId?: unknown }).attachmentId === "string");
+    });
+    const attachmentIds = priorSourceTurn && Array.isArray((priorSourceTurn.data as { attachments?: unknown }).attachments)
+      ? (priorSourceTurn.data as { attachments: unknown[] }).attachments.flatMap((summary) => summary && typeof summary === "object" && typeof (summary as { attachmentId?: unknown }).attachmentId === "string" ? [(summary as { attachmentId: string }).attachmentId] : [])
+      : [];
+    if (priorSourceTurn && attachmentIds.length > 0) {
+      try {
+        effectiveAttachments = await requireReadyAttachments(attachmentIds);
+        effectiveMessage = priorSourceTurn.text;
+        const attachmentContext = `\n\nAttached files: ${effectiveAttachments.map((attachment) => `${attachment.filename} (${attachment.mime})`).join(", ")}`;
+        const recentConversation = history
+          .filter((turn): turn is typeof turn & { role: "user" | "assistant" } => turn.role === "user" || turn.role === "assistant")
+          .map((turn) => ({ role: turn.role, text: turn.text }));
+        intent = await parseIntent(`${effectiveMessage}${attachmentContext}`, effectiveAttachments.length, recentConversation);
+      } catch (error) {
+        return { __http: Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 409 }) };
+      }
+    }
+  }
+
   if (intent.needsClarification && intent.clarifyingQuestion) {
     return { payload: { intent: intent.intent, reply: `${intent.clarifyingQuestion}${connectionGuidance(intent.connectionSuggestions)}` } satisfies ChatResponse };
   }
 
-  if (["establish_strategy", "revise_strategy"].includes(intent.intent) && ((intent.sources?.length ?? 0) > 0 || attachments.length > 0)) {
+  if (["establish_strategy", "revise_strategy"].includes(intent.intent) && ((intent.sources?.length ?? 0) > 0 || effectiveAttachments.length > 0)) {
     intent = { ...intent, intent: "create_job" };
   }
 
   switch (intent.intent) {
     case "create_job": {
       const descriptors = [...(intent.sources ?? [])];
-      if (descriptors.length === 0 && attachments.length === 0) {
-        descriptors.push({ kind: "pasted_text", title: "Operator brief", text: intent.userOutcome ?? message });
+      if (descriptors.length === 0 && effectiveAttachments.length === 0) {
+        descriptors.push({ kind: "pasted_text", title: "Operator brief", text: intent.userOutcome ?? effectiveMessage });
       }
-      const needsRightsAttestation = intent.requiresRightsAttestation || attachments.length > 0 || descriptors.some((source) => source.kind === "youtube");
-      if (needsRightsAttestation && !hasRightsAttestation(message)) return { payload: { intent: intent.intent, reply: `Before processing uploaded or YouTube media, send the request again with: “${RIGHTS_ATTESTATION_PHRASE}”.` } satisfies ChatResponse };
+      const needsRightsAttestation = intent.requiresRightsAttestation || effectiveAttachments.length > 0 || descriptors.some((source) => source.kind === "youtube");
+      if (needsRightsAttestation && !rightsAttested) return { payload: { intent: intent.intent, reply: `Before processing uploaded or YouTube media, send the request again with: “${RIGHTS_ATTESTATION_PHRASE}”.` } satisfies ChatResponse };
       const directSources: SourceInput[] = [];
-      for (const attachment of attachments) {
+      for (const attachment of effectiveAttachments) {
         const authorization = sourceRightsAuthorization(currentTenant(), "upload");
         directSources.push({ kind: "upload", attachmentId: attachment.id, rightsAuthorizationId: sourceRightsAuthorizationId(authorization) });
       }
@@ -473,7 +502,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
         const desiredOutputs = (intent.desiredOutputs ?? []).map((item) => outputKindSchema.safeParse(item)).filter((item) => item.success).map((item) => item.data);
         if (!desiredOutputs.length) desiredOutputs.push(intent.workspaceContext?.channels.includes("linkedin") ? "linkedin_post" : "x_post");
         const platforms = Array.from(new Set(intent.strategyContext?.supportedChannels ?? intent.platformRecommendations ?? ["x"]));
-        const job = await createSourceJob({ operatorBrief: message, librarySnapshotId, directSources, desiredOutputs, allowedOutputs: desiredOutputs, platforms, strategyContext: intent.strategyContext });
+        const job = await createSourceJob({ operatorBrief: effectiveMessage, librarySnapshotId, directSources, desiredOutputs, allowedOutputs: desiredOutputs, platforms, strategyContext: intent.strategyContext });
         await appendEvent(job.id, "collect_sources", `source manifest created via ${surface} chat`, "operator");
         await queueStageTrigger(job.id, "collect_sources");
         const inherited = intent.workspaceContext?.strategyReady ? " It is using your approved workspace strategy as context." : " Harmonia will state its assumptions before strategy approval.";

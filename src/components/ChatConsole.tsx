@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { useRouter } from "next/navigation";
 import type { ComposerAttachment } from "@/components/a2ui/AttachmentComposer";
 import type { TimelineEvent } from "@/components/Timeline";
 import type { JobFull, Receipt } from "@/components/jobTypes";
@@ -12,7 +13,7 @@ import type { ChatRunState } from "@/lib/a2ui/chatReducer";
 import { historyRunState } from "@/lib/a2ui/historyReplay";
 import { latestSurfaceOperations } from "@/lib/a2ui/surfaceSlots";
 import { apiFetch } from "@/lib/clientApi";
-import { dayLabel, groupSessions, sessionPreview, type ConsoleMessage } from "@/lib/chatSessions";
+import { conversationPath, dayLabel, groupSessions, sessionPreview, type ConsoleMessage } from "@/lib/chatSessions";
 import { activeJobIdForConversation, buildStudioChapters } from "@/lib/studio/conversationModel";
 import { startJobRefresh } from "@/lib/jobRefresh";
 
@@ -53,6 +54,7 @@ interface StudioConsoleViewProps {
   onDecideProductionPlan?: (planId: string, planDigest: string, decision: "approved" | "rejected", feedback?: string) => Promise<void> | void;
   onRetryJob?: () => void;
   historyAccessory?: ReactNode;
+  historyDrawer?: ReactNode;
 }
 
 export function StudioConsoleView(props: StudioConsoleViewProps) {
@@ -77,7 +79,7 @@ export function StudioConsoleView(props: StudioConsoleViewProps) {
   }
   const approvalCount = (workspace?.actions.filter((action) => action.approvalState === "pending" && action.state === "planned").length ?? 0)
     + (workspace?.productionPlan?.aggregate.state === "sealed" ? 1 : 0);
-  return (
+  return (<>
     <StudioShell
       mobilePane={props.mobilePane}
       onMobilePaneChange={props.onMobilePaneChange}
@@ -86,10 +88,12 @@ export function StudioConsoleView(props: StudioConsoleViewProps) {
       conversation={<ConversationPane chapters={chapters} liveRun={props.liveRun} loaded={props.loaded} input={props.input} onInputChange={props.onInputChange} attachments={props.attachments} onAttachmentsChange={props.onAttachmentsChange} busy={props.busy} onSend={props.onSend} onActivateArtifact={(artifactId) => { props.onSelectedArtifactChange(artifactId); props.onMobilePaneChange("canvas"); }} onActivateJob={(jobId) => { props.onOpenJob(jobId); props.onMobilePaneChange("canvas"); }} headerAccessory={props.historyAccessory} campaignTitle={campaignTitle} artifactCount={artifactCount} />}
       canvas={<WorkingCanvas job={props.detail?.job ?? null} events={props.detail?.events ?? []} receipts={props.detail?.receipts ?? []} loading={props.detailLoading} error={props.detailError} selectedArtifactId={props.selectedArtifactId} onSelectedArtifactChange={props.onSelectedArtifactChange} onRetry={props.onRetryJob} operations={canvasRun?.operations ?? []} operationsLive={props.liveRun?.status === "running"} approvalBusy={props.busy} onDecide={props.onDecide} onOperationDecision={props.onOperationDecision} onRequestSurfaceRevision={props.onSend} onSealProductionPlan={props.onSealProductionPlan} onDecideProductionPlan={props.onDecideProductionPlan} />}
     />
-  );
+    {props.historyDrawer}
+  </>);
 }
 
-export default function ChatConsole() {
+export default function ChatConsole({ conversationId }: { conversationId?: string }) {
+  const router = useRouter();
   const [messages, setMessages] = useState<ConsoleMessage[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [input, setInput] = useState("");
@@ -98,18 +102,25 @@ export default function ChatConsole() {
   const [detail, setDetail] = useState<JobDetailBundle | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(conversationId ?? null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<"conversation" | "canvas">("conversation");
   const completedRuns = useRef(new Set<string>());
+  const submittedConversationId = useRef<string | null>(conversationId ?? null);
   const detailRequest = useRef<AbortController | null>(null);
   const chat = useHarmoniaChat();
 
   useEffect(() => {
+    if (!conversationId) return;
+    setActiveConversationId(conversationId);
+  }, [conversationId]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
-      fetch("/api/chat/history?limit=300", { cache: "no-store" })
+      fetch("/api/chat/history?limit=300&all=1", { cache: "no-store" })
         .then((response) => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`)))
-        .then(async (body: { messages: Array<{ id?: string; role: string; text: string; data?: ConsoleMessage["data"]; surface?: string; at?: string | null }> }) => {
+        .then(async (body: { messages: Array<{ id?: string; conversationId?: string; role: string; text: string; data?: ConsoleMessage["data"]; surface?: string; at?: string | null }> }) => {
           const hydrated = await Promise.all(body.messages.map(async (message): Promise<ConsoleMessage> => {
             let run: ChatRunState | undefined;
             if (message.role === "assistant" && message.data?.chatRunId) {
@@ -122,7 +133,7 @@ export default function ChatConsole() {
                 run = historyRunState(message.data.chatRunId, [{ type: "run_failed", runId: message.data.chatRunId, sequence: 0, failedAt: new Date().toISOString(), error: `Chat history replay unavailable: ${error instanceof Error ? error.message : String(error)}`, permanent: false }]);
               }
             }
-            return { id: message.id, role: message.role === "user" ? "user" : "assistant", text: message.text, data: message.data, surface: message.surface, at: message.at, attachments: message.data?.attachments?.map((attachment) => ({ ...attachment, progress: 100 })), run };
+            return { id: message.id, conversationId: message.conversationId, role: message.role === "user" ? "user" : "assistant", text: message.text, data: message.data, surface: message.surface, at: message.at, attachments: message.data?.attachments?.map((attachment) => ({ ...attachment, progress: 100 })), run };
           }));
           setMessages(hydrated);
         })
@@ -136,14 +147,21 @@ export default function ChatConsole() {
     const run = chat.run;
     if (!run || run.status === "running" || completedRuns.current.has(run.runId)) return;
     completedRuns.current.add(run.runId);
-    setMessages((current) => [...current, { id: `run-${run.runId}`, role: "assistant", text: run.status === "complete" ? run.text : run.error ?? "Chat run failed", run, surface: "dashboard", at: new Date().toISOString() }]);
+    setMessages((current) => [...current, { id: `run-${run.runId}`, conversationId: submittedConversationId.current ?? undefined, role: "assistant", text: run.status === "complete" ? run.text : run.error ?? "Chat run failed", run, surface: "dashboard", at: new Date().toISOString() }]);
   }, [chat.run]);
 
   const sessions = useMemo(() => groupSessions(messages), [messages]);
+  useEffect(() => {
+    if (!loaded || conversationId || activeConversationId) return;
+    const nextConversationId = sessions.at(-1)?.conversationId ?? crypto.randomUUID();
+    setActiveConversationId(nextConversationId);
+    router.replace(conversationPath(nextConversationId));
+  }, [activeConversationId, conversationId, loaded, router, sessions]);
+
   const visibleMessages = useMemo(() => {
-    const selected = activeSessionId ? sessions.find((session) => session.id === activeSessionId) : sessions.at(-1);
-    return selected?.messages ?? messages;
-  }, [activeSessionId, messages, sessions]);
+    if (!activeConversationId) return [];
+    return sessions.find((session) => session.conversationId === activeConversationId)?.messages ?? [];
+  }, [activeConversationId, sessions]);
   const activeJobId = activeJobIdForConversation(visibleMessages);
 
   const openJob = useCallback(async (jobId: string) => {
@@ -236,18 +254,60 @@ export default function ChatConsole() {
     const message = (messageText ?? input).trim();
     if (!message || busy || attachments.some((attachment) => attachment.state !== "ready")) return;
     const submittedAttachments = attachments;
-    setInput(""); setAttachments([]); setBusy(true); setActiveSessionId(null);
-    setMessages((current) => [...current, { id: `operator-${Date.now()}`, role: "user", text: message, attachments: submittedAttachments, surface: "dashboard", at: new Date().toISOString() }]);
+    const targetConversationId = activeConversationId ?? crypto.randomUUID();
+    if (!activeConversationId) {
+      setActiveConversationId(targetConversationId);
+      router.replace(conversationPath(targetConversationId));
+    }
+    submittedConversationId.current = targetConversationId;
+    setInput(""); setAttachments([]); setBusy(true);
+    setMessages((current) => [...current, { id: `operator-${Date.now()}`, conversationId: targetConversationId, role: "user", text: message, attachments: submittedAttachments, surface: "dashboard", at: new Date().toISOString() }]);
     try {
-      const result = await chat.send(message, submittedAttachments.map((attachment) => attachment.attachmentId));
+      const result = await chat.send(message, submittedAttachments.map((attachment) => attachment.attachmentId), targetConversationId);
       const latestJobId = result.jobUpdates.at(-1)?.jobId;
       if (latestJobId) await openJob(latestJobId);
     } catch (error) {
-      setMessages((current) => [...current, { id: `failure-${Date.now()}`, role: "assistant", text: error instanceof Error ? error.message : String(error), surface: "dashboard", at: new Date().toISOString() }]);
+      setMessages((current) => [...current, { id: `failure-${Date.now()}`, conversationId: targetConversationId, role: "assistant", text: error instanceof Error ? error.message : String(error), surface: "dashboard", at: new Date().toISOString() }]);
     } finally { setBusy(false); }
   }
 
-  const historyAccessory = sessions.length > 1 ? <select value={activeSessionId ?? sessions.at(-1)?.id ?? ""} onChange={(event) => setActiveSessionId(event.target.value === sessions.at(-1)?.id ? null : event.target.value)} className="max-w-28 rounded-full border border-black/15 bg-white/55 px-2 py-1.5 text-[10px] font-bold outline-none" aria-label="Past conversations">{sessions.map((session) => <option key={session.id} value={session.id}>{dayLabel(session.day)} · {sessionPreview(session)}</option>)}</select> : null;
+  function beginNewConversation() {
+    const nextConversationId = crypto.randomUUID();
+    setActiveConversationId(nextConversationId);
+    submittedConversationId.current = nextConversationId;
+    router.push(conversationPath(nextConversationId));
+    setDetail(null);
+    setDetailError(null);
+    setDetailLoading(false);
+    setSelectedArtifactId(null);
+    setMobilePane("conversation");
+    setInput("");
+    setAttachments([]);
+    setHistoryOpen(false);
+  }
 
-  return <StudioConsoleView messages={visibleMessages} loaded={loaded} detail={detail} detailLoading={detailLoading} detailError={detailError} liveRun={chat.run?.status === "running" ? chat.run : null} input={input} onInputChange={setInput} attachments={attachments} onAttachmentsChange={setAttachments} busy={busy} onSend={send} onOpenJob={openJob} selectedArtifactId={selectedArtifactId} onSelectedArtifactChange={setSelectedArtifactId} mobilePane={mobilePane} onMobilePaneChange={setMobilePane} onDecide={decide} onOperationDecision={decideOperation} onSealProductionPlan={sealProductionPlan} onDecideProductionPlan={decideProductionPlan} onRetryJob={detail?.job.failure ? async () => { await apiFetch(`/api/jobs/${detail.job.id}/retry`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) }); await openJob(detail.job.id); } : undefined} historyAccessory={historyAccessory} />;
+  async function retryJob() {
+    const job = detail?.job;
+    const failure = job?.failure;
+    if (!job || !failure) return;
+    const response = await apiFetch(`/api/jobs/${job.id}/retry`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(failure.retryable ? {} : { afterFix: true }),
+    });
+    const body = await response.json().catch(() => null) as { error?: string } | null;
+    if (!response.ok) throw new Error(body?.error ?? `Retry failed (${response.status})`);
+    await openJob(job.id);
+  }
+
+  const historyAccessory = <div className="flex shrink-0 items-center gap-2"><button type="button" onClick={beginNewConversation} className="flex h-8 items-center rounded-full border border-black/15 bg-[#d9ff43] px-3 text-[10px] font-bold uppercase tracking-[0.12em] transition hover:bg-[#c6ee32]" aria-label="Start a new conversation">+ New</button><button type="button" onClick={() => setHistoryOpen((open) => !open)} aria-expanded={historyOpen} aria-controls="past-conversations" className="flex h-8 items-center gap-1 rounded-full border border-black/15 bg-white px-3 text-[10px] font-bold uppercase tracking-[0.12em] transition hover:bg-[#d9ff43]" aria-label="Toggle past conversations">Past chats <span aria-hidden="true">☰</span></button></div>;
+  const historyDrawer = historyOpen ? <>
+    <button type="button" aria-label="Close past conversations" className="fixed inset-0 z-40 bg-black/20 backdrop-blur-[1px]" onClick={() => setHistoryOpen(false)} />
+    <aside id="past-conversations" aria-label="Past conversations" className="fixed inset-y-3 right-3 z-50 flex w-[min(360px,calc(100vw-24px))] flex-col overflow-hidden rounded-[24px] border border-black/10 bg-[#f4f0e8] shadow-2xl">
+      <header className="flex items-center gap-3 border-b border-black/10 px-5 py-4"><div><p className="font-mono text-[8px] uppercase tracking-[0.16em] text-[#77736b]">Conversation archive</p><h2 className="text-lg font-extrabold tracking-tight">Past conversations</h2></div><button type="button" onClick={() => setHistoryOpen(false)} className="ml-auto grid h-8 w-8 place-items-center rounded-full bg-[#ded8ce] text-lg" aria-label="Close">×</button></header>
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">{[...sessions].reverse().map((session) => { const current = activeConversationId === session.conversationId; return <button key={session.id} type="button" onClick={() => { setActiveConversationId(session.conversationId); submittedConversationId.current = session.conversationId; router.push(conversationPath(session.conversationId)); setHistoryOpen(false); }} className={`mb-2 w-full rounded-[16px] border p-3 text-left transition ${current ? "border-[#11110f] bg-[#d9ff43]" : "border-black/10 bg-white/65 hover:bg-white"}`}><div className="flex items-center gap-2 font-mono text-[8px] uppercase tracking-[0.1em] text-[#68645d]"><span>{dayLabel(session.day)}</span><span className="ml-auto">{session.messages.length} turns</span></div><p className="mt-2 line-clamp-2 text-sm font-bold leading-snug">{sessionPreview(session) || "Untitled conversation"}</p><p className="mt-1 text-[10px] text-[#77736b]">{session.surface === "telegram" ? "Telegram" : "Studio"}</p></button>; })}</div>
+    </aside>
+  </> : null;
+
+  return <StudioConsoleView messages={visibleMessages} loaded={loaded} detail={detail} detailLoading={detailLoading} detailError={detailError} liveRun={chat.run?.status === "running" ? chat.run : null} input={input} onInputChange={setInput} attachments={attachments} onAttachmentsChange={setAttachments} busy={busy} onSend={send} onOpenJob={openJob} selectedArtifactId={selectedArtifactId} onSelectedArtifactChange={setSelectedArtifactId} mobilePane={mobilePane} onMobilePaneChange={setMobilePane} onDecide={decide} onOperationDecision={decideOperation} onSealProductionPlan={sealProductionPlan} onDecideProductionPlan={decideProductionPlan} onRetryJob={detail?.job.failure ? retryJob : undefined} historyAccessory={historyAccessory} historyDrawer={historyDrawer} />;
 }

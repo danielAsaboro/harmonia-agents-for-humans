@@ -107,6 +107,16 @@ describe("dashboard navigation rail", () => {
     expect(html).toContain('data-dashboard-mode="page"');
   });
 
+  it("keeps canonical conversation routes inside the studio shell", () => {
+    pathname = "/dashboard/conversation-123";
+    const html = renderToStaticMarkup(
+      createElement(DashboardFrame, null, createElement("div", null, "Conversation")),
+    );
+
+    expect(html).toContain('data-dashboard-mode="studio"');
+    expect(html).not.toContain('class="dashboard-app dashboard-shell"');
+  });
+
   it("keeps exactly five named destinations with visible tooltip copy", () => {
     const html = renderToStaticMarkup(createElement(NavRail));
     const labels = ["Console", "Calendar", "Notifications", "Monitoring", "Settings"];

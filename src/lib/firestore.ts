@@ -885,6 +885,32 @@ export async function listChatMessages(
     .slice(-Math.min(Math.max(limit, 1), CHAT_RETENTION_MAX));
 }
 
+/** All persisted messages for the current operator on one chat surface. */
+export async function listAllChatMessages(
+  limit = 100,
+  surface: ChatSurface = "dashboard",
+): Promise<Array<{ id: string; conversationId: string; surface: string; role: string; text: string; data?: Record<string, unknown>; at: string | null }>> {
+  const tenant = currentTenant();
+  const userId = tenantSubjectId(tenant);
+  const snaps = await tenantCollection(CHATS).where("userId", "==", userId).get();
+  return snaps.docs
+    .map((d) => {
+      const data = d.data() as { conversationId?: string; surface: string; role: string; text: string; data?: Record<string, unknown>; at?: { toDate(): Date } | string };
+      return {
+        id: d.id,
+        conversationId: data.conversationId ?? "primary",
+        surface: data.surface ?? "dashboard",
+        role: data.role,
+        text: data.text,
+        data: data.data,
+        at: typeof data.at === "string" ? data.at : data.at?.toDate().toISOString() ?? null,
+      };
+    })
+    .filter((message) => message.surface === surface)
+    .sort((a, b) => Date.parse(a.at ?? "0") - Date.parse(b.at ?? "0"))
+    .slice(-Math.min(Math.max(limit, 1), CHAT_RETENTION_MAX));
+}
+
 export interface OperatorGoals {
   weeklyPostTarget?: number;
   audience?: string;
@@ -1365,12 +1391,17 @@ export async function createJob(
   return { id, ...doc };
 }
 
-export async function retryFailedJobWithOutbox(jobId: string, stage: Stage): Promise<string> {
+export async function retryFailedJobWithOutbox(
+  jobId: string,
+  stage: Stage,
+  options: { allowPermanent?: boolean } = {},
+): Promise<string> {
   const tenant = currentTenant();
   return db().runTransaction(async (tx) => {
     const jobSnapshot = await tx.get(jobRef(jobId));
     const job = requireJobDoc(jobSnapshot);
     if (!job.failure || job.failure.stage !== stage || (job.status !== "failed" && !job.failure.retryable)) throw new Error("job is not retryable from this stage");
+    if (!job.failure.retryable && !options.allowPermanent) throw new Error("permanent failure requires a deployed-fix acknowledgement");
     const generation = job.controlEpoch + 1;
     const id = stageOutboxId(jobId, stage, generation);
     const ref = stageOutboxRef(id);

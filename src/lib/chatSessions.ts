@@ -4,6 +4,7 @@ import type { ComposerAttachment } from "@/components/a2ui/AttachmentComposer";
 
 export interface ConsoleMessage {
   id?: string;
+  conversationId?: string;
   role: "user" | "assistant";
   text: string;
   data?: ChatResponse;
@@ -15,6 +16,7 @@ export interface ConsoleMessage {
 
 export interface ChatSession {
   id: string;
+  conversationId: string;
   /** ISO date (YYYY-MM-DD) of the session's first message. */
   day: string;
   startedAt: string | null;
@@ -24,6 +26,12 @@ export interface ChatSession {
 }
 
 const SESSION_GAP_MS = 30 * 60 * 1000;
+const CONVERSATION_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+export function conversationPath(conversationId: string): string {
+  if (!CONVERSATION_ID.test(conversationId)) throw new Error("invalid conversation id");
+  return `/dashboard/${conversationId}`;
+}
 
 function dayLabel(dayIso: string): string {
   const d = new Date(`${dayIso}T12:00:00`);
@@ -47,14 +55,16 @@ export function groupSessions(messages: ConsoleMessage[]): ChatSession[] {
 
     const needsNew =
       !current ||
-      (atMs !== null &&
+      (!m.conversationId && atMs !== null &&
         current.endedAt !== null &&
         Date.parse(current.endedAt) + SESSION_GAP_MS < atMs) ||
+      (!!current && (m.conversationId ?? "primary") !== current.conversationId) ||
       (!!current && isTelegram !== (current.surface === "telegram"));
 
     if (needsNew || !current) {
       current = {
-        id: `s${sessions.length}`,
+        id: `${m.conversationId ?? "primary"}-s${sessions.length}`,
+        conversationId: m.conversationId ?? "primary",
         day: m.at ? m.at.slice(0, 10) : "unknown",
         startedAt: m.at ?? null,
         endedAt: m.at ?? null,

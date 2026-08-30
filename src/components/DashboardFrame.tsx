@@ -6,7 +6,9 @@ import NavRail from "@/components/NavRail";
 
 export default function DashboardFrame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isStudio = pathname === "/dashboard" || pathname === "/dashboard/";
+  const nonStudioRoots = ["/dashboard/calendar", "/dashboard/notifications", "/dashboard/monitoring", "/dashboard/settings"];
+  const isStudio = (pathname === "/dashboard" || pathname === "/dashboard/" || pathname.startsWith("/dashboard/"))
+    && !nonStudioRoots.some((root) => pathname === root || pathname.startsWith(`${root}/`));
   return (
     <>
       <NavRail />

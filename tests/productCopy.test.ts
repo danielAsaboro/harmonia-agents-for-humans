@@ -7,6 +7,8 @@ const firestore = vi.hoisted(() => ({
 }));
 const chatIntent = vi.hoisted(() => ({ parseIntent: vi.fn() }));
 const sourceManifest = vi.hoisted(() => ({ createSourceJob: vi.fn() }));
+const sourceRights = vi.hoisted(() => ({ hasRightsAttestation: vi.fn() }));
+const chatAttachments = vi.hoisted(() => ({ requireReadyAttachments: vi.fn() }));
 
 vi.mock("@/lib/firestore", () => ({
   appendEvent: vi.fn(),
@@ -21,12 +23,12 @@ vi.mock("@/lib/sourceManifest", () => ({ createSourceJob: sourceManifest.createS
 vi.mock("@/lib/stageTrigger", () => ({ queueStageTrigger: vi.fn() }));
 vi.mock("@/lib/tenancy", () => ({ currentTenant: () => ({ workspaceId: "workspace-local", brandId: "brand-local", principal: { subjectId: "user-local" } }) }));
 vi.mock("@/lib/sourceRights", () => ({
-  hasRightsAttestation: () => false,
+  hasRightsAttestation: sourceRights.hasRightsAttestation,
   RIGHTS_ATTESTATION_PHRASE: "I confirm I have the rights to process this media.",
   sourceRightsAuthorization: () => ({ id: "rights-web" }),
   sourceRightsAuthorizationId: () => "rights-web",
 }));
-vi.mock("@/lib/chatAttachments", () => ({ requireReadyAttachments: vi.fn().mockResolvedValue([]) }));
+vi.mock("@/lib/chatAttachments", () => ({ requireReadyAttachments: chatAttachments.requireReadyAttachments }));
 vi.mock("@/lib/agentAskClient", () => ({ requestAgentAnswer: vi.fn().mockRejectedValue(new Error("agent unavailable")) }));
 
 import { metadata } from "../src/app/layout";
@@ -37,6 +39,8 @@ describe("source-agnostic product copy", () => {
     firestore.listJobs.mockResolvedValue([]);
     firestore.listChatMessages.mockResolvedValue([]);
     firestore.saveChatMessage.mockResolvedValue(undefined);
+    chatAttachments.requireReadyAttachments.mockResolvedValue([]);
+    sourceRights.hasRightsAttestation.mockReturnValue(false);
     chatIntent.parseIntent.mockResolvedValue({ intent: "status" });
     sourceManifest.createSourceJob.mockResolvedValue({
       id: "job-natural-1", workspaceId: "workspace-local", brandId: "brand-local",
@@ -135,6 +139,32 @@ describe("source-agnostic product copy", () => {
     expect(sourceManifest.createSourceJob).toHaveBeenCalledWith(expect.objectContaining({
       platforms: ["linkedin"], strategyContext,
       operatorBrief: "Can you help more founders find us? Here's our site: https://example.com",
+    }));
+  });
+
+  it("binds a rights confirmation to the prior uploaded source in the same conversation", async () => {
+    sourceRights.hasRightsAttestation.mockImplementation((message: string) => message === "I confirm I have rights to use this source");
+    chatAttachments.requireReadyAttachments.mockImplementation(async (ids: string[]) => ids.length === 1 ? [{
+      id: "attachment-video-1", filename: "launch.mp4", mime: "video/mp4", sizeBytes: 1024,
+      workspaceId: "workspace-local", brandId: "brand-local", createdByUserId: "user-local",
+      objectName: "chat-attachments/launch.mp4", storageUri: "file://chat-attachments/attachment-video-1", state: "ready",
+      createdAt: "2026-09-04T04:07:00.000Z", updatedAt: "2026-09-04T04:07:00.000Z", category: "video",
+    }] : []);
+    firestore.listChatMessages.mockResolvedValue([
+      { id: "original", role: "user", surface: "dashboard", text: "Turn this video into launch content", at: "2026-09-04T04:07:00.000Z", data: { attachments: [{ attachmentId: "attachment-video-1" }] } },
+      { id: "rights-prompt", role: "assistant", surface: "dashboard", text: "Confirm source rights", at: "2026-09-04T04:07:01.000Z" },
+    ]);
+    chatIntent.parseIntent.mockResolvedValue({ intent: "create_job", userOutcome: "Turn this video into launch content", desiredOutputs: ["x_post"], requiresRightsAttestation: true });
+
+    const response = await handleChat(new Request("http://localhost/api/chat", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "I confirm I have rights to use this source", conversationId: "primary" }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(sourceManifest.createSourceJob).toHaveBeenCalledWith(expect.objectContaining({
+      operatorBrief: "Turn this video into launch content",
+      directSources: [expect.objectContaining({ kind: "upload", attachmentId: "attachment-video-1" })],
     }));
   });
 });

@@ -51,6 +51,27 @@ describe("internal operation fences", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it("returns safe field-level diagnostics for invalid internal payloads", async () => {
+    const invalid = new Request("http://localhost/api/internal/strategy-context", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ value: Array.from({ length: 3 }, () => "private-source-content") }),
+    });
+    const response = await internalRoute(
+      invalid,
+      z.object({ value: z.array(z.string()).max(2) }),
+      vi.fn(),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.contractRevision).toMatch(/^internal-contract-/);
+    expect(body.issues).toEqual([
+      expect.objectContaining({ path: "value", code: "too_big", maximum: 2 }),
+    ]);
+    expect(JSON.stringify(body)).not.toContain("private-source-content");
+  });
+
   it.each([
     "operation epoch mismatch",
     "operation tenant mismatch",

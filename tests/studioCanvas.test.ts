@@ -78,4 +78,20 @@ describe("studio canvas", () => {
     expect(html).toContain("A required dependency is temporarily unavailable.");
     expect(html).toContain(">Retry</button>");
   });
+
+  it("shows actionable contract metadata without offering a blind permanent retry", () => {
+    const html = renderToStaticMarkup(createElement(WorkingCanvas, {
+      job: {
+        id: "job-contract", status: "failed", stage: "strategize", createdAt: "2026-09-04T00:00:00.000Z", updatedAt: "2026-09-04T00:01:00.000Z",
+        config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, normalizedSources: [], actions: [], assets: [],
+        failure: { stage: "strategize", category: "validation", code: "internal_contract_rejected", publicMessage: "Stage input or output did not satisfy its contract.", retryable: false, operationId: "op-1", traceId: "a".repeat(32), attempt: 0, maxAttempts: 3, details: { endpoint: "/api/internal/strategy-context", path: "sourceIds", issueCode: "too_big", maximum: 24 }, at: "2026-09-04T00:01:00.000Z" },
+      },
+      events: [], receipts: [], selectedArtifactId: null, onSelectedArtifactChange: () => {}, onRetry: () => {},
+    }));
+    expect(html).toContain("sourceIds");
+    expect(html).toContain("too_big");
+    expect(html).toContain("A code or contract correction must be deployed before this job can be resumed.");
+    expect(html).toContain(">Resume corrected job</button>");
+    expect(html).not.toContain(">Retry</button>");
+  });
 });

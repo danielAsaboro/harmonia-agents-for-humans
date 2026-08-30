@@ -21,6 +21,7 @@ from .provider_schema import vertex_output_schema
 
 RYAN_SKILL_NAME = "ryan-strategy-skills"
 RYAN_SKILL_TRACE_KEY = "ryan_strategy_skill_trace"
+RYAN_RESEARCH_DISPATCH_KEY = "temp:ryan_research_dispatched"
 RYAN_SKILL_ROOT = Path(__file__).parent / "skills" / RYAN_SKILL_NAME
 RYAN_SKILL_REFERENCES = (
     "references/strategic-diagnosis.md",
@@ -56,6 +57,7 @@ def compiled_ryan_strategy_skill_context() -> str:
 
 
 def bootstrap_ryan_skill_trace(callback_context: Context) -> None:
+    callback_context.state[RYAN_RESEARCH_DISPATCH_KEY] = False
     callback_context.state[RYAN_SKILL_TRACE_KEY] = skill_activation_records(
         skill_name=RYAN_SKILL_NAME,
         skill_root=RYAN_SKILL_ROOT,
@@ -126,10 +128,25 @@ def guard_ryan_skill_tool(
     """Reject disallowed loaders and paths before ADK reads the resource."""
     if tool.name == "set_model_response":
         return
-    del tool_context
     if tool.name not in {*_LOAD_TOOLS, _SEARCH_TOOL}:
         raise ValueError(f"Ryan used a prohibited tool: {tool.name}")
     if tool.name == _SEARCH_TOOL:
+        request = tool_context.state.get("researchRequest")
+        if not isinstance(request, dict) or not request:
+            raise ValueError("Ryan requires an authorized research request before search")
+        supplied = args.get("request")
+        if isinstance(supplied, str):
+            try:
+                supplied = json.loads(supplied)
+            except json.JSONDecodeError as exc:
+                raise ValueError("Ryan search must use the exact research request") from exc
+        if supplied != request:
+            raise ValueError("Ryan search must use the exact research request")
+        if tool_context.state.get(RYAN_RESEARCH_DISPATCH_KEY) or any(item.get("name") == _SEARCH_TOOL for item in tool_context.state.get(RYAN_SKILL_TRACE_KEY, [])):
+            raise ValueError("Ryan may search only once per authorized request")
+        # ADK can dispatch parallel function calls. Reserve synchronously before
+        # either call can await the provider, not after its result is recorded.
+        tool_context.state[RYAN_RESEARCH_DISPATCH_KEY] = True
         return
     if _skill_name(args) != RYAN_SKILL_NAME:
         raise ValueError("Ryan may load only ryan-strategy-skills")

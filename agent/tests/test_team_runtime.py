@@ -98,6 +98,7 @@ def test_deployed_specialist_selection_requires_typed_research_authority() -> No
         "nimi_analyst", {"researchRequest": {"mode": "public_web"}},
     ) == "nimi_research_analyst"
     assert authorized_specialist_name("ryan_strategist", {}) == "ryan_strategist"
+    assert authorized_specialist_name("ryan_strategist", {"researchRequest": {"id": "research-1"}}) == "ryan_research_strategist"
 
 
 class _InvalidStructuredOutputModel(BaseLlm):
@@ -537,7 +538,7 @@ def test_agent_engine_deployment_wraps_the_existing_root_hierarchy():
     assert [agent.name for agent in app.app.root_agent.sub_agents] == [
         "harmonia_intent_router",
         "harmonia_context_assembler",
-        "ryan_strategist", "nimi_analyst", "nimi_research_analyst", "temi_editorial_planner",
+        "ryan_strategist", "ryan_research_strategist", "nimi_analyst", "nimi_research_analyst", "temi_editorial_planner",
         "noni_copywriter", "dara_editor", "noni_artifact_producer",
         "dara_artifact_editor", "maya_presenter", "nova_liaison",
     ]

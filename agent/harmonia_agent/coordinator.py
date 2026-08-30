@@ -16,6 +16,8 @@ def authorized_specialist_name(requested: str, state: dict[str, object]) -> str:
     """Resolve an authority-scoped specialist without model discretion."""
     if requested == "nimi_analyst" and state.get("researchRequest") is not None:
         return "nimi_research_analyst"
+    if requested == "ryan_strategist" and state.get("researchRequest") is not None:
+        return "ryan_research_strategist"
     return requested
 
 

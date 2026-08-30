@@ -125,12 +125,28 @@ def test_source_coverage_ledger_accounts_for_every_supplied_source():
 def test_ryan_runtime_is_wired_to_bounded_skill_callbacks():
     team = build_agent_team(model="gemini-test")
     ryan = next(agent for agent in team.sub_agents if agent.name == "ryan_strategist")
-    assert len(ryan.tools) == 1
-    assert isinstance(ryan.tools[0], AgentTool)
+    assert ryan.tools == []
+    research = next(agent for agent in team.sub_agents if agent.name == "ryan_research_strategist")
+    assert len(research.tools) == 1
+    assert isinstance(research.tools[0], AgentTool)
     assert not any(isinstance(tool, GoogleSearchTool) for tool in ryan.tools)
     assert ryan.before_agent_callback is bootstrap_ryan_skill_trace
     assert ryan.before_tool_callback is guard_ryan_skill_tool
     assert ryan.after_tool_callback.__name__ == "record_ryan_skill_tool"
+
+
+def test_search_guard_requires_exact_host_authority_before_execution():
+    tool = SimpleNamespace(name="ryan_google_search_agent")
+    request = {"id": "research-1", "question": "What current primary evidence is available?", "justification": "Current external evidence is required."}
+    with pytest.raises(ValueError, match="authorized research request"):
+        guard_ryan_skill_tool(tool, {"request": json.dumps(request)}, SimpleNamespace(state={}))
+    context = SimpleNamespace(state={"researchRequest": request})
+    with pytest.raises(ValueError, match="exact"):
+        guard_ryan_skill_tool(tool, {"request": json.dumps({**request, "id": "invented"})}, context)
+    guard_ryan_skill_tool(tool, {"request": json.dumps(request)}, context)
+    # A second dispatch must fail even before the first after-tool callback.
+    with pytest.raises(ValueError, match="once"):
+        guard_ryan_skill_tool(tool, {"request": json.dumps(request)}, context)
 
 
 def test_ryan_prompt_names_current_strict_strategy_fields():

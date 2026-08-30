@@ -599,12 +599,17 @@ def build_agent_team(
         input_schema=StrategistInput,
         output_schema=_gemini_wire_schema(StrategistResult),
         output_key="strategist_result",
-        tools=[build_ryan_google_search_tool(resolved.strategist)],
+        tools=[],
         mode="single_turn",
         before_agent_callback=bootstrap_ryan_skill_trace,
         before_tool_callback=guard_ryan_skill_tool,
         after_tool_callback=record_ryan_skill_tool,
     )
+    research_strategist = strategist.clone(update={
+        "name": "ryan_research_strategist",
+        "description": "Proposes source-grounded strategy with one host-authorized research request.",
+        "tools": [build_ryan_google_search_tool(resolved.strategist)],
+    })
     analyst_tools = [build_nimi_google_search_tool(resolved.analyst)]
     if nimi_data_store := os.environ.get("NIMI_AGENT_SEARCH_DATASTORE_ID", "").strip():
         analyst_tools.append(build_nimi_agent_search_tool(resolved.analyst, nimi_data_store))
@@ -763,7 +768,7 @@ def build_agent_team(
     return HarmoniaCoordinator(
         name="harmonia_coordinator",
         description="Routes Harmonia judgment tasks to typed specialists; never performs external effects.",
-        sub_agents=[intent_router, context_assembler, strategist, analyst, research_analyst, planner, copywriter, editor, artifact_producer, artifact_editor, presenter, liaison],
+        sub_agents=[intent_router, context_assembler, strategist, research_strategist, analyst, research_analyst, planner, copywriter, editor, artifact_producer, artifact_editor, presenter, liaison],
     )
 
 

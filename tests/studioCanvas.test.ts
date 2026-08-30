@@ -43,6 +43,23 @@ describe("studio canvas", () => {
     expect(html).not.toContain("<summary>Agent-generated");
   });
 
+  it("keeps a failed working set visible and exposes its retry action", () => {
+    const html = renderToStaticMarkup(createElement(WorkingCanvas, {
+      job: {
+        id: "job-failed", status: "failed", stage: "understand", createdAt: "2026-08-23T00:00:00.000Z", updatedAt: "2026-08-23T00:00:00.000Z",
+        config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, normalizedSources: [], actions: [], assets: [],
+        failure: {
+          stage: "understand", category: "dependency", code: "agent_unavailable", publicMessage: "A required dependency is temporarily unavailable.", retryable: true,
+          operationId: "operation-1", traceId: "trace-1", attempt: 1, maxAttempts: 3, details: {}, at: "2026-08-23T00:01:00.000Z",
+        },
+      },
+      events: [], receipts: [], selectedArtifactId: null, onSelectedArtifactChange: () => {}, onRetry: () => {},
+    }));
+    expect(html).toContain("Job failed at understand: A required dependency is temporarily unavailable.");
+    expect(html).toContain(">Retry</button>");
+    expect(html).toContain("Current working set");
+  });
+
   it("turns a view revision into a normal grounded chat request", () => {
     expect(surfaceRevisionRequest("job-1", "draft-2")).toBe(
       "Show drafts for job job-1. Recompose the generated comparison around draft draft-2.",

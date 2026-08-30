@@ -13,6 +13,7 @@ from harmonia_agent.agent_models import SourceAnalysis
 from harmonia_agent.agents import AnalysisRunResult
 from harmonia_agent.content_production import ProductionResult
 from harmonia_agent.effect_executor import ExecutionResult
+from harmonia_agent.operation_context import operation_scope
 from harmonia_agent.web_client import EffectClaimInProgress, EffectClaimUncertain
 from tests.test_ryan_strategy import strategy as _content_strategy
 from tests.test_temi_editorial_plan import plan as _editorial_plan
@@ -49,6 +50,14 @@ def _effect_command(action: dict) -> dict:
     }
 
 
+def _veo_action() -> dict:
+    return {"id": "veo-1", "type": "generate_video", "payload": {
+        "modelCapability": "veo-3.1-fast", "mode": "text_to_video", "prompt": "city",
+        "durationSec": 4, "aspectRatio": "9:16", "resolution": "720p",
+        "generateAudio": False, "enhancePrompt": True, "outputCount": 1,
+    }}
+
+
 def test_understand_written_source_routes_through_nimi_without_fake_timestamps(monkeypatch):
     requests = []
     posts = []
@@ -73,7 +82,8 @@ def test_understand_written_source_routes_through_nimi_without_fake_timestamps(m
     monkeypatch.setattr(stages, "analyze_with_team", fake_analyze)
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))
 
-    asyncio.run(stages.run_understand("job-1"))
+    with operation_scope("job:job-1:stage:understand:generation:7", 1):
+        asyncio.run(stages.run_understand("job-1"))
 
     request, invocation = requests[0]
     assert request.sourceKind == "document"
@@ -82,7 +92,7 @@ def test_understand_written_source_routes_through_nimi_without_fake_timestamps(m
     assert request.memoryFacts == []
     assert invocation.job_id == "job-1"
     assert invocation.stage == "understand"
-    assert invocation.operation_id == "job-1:understand:0"
+    assert invocation.operation_id == "job:job-1:stage:understand:generation:7"
     path, payload = posts[0]
     assert path == "/api/internal/analysis"
     assert set(payload) == {
@@ -96,6 +106,7 @@ def test_understand_written_source_routes_through_nimi_without_fake_timestamps(m
 
 def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypatch):
     posts = []
+    invocations = []
     persisted_plan = _editorial_plan()
     job = {
         "workspaceId": "workspace-test", "brandId": "brand-test", "createdByUserId": "user-test",
@@ -119,7 +130,8 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
         "selectedNextItemId": persisted_plan["selectedNextItemId"],
         "editorialItemStates": {persisted_plan["selectedNextItemId"]: {"status": "selected"}},
     }
-    async def fake_produce(*_args, **_kwargs):
+    async def fake_produce(*_args, **kwargs):
+        invocations.append(kwargs["invocation"])
         artifact = {
             "id": "artifact-linkedin-post",
             "outputPlanItemId": "output-1-linkedin-post",
@@ -159,7 +171,10 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
         return {"outcome": "execute"} if path.endswith("/claim") else {"ok": True}
     monkeypatch.setattr(stages, "web_post", fake_post)
 
-    asyncio.run(stages.run_draft("job-1"))
+    with operation_scope("job:job-1:stage:draft:generation:2", 1):
+        asyncio.run(stages.run_draft("job-1"))
+
+    assert invocations[0].operation_id == "job:job-1:stage:draft:generation:2"
 
     path, payload = posts[-1]
     assert path == "/api/internal/content-artifacts"
@@ -299,7 +314,7 @@ def test_paid_media_actions_read_canonical_source_analysis():
     })
 
     assert [action["type"] for action in actions] == [
-        "generate_veo_broll", "generate_lyria_soundtrack",
+        "generate_video", "generate_music",
     ]
     assert actions[0]["momentId"] == "m1"
 
@@ -416,62 +431,20 @@ def test_paid_media_actions_are_deterministic_and_reference_reviewed_evidence_on
     })
 
     assert [action["type"] for action in actions] == [
-        "generate_veo_broll", "generate_lyria_soundtrack",
+        "generate_video", "generate_music",
     ]
     assert actions[0]["momentId"] == "m1"
     assert actions[0]["payload"]["durationSec"] == 4
-    assert actions[1]["payload"]["durationSec"] == 30
+    assert actions[1]["payload"]["targetDurationSec"] == 30
     assert all("requiresApproval" not in action for action in actions)
 
 
-def test_paid_media_releases_budget_when_state_lookup_fails_before_dispatch(monkeypatch):
-    action = {
-        "id": "veo-1", "type": "generate_veo_broll",
-        "payload": {"prompt": "city", "durationSec": 4, "aspectRatio": "9:16"},
-    }
-    job = {
-        "stage": "publish", "workspaceId": "w1", "brandId": "b1",
-        "createdByUserId": "u1", "actions": [action],
-    }
-    resolutions = []
-    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
+def test_publish_rejects_paid_production_commands_before_effect_claim(monkeypatch):
+    action = _veo_action()
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: {"stage": "publish", "controlState": "running"})
     monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(action)])
     monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
-    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
-    monkeypatch.setattr(stages, "transition_effect_command", lambda _phase, _payload: {})
-    monkeypatch.setattr(stages, "reserve_budget", lambda _payload: None)
-    monkeypatch.setattr(stages, "get_media_operation", lambda *_args: (_ for _ in ()).throw(RuntimeError("store down")))
-    monkeypatch.setattr(stages, "resolve_budget_reservation", resolutions.append)
+    monkeypatch.setattr(stages, "claim_effect", lambda _payload: pytest.fail("publishing must not claim production work"))
 
-    with pytest.raises(RuntimeError, match="store down"):
+    with pytest.raises(stages.AgentProtocolError, match="production executor"):
         asyncio.run(stages.run_publish("job-1"))
-
-    assert resolutions[0]["outcome"] == "not_invoked"
-
-
-def test_paid_media_quarantines_budget_when_provider_times_out(monkeypatch):
-    action = {
-        "id": "veo-1", "type": "generate_veo_broll",
-        "payload": {"prompt": "city", "durationSec": 4, "aspectRatio": "9:16"},
-    }
-    job = {
-        "stage": "publish", "workspaceId": "w1", "brandId": "b1",
-        "createdByUserId": "u1", "actions": [action],
-    }
-    resolutions = []
-    monkeypatch.setattr(stages, "get_job", lambda _job_id: job)
-    monkeypatch.setattr(stages, "get_effect_commands", lambda _job_id: [_effect_command(action)])
-    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [])
-    monkeypatch.setattr(stages, "claim_effect", lambda _payload: {"outcome": "execute", "attempt": 1, "operationEpoch": 1})
-    monkeypatch.setattr(stages, "transition_effect_command", lambda _phase, _payload: {})
-    monkeypatch.setattr(stages, "reserve_budget", lambda _payload: None)
-    monkeypatch.setattr(stages, "get_media_operation", lambda *_args: None)
-    monkeypatch.setattr(stages, "get_asset", lambda *_args: None)
-    monkeypatch.setattr(stages, "GoogleMediaTransport", lambda **_kwargs: object())
-    monkeypatch.setattr(stages.VeoGenerator, "generate", lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("provider timeout")))
-    monkeypatch.setattr(stages, "resolve_budget_reservation", resolutions.append)
-
-    with pytest.raises(TimeoutError, match="provider timeout"):
-        asyncio.run(stages.run_publish("job-1"))
-
-    assert resolutions[0]["outcome"] == "uncertain"

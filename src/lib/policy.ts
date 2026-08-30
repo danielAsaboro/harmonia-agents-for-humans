@@ -57,8 +57,8 @@ export function evaluateActionPolicy(
         requiresApproval: true,
         reason: "incurs paid Gemini image generation; output remains internal until separately published",
       };
-    case "generate_veo_broll":
-    case "generate_lyria_soundtrack":
+    case "generate_video":
+    case "generate_music":
       return {
         risk: "medium",
         requiresApproval: true,

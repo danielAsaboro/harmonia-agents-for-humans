@@ -7,9 +7,9 @@ Cloud Pub/Sub transports stage wake-ups. Firestore—not the message—is the so
 
 ## How Harmonia uses it
 
-The web service writes a durable stage outbox alongside workflow state. Dispatch publishes a compact tenant/job/stage envelope to `harmonia-stages`. A private worker push subscription delivers messages to `/pubsub/push` with OIDC authentication. The worker claims the stage in Firestore before execution and finalizes the claim afterward.
+The web service writes durable stage and production-operation outboxes alongside workflow state. Stage dispatch publishes a compact tenant/job/stage envelope to `harmonia-stages`; mandate-authorized paid media dispatch publishes exact plan and operation identifiers to `harmonia-production`. Separate private worker push subscriptions deliver them to `/pubsub/push` and `/pubsub/production` with OIDC authentication. The worker reconstructs and claims the sealed operation in Firestore before execution.
 
-A dead-letter topic retains exhausted deliveries. Cloud Scheduler-driven recovery republishes due outbox entries and reconciles abandoned claims.
+Dead-letter topics retain exhausted deliveries. The minute-level authenticated durable tick republishes due outbox entries, including provider polls, and reconciles abandoned claims.
 
 ## Security and authority
 
@@ -17,7 +17,7 @@ Messages contain identifiers and correlation metadata, not credentials or full s
 
 ## Failure behavior
 
-Transient failures are nacked for redelivery. Permanent protocol or policy failures are persisted visibly. Duplicate deliveries are safe because stage claims and deterministic operation IDs prevent duplicate work.
+Transient failures are nacked for redelivery. Permanent protocol or policy failures are persisted visibly. Duplicate deliveries are safe because stage claims and production submission fences prevent duplicate work or provider spend.
 
 ## Evidence status
 

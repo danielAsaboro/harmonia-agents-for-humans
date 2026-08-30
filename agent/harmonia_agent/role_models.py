@@ -126,6 +126,7 @@ def _gemini(
     max_output_tokens: int,
     temperature: float,
     eligible_tasks: tuple[str, ...],
+    timeout_seconds: int = 120,
 ) -> RoleModelConfig:
     timeout_env = env_name.removesuffix("MODEL_ID") + "TIMEOUT_SECONDS"
     return RoleModelConfig(
@@ -136,13 +137,14 @@ def _gemini(
         timeout_seconds=int(os.environ.get(timeout_env, "120")),
         generation=_policy(temperature),
         eligible_tasks=eligible_tasks,
+        timeout_seconds=timeout_seconds,
     )
 
 
 def load_role_model_catalog() -> RoleModelCatalog:
     return RoleModelCatalog(
         coordinator=_gemini(
-            "harmonia_coordinator", "COORDINATOR_MODEL_ID", "gemini-3.5-flash-lite", 1024, 0.1,
+            "harmonia_coordinator", "COORDINATOR_MODEL_ID", "gemini-3.5-flash", 1024, 0.1,
             ("route",),
         ),
         strategist=_gemini(

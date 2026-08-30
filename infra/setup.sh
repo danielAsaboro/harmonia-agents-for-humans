@@ -76,12 +76,32 @@ if ! gcloud firestore indexes composite list --database='(default)' --project "$
     --field-config=field-path=id,order=ascending \
     --project "${PROJECT_ID}"
 fi
+if ! gcloud firestore indexes composite list --database='(default)' --project "${PROJECT_ID}" \
+  --filter='collectionGroupId=production_operation_outbox AND state=READY AND fields.fieldPath:state AND fields.fieldPath:publishLeaseExpiresAt' \
+  --format='value(name)' | grep -q .; then
+  gcloud firestore indexes composite create \
+    --database='(default)' --collection-group=production_operation_outbox --query-scope=collection \
+    --field-config=field-path=state,order=ascending \
+    --field-config=field-path=publishLeaseExpiresAt,order=ascending \
+    --project "${PROJECT_ID}"
+fi
+if ! gcloud firestore indexes composite list --database='(default)' --project "${PROJECT_ID}" \
+  --filter='collectionGroupId=production_operation_outbox AND state=READY AND fields.fieldPath:state AND fields.fieldPath:availableAt' \
+  --format='value(name)' | grep -q .; then
+  gcloud firestore indexes composite create \
+    --database='(default)' --collection-group=production_operation_outbox --query-scope=collection \
+    --field-config=field-path=state,order=ascending \
+    --field-config=field-path=availableAt,order=ascending \
+    --project "${PROJECT_ID}"
+fi
 
 echo "-- Pub/Sub topics"
 gcloud pubsub topics create harmonia-stages --project "${PROJECT_ID}" 2>/dev/null || echo "topic exists"
 gcloud pubsub topics create harmonia-stages-dlq --project "${PROJECT_ID}" 2>/dev/null || echo "dlq topic exists"
+gcloud pubsub topics create harmonia-production --project "${PROJECT_ID}" 2>/dev/null || echo "production topic exists"
+gcloud pubsub topics create harmonia-production-dlq --project "${PROJECT_ID}" 2>/dev/null || echo "production dlq topic exists"
 gcloud pubsub topics create harmonia-data-work --project "${PROJECT_ID}" 2>/dev/null || echo "data work topic exists"
-for topic in harmonia-stages harmonia-stages-dlq harmonia-data-work; do
+for topic in harmonia-stages harmonia-stages-dlq harmonia-production harmonia-production-dlq harmonia-data-work; do
   gcloud pubsub topics update "${topic}" --project "${PROJECT_ID}" \
     --message-storage-policy-allowed-regions="${REGION}" \
     --message-storage-policy-enforce-in-transit
@@ -115,6 +135,11 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
 gcloud storage buckets add-iam-policy-binding "${ASSET_BUCKET}" \
   --member "serviceAccount:harmonia-web@${PROJECT_ID}.iam.gserviceaccount.com" \
   --role roles/storage.objectAdmin --project "${PROJECT_ID}" >/dev/null
+for role in roles/storage.objectCreator roles/storage.objectViewer; do
+  gcloud storage buckets add-iam-policy-binding "${ASSET_BUCKET}" \
+    --member "serviceAccount:harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --role "${role}" --project "${PROJECT_ID}" >/dev/null
+done
 
 # Cloud Run metadata credentials sign short-lived upload/download URLs through
 # IAM Credentials. Scope that authority to the web identity signing as itself.

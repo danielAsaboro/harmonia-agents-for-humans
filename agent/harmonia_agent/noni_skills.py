@@ -167,7 +167,7 @@ def build_noni_google_search_tool(model: str | BaseLlm) -> AgentTool:
             "by that source. Never change strategy, authorize an action, or use private data."
         ),
         tools=[google_search],
-        output_schema=GroundedWebResearch,
+        output_schema=vertex_output_schema(GroundedWebResearch),
         output_key="grounded_web_research",
         mode="single_turn",
     )

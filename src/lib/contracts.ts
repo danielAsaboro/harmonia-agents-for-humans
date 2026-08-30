@@ -9,7 +9,7 @@ export const sourceInputSchema = z.discriminatedUnion("kind", [
 
 export const OUTPUT_KINDS = [
   "x_post", "x_thread", "linkedin_post", "blog_article", "newsletter", "caption", "carousel_spec", "social_image",
-  "quote_card", "diagram", "short_clip", "reel", "generated_broll", "generated_audio", "editorial_calendar", "content_pack",
+  "quote_card", "diagram", "short_clip", "reel", "generated_video", "generated_music", "editorial_calendar", "content_pack",
 ] as const;
 export const outputKindSchema = z.enum(OUTPUT_KINDS);
 
@@ -94,6 +94,13 @@ const modelPolicySchema = z.object({
   minimumPassRate: z.string().regex(/^(0(\.\d+)?|1(\.0+)?)$/),
 }).strict();
 
+const productionBudgetAuthorizationSchema = z.object({
+  planId: z.string().min(1).max(256),
+  operationId: z.string().min(1).max(512),
+  claimId: z.string().min(1).max(256),
+  claimToken: z.string().min(32).max(512),
+}).strict();
+
 export const budgetReservationSchema = z.object({
   jobId: z.string().min(1),
   operationId: z.string().min(1),
@@ -103,7 +110,15 @@ export const budgetReservationSchema = z.object({
   estimatedCostUsd: usdDecimalSchema,
   pricingVersion: z.string().min(1),
   modelPolicy: modelPolicySchema.optional(),
-}).strict();
+  productionAuthorization: productionBudgetAuthorizationSchema.optional(),
+}).strict().superRefine((value, context) => {
+  if (value.stage === "production" && !value.productionAuthorization) {
+    context.addIssue({ code: "custom", path: ["productionAuthorization"], message: "production budget requires sealed claim authorization" });
+  }
+  if (value.stage !== "production" && value.productionAuthorization) {
+    context.addIssue({ code: "custom", path: ["productionAuthorization"], message: "production authorization is valid only for production budget" });
+  }
+});
 
 export const budgetReservationResolutionSchema = z.object({
   jobId: z.string().min(1),
@@ -522,8 +537,8 @@ export const receiptSubmissionSchema = z.object({
     "publish_x_thread",
     "publish_linkedin_post",
     "generate_image",
-    "generate_veo_broll",
-    "generate_lyria_soundtrack",
+    "generate_video",
+    "generate_music",
     "render_clip",
     "render_reel",
   ]),
@@ -542,7 +557,7 @@ export const effectClaimSubmissionSchema = z.object({
   actionId: z.string().min(1),
   actionType: z.enum([
     "export_content_artifact", "publish_x_post", "publish_x_thread", "publish_linkedin_post", "generate_image",
-    "generate_veo_broll", "generate_lyria_soundtrack", "render_clip", "render_reel",
+    "generate_video", "generate_music", "render_clip", "render_reel",
   ]),
   idempotencyKey: z.string().regex(/^[a-f0-9]{64}$/),
   operationId: z.string().min(1).max(240),

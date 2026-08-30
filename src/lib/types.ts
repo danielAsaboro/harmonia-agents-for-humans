@@ -121,7 +121,7 @@ export interface JobSourceManifest {
 export type OutputKind =
   | "x_post" | "x_thread" | "linkedin_post" | "blog_article" | "newsletter" | "caption"
   | "carousel_spec" | "social_image" | "quote_card" | "diagram"
-  | "short_clip" | "reel" | "generated_broll" | "generated_audio" | "editorial_calendar" | "content_pack";
+  | "short_clip" | "reel" | "generated_video" | "generated_music" | "editorial_calendar" | "content_pack";
 
 export interface ProposedOutput { id: string; outputType: OutputKind; quantity: number; destinations: string[]; evidenceRefs: string[]; costClass: "local" | "provider_metered"; approvalClass: "strategy" | "effect" }
 export interface CampaignOutputPlan { id: string; desiredOutputs: OutputKind[]; allowedOutputs: OutputKind[]; outputs: ProposedOutput[]; digest: string }
@@ -395,8 +395,8 @@ export type ActionType =
   | "publish_x_thread"
   | "publish_linkedin_post"
   | "generate_image"
-  | "generate_veo_broll"
-  | "generate_lyria_soundtrack"
+  | "generate_video"
+  | "generate_music"
   | "render_clip"
   | "render_reel";
 

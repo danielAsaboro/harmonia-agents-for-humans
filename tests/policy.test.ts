@@ -35,7 +35,7 @@ describe("evaluateActionPolicy", () => {
   });
 
   it("always gates Veo and Lyria generation behind operator approval", () => {
-    for (const type of ["generate_veo_broll", "generate_lyria_soundtrack"] as const) {
+    for (const type of ["generate_video", "generate_music"] as const) {
       const decision = evaluateActionPolicy(type, { prompt: "launch energy" });
       expect(decision.risk).toBe("medium");
       expect(decision.requiresApproval).toBe(true);

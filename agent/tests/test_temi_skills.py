@@ -15,6 +15,7 @@ from harmonia_agent.temi_skills import (
     build_temi_editorial_planning_skillset,
     bootstrap_temi_trace,
     guard_temi_tool,
+    read_planning_authority,
     validate_temi_trace,
 )
 
@@ -37,6 +38,7 @@ def test_temi_exposes_one_filesystem_skill_and_separate_read_only_tools():
     names = loader_names | set(toolset._provided_tools_by_name)
     assert {"load_skill", "load_skill_resource"}.issubset(loader_names)
     assert {
+        "read_planning_authority",
         "read_editorial_commitments", "read_production_capacity",
         "read_asset_readiness", "read_posting_window_observations",
         "read_calendar_projection", "read_blocked_dependencies",
@@ -60,6 +62,11 @@ def test_temi_skill_activation_declares_every_request_bound_read_tool():
 
 def test_temi_requires_exactly_one_skill_then_references_then_snapshot_reads():
     assert validate_temi_trace(trace(), snapshot_id="planning-job-1-v1") is None
+
+    typed_payload_trace = trace()[:2]
+    assert validate_temi_trace(
+        typed_payload_trace, snapshot_id="planning-job-1-v1",
+    ) is None
 
     duplicate = trace()
     duplicate.insert(1, deepcopy(duplicate[0]))

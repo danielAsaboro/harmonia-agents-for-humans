@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("agent image dependency contract", () => {
@@ -15,5 +15,18 @@ describe("agent image dependency contract", () => {
     expect(dockerfile).toContain("COPY requirements.lock .");
     expect(dockerfile).toContain("pip install --no-cache-dir -r requirements.lock");
     expect(lock).toContain("google-adk==2.7.1");
+  });
+
+  it("installs a build-time browser for unprivileged HyperFrames rendering", () => {
+    expect(dockerfile).toMatch(/apt-get install[^\n]*chromium/);
+    expect(dockerfile).toContain('HYPERFRAMES_BROWSER_PATH="/usr/bin/chromium"');
+  });
+
+  it("excludes workstation dependencies from the Cloud Build source archive", () => {
+    const ignoreUrl = new URL("../agent/.gcloudignore", import.meta.url);
+    expect(existsSync(ignoreUrl)).toBe(true);
+    const ignore = readFileSync(ignoreUrl, "utf8");
+    expect(ignore).toMatch(/^\.venv\/$/m);
+    expect(ignore).toMatch(/^node_modules\/$/m);
   });
 });

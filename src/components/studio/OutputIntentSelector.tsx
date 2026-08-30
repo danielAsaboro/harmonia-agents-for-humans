@@ -6,7 +6,7 @@ const LABELS: Record<OutputKind, string> = {
   x_post: "X post", x_thread: "X thread", linkedin_post: "LinkedIn post", blog_article: "Article",
   newsletter: "Newsletter", caption: "Caption", carousel_spec: "Carousel", social_image: "Social image",
   quote_card: "Quote card", diagram: "Diagram", short_clip: "Short clip", reel: "Reel",
-  generated_broll: "Generated B-roll", generated_audio: "Generated audio",
+  generated_video: "Generated video", generated_music: "Generated music",
   editorial_calendar: "Editorial calendar", content_pack: "Content pack",
 };
 const STATE_LABEL = { verified_export: "Verified export", publish_when_connected: "Publish when connected", unavailable: "Unavailable" } as const;

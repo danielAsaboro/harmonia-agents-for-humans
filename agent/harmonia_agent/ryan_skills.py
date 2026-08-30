@@ -98,7 +98,7 @@ def build_ryan_google_search_tool(model: str | BaseLlm) -> AgentTool:
             "customer research, change strategy, authorize an action, or access private data."
         ),
         tools=[google_search],
-        output_schema=GroundedStrategyResearch,
+        output_schema=vertex_output_schema(GroundedStrategyResearch),
         output_key="grounded_strategy_research",
         mode="single_turn",
     )

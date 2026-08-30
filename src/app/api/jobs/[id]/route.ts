@@ -6,6 +6,7 @@ import { planJobDeletion } from "@/lib/lifecycle";
 import { currentTenant } from "@/lib/tenancy";
 import { getArtifact } from "@/lib/storage";
 import { normalizedSourceSchema } from "@/lib/contracts";
+import { getProductionPlanWorkspaceForJob } from "@/lib/productionPlanStore";
 import { z } from "zod";
 import { listCommandEffectClaimsForJob } from "@/lib/effectCommandStore";
 
@@ -58,7 +59,7 @@ async function get(
     ) === index,
   );
   return Response.json({
-    job: { ...job, sourceRecords, normalizedSources, actions: job.actions.map((action) => ({ ...action, payloadDigest: actionPayloadDigest(action) })) },
+    job: { ...job, sourceRecords, normalizedSources, productionPlan, actions: job.actions.map((action) => ({ ...action, payloadDigest: actionPayloadDigest(action) })) },
     events,
     receipts,
     decisions,

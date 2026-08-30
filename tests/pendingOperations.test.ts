@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { decideOperationRecord, type PendingOperation } from "../src/lib/pendingOperations";
+import { claimOperationDecisionRecord, decideOperationRecord, failOperationDecisionRecord, finalizeOperationDecisionRecord, type PendingOperation } from "../src/lib/pendingOperations";
 
 const pending: PendingOperation = {
   id: "op-1",
@@ -33,5 +33,17 @@ describe("pending operation decisions", () => {
       new Date("2026-08-23T00:30:00.000Z"),
       "operator-1",
     )).toThrow("payload-bound");
+  });
+
+  test("claims production confirmation before side effects and finalizes only after success", () => {
+    const claimed = claimOperationDecisionRecord(
+      { ...pending, handler: "decide_production_plan" }, "approved",
+      new Date("2026-08-23T00:30:00.000Z"), "operator-1",
+    );
+    expect(claimed).toMatchObject({ state: "processing", pendingDecision: "approved", decidedByUserId: "operator-1" });
+    expect(finalizeOperationDecisionRecord(claimed, "approved", new Date("2026-08-23T00:31:00.000Z")))
+      .toMatchObject({ state: "approved", decidedAt: "2026-08-23T00:31:00.000Z" });
+    expect(failOperationDecisionRecord(claimed, "sealed digest changed", new Date("2026-08-23T00:31:00.000Z")))
+      .toMatchObject({ state: "failed", failureReason: "sealed digest changed" });
   });
 });

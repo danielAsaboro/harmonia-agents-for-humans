@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:integration": "bash scripts/test-firestore-integration.sh",
     "test:agent": "cd agent && ./.venv/bin/python -m pytest tests -q",
+    "demo-history": "tsx scripts/create-demo-history.ts",
     "verify:evidence": "tsx scripts/verify-vertical-slice-evidence.ts",
     "verify:durable-runtime": "tsx scripts/verify-durable-runtime.ts",
     "replay:record": "tsx scripts/record-authenticated-run.ts",

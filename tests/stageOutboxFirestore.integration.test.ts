@@ -11,6 +11,7 @@ import {
   retryFailedJobWithOutbox,
   transitionStageWithOutbox,
 } from "@/lib/firestore";
+import { createSourceJob } from "@/lib/sourceManifest";
 import { runWithTenant } from "@/lib/tenancy";
 
 const emulator = process.env.FIRESTORE_EMULATOR_HOST;
@@ -21,9 +22,49 @@ const scope = {
 };
 
 describe.skipIf(!emulator)("stage outbox Firestore transaction", () => {
+  it("omits undefined optional job configuration before persistence", async () => {
+    const job = await runWithTenant(scope, () => createJob({
+      sourceManifestId: "manifest-optional-config",
+      desiredOutputs: ["x_post"],
+      allowedOutputs: ["x_post"],
+      platforms: ["x"],
+      strategyContext: undefined,
+      analysisResearchRequest: undefined,
+    }, "collect_sources"));
+
+    const snapshot = await db().doc(`workspaces/${scope.workspaceId}/jobs/${job.id}`).get();
+    expect(snapshot.get("config")).toEqual({
+      sourceManifestId: "manifest-optional-config",
+      desiredOutputs: ["x_post"],
+      allowedOutputs: ["x_post"],
+      platforms: ["x"],
+    });
+  });
+
+  it("persists a direct-source manifest without undefined optional fields", async () => {
+    const job = await runWithTenant(scope, () => createSourceJob({
+      directSources: [{
+        kind: "pasted_text",
+        title: "Harmonia brief",
+        text: "Harmonia turns source material into approval-gated content.",
+        rightsAuthorizationId: "rights:harmonia-brief",
+      }],
+      desiredOutputs: ["x_post"],
+      allowedOutputs: ["x_post"],
+      platforms: ["x"],
+    }));
+
+    const manifests = await db().collection(`workspaces/${scope.workspaceId}/jobs/${job.id}/source_manifests`).get();
+    expect(manifests.size).toBe(1);
+    expect(manifests.docs[0].data()).not.toHaveProperty("librarySnapshotId");
+  });
+
   it("atomically creates the initial trigger and grants one concurrent publisher", async () => {
     const job = await runWithTenant(scope, () => createJob({ sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, "understand"));
-    const [record] = await runWithTenant(scope, () => listDispatchableStageOutbox());
+    const records = await runWithTenant(scope, () => listDispatchableStageOutbox());
+    const record = records.find((candidate) => candidate.jobId === job.id);
+    expect(record).toBeDefined();
+    if (!record) throw new Error("job stage outbox not found");
     expect(record).toMatchObject({ jobId: job.id, stage: "understand", state: "pending" });
 
     const outcomes = await runWithTenant(scope, () => Promise.all([

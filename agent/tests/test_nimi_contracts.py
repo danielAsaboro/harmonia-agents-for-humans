@@ -4,6 +4,15 @@ import pytest
 from pydantic import ValidationError
 
 from harmonia_agent.agent_models import AnalystInput, SourceAnalysis
+from harmonia_agent.nimi_prompt import NIMI_ANALYST_INSTRUCTION
+
+
+def test_nimi_prompt_states_the_cross_field_confidence_invariant():
+    assert "High confidence requires an empty assumptions list" in NIMI_ANALYST_INSTRUCTION
+
+
+def test_nimi_prompt_reserves_clip_moments_for_timed_evidence():
+    assert "When no time_range source segment exists, moments must be empty" in NIMI_ANALYST_INSTRUCTION
 
 
 def analyst_input() -> dict:

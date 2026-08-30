@@ -51,8 +51,8 @@ export interface StudioWorkspaceModel {
 }
 
 function providerFor(type: PlannedAction["type"]): StudioAsset["provider"] {
-  if (type === "generate_veo_broll") return "veo";
-  if (type === "generate_lyria_soundtrack") return "lyria";
+  if (type === "generate_video") return "veo";
+  if (type === "generate_music") return "lyria";
   return undefined;
 }
 

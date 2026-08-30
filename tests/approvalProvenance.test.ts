@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { firebasePrincipal, telegramPrincipal } from "@/lib/authority";
+import { firebasePrincipal, requireProductionOperator, telegramPrincipal } from "@/lib/authority";
 import { approvalActor, assertApprovalPayload } from "@/lib/decisions";
 import { actionPayloadDigest } from "@/lib/idempotency";
 import type { PlannedAction } from "@/lib/types";
@@ -54,5 +54,18 @@ describe("approval provenance", () => {
       chatIdDigest: "a".repeat(64),
       callbackQueryIdDigest: "b".repeat(64),
     })))).toMatchObject({ actorType: "telegram_operator", channel: "telegram" });
+  });
+
+  it("permits paid-production approval only for administrators or allow-listed Telegram operators", () => {
+    expect(() => requireProductionOperator(context(firebasePrincipal({
+      subjectId: "member-1", workspaceRole: "member", authenticationId: "session-member",
+    })))).toThrow(/administrator/i);
+    expect(requireProductionOperator(context(firebasePrincipal({
+      subjectId: "admin-1", workspaceRole: "admin", authenticationId: "session-admin",
+    })))).toMatchObject({ subjectId: "admin-1" });
+    expect(requireProductionOperator(context(telegramPrincipal({
+      subjectId: "telegram-1", authenticationId: "update-1",
+      chatIdDigest: "a".repeat(64), callbackQueryIdDigest: "b".repeat(64),
+    })))).toMatchObject({ subjectId: "telegram-1" });
   });
 });

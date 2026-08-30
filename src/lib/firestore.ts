@@ -920,7 +920,7 @@ export interface TelegramDecisionNonceDoc {
   brandId: string;
   jobId: string;
   actionId: string;
-  target: "effect" | "strategy" | "strategy_feedback";
+  target: "effect" | "strategy" | "strategy_feedback" | "production";
   payloadDigest: string;
   decision: "approved" | "rejected";
   feedback?: string;
@@ -1326,6 +1326,8 @@ export async function createJob(
   const id = newId();
   const now = new Date().toISOString();
   const storedConfig: JobConfig = { ...config };
+  if (storedConfig.strategyContext === undefined) delete storedConfig.strategyContext;
+  if (storedConfig.analysisResearchRequest === undefined) delete storedConfig.analysisResearchRequest;
   if (!storedConfig.strategyContext) {
     const goals = await getGoals();
     if (goals.strategyContext) storedConfig.strategyContext = goals.strategyContext;
@@ -1502,6 +1504,7 @@ export interface BudgetReservation extends CostReservationState {
 
 export async function reserveJobBudget(
   input: Omit<BudgetReservation, "accepted" | "createdAt" | keyof CostReservationState>,
+  options: { approvalAuthorized?: boolean } = {},
 ): Promise<{ reserved: boolean; duplicate: boolean; budget: JobBudget }> {
   const ref = jobRef(input.jobId);
   const reservationRef = ref.collection(COST_RESERVATIONS).doc(input.operationId);
@@ -1525,7 +1528,7 @@ export async function reserveJobBudget(
       limitUsd: parseBudgetConfig(process.env).DEFAULT_WORKSPACE_BUDGET_USD,
       approvalThresholdUsd: budget.approvalThresholdUsd,
     };
-    const accepted = !exceedsApprovalThreshold(budget, input.estimatedCostUsd)
+    const accepted = (options.approvalAuthorized || !exceedsApprovalThreshold(budget, input.estimatedCostUsd))
       && canReserve(budget, input.estimatedCostUsd)
       && canReserve(workspaceBudget, input.estimatedCostUsd);
     const now = new Date();

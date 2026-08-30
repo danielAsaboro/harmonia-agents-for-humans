@@ -6,12 +6,12 @@ set -euo pipefail
 PROJECT_ID="${PROJECT_ID:?set PROJECT_ID}"
 REGION="${REGION:-us-central1}"
 MODEL_ID="${MODEL_ID:-gemini-3.5-flash}"
-COORDINATOR_MODEL_ID="${COORDINATOR_MODEL_ID:-gemini-3.5-flash-lite}"
+COORDINATOR_MODEL_ID="${COORDINATOR_MODEL_ID:-gemini-3.5-flash}"
 STRATEGIST_MODEL_ID="${STRATEGIST_MODEL_ID:-gemini-3.5-flash}"
 ANALYST_MODEL_ID="${ANALYST_MODEL_ID:-gemini-3.5-flash}"
 COPYWRITER_MODEL_ID="${COPYWRITER_MODEL_ID:-gemini-3.5-flash}"
 EDITOR_MODEL_ID="${EDITOR_MODEL_ID:-gemini-3.5-flash}"
-PLANNER_MODEL_ID="${PLANNER_MODEL_ID:-gemini-3.5-flash-lite}"
+PLANNER_MODEL_ID="${PLANNER_MODEL_ID:-gemini-3.5-flash}"
 PRESENTER_MODEL_ID="${PRESENTER_MODEL_ID:-gemini-3.5-flash}"
 MODEL_PRICING_VERSION="${MODEL_PRICING_VERSION:-2026-08-23}"
 DEFAULT_JOB_BUDGET_USD="${DEFAULT_JOB_BUDGET_USD:-5.00}"
@@ -24,6 +24,9 @@ MEMORY_BANK_RESOURCE="${MEMORY_BANK_RESOURCE:-${AGENT_ENGINE_RESOURCE}}"
 GENERATIVE_MEDIA_ENABLED="${GENERATIVE_MEDIA_ENABLED:-false}"
 ALLOW_GLOBAL_LYRIA="${ALLOW_GLOBAL_LYRIA:-false}"
 VERTEX_MEDIA_LOCATION="${VERTEX_MEDIA_LOCATION:-${REGION}}"
+LYRIA_3_CLIP_COST_USD="${LYRIA_3_CLIP_COST_USD:-}"
+LYRIA_3_PRO_COST_USD="${LYRIA_3_PRO_COST_USD:-}"
+VEO_3_1_COST_PER_SECOND_USD="${VEO_3_1_COST_PER_SECOND_USD:-}"
 FIREBASE_API_KEY="${FIREBASE_API_KEY:?set FIREBASE_API_KEY for Identity Platform web sign-in}"
 FIREBASE_AUTH_DOMAIN="${FIREBASE_AUTH_DOMAIN:-${PROJECT_ID}.firebaseapp.com}"
 FIREBASE_APP_ID="${FIREBASE_APP_ID:?set FIREBASE_APP_ID for the registered web application}"
@@ -67,6 +70,10 @@ if [[ "${GENERATIVE_MEDIA_ENABLED}" == "true" && "${ALLOW_GLOBAL_LYRIA}" != "tru
   echo "generative media includes global Lyria; set ALLOW_GLOBAL_LYRIA=true only after an approved residency-policy exception" >&2
   exit 2
 fi
+if [[ "${GENERATIVE_MEDIA_ENABLED}" == "true" && -z "${LYRIA_3_CLIP_COST_USD}" ]]; then
+  echo "LYRIA_3_CLIP_COST_USD must be configured before enabling paid preview generation" >&2
+  exit 1
+fi
 
 if [[ -z "${MEMORY_BANK_RESOURCE}" ]]; then
   echo "MEMORY_BANK_RESOURCE is required when MEMORY_BANK_ENABLED=true" >&2
@@ -82,9 +89,10 @@ secret_exists() {
 
 record_release_identity() {
   local service="$1"
-  local revision digest source_commit
+  local revision image_identity digest source_commit
   revision="$(gcloud run services describe "${service}" --region "${REGION}" --project "${PROJECT_ID}" --format 'value(status.latestReadyRevisionName)')"
-  digest="$(gcloud run revisions describe "${revision}" --region "${REGION}" --project "${PROJECT_ID}" --format 'value(status.imageDigest)')"
+  image_identity="$(gcloud run revisions describe "${revision}" --region "${REGION}" --project "${PROJECT_ID}" --format 'value(status.imageDigest)')"
+  digest="${image_identity##*@}"
   if [[ -z "${revision}" || ! "${digest}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
     echo "could not resolve immutable release identity for ${service}" >&2
     exit 2
@@ -131,7 +139,7 @@ if secret_exists x-oauth-client-id || secret_exists x-oauth-client-secret; then
     WEB_SECRETS="${WEB_SECRETS},${env_name}=${secret_name}:latest"
   done
 fi
-WEB_ENV="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GCS_BUCKET=${GCS_BUCKET},PUBSUB_DATA_TOPIC=harmonia-data-work,MODEL_ID=${MODEL_ID},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},DEFAULT_WORKSPACE_BUDGET_USD=${DEFAULT_WORKSPACE_BUDGET_USD},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-web,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false"
+WEB_ENV="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GCS_BUCKET=${GCS_BUCKET},PUBSUB_DATA_TOPIC=harmonia-data-work,PUBSUB_PRODUCTION_TOPIC=harmonia-production,MODEL_ID=${MODEL_ID},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},LYRIA_3_CLIP_COST_USD=${LYRIA_3_CLIP_COST_USD},VEO_3_1_COST_PER_SECOND_USD=${VEO_3_1_COST_PER_SECOND_USD},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},DEFAULT_WORKSPACE_BUDGET_USD=${DEFAULT_WORKSPACE_BUDGET_USD},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-web,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false"
 if [[ -n "${MALWARE_SCANNER_URL:-}" ]] && secret_exists malware-scanner-token; then
   WEB_SECRETS="${WEB_SECRETS},MALWARE_SCANNER_TOKEN=malware-scanner-token:latest"
   WEB_ENV="${WEB_ENV},MALWARE_SCANNER_URL=${MALWARE_SCANNER_URL}"
@@ -176,7 +184,8 @@ for pair in GEMINI_API_KEY:gemini-api-key YOUTUBE_API_KEY:youtube-api-key GOOGLE
     echo "  secret '${secret_name}' not found; ${env_name} left unset"
   fi
 done
-AGENT_ENV="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},WEB_INTERNAL_URL=${WEB_URL},GOOGLE_CSE_ID=${GOOGLE_CSE_ID},PUBSUB_STAGE_TOPIC=harmonia-stages,MODEL_ID=${MODEL_ID},COORDINATOR_MODEL_ID=${COORDINATOR_MODEL_ID},STRATEGIST_MODEL_ID=${STRATEGIST_MODEL_ID},ANALYST_MODEL_ID=${ANALYST_MODEL_ID},COPYWRITER_MODEL_ID=${COPYWRITER_MODEL_ID},EDITOR_MODEL_ID=${EDITOR_MODEL_ID},PLANNER_MODEL_ID=${PLANNER_MODEL_ID},PRESENTER_MODEL_ID=${PRESENTER_MODEL_ID},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},IMAGE_MAX_COST_USD=${IMAGE_MAX_COST_USD},AGENT_ENGINE_RESOURCE=${AGENT_ENGINE_RESOURCE},MEMORY_BANK_ENABLED=${MEMORY_BANK_ENABLED},MEMORY_BANK_RESOURCE=${MEMORY_BANK_RESOURCE},GENERATIVE_MEDIA_ENABLED=${GENERATIVE_MEDIA_ENABLED},ALLOW_GLOBAL_LYRIA=${ALLOW_GLOBAL_LYRIA},VERTEX_MEDIA_LOCATION=${VERTEX_MEDIA_LOCATION},DURABLE_RECOVERY_LIMIT=${DURABLE_RECOVERY_LIMIT},DURABLE_RECOVERY_DEADLINE_SECONDS=${DURABLE_RECOVERY_DEADLINE_SECONDS},DURABLE_RECOVERY_MAX_RETRIES=${DURABLE_RECOVERY_MAX_RETRIES},DURABLE_RECOVERY_MAX_COST_USD=${DURABLE_RECOVERY_MAX_COST_USD},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-agent,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false"
+AGENT_ENV="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},WEB_INTERNAL_URL=${WEB_URL},GOOGLE_CSE_ID=${GOOGLE_CSE_ID},PUBSUB_STAGE_TOPIC=harmonia-stages,MODEL_ID=${MODEL_ID},COORDINATOR_MODEL_ID=${COORDINATOR_MODEL_ID},STRATEGIST_MODEL_ID=${STRATEGIST_MODEL_ID},ANALYST_MODEL_ID=${ANALYST_MODEL_ID},COPYWRITER_MODEL_ID=${COPYWRITER_MODEL_ID},EDITOR_MODEL_ID=${EDITOR_MODEL_ID},PLANNER_MODEL_ID=${PLANNER_MODEL_ID},PRESENTER_MODEL_ID=${PRESENTER_MODEL_ID},MODEL_PRICING_VERSION=${MODEL_PRICING_VERSION},DEFAULT_JOB_BUDGET_USD=${DEFAULT_JOB_BUDGET_USD},DEFAULT_JOB_APPROVAL_THRESHOLD_USD=${DEFAULT_JOB_APPROVAL_THRESHOLD_USD},IMAGE_MAX_COST_USD=${IMAGE_MAX_COST_USD},AGENT_ENGINE_RESOURCE=${AGENT_ENGINE_RESOURCE},MEMORY_BANK_ENABLED=${MEMORY_BANK_ENABLED},MEMORY_BANK_RESOURCE=${MEMORY_BANK_RESOURCE},GENERATIVE_MEDIA_ENABLED=${GENERATIVE_MEDIA_ENABLED},ALLOW_GLOBAL_LYRIA=${ALLOW_GLOBAL_LYRIA},VERTEX_MEDIA_LOCATION=${VERTEX_MEDIA_LOCATION},LYRIA_3_CLIP_COST_USD=${LYRIA_3_CLIP_COST_USD},LYRIA_3_PRO_COST_USD=${LYRIA_3_PRO_COST_USD},VEO_3_1_COST_PER_SECOND_USD=${VEO_3_1_COST_PER_SECOND_USD},DURABLE_RECOVERY_LIMIT=${DURABLE_RECOVERY_LIMIT},DURABLE_RECOVERY_DEADLINE_SECONDS=${DURABLE_RECOVERY_DEADLINE_SECONDS},DURABLE_RECOVERY_MAX_RETRIES=${DURABLE_RECOVERY_MAX_RETRIES},DURABLE_RECOVERY_MAX_COST_USD=${DURABLE_RECOVERY_MAX_COST_USD},HARMONIA_TELEMETRY_ENABLED=1,HARMONIA_TELEMETRY_SAMPLE_RATE=1.0,OTEL_SERVICE_NAME=harmonia-agent,OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false"
+AGENT_ENV="${AGENT_ENV},GCS_BUCKET=${GCS_BUCKET}"
 
 echo "== Deploying harmonia-agent (Python ADK worker) =="
 AGENT_IMAGE_TAG="${IMAGE_REPOSITORY}/harmonia-agent:${SOURCE_COMMIT}"
@@ -188,7 +197,7 @@ gcloud run deploy harmonia-agent \
   --service-account "harmonia-agent@${PROJECT_ID}.iam.gserviceaccount.com" \
   --no-allow-unauthenticated \
   --min-instances 1 --max-instances 1 --no-cpu-throttling \
-  --timeout 300 \
+  --timeout 1200 \
   --set-env-vars "${AGENT_ENV}" \
   --set-secrets "${AGENT_SECRETS}" \
   --project "${PROJECT_ID}"
@@ -221,6 +230,9 @@ PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format 'value(proje
 gcloud pubsub topics add-iam-policy-binding harmonia-stages-dlq \
   --member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
   --role roles/pubsub.publisher --project "${PROJECT_ID}" >/dev/null
+gcloud pubsub topics add-iam-policy-binding harmonia-production-dlq \
+  --member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
+  --role roles/pubsub.publisher --project "${PROJECT_ID}" >/dev/null
 
 if gcloud pubsub subscriptions describe harmonia-stages-agent-push --project "${PROJECT_ID}" >/dev/null 2>&1; then
   gcloud pubsub subscriptions update harmonia-stages-agent-push \
@@ -249,6 +261,33 @@ else
     --project "${PROJECT_ID}"
 fi
 
+if gcloud pubsub subscriptions describe harmonia-production-agent-push --project "${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud pubsub subscriptions update harmonia-production-agent-push \
+    --push-endpoint "${AGENT_URL}/pubsub/production" \
+    --push-auth-service-account "harmonia-pubsub-push@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --push-auth-token-audience "${AGENT_URL}/pubsub/production" \
+    --ack-deadline 300 \
+    --dead-letter-topic "projects/${PROJECT_ID}/topics/harmonia-production-dlq" \
+    --max-delivery-attempts 5 \
+    --min-retry-delay 10s \
+    --max-retry-delay 600s \
+    --message-retention-duration 7d \
+    --project "${PROJECT_ID}"
+else
+  gcloud pubsub subscriptions create harmonia-production-agent-push \
+    --topic harmonia-production \
+    --push-endpoint "${AGENT_URL}/pubsub/production" \
+    --push-auth-service-account "harmonia-pubsub-push@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --push-auth-token-audience "${AGENT_URL}/pubsub/production" \
+    --ack-deadline 300 \
+    --dead-letter-topic "projects/${PROJECT_ID}/topics/harmonia-production-dlq" \
+    --max-delivery-attempts 5 \
+    --min-retry-delay 10s \
+    --max-retry-delay 600s \
+    --message-retention-duration 7d \
+    --project "${PROJECT_ID}"
+fi
+
 echo "== Wiring bounded durable recovery wake =="
 RECOVERY_SCHEDULER_ARGS=(
   --location "${REGION}"
@@ -268,6 +307,9 @@ else
 fi
 
 gcloud pubsub subscriptions add-iam-policy-binding harmonia-stages-agent-push \
+  --member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
+  --role roles/pubsub.subscriber --project "${PROJECT_ID}" >/dev/null
+gcloud pubsub subscriptions add-iam-policy-binding harmonia-production-agent-push \
   --member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-pubsub.iam.gserviceaccount.com" \
   --role roles/pubsub.subscriber --project "${PROJECT_ID}" >/dev/null
 

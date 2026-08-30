@@ -51,5 +51,7 @@ export function sealManifest(manifest: Omit<JobSourceManifest, "digest">): JobSo
   if (manifest.directSourceIds.length > 10) throw new Error("manifest exceeds ten direct sources");
   if (!manifest.librarySnapshotId && manifest.directSourceIds.length === 0) throw new Error("manifest requires at least one source selection");
   if (new Set(manifest.directSourceIds).size !== manifest.directSourceIds.length) throw new Error("manifest direct sources must be unique");
-  return { ...manifest, digest: manifestDigest(manifest) };
+  const sealed: JobSourceManifest = { ...manifest, digest: manifestDigest(manifest) };
+  if (sealed.librarySnapshotId === undefined) delete sealed.librarySnapshotId;
+  return sealed;
 }

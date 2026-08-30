@@ -12,12 +12,15 @@ import re
 import unicodedata
 import time
 from datetime import datetime, timedelta, timezone
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 from google.adk.agents import Agent
+from google.adk.models._capabilities import LlmCapabilities
 from google.adk.models.base_llm import BaseLlm
+from google.adk.models.llm_response import LlmResponse
+from google.genai import types
 from pydantic import BaseModel, ValidationError
 
 from .agent_models import (
@@ -58,6 +61,7 @@ from .agent_errors import AgentContractError
 from .config import settings
 from .generation_policy import generation_config
 from .model_catalog import PRICING_VERSION, estimate_text_cost
+from .provider_schema import vertex_output_schema
 from .memory_bank import MemoryBank, MemoryScope, VertexMemoryBank
 from .memory_bank import MemoryFact as RetrievedMemoryFact
 from .agent_models import MemoryFact as StrategyMemoryFact
@@ -382,6 +386,14 @@ def _instance_model_id(model: str | BaseLlm) -> str:
     return model if isinstance(model, str) else model.model
 
 
+def _located_model(model_id: str) -> str | BaseLlm:
+    location = os.environ.get("GEMINI_VERTEX_LOCATION")
+    if not location:
+        return model_id
+    from google.adk.models.google_llm import Gemini
+    return Gemini(model=model_id, client_kwargs={"vertexai": True, "location": location})
+
+
 def _resolve_role_models(
     model: str | BaseLlm | None = None,
     models: RoleModelInstances | None = None,
@@ -406,14 +418,14 @@ def _resolve_role_models(
     catalog = load_role_model_catalog()
     configs = {item.role: item for item in catalog.roles()}
     return RoleModelInstances(
-        coordinator=catalog.coordinator.model_id,
-        strategist=catalog.strategist.model_id,
-        analyst=catalog.analyst.model_id,
-        copywriter=catalog.copywriter.model_id,
-        editor=catalog.editor.model_id,
-        planner=catalog.planner.model_id,
-        presenter=catalog.presenter.model_id,
-        liaison=catalog.liaison.model_id,
+        coordinator=_located_model(catalog.coordinator.model_id),
+        strategist=_located_model(catalog.strategist.model_id),
+        analyst=_located_model(catalog.analyst.model_id),
+        copywriter=_located_model(catalog.copywriter.model_id),
+        editor=_located_model(catalog.editor.model_id),
+        planner=_located_model(catalog.planner.model_id),
+        presenter=_located_model(catalog.presenter.model_id),
+        liaison=_located_model(catalog.liaison.model_id),
         configs=configs,
     )
 
@@ -582,7 +594,7 @@ def build_agent_team(
         description="Writes one platform-native X draft grounded in supplied moments and angles.",
         instruction=_with_handoff_protocol(NONI_COPYWRITER_INSTRUCTION),
         input_schema=CopywriterInput,
-        output_schema=ContentDraft,
+        output_schema=vertex_output_schema(ContentDraft),
         output_key="copywriter_draft",
         tools=[
             build_noni_writing_skillset(),
@@ -599,7 +611,7 @@ def build_agent_team(
         description="Returns a structured review of one exact Noni draft without rewriting it.",
         instruction=_with_handoff_protocol(DARA_EDITOR_INSTRUCTION),
         input_schema=EditorialReviewInput,
-        output_schema=EditorialAssessment,
+        output_schema=vertex_output_schema(EditorialAssessment),
         output_key="editorial_assessment",
         tools=[build_dara_editing_skillset()],
         mode="single_turn",

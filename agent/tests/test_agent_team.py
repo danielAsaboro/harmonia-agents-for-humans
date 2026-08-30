@@ -30,10 +30,13 @@ from harmonia_agent.agent_models import (
 )
 from harmonia_agent.content_artifacts import ArtifactProductionInput, ArtifactReviewBatch, ProductionBatch
 from harmonia_agent.agents import (
+    DeterministicCoordinator,
     AgentProtocolError,
+    _enforce_requested_specialist_transfer,
     _reservation_payloads,
     _role_task,
     _resolve_role_models,
+    _role_task,
     _run_coordinator,
     _validate_run_output,
     _validate_strategy_result,
@@ -49,7 +52,13 @@ from harmonia_agent.a2ui_models import UiContext
 from harmonia_agent.stages import classify_failure
 from harmonia_agent.tenant_context import tenant_scope
 from harmonia_agent.generation_policy import safety_settings
+from harmonia_agent.provider_schema import vertex_output_schema
 from harmonia_agent.usage import InvocationContext
+
+
+def test_artifact_specialists_have_budget_eligibility_tasks():
+    assert _role_task("noni_artifact_producer", "noni_artifact_producer", _planner_input()) == "produce_artifacts"
+    assert _role_task("dara_artifact_editor", "dara_artifact_editor", _planner_input()) == "review_artifacts"
 
 
 def _temi_plan():
@@ -295,20 +304,41 @@ class ManagedRuntime:
 def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
     root = build_agent_team()
 
+    assert isinstance(root, DeterministicCoordinator)
     assert root.name == "harmonia_coordinator"
     assert [(a.name, a.mode) for a in root.sub_agents] == [
         ("harmonia_intent_router", "single_turn"),
         ("ryan_strategist", "single_turn"),
         ("nimi_analyst", "single_turn"),
-        ("temi_editorial_planner", "single_turn"),
+        ("temi_editorial_planner", "chat"),
         ("noni_copywriter", "single_turn"),
         ("dara_editor", "single_turn"),
-        ("noni_artifact_producer", "single_turn"),
-        ("dara_artifact_editor", "single_turn"),
+        ("noni_artifact_producer", "chat"),
+        ("dara_artifact_editor", "chat"),
         ("maya_presenter", "single_turn"),
         ("nova_liaison", "chat"),
     ]
     assert not hasattr(root, "tools")
+
+
+def test_coordinator_selects_only_the_request_bound_specialist_without_an_llm_transfer():
+    root = build_agent_team()
+
+    assert root.specialist_for_state(
+        {"requested_specialist": "temi_editorial_planner"},
+    ).name == "temi_editorial_planner"
+    with pytest.raises(AgentProtocolError, match="valid requested specialist"):
+        root.specialist_for_state({"requested_specialist": "unknown"})
+
+
+def test_coordinator_router_reads_only_explicit_request_bound_metadata():
+    root = build_agent_team()
+
+    assert root.model.specialist_from_message(
+        '{"requestedSpecialist":"temi_editorial_planner","strategy":{}}',
+    ) == "temi_editorial_planner"
+    with pytest.raises(AgentProtocolError, match="valid requested specialist"):
+        root.model.specialist_from_message('{"requestedSpecialist":"unknown"}')
 
 
 def test_noni_is_a_focused_skill_backed_typed_specialist():
@@ -317,7 +347,7 @@ def test_noni_is_a_focused_skill_backed_typed_specialist():
 
     assert noni.name == "noni_copywriter"
     assert noni.input_schema is CopywriterInput
-    assert noni.output_schema is ContentDraft
+    assert noni.output_schema == vertex_output_schema(ContentDraft)
     assert noni.output_key == "copywriter_draft"
     assert noni.mode == "single_turn"
     assert len(noni.tools) == 2
@@ -344,7 +374,7 @@ def test_dara_is_a_focused_skill_only_review_specialist():
     root = build_agent_team()
     dara = next(agent for agent in root.sub_agents if agent.name == "dara_editor")
 
-    assert dara.output_schema is EditorialAssessment
+    assert dara.output_schema == vertex_output_schema(EditorialAssessment)
     assert dara.output_key == "editorial_assessment"
     assert dara.mode == "single_turn"
     assert len(dara.tools) == 1
@@ -405,6 +435,12 @@ def test_team_applies_each_roles_generation_and_safety_policy():
     assert "minLength" not in json.dumps(analyst.output_schema)
     assert "pattern" not in json.dumps(analyst.output_schema)
     assert "title" in analyst.output_schema["properties"]["angles"]["items"]["properties"]
+
+    strategist = next(agent for agent in root.sub_agents if agent.name == "ryan_strategist")
+    assert strategist.generate_content_config.max_output_tokens == 8192
+    assert strategist.generate_content_config.temperature == 0.1
+    assert strategist.output_schema is None
+    assert strategist.output_key == "strategist_result"
 
     planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
     copywriter = next(agent for agent in root.sub_agents if agent.name == "noni_copywriter")
@@ -534,6 +570,19 @@ def test_coordinator_really_delegates_and_forwards_specialist_state():
     assert runtime.calls[0]["user_id"] == "workspace-test:system:proactive"
 
 
+def test_coordinator_rewrites_model_transfer_to_the_requested_specialist():
+    class Tool:
+        name = "transfer_to_agent"
+
+    class Context:
+        state = {"requested_specialist": "nimi_analyst"}
+
+    args = {"agent_name": "nova_liaison"}
+
+    assert _enforce_requested_specialist_transfer(Tool(), args, Context()) is None
+    assert args == {"agent_name": "nimi_analyst"}
+
+
 def test_analyst_receives_source_video_as_typed_time_range_evidence():
     runtime = ManagedRuntime()
     with tenant_scope("workspace-test", "brand-test"):
@@ -556,6 +605,17 @@ def test_temi_runs_as_a_distinct_skill_backed_typed_specialist():
     assert planner.tools == []
     assert planner.before_agent_callback.__name__ == "bootstrap_temi_trace"
     assert "write final post" in " ".join(planner.instruction.split())
+
+
+def test_temi_prompt_bounds_the_vertical_slice_response():
+    from harmonia_agent.role_models import load_role_model_catalog
+    from harmonia_agent.temi_prompt import TEMI_EDITORIAL_PLANNER_INSTRUCTION
+
+    assert "Load exactly one relevant approved reference" in TEMI_EDITORIAL_PLANNER_INSTRUCTION
+    assert "exact typed request payload" in TEMI_EDITORIAL_PLANNER_INSTRUCTION
+    assert "Return exactly one plan item" in TEMI_EDITORIAL_PLANNER_INSTRUCTION
+    assert "Use only low, medium, or high" in TEMI_EDITORIAL_PLANNER_INSTRUCTION
+    assert load_role_model_catalog().planner.max_output_tokens == 8192
 
 
 def test_temi_delegation_validates_the_returned_plan():

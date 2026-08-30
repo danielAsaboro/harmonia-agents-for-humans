@@ -12,11 +12,12 @@ Harmonia's local stack uses the official Firestore and Pub/Sub emulators and exe
 | Component | Service |
 |---|---|
 | Next.js web app | Cloud Run (with Firestore + Pub/Sub access) |
-| ADK worker | Cloud Run service with a Pub/Sub **push subscription** to `/pubsub/push`, authenticated via OIDC service account |
+| ADK worker | Cloud Run service with separate Pub/Sub **push subscriptions** to `/pubsub/push` and `/pubsub/production`, authenticated via OIDC service account |
 | Cognitive runtime | Vertex AI Agent Engine (mandatory in the managed worker; no in-process fallback) |
 | Long-term context | Agent Engine Memory Bank, exact workspace + brand scope |
 | State | Cloud Firestore (native mode) |
 | Stage triggers | Pub/Sub topic `harmonia-stages` |
+| Paid production triggers | Pub/Sub topic `harmonia-production` |
 | Media assets | Cloud Storage (`GCS_BUCKET`) |
 
 Firestore also owns the durable runtime's tenant-scoped `operations`, `event_inbox`,

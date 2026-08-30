@@ -7,7 +7,7 @@ import {
 } from "./effectClaims";
 import {
   effectCommandDigest, markEffectDispatched, markEffectObserved, markEffectProgress,
-  markEffectUnknown, restoreEffectPrepared, type EffectCommand,
+  markEffectUnknown, markEffectWaitingProvider, restoreEffectPrepared, type EffectCommand,
   type EffectObservedOutcome,
 } from "./effectCommands";
 import {
@@ -94,10 +94,10 @@ export async function getCommand(commandId: string): Promise<EffectCommand | nul
 }
 
 export async function listDueCommands(now = new Date()): Promise<EffectCommand[]> {
-  const snaps = await commands().where("state", "in", ["prepared", "pending"]).get();
+  const snaps = await commands().where("state", "in", ["prepared", "waiting_provider", "pending"]).get();
   return snaps.docs
     .map((doc) => doc.data() as EffectCommand)
-    .filter((command) => !command.executeAfter || Date.parse(command.executeAfter) <= now.getTime())
+    .filter((command) => (!command.executeAfter || Date.parse(command.executeAfter) <= now.getTime()) && (!command.nextPollAt || Date.parse(command.nextPollAt) <= now.getTime()))
     .sort((a, b) => Date.parse(a.executeAfter ?? a.createdAt) - Date.parse(b.executeAfter ?? b.createdAt));
 }
 
@@ -246,6 +246,7 @@ export type EffectDispatchTransition =
   | { phase: "dispatched"; claimToken: string; attempt: number }
   | { phase: "progress"; claimToken: string; progress: { kind: "x_thread"; confirmedPostIds: string[] } }
   | { phase: "provider_not_started"; claimToken: string }
+  | { phase: "provider_pending"; claimToken: string; providerOperationId: string; nextPollAt: string }
   | { phase: "observed"; claimToken: string; outcome: EffectObservedOutcome; artifact?: unknown; detail: Record<string, unknown> }
   | { phase: "unknown"; claimToken: string; reason: string };
 
@@ -298,6 +299,15 @@ export async function transitionCommandEffect(
         detail: input.detail, now: fence.now,
       });
       nextClaim = markEffectClaimObserved(claim, input.claimToken, fence.now);
+    } else if (input.phase === "provider_pending") {
+      nextCommand = markEffectWaitingProvider(command, {
+        operationId: fence.operationId, operationEpoch: fence.epoch,
+        providerOperationId: input.providerOperationId, nextPollAt: input.nextPollAt, now: fence.now,
+      });
+      nextClaim = restoreEffectClaimForRetry(claim, input.claimToken, fence.now);
+      tx.set(operationRef, finalizeOperation(operation, {
+        epoch: fence.epoch, state: "waiting", now: fence.now,
+      }));
     } else if (input.phase === "unknown") {
       nextCommand = markEffectUnknown(command, {
         operationId: fence.operationId, operationEpoch: fence.epoch,

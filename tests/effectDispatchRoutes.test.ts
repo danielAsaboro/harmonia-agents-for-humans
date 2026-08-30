@@ -54,4 +54,14 @@ describe("effect dispatch route", () => {
     expect(substituted.status).toBe(409);
     expect(transitionCommandEffect).not.toHaveBeenCalled();
   });
+
+  it("persists a provider-pending continuation instead of reporting unknown", async () => {
+    const response = await POST(request({ ...base, phase: "provider_pending", providerOperationId: "operations/123", nextPollAt: "2099-01-01T00:00:00.000Z" }), {
+      params: Promise.resolve({ id: "command-1" }),
+    });
+    expect(response.status).toBe(200);
+    expect(transitionCommandEffect).toHaveBeenCalledWith("command-1", {
+      phase: "provider_pending", claimToken: "owner-1", providerOperationId: "operations/123", nextPollAt: "2099-01-01T00:00:00.000Z",
+    }, expect.objectContaining({ operationId, epoch: 3 }));
+  });
 });

@@ -37,10 +37,12 @@ export async function sendTelegramMessage(input: {
   botToken: string;
   chatId: string;
   text: string;
+  replyMarkup?: Record<string, unknown>;
   request?: TelegramRequest;
 }): Promise<void> {
   await callTelegram(input.botToken, "sendMessage", {
     chat_id: input.chatId,
     text: input.text.slice(0, 4096),
+    ...(input.replyMarkup ? { reply_markup: input.replyMarkup } : {}),
   }, input.request ?? fetch);
 }

@@ -55,7 +55,7 @@ async function post(req: Request): Promise<Response> {
           const chatRequest = new Request(req.url.replace(/\/stream$/, ""), {
             method: "POST",
             headers: chatHeaders,
-            body: JSON.stringify({ message: parsed.data.message, surface: parsed.data.surface, conversationId: parsed.data.conversationId, attachmentIds: parsed.data.attachmentIds }),
+            body: JSON.stringify({ message: parsed.data.message, surface: parsed.data.surface, conversationId: parsed.data.conversationId, requestId: run.id, attachmentIds: parsed.data.attachmentIds }),
           });
           const chatResponse = await handleChat(chatRequest, { chatRunId: run.id });
           const payload = await chatResponse.json().catch(() => null) as (ChatResponse & { error?: string }) | null;

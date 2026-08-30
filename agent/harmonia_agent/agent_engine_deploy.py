@@ -23,6 +23,7 @@ _FORWARDED_ENV = {
     "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
     "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS",
     "WEB_INTERNAL_URL",
+    "GEMINI_VERTEX_LOCATION",
 }
 
 
@@ -40,8 +41,8 @@ def build_deployment_config(
         "display_name": "harmonia-cognitive-team",
         "description": "Typed Harmonia ADK coordinator and specialist hierarchy",
         "requirements": [
-            "google-cloud-aiplatform[agent_engines,adk]>=1.153,<2",
-            "google-adk>=2.7,<3",
+            "google-cloud-aiplatform[agent_engines,adk]==1.165.1",
+            "google-adk==2.7.1",
             "cloudpickle>=3.1,<4",
             "pydantic>=2.8,<3",
             "fastapi>=0.115",
@@ -65,6 +66,7 @@ def build_deployment_config(
             if key in _FORWARDED_ENV and value
         } | {
             "INTERNAL_API_TOKEN": {"secret": "internal-api-token", "version": "latest"},
+            "GEMINI_API_KEY": {"secret": "gemini-api-key", "version": "latest"},
         },
     }
 

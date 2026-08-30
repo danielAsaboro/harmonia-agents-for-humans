@@ -23,6 +23,26 @@ export function parseLocalIntent(message: string): ParsedIntent {
   const trimmed = message.trim();
   const lower = trimmed.toLowerCase();
   const jobId = extractJobId(trimmed);
+  if (/\b(?:re-?render|render again)\b/.test(lower) && /\b(?:production|media|paid assets?|job)\b/.test(lower)) {
+    return { intent: "rerender_production_plan", jobId, productionRequest: trimmed };
+  }
+  if (/\bapprove\b/.test(lower) && /\b(?:production|media)\s+plan\b/.test(lower)) {
+    return { intent: "approve_production_plan", jobId };
+  }
+  if (/\b(?:revise|change|update|replace|remove)\b/.test(lower)
+    && /\b(?:production plan|soundtrack|shot|storyboard|media plan)\b/.test(lower)) {
+    return { intent: "revise_production_plan", jobId, productionRequest: trimmed };
+  }
+  if (/\b(?:explain|why)\b/.test(lower) && /\b(?:model|production plan|media plan|shot|soundtrack)\b/.test(lower)) {
+    return { intent: "explain_production_plan", jobId };
+  }
+  if (/\b(?:active|running|pending|report|status|progress)\b/.test(lower)
+    && /\b(?:production|media)\s+(?:operations?|plan|status|progress)\b/.test(lower)) {
+    return { intent: "production_status", jobId };
+  }
+  if (/\b(?:create|make|propose|draft|prepare)\b/.test(lower) && /\b(?:production|media)\s+plan\b/.test(lower)) {
+    return { intent: "create_production_plan", jobId, productionRequest: trimmed };
+  }
   if (/\bapprove\b/.test(lower)) return { intent: "approve", jobId };
   if (/\bartifacts?\b/.test(lower)) return { intent: "list_artifacts", jobId };
   if (/\bstatus\b/.test(lower)) return { intent: "status", jobId };

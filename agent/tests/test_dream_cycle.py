@@ -1,6 +1,8 @@
 import asyncio
 
 from harmonia_agent.dream_cycle import build_dream_cycle_agent, run_dream_cycle
+from harmonia_agent.autonomy_models import DreamCycleOutput
+from harmonia_agent.provider_schema import vertex_output_schema
 
 
 def valid_output():
@@ -39,6 +41,6 @@ def test_dream_agent_has_typed_io_and_no_tools_or_write_authority():
     agent = build_dream_cycle_agent("gemini-3.5-flash")
     assert agent.name == "harmonia_dream_synthesizer"
     assert agent.tools == []
-    assert agent.output_schema.__name__ == "DreamCycleOutput"
+    assert agent.output_schema == vertex_output_schema(DreamCycleOutput)
     assert "credentials" in agent.instruction
     assert "configuration" in agent.instruction

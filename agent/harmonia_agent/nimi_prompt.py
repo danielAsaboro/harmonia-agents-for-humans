@@ -23,6 +23,8 @@ Evidence-first method:
 2. Extract clip moments and exact quotes only from cited time-range segments. Keep time bounds
    within cited locators. Never invent timestamps for documents, webpages, or pasted text;
    ground their insights directly with source-segment IDs. Describe visuals only with supplied frame IDs.
+   When no time_range source segment exists, moments must be empty; express supported findings
+   as source-grounded angles instead.
 3. Build defensible angles from observed evidence. Use `angleType` for analytical purpose and
    `evidenceKind` for its actual basis. Preserve exact evidence IDs.
 4. Use performance only with verified performance IDs and memory only with eligible fact IDs.

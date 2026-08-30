@@ -41,6 +41,8 @@ interface StudioConsoleViewProps {
   onMobilePaneChange: (pane: "conversation" | "canvas") => void;
   onDecide: (jobId: string, actionId: string, decision: "approved" | "rejected") => Promise<void> | void;
   onOperationDecision: (operationId: string, decision: "approved" | "rejected") => Promise<void> | void;
+  onSealProductionPlan?: (planId: string, planDigest: string) => Promise<void> | void;
+  onDecideProductionPlan?: (planId: string, planDigest: string, decision: "approved" | "rejected", feedback?: string) => Promise<void> | void;
   onRetryJob?: () => void;
   historyAccessory?: ReactNode;
 }
@@ -65,7 +67,8 @@ export function StudioConsoleView(props: StudioConsoleViewProps) {
   } catch {
     generatedWorkspaceCount = 0;
   }
-  const approvalCount = workspace?.actions.filter((action) => action.approvalState === "pending" && action.state === "planned").length ?? 0;
+  const approvalCount = (workspace?.actions.filter((action) => action.approvalState === "pending" && action.state === "planned").length ?? 0)
+    + (workspace?.productionPlan?.aggregate.state === "sealed" ? 1 : 0);
   return (
     <StudioShell
       mobilePane={props.mobilePane}
@@ -73,7 +76,7 @@ export function StudioConsoleView(props: StudioConsoleViewProps) {
       canvasBadge={generatedWorkspaceCount}
       approvalBadge={approvalCount}
       conversation={<ConversationPane chapters={chapters} liveRun={props.liveRun} loaded={props.loaded} input={props.input} onInputChange={props.onInputChange} attachments={props.attachments} onAttachmentsChange={props.onAttachmentsChange} busy={props.busy} onSend={props.onSend} onActivateArtifact={(artifactId) => { props.onSelectedArtifactChange(artifactId); props.onMobilePaneChange("canvas"); }} onActivateJob={(jobId) => { props.onOpenJob(jobId); props.onMobilePaneChange("canvas"); }} headerAccessory={props.historyAccessory} campaignTitle={campaignTitle} artifactCount={artifactCount} />}
-      canvas={<WorkingCanvas job={props.detail?.job ?? null} events={props.detail?.events ?? []} receipts={props.detail?.receipts ?? []} loading={props.detailLoading} error={props.detailError} selectedArtifactId={props.selectedArtifactId} onSelectedArtifactChange={props.onSelectedArtifactChange} onRetry={props.onRetryJob} operations={canvasRun?.operations ?? []} operationsLive={props.liveRun?.status === "running"} approvalBusy={props.busy} onDecide={props.onDecide} onOperationDecision={props.onOperationDecision} onRequestSurfaceRevision={props.onSend} />}
+      canvas={<WorkingCanvas job={props.detail?.job ?? null} events={props.detail?.events ?? []} receipts={props.detail?.receipts ?? []} loading={props.detailLoading} error={props.detailError} selectedArtifactId={props.selectedArtifactId} onSelectedArtifactChange={props.onSelectedArtifactChange} onRetry={props.onRetryJob} operations={canvasRun?.operations ?? []} operationsLive={props.liveRun?.status === "running"} approvalBusy={props.busy} onDecide={props.onDecide} onOperationDecision={props.onOperationDecision} onRequestSurfaceRevision={props.onSend} onSealProductionPlan={props.onSealProductionPlan} onDecideProductionPlan={props.onDecideProductionPlan} />}
     />
   );
 }
@@ -191,6 +194,29 @@ export default function ChatConsole() {
     } finally { setBusy(false); }
   }
 
+  async function sealProductionPlan(planId: string, planDigest: string) {
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/api/production-plans/${planId}/seal`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ planDigest }) });
+      const body = await response.json().catch(() => null) as { error?: string } | null;
+      if (!response.ok) throw new Error(body?.error ?? `Production plan sealing failed (${response.status})`);
+      if (detail?.job.id) await openJob(detail.job.id);
+    } finally { setBusy(false); }
+  }
+
+  async function decideProductionPlan(planId: string, planDigest: string, decision: "approved" | "rejected", feedback?: string) {
+    setBusy(true);
+    try {
+      const body = decision === "approved"
+        ? { decision, planDigest, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() }
+        : { decision, planDigest, feedback };
+      const response = await apiFetch(`/api/production-plans/${planId}/decision`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const result = await response.json().catch(() => null) as { error?: string } | null;
+      if (!response.ok) throw new Error(result?.error ?? `Production plan decision failed (${response.status})`);
+      if (detail?.job.id) await openJob(detail.job.id);
+    } finally { setBusy(false); }
+  }
+
   async function send(messageText?: string) {
     const message = (messageText ?? input).trim();
     if (!message || busy || attachments.some((attachment) => attachment.state !== "ready")) return;
@@ -208,5 +234,5 @@ export default function ChatConsole() {
 
   const historyAccessory = sessions.length > 1 ? <select value={activeSessionId ?? sessions.at(-1)?.id ?? ""} onChange={(event) => setActiveSessionId(event.target.value === sessions.at(-1)?.id ? null : event.target.value)} className="max-w-28 rounded-full border border-black/15 bg-white/55 px-2 py-1.5 text-[10px] font-bold outline-none" aria-label="Past conversations">{sessions.map((session) => <option key={session.id} value={session.id}>{dayLabel(session.day)} · {sessionPreview(session)}</option>)}</select> : null;
 
-  return <StudioConsoleView messages={visibleMessages} loaded={loaded} detail={detail} detailLoading={detailLoading} detailError={detailError} liveRun={chat.run?.status === "running" ? chat.run : null} input={input} onInputChange={setInput} attachments={attachments} onAttachmentsChange={setAttachments} busy={busy} onSend={send} onOpenJob={openJob} selectedArtifactId={selectedArtifactId} onSelectedArtifactChange={setSelectedArtifactId} mobilePane={mobilePane} onMobilePaneChange={setMobilePane} onDecide={decide} onOperationDecision={decideOperation} onRetryJob={detail?.job.failure ? async () => { await apiFetch(`/api/jobs/${detail.job.id}/retry`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) }); await openJob(detail.job.id); } : undefined} historyAccessory={historyAccessory} />;
+  return <StudioConsoleView messages={visibleMessages} loaded={loaded} detail={detail} detailLoading={detailLoading} detailError={detailError} liveRun={chat.run?.status === "running" ? chat.run : null} input={input} onInputChange={setInput} attachments={attachments} onAttachmentsChange={setAttachments} busy={busy} onSend={send} onOpenJob={openJob} selectedArtifactId={selectedArtifactId} onSelectedArtifactChange={setSelectedArtifactId} mobilePane={mobilePane} onMobilePaneChange={setMobilePane} onDecide={decide} onOperationDecision={decideOperation} onSealProductionPlan={sealProductionPlan} onDecideProductionPlan={decideProductionPlan} onRetryJob={detail?.job.failure ? async () => { await apiFetch(`/api/jobs/${detail.job.id}/retry`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) }); await openJob(detail.job.id); } : undefined} historyAccessory={historyAccessory} />;
 }

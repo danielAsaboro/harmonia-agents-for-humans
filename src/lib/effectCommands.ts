@@ -6,7 +6,7 @@ export type EffectCommandAuthorization =
   | { kind: "approval"; approvalId: string; approvedPayloadDigest: string }
   | { kind: "mandate"; mandateId: string; mandateDigest: string; authorizedPayloadDigest: string };
 
-export type EffectCommandState = "prepared" | "dispatched" | "observed" | "applied" | "failed" | "unknown" | "cancelled";
+export type EffectCommandState = "prepared" | "dispatched" | "waiting_provider" | "observed" | "applied" | "failed" | "unknown" | "cancelled";
 export type EffectObservedOutcome = "applied" | "already_applied" | "rejected" | "failed";
 
 export interface EffectCommand {
@@ -36,6 +36,8 @@ export interface EffectCommand {
   observationDigest?: string;
   observation?: { outcome: EffectObservedOutcome; artifact?: unknown; detail: Record<string, unknown> };
   unknownReason?: string;
+  providerOperationId?: string;
+  nextPollAt?: string;
   progress?: { kind: "x_thread"; confirmedPostIds: string[] };
   progressUpdatedAt?: string;
 }
@@ -149,7 +151,8 @@ export function markEffectDispatched(
     assertEffectFence(command, input);
     return command;
   }
-  if (command.state !== "prepared") throw new Error(`cannot dispatch ${command.state} effect command`);
+  if (command.state !== "prepared" && command.state !== "waiting_provider") throw new Error(`cannot dispatch ${command.state} effect command`);
+  if (command.state === "waiting_provider" && command.operationId !== input.operationId) throw new Error("provider resume operation id mismatch");
   if (!Number.isInteger(input.operationEpoch) || input.operationEpoch < 1 || !Number.isInteger(input.attempt) || input.attempt < 1) {
     throw new Error("invalid effect dispatch fence");
   }
@@ -158,6 +161,17 @@ export function markEffectDispatched(
     operationEpoch: input.operationEpoch, dispatchAttempt: input.attempt,
     dispatchedAt: input.now, updatedAt: input.now,
   };
+}
+
+export function markEffectWaitingProvider(
+  command: EffectCommand,
+  input: EffectFence & { providerOperationId: string; nextPollAt: string; now: string },
+): EffectCommand {
+  if (command.state !== "dispatched") throw new Error(`cannot wait from ${command.state} effect command`);
+  assertEffectFence(command, input);
+  if (!input.providerOperationId.trim()) throw new Error("provider operation id is required");
+  if (!Number.isFinite(Date.parse(input.nextPollAt)) || Date.parse(input.nextPollAt) <= Date.parse(input.now)) throw new Error("next provider poll must be in the future");
+  return { ...command, state: "waiting_provider", providerOperationId: input.providerOperationId, nextPollAt: input.nextPollAt, updatedAt: input.now };
 }
 
 export function markEffectObserved(
@@ -234,7 +248,7 @@ export function restoreEffectPrepared(
 }
 
 export function decideTerminalOutcome(commands: Array<Pick<EffectCommand, "state">>): "succeeded" | "partial" | "failed" | "unresolved" {
-  if (commands.length === 0 || commands.some((command) => ["prepared", "dispatched", "observed", "unknown"].includes(command.state))) {
+  if (commands.length === 0 || commands.some((command) => ["prepared", "dispatched", "waiting_provider", "observed", "unknown"].includes(command.state))) {
     return "unresolved";
   }
   const applied = commands.some((command) => command.state === "applied");

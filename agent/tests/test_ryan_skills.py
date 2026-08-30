@@ -24,6 +24,7 @@ from harmonia_agent.ryan_skills import (
 )
 from harmonia_agent.agents import _validate_run_output, build_agent_team
 from harmonia_agent.agent_errors import AgentContractError
+from harmonia_agent.ryan_prompt import RYAN_STRATEGIST_INSTRUCTION
 from tests.test_ryan_strategy import strategist_input, strategy
 
 
@@ -130,6 +131,22 @@ def test_ryan_runtime_is_wired_to_bounded_skill_callbacks():
     assert ryan.before_agent_callback is bootstrap_ryan_skill_trace
     assert ryan.before_tool_callback is guard_ryan_skill_tool
     assert ryan.after_tool_callback.__name__ == "record_ryan_skill_tool"
+
+
+def test_ryan_prompt_names_current_strict_strategy_fields():
+    """Catches skill vocabulary overriding the current Pydantic output contract."""
+
+    for field in (
+        "strategyId", "differentiatedNarrative", "objectives", "funnelIntent",
+        "channelCandidates", "formatCandidates", "ctaIntent", "intendedConversion",
+        "evidenceRefs",
+    ):
+        assert field in RYAN_STRATEGIST_INSTRUCTION
+    assert "priority values are integers from 1 through 5" in RYAN_STRATEGIST_INSTRUCTION
+    assert "Do not use legacy brief keys" in RYAN_STRATEGIST_INSTRUCTION
+    assert "load exactly one approved reference" in RYAN_STRATEGIST_INSTRUCTION
+    assert "exactly one item in every required list" in RYAN_STRATEGIST_INSTRUCTION
+    assert 'confidence values are only the strings "low", "medium", or "high"' in RYAN_STRATEGIST_INSTRUCTION
 
 
 def test_ryan_runtime_rejects_missing_trace_and_accepts_valid_actual_trace():

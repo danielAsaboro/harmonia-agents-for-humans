@@ -148,7 +148,7 @@ describe("studio workspace model", () => {
       config: { platforms: ["x"] }, transcriptSegments: [], moments: [], angles: [], drafts: [],
       actions: [
         { id: "img", jobId: "job-1", type: "generate_image", title: "Launch visual", description: "", risk: "low", requiresApproval: false, approvalState: "not_required", payload: {}, state: "executed" },
-        { id: "sound", jobId: "job-1", type: "generate_lyria_soundtrack", title: "Launch score", description: "", risk: "low", requiresApproval: false, approvalState: "not_required", payload: {}, state: "executed" },
+        { id: "sound", jobId: "job-1", type: "generate_music", title: "Launch score", description: "", risk: "low", requiresApproval: false, approvalState: "not_required", payload: {}, state: "executed" },
       ],
       assets: [
         { actionId: "img", mime: "image/png", sizeBytes: 1200, digest: "a" },
@@ -181,7 +181,7 @@ Expected: FAIL because `workspaceModel.ts` does not exist.
 
 ```ts
 const providerFor = (type: PlannedAction["type"]) =>
-  type === "generate_veo_broll" ? "veo" : type === "generate_lyria_soundtrack" ? "lyria" : undefined;
+  type === "generate_video" ? "veo" : type === "generate_music" ? "lyria" : undefined;
 
 const kindForMime = (mime: string): StudioMediaKind | null =>
   mime.startsWith("image/") ? "visual" : mime.startsWith("video/") ? "motion" : mime.startsWith("audio/") ? "audio" : null;
@@ -195,7 +195,7 @@ const sourceSegmentsForMoment = (job: JobFull, momentId: string): string[] => {
 };
 ```
 
-Join every asset to its existing action. Omit assets with unsupported MIME from media arrays but retain them in `sources`. Set `provider` only from a matching `generate_veo_broll` or `generate_lyria_soundtrack` action. Validate every draft `momentId` and action `momentId` against the job’s real moment IDs.
+Join every asset to its existing action. Omit assets with unsupported MIME from media arrays but retain them in `sources`. Set `provider` only from a matching `generate_video` or `generate_music` action. Validate every draft `momentId` and action `momentId` against the job’s real moment IDs.
 
 - [ ] **Step 4: Run the working-set tests**
 

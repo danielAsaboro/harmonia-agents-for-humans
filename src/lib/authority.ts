@@ -114,6 +114,22 @@ export function requireWorkspaceAdministrator(
   return principal;
 }
 
+export function requireProductionOperator(
+  context: TenantContext,
+): Extract<Principal, { kind: "firebase_user" | "telegram_user" }> {
+  const { principal } = context;
+  if (principal.kind === "telegram_user") return principal;
+  if (
+    principal.kind === "firebase_user"
+    && (principal.workspaceRole === "owner" || principal.workspaceRole === "admin")
+  ) return principal;
+  throw new AuthorityError(
+    "workspace administrator or allow-listed Telegram operator required",
+    403,
+    "production_operator_required",
+  );
+}
+
 export function requireService(
   context: TenantContext,
 ): Extract<Principal, { kind: "service" }> {

@@ -34,6 +34,7 @@ TEMI_SKILL_REFERENCES = (
 )
 _LOAD_TOOLS = frozenset({"load_skill", "load_skill_resource"})
 _READ_FIELDS = {
+    "read_planning_authority": ("planningAuthority", "planningSnapshot"),
     "read_editorial_commitments": ("commitments", "existingCommitments"),
     "read_production_capacity": ("productionCapacity", "productionCapacity"),
     "read_asset_readiness": ("assetReadiness", "assetReadiness"),
@@ -41,6 +42,12 @@ _READ_FIELDS = {
     "read_calendar_projection": ("calendarProjection", "calendarProjection"),
     "read_blocked_dependencies": ("blockedDependencies", "blockedDependencies"),
 }
+
+_PLANNING_AUTHORITY_KEYS = (
+    "strategy", "strategyDigest", "strategyVersion", "strategyApproval",
+    "analysis", "planningSnapshot", "planningSnapshotDigest", "revision",
+    "replanningFeedback",
+)
 
 
 def _read(snapshot_id: str, tool_context: ToolContext, field: str, output: str) -> dict[str, Any]:
@@ -58,6 +65,20 @@ def _read(snapshot_id: str, tool_context: ToolContext, field: str, output: str) 
 def read_editorial_commitments(snapshot_id: str, tool_context: ToolContext) -> dict[str, Any]:
     """Read immutable existing commitments from the active planning snapshot."""
     return _read(snapshot_id, tool_context, "existingCommitments", "commitments")
+
+
+def read_planning_authority(snapshot_id: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Read the exact typed planning authority already bound to this session."""
+    snapshot = tool_context.state.get("planningSnapshot")
+    if not isinstance(snapshot, dict) or snapshot.get("snapshotId") != snapshot_id:
+        raise ValueError("Temi may read only the exact planning snapshot")
+    return {
+        "snapshotId": snapshot_id,
+        **deepcopy({
+            key: tool_context.state[key]
+            for key in _PLANNING_AUTHORITY_KEYS if key in tool_context.state
+        }),
+    }
 
 
 def read_production_capacity(snapshot_id: str, tool_context: ToolContext) -> dict[str, Any]:
@@ -86,7 +107,7 @@ def read_blocked_dependencies(snapshot_id: str, tool_context: ToolContext) -> di
 
 
 _READ_TOOLS = (
-    read_editorial_commitments, read_production_capacity, read_asset_readiness,
+    read_planning_authority, read_editorial_commitments, read_production_capacity, read_asset_readiness,
     read_posting_window_observations, read_calendar_projection, read_blocked_dependencies,
 )
 
@@ -226,5 +247,3 @@ def validate_temi_trace(
         raise ValueError("Temi must load at least one planning reference")
     if len(resources) != len(set(resources)):
         raise ValueError("Temi loaded a duplicate planning reference")
-    if reads < 1:
-        raise ValueError("Temi must read at least one planning snapshot section")

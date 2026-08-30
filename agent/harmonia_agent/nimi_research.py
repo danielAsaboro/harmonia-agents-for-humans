@@ -14,6 +14,8 @@ from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.base_tool import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .provider_schema import vertex_output_schema
+
 NIMI_RESEARCH_TRACE_KEY = "nimi_analysis_research_trace"
 PUBLIC_SEARCH_TOOL = "nimi_google_search_agent"
 PRIVATE_SEARCH_TOOL = "nimi_agent_search_agent"
@@ -52,7 +54,7 @@ def _research_agent(*, name: str, model: str | BaseLlm, mode: str, search_tool: 
             "stable analysis-search-* evidence IDs, titles, source URIs, and directly supported "
             "text. Do not analyze source media, invent research, define strategy, or authorize actions."
         ),
-        tools=[search_tool], output_schema=GroundedAnalysisResearch,
+        tools=[search_tool], output_schema=vertex_output_schema(GroundedAnalysisResearch),
         output_key="grounded_analysis_research", mode="single_turn",
     )
     return AgentTool(agent=agent, propagate_grounding_metadata=True)

@@ -21,7 +21,7 @@ collect_sources → extract_sources → understand → strategize → awaiting_s
 ```
 
 - **Collect sources**: resolve the sealed job manifest, including up to ten direct inputs and one immutable snapshot from a scheduled Google Drive or Cloud Storage brand library.
-- **Extract sources**: normalize authorized video, audio, documents, web pages, and pasted text into digest-bound segments. Gemini 3.5 Flash produces timed media segments; deterministic extractors handle written sources.
+- **Extract sources**: normalize authorized video, audio, documents, web pages, and pasted text into digest-bound segments. Gemini 3.7 Flash produces timed media segments; deterministic extractors handle written sources.
 - **Understand**: Nimi receives the typed normalized source bundle and returns strict source analysis with exact segment/frame references, evidence-kind provenance, assumptions, and confidence. Deterministic code validates quotes, time bounds, references, and authority; then persists the complete analysis and canonical digest.
 - **Strategize**: Ryan uses typed company, campaign, audience, performance, and eligible Memory Bank context to propose a provenance-linked four-week strategy and complete content briefs. A human must approve the exact strategy digest before Temi runs.
 - **Plan**: deterministic code persists a tenant-scoped planning snapshot, then Temi loads `temi-editorial-planning-skills` and uses only request-bound read views over that immutable snapshot to operationalize the approved Ryan strategy. Deterministic code validates both snapshot and plan digests, persists the complete four-week plan, and selects exactly one supported, eligible item; Temi cannot search, write final copy, mutate calendars, or authorize effects.
@@ -61,7 +61,7 @@ flowchart LR
     TICK[Cloud Scheduler<br/>OIDC durable tick]
     FS[(Firestore<br/>jobs · events · receipts)]
     MB[(Memory Bank<br/>workspace + brand scope)]
-    GEMC[Role-aware ADK team<br/>Gemini 3.5 Flash-Lite · Flash]
+    GEMC[Role-aware ADK team<br/>Gemini 3.7 Flash]
     MEDIA[Veo 3.1 Fast · Lyria 3 Clip]
     YT[YouTube]
     X[X API v2]
@@ -102,7 +102,7 @@ flowchart LR
 
 ## Technology
 
-- **Role-aware Google models**: Gemini 3.5 Flash-Lite for routing/planning and Gemini 3.5 Flash for strategy, multimodal analysis, skill-backed copywriting, editing, and transcription.
+- **Role-aware Google models**: Gemini 3.7 Flash for routing, planning, strategy, multimodal analysis, skill-backed copywriting, editing, and transcription. Each role retains its own bounded task and generation policy.
 - **Bounded Noni writing skill**: Noni loads `noni-writing-skills` and approved local references covering thought leadership, introductions, MECE structure, case studies, storytelling, diagnosis, persuasion, outlines, titles, and convincing content. It may then read verified prior publications or use native ADK Google Search grounding through a brief-bound research agent. Guidance never counts as evidence, and every web-derived claim must match native grounding chunks and supports.
 - **Google generative media**: Veo 3.1 Fast for 4-second vertical b-roll and Lyria 3 Clip for 30-second music, both individually priced and always approval-gated.
 - **Google ADK** (Python) for the worker service and agent scaffolding.
@@ -125,7 +125,9 @@ cp .env.example .env.local   # set Identity Platform, internal service, and Agen
 ./scripts/dev.sh             # Firestore + Pub/Sub emulators, web :3000, ADK worker
 ```
 
-Open http://localhost:3000, continue with Google, then start a content run from an authorized URL, uploaded file, pasted source material, or content brief. The primary authenticated demo path uses an authorized YouTube URL. A real cognitive job also requires the managed resources listed in [Configuration](./docs/configuration.mdx) and may incur provider charges. For a no-spend inspection, use the clearly labeled local fixtures; they prove UI and data contracts, not authenticated Google execution. Approve or reject proposed actions with the trusted action control when the job reaches the approval gate.
+Open http://localhost:3000, continue with Google, then start a content run from an authorized URL, uploaded file, pasted source material, or content brief. The primary authenticated demo path uses a licensed video attachment through the production malware scanner; YouTube is an optional network-dependent route. A real cognitive job also requires the managed resources listed in [Configuration](./docs/configuration.mdx) and may incur provider charges. For a no-spend inspection, use the clearly labeled local fixtures; they prove UI and data contracts, not authenticated Google execution. Approve or reject proposed actions with the trusted action control when the job reaches the approval gate.
+
+For a video-plus-pack run, request a supported written output (such as a LinkedIn draft), a short clip, and a content pack explicitly. A pack packages child content; it does not implicitly authorize every output format. If intake omitted an output and the job failed before strategy, use **Correct requested outputs** in the canvas, save the exact selection, then retry after the underlying failure is fixed. Corrections are tenant-scoped, epoch-checked, and audited; they do not approve or execute effects. Clip rendering requires its own approval. Independent asset verification rereads stored bytes and recomputes SHA-256; missing bytes cannot pass verification.
 
 ### Google Calendar synchronization
 

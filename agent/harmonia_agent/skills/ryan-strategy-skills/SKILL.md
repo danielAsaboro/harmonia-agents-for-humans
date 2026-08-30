@@ -20,8 +20,10 @@ Use these methods to improve strategic judgment inside the existing
 5. Critique the complete strategy for coherence, unsupported inference,
    uncertainty, and authority overreach.
 
-Load this skill exactly once. Load only the references needed for the current
-strategic problem, and always load at least one.
+Harmonia preloads this skill and the approved references before inference and
+records their activation itself. Apply the relevant supplied reference to the
+current strategic problem; produce the typed strategy without loader calls.
+The reference table below selects methods, not tools to invoke.
 
 ## Reference routing
 

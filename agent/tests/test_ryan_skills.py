@@ -160,9 +160,16 @@ def test_ryan_prompt_names_current_strict_strategy_fields():
         assert field in RYAN_STRATEGIST_INSTRUCTION
     assert "priority values are integers from 1 through 5" in RYAN_STRATEGIST_INSTRUCTION
     assert "Do not use legacy brief keys" in RYAN_STRATEGIST_INSTRUCTION
-    assert "load exactly one approved reference" in RYAN_STRATEGIST_INSTRUCTION
+    assert "runtime has already loaded" in RYAN_STRATEGIST_INSTRUCTION
+    assert "call load_skill" not in RYAN_STRATEGIST_INSTRUCTION
     assert "exactly one item in every required list" in RYAN_STRATEGIST_INSTRUCTION
     assert 'confidence values are only the strings "low", "medium", or "high"' in RYAN_STRATEGIST_INSTRUCTION
+
+
+def test_preloaded_strategy_skill_does_not_request_unavailable_loaders():
+    skill = (Path(__file__).parents[1] / "harmonia_agent/skills/ryan-strategy-skills/SKILL.md").read_text()
+    assert "preloads this skill" in skill
+    assert "Load this skill exactly once" not in skill
 
 
 def test_ryan_runtime_rejects_missing_trace_and_accepts_valid_actual_trace():

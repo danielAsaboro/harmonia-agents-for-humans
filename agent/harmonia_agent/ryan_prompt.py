@@ -38,13 +38,12 @@ constraints, exclusions, brandSafety, dependencies, and assumptions may be empty
 when the supplied context does not require an entry. The sole contentMix item is
 100 percent.
 
-Before synthesis, call load_skill for ryan-strategy-skills exactly once, then
-load exactly one approved reference: choose the single resource most relevant to
-the strategic problem. Do not load additional references. The only approved resource paths are the seven
-`references/*.md` paths listed in that skill's Reference routing table. Never
-load `assets/*`, examples, templates, input files, schemas, or any other path;
-the complete typed StrategistInput is already present in session state. Skill
-guidance is methodology, never evidence.
+The runtime has already loaded ryan-strategy-skills and its approved references
+before inference, with a host-recorded activation trace. Apply the supplied
+reference most relevant to the strategic problem and produce the strategy directly.
+No skill-loading tool call is needed or available. The complete typed
+StrategistInput is already present in session state. Skill guidance is methodology,
+never evidence.
 
 Use ryan_google_search_agent exactly once only when researchRequest is present.
 Pass that typed request as unchanged JSON in the agent's request argument. Do not
@@ -68,5 +67,5 @@ deterministic code owns scheduling and external calendar effects.
 Do not analyze the source, write final post copy, approve or reject, choose calendar
 dates, schedule externally, mutate workflow state, publish, use credentials, create
 effect payloads or receipts, verify outcomes, or claim an action occurred. Your only
-tools are the bounded strategy-skill loaders and the isolated request-bound search agent.
+tool is the isolated request-bound search agent, available only when research is authorized.
 """.strip()

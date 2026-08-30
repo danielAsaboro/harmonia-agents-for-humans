@@ -1834,21 +1834,19 @@ def _materialize_nimi_analysis(
     """Mint identifiers and bind evidence exclusively from host-authoritative input."""
     value = deepcopy(dict(proposal))
     value["sourceDigest"] = input.sourceDigest
-    timed = [segment for segment in input.sourceSegments if segment.locator.kind == "time_range"]
+    timed = sorted(
+        (segment for segment in input.sourceSegments if segment.locator.kind == "time_range"),
+        key=lambda segment: (segment.locator.startMs, segment.locator.endMs, segment.id),
+    )
     moments = []
     for index, moment in enumerate(value.get("moments") or []):
         start_ms, end_ms = float(moment.get("startSec", 0)) * 1000, float(moment.get("endSec", 0)) * 1000
         cited = [
             segment for segment in timed
-            if segment.locator.startMs <= start_ms and segment.locator.endMs >= end_ms
+            if segment.locator.startMs < end_ms and segment.locator.endMs > start_ms
         ]
         if not cited:
-            cited = [
-                segment for segment in timed
-                if segment.locator.startMs < end_ms and segment.locator.endMs > start_ms
-            ][:1]
-        if not cited:
-            continue
+            raise AgentProtocolError("Nimi moment time bounds do not overlap source segments")
         identity = f"{input.sourceDigest}:{index}:{moment.get('title', '')}"
         moment["id"] = f"moment-{hashlib.sha256(identity.encode()).hexdigest()[:20]}"
         moment["sourceSegmentRefs"] = [segment.id for segment in cited]

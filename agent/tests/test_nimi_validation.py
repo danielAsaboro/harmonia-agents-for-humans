@@ -55,6 +55,35 @@ def test_anchors_a_model_paraphrase_to_the_exact_cited_transcript():
     assert validate_source_analysis(supplied, anchored).moments[0].quote == supplied.sourceSegments[0].text
 
 
+def test_host_binds_all_overlapping_segments_for_a_multi_segment_clip():
+    supplied = analyst_input()
+    supplied["sourceSegments"].insert(0, {
+        "id": "segment-2", "sourceId": "source-1", "text": "Small teams can do ambitious work.",
+        "digest": "d" * 64,
+        "locator": {"kind": "time_range", "startMs": 8000, "endMs": 14000},
+    })
+    proposal = source_analysis()
+    proposal["moments"][0].update(startSec=3, endSec=13,
+        quote="We cut activation from nine days to forty hours. Small teams can do ambitious work.")
+    trusted = AnalystInput.model_validate(supplied)
+
+    result = validate_source_analysis(trusted, _materialize_nimi_analysis(trusted, proposal))
+
+    assert result.moments[0].sourceSegmentRefs == ["segment-1", "segment-2"]
+    assert result.moments[0].startSec == 3
+    assert result.moments[0].endSec == 13
+    assert result.moments[0].quote == proposal["moments"][0]["quote"]
+
+
+@pytest.mark.parametrize(("start", "end"), [(0, 6), (4, 10), (20, 30)])
+def test_host_rejects_out_of_source_clips_without_clamping_or_dropping(start, end):
+    trusted = AnalystInput.model_validate(analyst_input())
+    proposal = source_analysis()
+    proposal["moments"][0].update(startSec=start, endSec=end)
+    with pytest.raises(AgentProtocolError, match="time bounds"):
+        validate_source_analysis(trusted, _materialize_nimi_analysis(trusted, proposal))
+
+
 def test_accepts_unicode_in_supplied_source_context():
     supplied = analyst_input()
     supplied["title"] = "Harmonia — source to proof"

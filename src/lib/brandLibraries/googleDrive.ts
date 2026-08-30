@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export interface DriveFolder { id: string; name: string; driveId?: string; modifiedTime?: string }
 export interface DriveFileVersion extends DriveFolder { mimeType: string; size?: string; md5Checksum?: string; version?: string }
 type RequestFn = (input: string, init?: RequestInit) => Promise<Response>;
@@ -23,10 +25,20 @@ export async function listDriveFolderFiles(accessToken: string, folderId: string
 }
 
 export async function downloadDriveFile(accessToken: string, file: DriveFileVersion, request: RequestFn = fetch): Promise<{ bytes: Buffer; mimeType: string }> {
+  if (!file.version) throw new Error("Google Drive file version is required");
+  const assertVersion = async () => {
+    const current = await driveGet(accessToken, `files/${encodeURIComponent(file.id)}`, { fields: "id,version,trashed", supportsAllDrives: "true" }, request);
+    if (current.id !== file.id || current.version !== file.version || current.trashed === true) throw new Error("Google Drive file version changed; retry synchronization");
+  };
+  await assertVersion();
   const nativeExports: Record<string, string> = { "application/vnd.google-apps.document": "application/pdf", "application/vnd.google-apps.presentation": "application/pdf", "application/vnd.google-apps.spreadsheet": "text/csv" };
   const exportMime = nativeExports[file.mimeType]; const url = new URL(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}/${exportMime ? "export" : ""}`.replace(/\/$/, ""));
   url.searchParams.set(exportMime ? "mimeType" : "alt", exportMime ?? "media");
+  if (!exportMime) url.searchParams.set("supportsAllDrives", "true");
   const response = await request(url.toString(), { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(60_000) });
   if (!response.ok) throw new Error(`Google Drive download failed (${response.status})`);
-  return { bytes: Buffer.from(await response.arrayBuffer()), mimeType: exportMime ?? file.mimeType };
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (!exportMime && file.md5Checksum && createHash("md5").update(bytes).digest("hex") !== file.md5Checksum) throw new Error("Google Drive file checksum mismatch");
+  await assertVersion();
+  return { bytes, mimeType: exportMime ?? file.mimeType };
 }

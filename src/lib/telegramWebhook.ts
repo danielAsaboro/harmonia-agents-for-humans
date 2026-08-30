@@ -16,27 +16,29 @@ const callbackUpdate = z.object({
   update_id: z.number().int().nonnegative(),
   callback_query: z.object({
     id: z.string().min(1).max(256),
-    from: z.object({ id: z.number().int() }).strict(),
+    from: z.object({ id: z.number().int() }),
     message: z.object({
-      chat: z.object({ id: z.number().int() }).strict(),
-    }).strict(),
+      chat: z.object({ id: z.number().int() }),
+    }),
     data: callbackData,
-  }).strict(),
+    game_short_name: z.never().optional(),
+  }),
 }).strict();
 const feedbackUpdate = z.object({
   update_id: z.number().int().nonnegative(),
   message: z.object({
-    message_id: z.number().int().positive(), from: z.object({ id: z.number().int() }).strict(),
-    chat: z.object({ id: z.number().int() }).strict(), text: z.string().min(1).max(2000),
+    message_id: z.number().int().positive(), from: z.object({ id: z.number().int() }),
+    chat: z.object({ id: z.number().int() }), text: z.string().min(1).max(2000),
     reply_to_message: z.object({ message_id: z.number().int().positive() }).passthrough(),
-  }).strict(),
+  }),
 }).strict();
 const operatorMessageUpdate = z.object({
   update_id: z.number().int().nonnegative(),
   message: z.object({
-    message_id: z.number().int().positive(), from: z.object({ id: z.number().int() }).strict(),
-    chat: z.object({ id: z.number().int() }).strict(), text: z.string().min(1).max(2000),
-  }).strict(),
+    message_id: z.number().int().positive(), from: z.object({ id: z.number().int() }),
+    chat: z.object({ id: z.number().int() }), text: z.string().min(1).max(2000),
+    reply_to_message: z.never().optional(),
+  }),
 }).strict();
 export const telegramUpdateSchema = z.union([callbackUpdate, feedbackUpdate, operatorMessageUpdate]);
 

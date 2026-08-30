@@ -26,6 +26,17 @@ const update = {
 };
 
 describe("Telegram webhook authority", () => {
+  it.each([
+    { update_id: 20, message: { message_id: 92, date: 1788390000, from: { id: 42, is_bot: false, first_name: "Operator" }, chat: { id: -1001, type: "supergroup", title: "Harmonia" }, text: "status job-1" } },
+    { update_id: 21, callback_query: { ...update.callback_query, from: { id: 42, is_bot: false, first_name: "Operator" }, chat_instance: "123456", message: { message_id: 93, date: 1788390000, chat: { id: -1001, type: "supergroup" }, text: "Review this action" } } },
+  ])("accepts documented Telegram metadata without treating it as authority", (payload) => {
+    const verified = verifyTelegramWebhook({
+      route, routeToken: "route-token", secret: "correct", update: payload,
+      digest: (value) => value === "route-token" ? route.routeTokenDigest : value === "correct" ? route.webhookSecretDigest : value === "-1001" ? route.chatIdDigest : "c".repeat(64),
+    });
+    expect(verified.principal.subjectId).toBe(`telegram_${"c".repeat(24)}`);
+    expect(verified.kind).toBe("callback_query" in payload ? "callback" : "operator_message");
+  });
   it("rejects a structurally valid callback when the webhook secret is wrong", () => {
     expect(() => verifyTelegramWebhook({
       route: { ...route, webhookSecretDigest: route.webhookSecretDigest },

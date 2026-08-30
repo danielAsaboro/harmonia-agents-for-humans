@@ -61,7 +61,8 @@ export async function promoteHealthySnapshot(connectionId: string, expectedRevis
 export async function failLibrarySync(connectionId: string, expectedRevision: number, failure: { category: "transient" | "reconnection_required" | "permanent"; retryCount: number; nextEligibleRetryAt?: string }): Promise<void> {
   const ref = root().doc(connectionId); const current = await ref.get();
   if (!current.exists || current.get("revision") !== expectedRevision) throw new Error("stale library connection");
-  await ref.update({ lastSyncStatus: failure.category === "transient" ? "transient_failure" : failure.category, retryCount: failure.retryCount, nextEligibleRetryAt: failure.nextEligibleRetryAt ?? FieldValue.delete(), revision: expectedRevision + 1, updatedAt: new Date().toISOString() });
+  const lastSyncStatus = failure.category === "reconnection_required" ? "reconnection_required" : `${failure.category}_failure`;
+  await ref.update({ lastSyncStatus, retryCount: failure.retryCount, nextEligibleRetryAt: failure.nextEligibleRetryAt ?? FieldValue.delete(), revision: expectedRevision + 1, updatedAt: new Date().toISOString() });
 }
 
 export async function finalizeLibrarySyncOperation(connectionId: string, operationId: string, status: "healthy" | "failed", failure?: { code: string; category: "transient" | "reconnection_required" | "permanent"; publicMessage: string; retryCount: number; nextEligibleRetryAt?: string }): Promise<void> { const now = new Date().toISOString(); await root().doc(connectionId).collection("sync_operations").doc(operationId).update({ status, completedAt: now, ...(failure ? { failure } : {}) }); }

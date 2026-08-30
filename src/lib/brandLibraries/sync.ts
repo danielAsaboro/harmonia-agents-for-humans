@@ -1,6 +1,7 @@
 import type { BrandLibraryConnection } from "./contracts";
 import { randomUUID } from "node:crypto";
-import { db, getConnection } from "../firestore";
+import { db } from "../firestore";
+import { validPlatformConnection } from "../validConnection";
 import { getArtifact, putArtifact } from "../storage";
 import { currentTenant } from "../tenancy";
 import type { SourceRecord } from "../types";
@@ -23,8 +24,8 @@ export function isSyncDue(connection: Pick<BrandLibraryConnection, "cadence" | "
 
 export function classifyLibrarySyncFailure(error: unknown, retryCount: number, now = new Date()): { code: string; category: "transient" | "reconnection_required" | "permanent"; publicMessage: string; retryCount: number; nextEligibleRetryAt?: string } {
   const message = error instanceof Error ? error.message : String(error);
-  const reconnect = /reconnection|credential|unauthorized|forbidden|401|403/i.test(message);
-  const transient = /timeout|429|rate|temporar|unavailable|502|503|504|network/i.test(message);
+  const reconnect = /reconnect|credential|unauthorized|forbidden|401|403|connection not found|refresh.*quarantined/i.test(message);
+  const transient = /timeout|429|rate|temporar|unavailable|502|503|504|network|version changed|refresh is already in progress/i.test(message);
   const category = reconnect ? "reconnection_required" as const : transient ? "transient" as const : "permanent" as const;
   const nextRetry = category === "transient" ? new Date(now.getTime() + Math.min(86_400_000, 60_000 * (2 ** Math.min(retryCount, 10)))).toISOString() : undefined;
   return { code: error instanceof Error ? error.name : "sync_error", category, publicMessage: message.slice(0, 240), retryCount, ...(nextRetry ? { nextEligibleRetryAt: nextRetry } : {}) };
@@ -35,7 +36,7 @@ type Enumerated = { providerResourceId: string; providerVersion: string; title: 
 
 async function enumerateDrive(connection: BrandLibraryConnection): Promise<Enumerated[]> {
   if (connection.selector.provider !== "google_drive") return [];
-  const credential = await getConnection("google-drive"); if (!credential) throw new Error("Google Drive connection requires reconnection");
+  const credential = await validPlatformConnection("google-drive");
   const queue = [connection.selector.folderId]; const files: DriveFileVersion[] = [];
   while (queue.length) { const folderId = queue.shift()!; let token: string | undefined;
     do { const page = await listDriveFolders(credential.accessToken, folderId, token); queue.push(...page.folders.map((folder) => folder.id)); token = page.nextPageToken; } while (token);

@@ -12,6 +12,7 @@ async function callTelegram(
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(20_000),
   });
   const payload = await response.json().catch(() => null) as { ok?: boolean; description?: string; result?: unknown } | null;
   if (!response.ok || !payload?.ok) {

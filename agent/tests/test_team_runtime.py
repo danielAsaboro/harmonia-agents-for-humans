@@ -233,8 +233,9 @@ def test_agent_engine_runtime_seeds_a_deterministic_persistent_session_and_colle
     }]
     assert remote.created[0]["session_id"].startswith("harmonia-")
     assert remote.queries[0]["session_id"] == remote.created[0]["session_id"]
-    assert "Delegate this request to nimi_analyst exactly once" in remote.queries[0]["message"]
-    assert "specialist_payload" not in remote.queries[0]["message"]
+    assert json.loads(remote.queries[0]["message"]) == {
+        "title": "Demo", "transcript": "proof",
+    }
     assert remote.deleted == []
 
 
@@ -416,7 +417,7 @@ def test_runtime_keeps_audit_projection_out_of_model_visible_session_state():
         user_id="job-123",
         session_key="op-1:projection-a",
     ))
-    assert "# AUTHORITY" not in remote.queries[0]["message"]
+    assert json.loads(remote.queries[0]["message"]) == {"title": "Demo"}
     assert "_durable_context_projection" not in remote.created[0]["state"]
     assert "_durable_context_projection" not in remote.queries[0]["message"]
 

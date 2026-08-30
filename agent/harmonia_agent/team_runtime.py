@@ -92,8 +92,11 @@ class LocalAdkTeamRuntime:
     async def invoke(self, *, specialist: str, payload: dict[str, Any], user_id: str, session_key: str) -> dict[str, Any]:
         from google.adk.runners import InMemoryRunner
         from google.genai import types
+        from .coordinator import authorized_specialist_name
 
-        specialist_agent = self.agent.find_sub_agent(specialist)
+        specialist_agent = self.agent.find_sub_agent(
+            authorized_specialist_name(specialist, payload),
+        )
         if specialist_agent is None:
             raise AgentEngineProtocolError(f"unknown local ADK specialist: {specialist}")
         runtime_tools = _request_scoped_tools(

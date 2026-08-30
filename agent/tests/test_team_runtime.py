@@ -90,6 +90,16 @@ def test_nimi_research_tool_is_absent_without_a_typed_research_request() -> None
     ) == tools
 
 
+def test_deployed_specialist_selection_requires_typed_research_authority() -> None:
+    from harmonia_agent.coordinator import authorized_specialist_name
+
+    assert authorized_specialist_name("nimi_analyst", {"researchRequest": None}) == "nimi_analyst"
+    assert authorized_specialist_name(
+        "nimi_analyst", {"researchRequest": {"mode": "public_web"}},
+    ) == "nimi_research_analyst"
+    assert authorized_specialist_name("ryan_strategist", {}) == "ryan_strategist"
+
+
 class _InvalidStructuredOutputModel(BaseLlm):
     @property
     def capabilities(self) -> LlmCapabilities:
@@ -499,7 +509,7 @@ def test_agent_engine_deployment_wraps_the_existing_root_hierarchy():
     assert [agent.name for agent in app.app.root_agent.sub_agents] == [
         "harmonia_intent_router",
         "harmonia_context_assembler",
-        "ryan_strategist", "nimi_analyst", "temi_editorial_planner",
+        "ryan_strategist", "nimi_analyst", "nimi_research_analyst", "temi_editorial_planner",
         "noni_copywriter", "dara_editor", "noni_artifact_producer",
         "dara_artifact_editor", "maya_presenter", "nova_liaison",
     ]

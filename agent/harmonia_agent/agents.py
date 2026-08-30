@@ -602,6 +602,23 @@ def build_agent_team(
         input_schema=AnalystInput,
         output_schema=_gemini_wire_schema(SourceAnalysis),
         output_key="source_analysis",
+        tools=[],
+        mode="single_turn",
+        before_agent_callback=_reset_nimi_capability_traces,
+        before_tool_callback=_guard_nimi_capability,
+        after_tool_callback=_record_nimi_capability,
+    )
+    research_analyst = Agent(
+        model=resolved.analyst,
+        generate_content_config=generation_config(resolved.config_for("nimi_analyst")),
+        name="nimi_research_analyst",
+        description="Finds grounded insights with explicitly authorized bounded research.",
+        instruction=_with_handoff_protocol(
+            f"{NIMI_ANALYST_INSTRUCTION}\n\n{nimi_analysis_skill_context()}"
+        ),
+        input_schema=AnalystInput,
+        output_schema=_gemini_wire_schema(SourceAnalysis),
+        output_key="source_analysis",
         tools=analyst_tools,
         mode="single_turn",
         before_agent_callback=_reset_nimi_capability_traces,
@@ -719,7 +736,7 @@ def build_agent_team(
         on_tool_error_callback=record_liaison_tool_error,
     )
     for specialist in (
-        intent_router, context_assembler, strategist, analyst, planner, copywriter, editor,
+        intent_router, context_assembler, strategist, analyst, research_analyst, planner, copywriter, editor,
         artifact_producer, artifact_editor, presenter, liaison,
     ):
         specialist.on_model_error_callback = record_model_error
@@ -729,7 +746,7 @@ def build_agent_team(
     return HarmoniaCoordinator(
         name="harmonia_coordinator",
         description="Routes Harmonia judgment tasks to typed specialists; never performs external effects.",
-        sub_agents=[intent_router, context_assembler, strategist, analyst, planner, copywriter, editor, artifact_producer, artifact_editor, presenter, liaison],
+        sub_agents=[intent_router, context_assembler, strategist, analyst, research_analyst, planner, copywriter, editor, artifact_producer, artifact_editor, presenter, liaison],
     )
 
 

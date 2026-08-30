@@ -310,6 +310,7 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
         ("harmonia_context_assembler", "single_turn"),
         ("ryan_strategist", "single_turn"),
         ("nimi_analyst", "single_turn"),
+        ("nimi_research_analyst", "single_turn"),
         ("temi_editorial_planner", "single_turn"),
         ("noni_copywriter", "single_turn"),
         ("dara_editor", "single_turn"),
@@ -405,7 +406,7 @@ def test_team_assigns_the_configured_model_to_each_role():
     assert [agent.model.model for agent in root.sub_agents] == [
         "coordinator-fake",
         "coordinator-fake",
-        "strategist-fake", "analyst-fake", "planner-fake", "copywriter-fake",
+        "strategist-fake", "analyst-fake", "analyst-fake", "planner-fake", "copywriter-fake",
         "editor-fake", "copywriter-fake", "editor-fake", "presenter-fake", "liaison-fake",
     ]
 
@@ -423,8 +424,12 @@ def test_team_applies_each_roles_generation_and_safety_policy():
     analyst = next(agent for agent in root.sub_agents if agent.name == "nimi_analyst")
     assert analyst.generate_content_config.temperature == 0.2
     assert analyst.generate_content_config.max_output_tokens == 8192
-    assert len(analyst.tools) == 1
-    assert analyst.tools[0].name == "nimi_google_search_agent"
+    assert analyst.tools == []
+    research_analyst = next(
+        agent for agent in root.sub_agents if agent.name == "nimi_research_analyst"
+    )
+    assert len(research_analyst.tools) == 1
+    assert research_analyst.tools[0].name == "nimi_google_search_agent"
     assert "additionalProperties" not in json.dumps(analyst.output_schema)
     assert "minLength" not in json.dumps(analyst.output_schema)
     assert "pattern" not in json.dumps(analyst.output_schema)
@@ -508,7 +513,7 @@ def test_nimi_private_agent_search_requires_configured_datastore(monkeypatch):
         "projects/project-1/locations/global/collections/default_collection/dataStores/nimi-docs",
     )
     root = build_agent_team()
-    analyst = next(agent for agent in root.sub_agents if agent.name == "nimi_analyst")
+    analyst = next(agent for agent in root.sub_agents if agent.name == "nimi_research_analyst")
     assert len(analyst.tools) == 2
     assert [tool.name for tool in analyst.tools] == [
         "nimi_google_search_agent", "nimi_agent_search_agent",

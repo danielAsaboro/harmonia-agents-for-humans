@@ -13,6 +13,13 @@ export function ArtifactBoard({ job, model, onSelect }: { job: JobFull; model: S
   const artifact = model.written[0];
   const visual = model.visual[0];
   const audio = model.audio[0];
+  const sourceCount = model.sources.normalizedSources.length;
+  const mediaCount = model.visual.length + model.motion.length + model.audio.length;
+  const stages = [
+    { label: "Source", color: "#d8ff3e", detail: sourceCount ? `${sourceCount} source${sourceCount === 1 ? "" : "s"}` : "Awaiting source" },
+    { label: "Draft", color: "#ff927f", detail: model.written.length ? `${model.written.length} draft${model.written.length === 1 ? "" : "s"}` : "No drafts yet" },
+    { label: "Media", color: "#bc96ff", detail: mediaCount ? `${mediaCount} asset${mediaCount === 1 ? "" : "s"}` : "No media yet" },
+  ];
   const decisions = [
     ...(job.sourceAnalysis?.angles ?? []).slice(0, 2).map((angle) => ({ label: angle.title, source: `${angle.angleType} · ${angle.evidenceKind}` })),
     ...(job.sourceAnalysis?.moments ?? []).slice(0, 3).map((moment) => ({ label: moment.hook || moment.title, source: `${moment.startSec}s` })),
@@ -21,19 +28,21 @@ export function ArtifactBoard({ job, model, onSelect }: { job: JobFull; model: S
   if (invalidTraces.length) return <section role="alert" className="rounded-[18px] border-2 border-red-600 bg-red-50 p-4"><strong className="text-sm text-red-800">Source trace protocol error</strong><ul className="mt-2 list-disc pl-5 text-xs text-red-700">{invalidTraces.map((trace, index) => <li key={`${trace.artifactId ?? trace.actionId}-${index}`}>{trace.error}</li>)}</ul></section>;
 
   return (
-    <div className="grid gap-3 xl:grid-cols-[1.08fr_.92fr] xl:grid-rows-[230px_190px]">
-      <article className="relative flex min-h-[430px] flex-col overflow-hidden rounded-[18px] bg-[#11110f] p-[15px] text-white xl:row-span-2 xl:min-h-0">
-        <div className="flex items-center font-mono text-[8px] uppercase tracking-[0.1em]">Campaign direction <span className="ml-auto rounded-full bg-[#292925] px-2 py-1 text-[#d8ff3e]">from conversation</span></div>
-        <h2 className="mt-6 max-w-md text-[28px] font-extrabold leading-[1.02] tracking-[-0.045em]">{directionFor(job)}</h2>
-        <p className="mt-3 max-w-md text-[10px] leading-[1.55] text-[#aaa]">The thread is the decision history. This canvas is the current truth, assembled only from persisted drafts, media, moments, and source links.</p>
-        <div className="mt-5">
-          {decisions.length ? decisions.map((decision, index) => <div key={`${decision.source}-${index}`} className="grid grid-cols-[20px_1fr_auto] items-center gap-2 border-t border-[#33332e] py-2 text-[9px]"><i className="grid h-[18px] w-[18px] place-items-center rounded-md bg-[#292925] not-italic text-[#d8ff3e]">✓</i><b className="truncate">{decision.label}</b><span className="font-mono text-[7px] text-[#888]">{decision.source}</span></div>) : <div className="border-t border-[#33332e] py-3 text-[9px] text-[#888]">Direction will sharpen as evidence and angles are persisted.</div>}
+    <div className="grid gap-3 xl:grid-cols-[1.08fr_.92fr] xl:grid-rows-[minmax(230px,auto)_minmax(190px,auto)]">
+      <article className="relative flex min-w-0 flex-col rounded-[18px] bg-[#11110f] p-5 text-white sm:p-6 xl:row-span-2">
+        <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-[#b7b7ac]">Campaign direction <span className="ml-auto rounded-full border border-[#d8ff3e]/20 bg-[#d8ff3e]/5 px-2.5 py-1 text-[9px] tracking-[0.06em] text-[#d8ff3e]">From conversation</span></div>
+        <h2 className="mt-5 max-w-lg text-balance break-words text-[26px] font-semibold leading-[1.15] tracking-[-0.035em]">{directionFor(job)}</h2>
+        <p className="mt-3 max-w-md text-xs leading-relaxed text-[#aaa99e]">The working direction, grounded in this job’s saved source analysis and content.</p>
+        <div className="my-5">
+          {decisions.length ? decisions.map((decision, index) => <div key={`${decision.source}-${index}`} className="flex items-start gap-3 border-t border-white/10 py-3"><span className="pt-0.5 font-mono text-[10px] tabular-nums text-[#a2aa7f]">{String(index + 1).padStart(2, "0")}</span><div className="min-w-0"><p className="break-words text-xs font-medium leading-relaxed text-[#e5e5de]">{decision.label}</p><p className="mt-1 font-mono text-[10px] text-[#9b9b8f]">{decision.source.replaceAll("_", " ")}</p></div></div>) : <div className="border-t border-white/10 py-3 text-xs leading-relaxed text-[#aaa99e]">Direction will sharpen as evidence and angles are saved.</div>}
         </div>
-        <div className="relative mt-auto h-[90px] before:absolute before:left-[50px] before:right-[40px] before:top-[42px] before:rotate-[8deg] before:border-t before:border-[#444] after:absolute after:left-[50px] after:right-[40px] after:top-[42px] after:-rotate-[10deg] after:border-t after:border-[#444]" aria-label="Source trace graph">
-          <span className="absolute left-2 top-4 z-10 grid h-[52px] w-[52px] place-items-center rounded-full bg-[#d8ff3e] font-mono text-[7px] font-semibold text-black">{job.normalizedSources?.length ? "SOURCE" : "PENDING"}</span>
-          <span className="absolute left-[43%] top-0 z-10 grid h-[52px] w-[52px] place-items-center rounded-full bg-[#ff765f] font-mono text-[7px] font-semibold text-black">DRAFT</span>
-          <span className="absolute right-2 top-[30px] z-10 grid h-[52px] w-[52px] place-items-center rounded-full bg-[#a566ff] font-mono text-[7px] font-semibold text-black">MEDIA</span>
-        </div>
+        <ol aria-label="Content workflow" className="mt-auto grid grid-cols-3 gap-2 border-t border-white/10 pt-5">
+          {stages.map((stage, index) => <li key={stage.label} className="relative min-w-0 rounded-xl border border-white/10 bg-white/[0.035] px-2.5 py-3 sm:px-3">
+            {index < stages.length - 1 && <span aria-hidden="true" className="absolute -right-[9px] top-[22px] z-10 grid h-4 w-4 place-items-center bg-[#11110f] text-xs text-[#8a8a7a]">→</span>}
+            <div className="flex items-center gap-2"><span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: stage.color }} /><span className="text-xs font-semibold" style={{ color: stage.color }}>{stage.label}</span></div>
+            <p className="mt-2 text-[11px] leading-snug text-[#b9b9ac]">{stage.detail}</p>
+          </li>)}
+        </ol>
       </article>
 
       <button type="button" onClick={() => artifact && onSelect(`artifact:${artifact.id}`, "written")} className="overflow-hidden rounded-[18px] border border-black/10 bg-white p-[14px] text-left transition hover:-translate-y-0.5 hover:border-[#5165ff] disabled:cursor-default" disabled={!artifact}>

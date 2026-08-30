@@ -17,7 +17,7 @@ export const OUTPUT_CAPABILITIES: Record<OutputKind, OutputCapability> = {
   blog_article: exportable, newsletter: exportable, caption: exportable, carousel_spec: exportable,
   social_image: { ...exportable, costClass: "provider_metered" },
   quote_card: { ...exportable, requiresVerbatimQuote: true }, diagram: exportable,
-  short_clip: { ...exportable, requiresTimedVideo: true }, reel: { ...exportable, requiresTimedVideo: true },
+  short_clip: { ...exportable, requiresTimedVideo: true, approvalClass: "effect" }, reel: { ...exportable, requiresTimedVideo: true, approvalClass: "effect" },
   generated_video: { ...exportable, state: "unavailable", approvalClass: "effect", costClass: "provider_metered" },
   generated_music: { ...exportable, state: "unavailable", approvalClass: "effect", costClass: "provider_metered" },
   editorial_calendar: exportable, content_pack: exportable,

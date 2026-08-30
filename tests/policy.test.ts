@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { applyPolicy, approvedPendingExecution, evaluateActionPolicy, validateDraftText } from "@/lib/policy";
+import { OUTPUT_CAPABILITIES } from "@/lib/outputCapabilities";
 
 describe("evaluateActionPolicy", () => {
   it.each(["render_clip", "render_reel"] as const)("requires approval before %s rendering", (type) => {
     const actions = applyPolicy([{ id: "clip-1", jobId: "j1", type, title: "Clip", description: "", payload: {} }]);
     expect(actions[0].approvalState).toBe("pending");
     expect(approvedPendingExecution(actions)).toEqual([]);
+    expect(OUTPUT_CAPABILITIES[type === "render_clip" ? "short_clip" : "reel"].approvalClass).toBe("effect");
   });
   it.each([
     ["publish_linkedin_post", "LinkedIn"],

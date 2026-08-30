@@ -361,6 +361,33 @@ def test_async_runtime_recovers_persisted_state_when_successful_stream_has_no_st
     assert state["source_analysis"]["summary"] == "Persisted successful analysis"
 
 
+def test_async_runtime_recovers_valid_structured_content_when_agent_engine_omits_output_state():
+    class ContentOnlyRemote(_RemoteAgent):
+        async def async_stream_query(self, **kwargs):
+            yield {
+                "author": "nimi_analyst",
+                "content": {"parts": [{"text": json.dumps({
+                    "summary": "Provider-emitted analysis",
+                    "moments": [],
+                    "angles": [],
+                    "assumptions": [],
+                    "confidence": 0.7,
+                })}]},
+            }
+
+    runtime = AgentEngineTeamRuntime(
+        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
+        client=_Client(ContentOnlyRemote()),
+    )
+
+    state = asyncio.run(runtime.invoke(
+        specialist="nimi_analyst", payload={"title": "Demo"},
+        user_id="job-123", session_key="op-1",
+    ))
+
+    assert state["source_analysis"]["summary"] == "Provider-emitted analysis"
+
+
 def test_async_runtime_surfaces_terminal_provider_error_event():
     class QuotaErrorRemote(_RemoteAgent):
         async def async_stream_query(self, **kwargs):

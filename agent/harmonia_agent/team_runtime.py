@@ -16,6 +16,20 @@ from .telemetry import safe_attributes, tracer
 
 logger = logging.getLogger("harmonia.team_runtime")
 
+_SPECIALIST_OUTPUT_KEYS = {
+    "harmonia_intent_router": "intent_classification",
+    "harmonia_context_assembler": "intent_strategy_context",
+    "ryan_strategist": "strategist_result",
+    "nimi_analyst": "source_analysis",
+    "nimi_research_analyst": "source_analysis",
+    "maya_presenter": "surface_plan",
+    "noni_copywriter": "copywriter_draft",
+    "dara_editor": "editorial_assessment",
+    "noni_artifact_producer": "semantic_artifact_draft",
+    "dara_artifact_editor": "semantic_artifact_review",
+    "temi_editorial_planner": "editorial_plan",
+}
+
 class AgentEngineProtocolError(RuntimeError):
     """Managed runtime completed without a valid state handoff."""
 
@@ -249,6 +263,31 @@ def _state_delta(event: Any) -> dict[str, Any]:
     return dict(delta) if isinstance(delta, dict) else {}
 
 
+def _structured_content(event: Any) -> dict[str, Any] | None:
+    """Read only a JSON object actually emitted in an ADK response event."""
+    if not isinstance(event, dict):
+        event = event.model_dump(mode="json", by_alias=True) if hasattr(event, "model_dump") else {}
+    content = event.get("content") or {}
+    for part in reversed(content.get("parts") or []):
+        text = part.get("text") if isinstance(part, dict) else None
+        if not isinstance(text, str):
+            continue
+        candidate = text.strip()
+        if candidate.startswith("```"):
+            candidate = candidate.removeprefix("```json").removeprefix("```")
+            candidate = candidate.removesuffix("```").strip()
+        start, end = candidate.find("{"), candidate.rfind("}")
+        if start < 0 or end <= start:
+            continue
+        try:
+            value = json.loads(candidate[start:end + 1])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
+
+
 def _grounding_metadata(event: Any) -> dict[str, Any] | None:
     if not isinstance(event, dict):
         event = event.model_dump(mode="json", by_alias=True) if hasattr(event, "model_dump") else {}
@@ -409,6 +448,7 @@ class AgentEngineTeamRuntime:
                     _specialist_prompt_payload(payload),
                     separators=(",", ":"), ensure_ascii=False,
                 )
+                emitted_output: dict[str, Any] | None = None
                 try:
                     events: AsyncIterator[Any] = remote.async_stream_query(
                         user_id=user_id,
@@ -418,6 +458,8 @@ class AgentEngineTeamRuntime:
                     async for event in events:
                         _raise_for_event_error(event)
                         state.update(_state_delta(event))
+                        if candidate := _structured_content(event):
+                            emitted_output = candidate
                         if metadata := _grounding_metadata(event):
                             state["_adk_grounding_metadata"] = metadata
                 except Exception:
@@ -443,6 +485,13 @@ class AgentEngineTeamRuntime:
                     except Exception:
                         if not state:
                             raise
+                output_key = _SPECIALIST_OUTPUT_KEYS.get(specialist)
+                if output_key and output_key not in state and emitted_output is not None:
+                    # Managed Agent Engine can return a provider-authored structured
+                    # response without mirroring ADK's output_key into session state.
+                    # Preserve that exact object; the caller's specialist validator
+                    # remains the sole authority on whether it is acceptable.
+                    state[output_key] = emitted_output
             except (AgentEngineProtocolError, AgentEngineProviderError):
                 raise
             except Exception as exc:  # noqa: BLE001 - normalized at provider boundary

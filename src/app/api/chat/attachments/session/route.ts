@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { operatorTenantHandler } from "@/lib/auth";
+import { attachmentOriginPolicy } from "@/lib/attachmentOrigins";
 import { createAttachmentUploadSession } from "@/lib/chatAttachments";
 
 const requestSchema = z.object({
@@ -11,13 +12,13 @@ const requestSchema = z.object({
 async function post(req: Request) {
   const parsed = requestSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "invalid attachment metadata" }, { status: 400 });
-  const expectedOrigin = process.env.PUBLIC_BASE_URL ? new URL(process.env.PUBLIC_BASE_URL).origin : new URL(req.url).origin;
+  const originPolicy = attachmentOriginPolicy(process.env, req.url);
   const requestOrigin = req.headers.get("origin");
-  if (requestOrigin && requestOrigin !== expectedOrigin) {
+  if (!originPolicy.accepts(requestOrigin)) {
     return Response.json({ error: "attachment origin denied" }, { status: 403 });
   }
   try {
-    const session = await createAttachmentUploadSession(parsed.data, requestOrigin ?? expectedOrigin);
+    const session = await createAttachmentUploadSession(parsed.data, originPolicy.uploadOrigin(requestOrigin));
     return Response.json({
       attachment: {
         id: session.attachment.id,

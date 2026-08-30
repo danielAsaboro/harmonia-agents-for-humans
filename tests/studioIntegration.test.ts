@@ -19,11 +19,10 @@ describe("studio console integration", () => {
     }));
     expect(html).toContain("Source bundle manifest");
     expect(html).toContain("--studio-conversation:2fr");
-    expect(html).toContain("Written");
+    expect(html).toContain("Posts");
     expect(html).toContain("publish-1");
-    expect(html).toContain("Current working set");
-    expect(html).toContain("One conversation");
-    expect(html).toContain("Current working set");
+    expect(html).toContain("Needs approval");
+    expect(html).toContain("One decision is waiting for you");
     expect(html).toContain("Review &amp; decide");
     expect(html).toContain('data-a2ui-slot="conversation"');
     expect(html).toContain('data-a2ui-slot="canvas"');

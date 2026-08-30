@@ -11,6 +11,10 @@ const LABELS: Record<OutputKind, string> = {
 };
 const STATE_LABEL = { verified_export: "Verified export", publish_when_connected: "Publish when connected", unavailable: "Unavailable" } as const;
 
+export function outputLabel(kind: OutputKind): string {
+  return LABELS[kind];
+}
+
 export function OutputIntentSelector({ selected, onChange, disabled }: { selected: OutputKind[]; onChange: (outputs: OutputKind[]) => void; disabled?: boolean }) {
   return <div className="flex gap-1 overflow-x-auto" aria-label="Desired outputs">
     {(Object.entries(OUTPUT_CAPABILITIES) as Array<[OutputKind, (typeof OUTPUT_CAPABILITIES)[OutputKind]]>).map(([id, capability]) => {

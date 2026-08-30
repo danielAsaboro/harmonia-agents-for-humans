@@ -46,4 +46,16 @@ describe("ApprovalDock", () => {
 
     expect(html).toBe("");
   });
+
+  it("labels replay-only controls as proof tools instead of an empty approval queue", () => {
+    const action = { id: "export", jobId: "job-1", type: "export_content_artifact" as const, title: "Export content pack", description: "", risk: "low" as const, requiresApproval: true, approvalState: "approved" as const, payload: {}, state: "executed" as const };
+    const receipt = { id: "receipt-1", jobId: "job-1", actionId: "export", idempotencyKey: "idem-1", actionType: "export_content_artifact" as const, performedAt: "2026-09-04T00:00:00.000Z", outcome: "applied" as const, detail: {}, operationId: "operation-1", traceId: "a".repeat(32) };
+    const html = renderToStaticMarkup(createElement(ApprovalDock, {
+      jobId: "job-1", actions: [action], verifications: [], receipts: [receipt], claims: [{ id: "claim-1", actionId: "export", idempotencyKey: "idem-1", state: "applied", attempt: 1, claimedAt: "2026-09-04T00:00:00.000Z", finalizedAt: "2026-09-04T00:00:01.000Z", receiptId: "receipt-1", operationId: "operation-1", traceId: "a".repeat(32) }], busy: false, onDecide: async () => {},
+    }));
+    expect(html).toContain("Verification tools");
+    expect(html).toContain("Prove duplicate suppression");
+    expect(html).not.toContain("Review &amp; decide");
+    expect(html).not.toContain("0 approval decisions pending");
+  });
 });

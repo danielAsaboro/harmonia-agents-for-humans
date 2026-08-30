@@ -194,8 +194,8 @@ echo "web: ${WEB_URL}"
 
 CORS_FILE="$(mktemp)"
 trap 'rm -f "${CORS_FILE}"' EXIT
-printf '[{"origin":["%s"],"method":["GET","HEAD","PUT"],"responseHeader":["Content-Type","Range","x-goog-resumable"],"maxAgeSeconds":3600}]' \
-  "${APP_URL}" > "${CORS_FILE}"
+printf '[{"origin":["%s","%s"],"method":["GET","HEAD","PUT"],"responseHeader":["Content-Type","Range","x-goog-resumable"],"maxAgeSeconds":3600}]' \
+  "${APP_URL}" "${WEB_URL}" > "${CORS_FILE}"
 gcloud storage buckets update "gs://${GCS_BUCKET}" \
   --cors-file="${CORS_FILE}" --project "${PROJECT_ID}"
 
@@ -247,7 +247,7 @@ gcloud run services add-iam-policy-binding harmonia-agent \
 
 gcloud run services update harmonia-web \
   --region "${REGION}" --project "${PROJECT_ID}" \
-  --update-env-vars "AGENT_SERVICE_URL=${AGENT_URL},PUBLIC_BASE_URL=${APP_URL}" >/dev/null
+  --update-env-vars "^|^AGENT_SERVICE_URL=${AGENT_URL}|PUBLIC_BASE_URL=${APP_URL}|ATTACHMENT_ALLOWED_ORIGINS=${APP_URL},${WEB_URL}" >/dev/null
 
 echo "== Wiring Pub/Sub push subscription =="
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format 'value(projectNumber)')"

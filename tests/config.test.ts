@@ -17,4 +17,13 @@ describe("runtime configuration", () => {
       VEO_3_1_COST_PER_SECOND_USD: undefined,
     });
   });
+
+  it("preserves the explicit attachment origin allowlist", () => {
+    expect(parseConfig({
+      ...required,
+      ATTACHMENT_ALLOWED_ORIGINS: "https://useharmonia.xyz,https://harmonia-web.example.run.app",
+    })).toMatchObject({
+      ATTACHMENT_ALLOWED_ORIGINS: "https://useharmonia.xyz,https://harmonia-web.example.run.app",
+    });
+  });
 });

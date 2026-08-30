@@ -20,5 +20,17 @@ describe("studio conversation elements", () => {
     }));
     expect(html).toContain('data-artifact-id="artifact:d1"');
     expect(html).toContain("Ship it");
+    expect(html).toContain("Source-linked");
+    expect(html).not.toContain("d".repeat(64));
+  });
+
+  it("describes job state without exposing internal identifiers or enums", () => {
+    const html = renderToStaticMarkup(createElement(ConversationTurn, {
+      message: { role: "assistant", text: "Your job is ready to review.", data: { intent: "list_jobs", reply: "", jobs: [{ id: "job-internal-123", title: "Launch campaign", status: "waiting_for_approval", stage: "awaiting_approval" }] } },
+      onActivateJob: () => {},
+    }));
+    expect(html).toContain("Needs approval");
+    expect(html).not.toContain("job-internal-123");
+    expect(html).not.toContain("awaiting_approval");
   });
 });

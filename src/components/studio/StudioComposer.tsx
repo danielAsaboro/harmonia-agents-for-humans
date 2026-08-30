@@ -32,11 +32,11 @@ export function StudioComposer({ value, onChange, attachments, onAttachmentsChan
           }}
           rows={1}
           placeholder="What outcome do you need? You can speak normally…"
-          className="max-h-28 min-h-8 flex-1 resize-none bg-transparent px-1 py-2 text-[10px] leading-4 outline-none placeholder:text-black/40"
+          className="max-h-28 min-h-10 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-5 outline-none placeholder:text-black/40"
         />
         <button type="button" aria-label="Send message" disabled={blocked} onClick={() => void send()} className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#11110f] text-white transition hover:scale-105 disabled:opacity-30"><SendIcon /></button>
       </div>
-      <p className="mt-2 text-center font-mono text-[7px] text-black/40">Strategy and plan context linked · publishing still needs approval</p>
+      <p className="mt-2 text-center text-[11px] text-black/45">Strategy and plan context linked · publishing still needs approval</p>
     </div>
   );
 }

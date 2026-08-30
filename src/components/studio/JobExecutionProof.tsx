@@ -19,7 +19,7 @@ function short(value?: string): string {
   return value ? `${value.slice(0, 10)}…` : "pending";
 }
 
-export function JobExecutionProof({ job, events, receipts }: { job: JobFull; events: TimelineEvent[]; receipts: Receipt[] }) {
+export function JobExecutionProof({ job, events, receipts, initiallyOpen = false }: { job: JobFull; events: TimelineEvent[]; receipts: Receipt[]; initiallyOpen?: boolean }) {
   const decisions = job.decisions ?? [];
   const approved = decisions.filter((decision) => decision.decision === "approved");
   const claims = job.claims ?? [];
@@ -57,12 +57,12 @@ export function JobExecutionProof({ job, events, receipts }: { job: JobFull; eve
     ["Verified outputs", String(verifiedCount)],
   ];
 
-  return <details className="mb-5 border border-black/15 bg-white/55" open>
-    <summary className="cursor-pointer px-4 py-3 text-[10px] font-black uppercase tracking-[0.14em]">Execution proof · persisted records for this job</summary>
+  return <details className="border border-black/15 bg-white/55" open={initiallyOpen}>
+    <summary className="cursor-pointer px-4 py-3 text-xs font-black uppercase tracking-[0.12em]">Execution proof · audit trail</summary>
     <div className="grid border-t border-black/10 lg:grid-cols-[1.35fr_1fr]">
-      <dl className="grid gap-px bg-black/10 sm:grid-cols-2">{lineage.map(([label, value]) => <div key={label} className="bg-[#f4f0e8] p-3"><dt className="font-mono text-[7px] uppercase tracking-wider text-black/40">{label}</dt><dd className="mt-1 break-words text-[10px] font-bold">{value}</dd></div>)}</dl>
-      <dl className="grid grid-cols-2 gap-px border-t border-black/10 bg-black/10 lg:border-l lg:border-t-0">{metrics.map(([label, value]) => <div key={label} className="bg-white p-3"><dt className="font-mono text-[7px] uppercase tracking-wider text-black/40">{label}</dt><dd className="mt-1 text-sm font-black">{value}</dd></div>)}</dl>
+      <dl className="grid gap-px bg-black/10 sm:grid-cols-2">{lineage.map(([label, value]) => <div key={label} className="bg-[#f4f0e8] p-3"><dt className="text-[11px] font-bold uppercase tracking-[0.08em] text-black/45">{label}</dt><dd className="mt-1 break-words text-xs font-bold">{value}</dd></div>)}</dl>
+      <dl className="grid grid-cols-2 gap-px border-t border-black/10 bg-black/10 lg:border-l lg:border-t-0">{metrics.map(([label, value]) => <div key={label} className="bg-white p-3"><dt className="text-[11px] font-bold uppercase tracking-[0.08em] text-black/45">{label}</dt><dd className="mt-1 text-sm font-black">{value}</dd></div>)}</dl>
     </div>
-    <p className="border-t border-black/10 px-4 py-2 font-mono text-[7px] text-black/40">Elapsed {duration(elapsed)} · approval wait {duration(approvalWait)} · identifiers truncated for display</p>
+    <p className="border-t border-black/10 px-4 py-2 text-[11px] text-black/45">Elapsed {duration(elapsed)} · approval wait {duration(approvalWait)} · identifiers truncated for display</p>
   </details>;
 }

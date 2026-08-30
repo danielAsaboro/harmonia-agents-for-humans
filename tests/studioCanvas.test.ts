@@ -41,6 +41,8 @@ describe("studio canvas", () => {
     }));
     expect(html).not.toContain("Agent-generated interface");
     expect(html).not.toContain("<summary>Agent-generated");
+    expect(html).toContain("Workflow details");
+    expect(html.indexOf("Campaign direction")).toBeLessThan(html.indexOf("Workflow details"));
   });
 
   it("keeps a failed working set visible and exposes its retry action", () => {
@@ -55,9 +57,11 @@ describe("studio canvas", () => {
       },
       events: [], receipts: [], selectedArtifactId: null, onSelectedArtifactChange: () => {}, onRetry: () => {},
     }));
-    expect(html).toContain("Job failed at understand: A required dependency is temporarily unavailable.");
+    expect(html).toContain("A required dependency is temporarily unavailable.");
+    expect(html).toContain("Blocked");
     expect(html).toContain(">Retry</button>");
-    expect(html).toContain("Current working set");
+    expect(html).toContain("Your saved work is still here");
+    expect(html.indexOf("Blocked")).toBeLessThan(html.indexOf("A required dependency is temporarily unavailable."));
   });
 
   it("turns a view revision into a normal grounded chat request", () => {
@@ -90,8 +94,44 @@ describe("studio canvas", () => {
     }));
     expect(html).toContain("sourceIds");
     expect(html).toContain("too_big");
-    expect(html).toContain("A code or contract correction must be deployed before this job can be resumed.");
-    expect(html).toContain(">Resume corrected job</button>");
+    expect(html).toContain("Technical details");
+    expect(html).toContain("Harmonia needs a correction before this job can continue.");
+    expect(html).toContain(">Continue after correction</button>");
     expect(html).not.toContain(">Retry</button>");
+  });
+
+  it("puts the operator state and artifacts ahead of execution proof", () => {
+    const html = renderToStaticMarkup(createElement(WorkingCanvas, {
+      job: {
+        id: "job-approval", status: "waiting_for_approval", stage: "awaiting_approval", createdAt: "2026-09-04T00:00:00.000Z", updatedAt: "2026-09-04T00:01:00.000Z",
+        config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, normalizedSources: [], assets: [],
+        actions: [{ id: "publish", jobId: "job-approval", type: "publish_x_post", title: "Publish launch post", description: "Review the final post.", risk: "high", requiresApproval: true, approvalState: "pending", payload: {}, state: "planned" }],
+      },
+      events: [], receipts: [], selectedArtifactId: null, onSelectedArtifactChange: () => {}, onDecide: async () => {},
+    }));
+    expect(html).toContain("Needs approval");
+    expect(html).toContain("One decision is waiting for you");
+    expect(html).toContain("Review <b class=\"text-[#d8ff3e]\">1</b>");
+    expect(html.indexOf("Campaign direction")).toBeLessThan(html.indexOf("Execution proof"));
+    expect(html).toContain('aria-label="Open proof and audit trail"');
+    expect(html).toContain('aria-label="Proof and audit trail"');
+  });
+
+  it("does not show an empty review control", () => {
+    const html = renderToStaticMarkup(createElement(WorkingCanvas, {
+      job: {
+        id: "job-working", status: "running", stage: "draft", createdAt: "2026-09-04T00:00:00.000Z", updatedAt: "2026-09-04T00:01:00.000Z",
+        config: { operatorBrief: "Turn the launch film into a founder-led campaign.", sourceManifestId: "manifest-1", desiredOutputs: ["x_post", "short_clip"], allowedOutputs: ["x_post", "short_clip"], platforms: ["x", "linkedin"] }, normalizedSources: [], actions: [], assets: [],
+      },
+      events: [], receipts: [], selectedArtifactId: null, onSelectedArtifactChange: () => {}, onDecide: async () => {},
+    }));
+    expect(html).toContain("Working");
+    expect(html).not.toContain("Review <b");
+    expect(html).not.toContain("Review &amp; decide");
+    expect(html).toContain("Saved job brief");
+    expect(html).toContain("Turn the launch film into a founder-led campaign.");
+    expect(html).toContain("X post");
+    expect(html).toContain("Short clip");
+    expect(html).toContain("X · LinkedIn");
   });
 });

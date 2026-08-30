@@ -7,6 +7,7 @@ import { latestSurfaceOperations } from "@/lib/a2ui/surfaceSlots";
 import { surfaceRevisionRequest } from "@/lib/a2ui/workspaceActions";
 import type { StudioConversationMessage } from "@/lib/studio/conversationModel";
 import { contentArtifactPreview } from "@/lib/contentArtifacts/presentation";
+import { operatorStatusForJob } from "@/lib/studio/operatorStatus";
 import { AgentRunSummary } from "./AgentRunSummary";
 import { StudioFailure } from "./StudioStates";
 
@@ -42,14 +43,14 @@ export function ConversationTurn({ message, onActivateArtifact, onActivateJob, o
       style={{ contentVisibility: "auto", containIntrinsicSize: "auto 180px" }}
       data-role={message.role}
     >
-      <div className={`mb-1 flex items-center gap-2 px-1 font-mono text-[7px] text-[#8b877f] ${user ? "justify-end" : ""}`}>
+      <div className={`mb-1 flex items-center gap-2 px-1 text-[11px] text-[#716d65] ${user ? "justify-end" : ""}`}>
         <span>{user ? "You" : "Harmonia"}</span>
         {message.surface === "telegram" ? <span className="bg-[#2aa7df]/15 px-1.5 py-0.5 text-[#12668b]">Telegram</span> : null}
         {formatTime(message.at) ? <time>{formatTime(message.at)}</time> : null}
       </div>
       <div className={user
-        ? "max-w-[88%] rounded-[14px_14px_4px_14px] bg-[#11110f] px-[11px] py-2.5 text-[10px] leading-[1.5] text-white"
-        : "max-w-[92%] rounded-[14px_14px_14px_4px] border border-black/10 bg-white px-[11px] py-2.5 text-[10px] leading-[1.5] text-[#25231f]"}
+        ? "max-w-[88%] rounded-[14px_14px_4px_14px] bg-[#11110f] px-3 py-2.5 text-sm leading-6 text-white"
+        : "max-w-[92%] rounded-[14px_14px_14px_4px] border border-black/10 bg-white px-3 py-2.5 text-sm leading-6 text-[#25231f]"}
       >
         <MessageContent text={message.text} />
       </div>
@@ -81,7 +82,7 @@ export function ConversationTurn({ message, onActivateArtifact, onActivateJob, o
           {jobs.map((job) => job ? (
             <button key={job.id} type="button" onClick={() => onActivateJob?.(job.id)} className="group flex w-full items-center gap-2 rounded-[10px] border border-black/10 bg-[#f2eee5] p-2 text-left transition hover:border-[#5165ff]">
               <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#d8ff3e] text-sm">↗</span>
-              <span className="min-w-0 flex-1"><span className="block truncate text-[9px] font-bold">{job.title ?? "Untitled content job"}</span><span className="font-mono text-[7px] text-black/45">{job.id} · {job.stage} · {job.status}</span></span>
+              <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold">{job.title ?? "Untitled content job"}</span><span className="text-[11px] text-black/50">{operatorStatusForJob({ stage: job.stage, status: job.status, failed: Boolean(job.failure) }).label}</span></span>
               <span className="text-black/35 group-hover:text-[#3157ff]">Open</span>
             </button>
           ) : null)}
@@ -98,9 +99,9 @@ export function ConversationTurn({ message, onActivateArtifact, onActivateJob, o
               onClick={() => onActivateArtifact?.(`artifact:${artifact.id}`)}
               className="group w-full rounded-[10px] border border-black/10 bg-[#f2eee5] p-2 text-left transition hover:border-[#ff765f]"
             >
-              <span className="mb-1 flex items-center justify-between font-mono text-[7px] text-black/45"><span>{artifact.outputType.replaceAll("_", " ")}</span><span>revision {artifact.revision}</span></span>
-              <span className="block whitespace-pre-wrap text-[9px] leading-[1.5] text-[#25231f]">{contentArtifactPreview(artifact)}</span>
-              <span className="mt-2 inline-block max-w-full truncate rounded-full bg-[#d8ff3e] px-2 py-1 font-mono text-[7px] text-[#283600]">{artifact.contentDigest}</span>
+              <span className="mb-1 flex items-center justify-between font-mono text-[10px] text-black/45"><span>{artifact.outputType.replaceAll("_", " ")}</span><span>revision {artifact.revision}</span></span>
+              <span className="block whitespace-pre-wrap text-xs leading-[1.6] text-[#25231f]">{contentArtifactPreview(artifact)}</span>
+              <span className="mt-2 inline-block rounded-full bg-[#d8ff3e] px-2 py-1 text-[10px] font-bold text-[#283600]">Source-linked · {artifact.sourceSegmentRefs.length} reference{artifact.sourceSegmentRefs.length === 1 ? "" : "s"}</span>
             </button>
           ))}
         </div>

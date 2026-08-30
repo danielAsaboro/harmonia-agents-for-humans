@@ -66,6 +66,7 @@ describe("Temi persisted editorial-plan UI", () => {
       "Sep 1, 2026, 5:00 PM GMT+1", "Sep 1, 2026, 7:00 PM GMT+1", "Aug 31, 2026, 7:00 PM GMT+1",
       "Priority 1", "Selection score 0.93", "high item confidence", "Priority 2", "Selection score 0.72", "medium item confidence",
     ]) expect(html).toContain(value);
+    expect(html).not.toContain("Receipts &amp; verification");
   });
 
   it("shows plan as a durable pipeline stage", () => {

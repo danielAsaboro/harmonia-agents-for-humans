@@ -547,6 +547,7 @@ async def run_plan(job_id: str) -> None:
 
 
 async def run_draft(job_id: str) -> None:
+    fence = current_operation()
     job = get_job(job_id)
     approval = job.get("strategyApproval") or {}
     if approval.get("decision") != "approved" or approval.get("payloadDigest") != job.get("strategyDigest"):
@@ -624,7 +625,7 @@ async def run_draft(job_id: str) -> None:
             "constraints": [*selected.constraints, *strategy.get("brandSafety", []), *[str(item.get("instruction"))[:300] for item in (job.get("steeringInstructions") or []) if item.get("instruction")]],
             "passType": "original", "priorBatch": None, "priorReview": None,
         })
-        result = await produce_artifacts_with_team(production_input, invocation=InvocationContext(job_id=job_id, workspace_id=job["workspaceId"], brand_id=job["brandId"], user_id=job["createdByUserId"], stage="draft", operation_id=f"{job_id}:draft:artifacts:0"))
+        result = await produce_artifacts_with_team(production_input, invocation=InvocationContext(job_id=job_id, workspace_id=job["workspaceId"], brand_id=job["brandId"], user_id=job["createdByUserId"], stage="draft", operation_id=fence.operation_id if fence is not None else f"{job_id}:draft:artifacts:0"))
         web_post("/api/internal/content-artifacts", {"jobId": job_id, "stage": "draft", "operation": "complete", "editorialPlanId": editorial_plan.planId, "editorialPlanDigest": stored_digest, "editorialItemId": selected.id, "briefId": selected.briefId, "result": result.model_dump(mode="json", by_alias=True)})
         return
     raise AgentProtocolError("campaign output plan contains no supported typed content artifacts")

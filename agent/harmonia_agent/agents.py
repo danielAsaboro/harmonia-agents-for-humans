@@ -531,7 +531,7 @@ def build_agent_team(
         output_schema=vertex_output_schema(ProductionBatch),
         output_key="production_batch",
         tools=[build_noni_writing_skillset(), build_noni_google_search_tool(resolved.copywriter)],
-        mode="single_turn",
+        mode="chat",
         before_agent_callback=reset_noni_skill_trace,
         after_tool_callback=record_noni_skill_tool,
     )
@@ -545,7 +545,7 @@ def build_agent_team(
         output_schema=vertex_output_schema(ArtifactReviewBatch),
         output_key="artifact_review_batch",
         tools=[build_dara_editing_skillset()],
-        mode="single_turn",
+        mode="chat",
         before_agent_callback=reset_dara_skill_trace,
         before_tool_callback=guard_dara_skill_tool,
         after_tool_callback=record_dara_skill_tool,

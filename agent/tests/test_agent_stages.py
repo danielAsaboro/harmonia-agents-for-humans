@@ -106,6 +106,7 @@ def test_understand_written_source_routes_through_nimi_without_fake_timestamps(m
 
 def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypatch):
     posts = []
+    invocations = []
     persisted_plan = _editorial_plan()
     job = {
         "workspaceId": "workspace-test", "brandId": "brand-test", "createdByUserId": "user-test",
@@ -129,7 +130,8 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
         "selectedNextItemId": persisted_plan["selectedNextItemId"],
         "editorialItemStates": {persisted_plan["selectedNextItemId"]: {"status": "selected"}},
     }
-    async def fake_produce(*_args, **_kwargs):
+    async def fake_produce(*_args, **kwargs):
+        invocations.append(kwargs["invocation"])
         artifact = {
             "id": "artifact-x-post",
             "outputPlanItemId": "output-1-x-post",
@@ -169,7 +171,10 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
         return {"outcome": "execute"} if path.endswith("/claim") else {"ok": True}
     monkeypatch.setattr(stages, "web_post", fake_post)
 
-    asyncio.run(stages.run_draft("job-1"))
+    with operation_scope("job:job-1:stage:draft:generation:2", 1):
+        asyncio.run(stages.run_draft("job-1"))
+
+    assert invocations[0].operation_id == "job:job-1:stage:draft:generation:2"
 
     path, payload = posts[-1]
     assert path == "/api/internal/content-artifacts"

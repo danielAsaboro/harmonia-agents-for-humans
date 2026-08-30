@@ -282,8 +282,8 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
         ("temi_editorial_planner", "chat"),
         ("noni_copywriter", "single_turn"),
         ("dara_editor", "single_turn"),
-        ("noni_artifact_producer", "single_turn"),
-        ("dara_artifact_editor", "single_turn"),
+        ("noni_artifact_producer", "chat"),
+        ("dara_artifact_editor", "chat"),
         ("maya_presenter", "single_turn"),
         ("nova_liaison", "chat"),
     ]

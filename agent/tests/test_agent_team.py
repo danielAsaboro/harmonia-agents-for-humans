@@ -600,7 +600,8 @@ def test_temi_prompt_bounds_the_vertical_slice_response():
     from harmonia_agent.role_models import load_role_model_catalog
     from harmonia_agent.temi_prompt import TEMI_EDITORIAL_PLANNER_INSTRUCTION
 
-    assert "Load exactly one relevant approved reference" in TEMI_EDITORIAL_PLANNER_INSTRUCTION
+    assert "Harmonia has already activated" in TEMI_EDITORIAL_PLANNER_INSTRUCTION
+    assert "no loader or read tool is exposed" in TEMI_EDITORIAL_PLANNER_INSTRUCTION
     assert "exact typed request payload" in TEMI_EDITORIAL_PLANNER_INSTRUCTION
     assert "Return exactly one plan item" in TEMI_EDITORIAL_PLANNER_INSTRUCTION
     assert "Use only low, medium, or high" in TEMI_EDITORIAL_PLANNER_INSTRUCTION

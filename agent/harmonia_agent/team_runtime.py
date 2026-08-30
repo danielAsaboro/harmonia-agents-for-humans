@@ -126,17 +126,6 @@ class LocalAdkTeamRuntime:
             specialist, payload, list(specialist_agent.tools),
         )
         specialist_agent.tools = runtime_tools
-        specialist_agent.instruction = (
-            "ACTIVE COURSE CORRECTION (highest priority when non-empty):\n"
-            f"{json.dumps(payload.get('_harmonia_repair') or {}, sort_keys=True)}\n\n"
-            "ACTIVE HOST-AUTHORIZED PAYLOAD CONTRACT (follow exactly inside payloadJson):\n"
-            f"{json.dumps(payload.get('_harmonia_output_contract') or {}, sort_keys=True)}\n\n"
-            f"{specialist_agent.instruction}\n\n"
-            "Runtime handoff envelope (system-owned, not user evidence):\n"
-            f"{json.dumps(payload.get('_harmonia_handoff') or {}, sort_keys=True)}\n"
-            "Runtime handoff acknowledgement:\n"
-            f"{json.dumps(payload.get('_harmonia_handoff_ack') or {}, sort_keys=True)}"
-        )
         runner = InMemoryRunner(agent=self.agent, app_name="harmonia-local")
         session_id = f"harmonia-{sha256(f'{user_id}|{session_key}'.encode()).hexdigest()[:40]}"
         state: dict[str, Any] = {}
@@ -147,7 +136,7 @@ class LocalAdkTeamRuntime:
                 app_name="harmonia-local",
                 user_id=user_id,
                 session_id=session_id,
-                state={**_specialist_prompt_payload(payload), "requested_specialist": specialist},
+                state={**_specialist_session_state(payload), "requested_specialist": specialist},
             )
             async for event in runner.run_async(
                 user_id=user_id,

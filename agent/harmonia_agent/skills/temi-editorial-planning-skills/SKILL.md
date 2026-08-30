@@ -14,9 +14,9 @@ metadata:
 # Temi Editorial Planning Skills
 
 Use these methods inside the strict `EditorialPlannerInput` → `EditorialPlan`
-contract. Load this skill exactly once, load only relevant references, then read
-the needed sections of the exact immutable planning snapshot with Temi's
-read-only tools.
+contract. Harmonia activates this skill and its relevant references before
+delegation. Use the supplied immutable planning snapshot directly; do not call
+loader or read tools, which are not exposed to this specialist.
 
 ## Core sequence
 

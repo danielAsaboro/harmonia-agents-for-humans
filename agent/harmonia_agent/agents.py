@@ -541,6 +541,7 @@ def build_agent_team(
 ) -> Agent:
     """Build one coordinator with two delegated specialists and one draft workflow."""
     resolved = _resolve_role_models(model, models)
+    from .runtime_instructions import project_runtime_instructions
     intent_router = Agent(
         model=resolved.coordinator,
         generate_content_config=generation_config(resolved.config_for("harmonia_intent_router")),
@@ -758,9 +759,10 @@ def build_agent_team(
         on_tool_error_callback=record_liaison_tool_error,
     )
     for specialist in (
-        intent_router, context_assembler, strategist, analyst, research_analyst, planner, copywriter, editor,
+        intent_router, context_assembler, strategist, research_strategist, analyst, research_analyst, planner, copywriter, editor,
         artifact_producer, artifact_editor, presenter, liaison,
     ):
+        specialist.before_model_callback = project_runtime_instructions
         specialist.on_model_error_callback = record_model_error
         if specialist.tools and specialist.on_tool_error_callback is None:
             specialist.on_tool_error_callback = record_tool_error

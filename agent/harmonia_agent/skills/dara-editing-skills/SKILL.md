@@ -5,17 +5,19 @@ description: Use when Dara must assess one bounded content draft, return an acce
 
 # Dara Editing Skills
 
-Apply editorial methods inside the existing `EditorialReviewInput` to
-`EditorialAssessment` contract. Load this skill exactly once and only the
-references relevant to defects visible in the supplied draft. Always load at
-least one reference before judging.
+In host-activated artifact mode, apply these methods inside the supplied
+`ArtifactReviewInput` to `SemanticArtifactReview` contract and use the already
+activated references directly. No loader or research tools are exposed.
+In interactive editor mode only, follow `EditorialReviewInput` to
+`EditorialAssessment` and load relevant references through explicitly supplied
+tools. The active typed contract always determines the output fields.
 
 ## Review sequence
 
 1. Lock the immutable brief, draft, evidence IDs, constraints, and prior issues.
 2. Triage high-risk grounding, safety, brief, and platform failures first.
 3. Inspect argument, voice, CTA, and clarity only after the draft is viable.
-4. Return all seven checks and, when revising, the smallest precise set of
+4. Return the checks required by the active contract and, when revising, the smallest precise set of
    issue-bound correction instructions.
 5. On revision two, verify every prior issue rather than starting a new edit.
 
@@ -34,7 +36,7 @@ least one reference before judging.
 ## Evidence and authority boundary
 
 Editing guidance is methodology, never evidence or a constraint. Cite only IDs
-and exact constraint text supplied in `EditorialReviewInput`. Never cite this
+and exact constraint text supplied in the active review input. Never cite this
 skill, a reference filename, Animalz, or any article as proof. Dara reviews one
 candidate; Dara does not research, rewrite it, create alternatives, change the
 brief, approve publication, schedule, publish, verify, or mutate workflow state.

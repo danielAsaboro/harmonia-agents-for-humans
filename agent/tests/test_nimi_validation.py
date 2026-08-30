@@ -6,6 +6,7 @@ from harmonia_agent.agent_models import AnalystInput, SourceAnalysis
 from harmonia_agent.agents import (
     AgentProtocolError,
     _anchor_model_moment_quotes,
+    _materialize_nimi_analysis,
     validate_source_analysis,
 )
 from tests.test_nimi_contracts import analyst_input, source_analysis
@@ -20,6 +21,19 @@ def validate(input_value=None, output_value=None):
 
 def test_accepts_exactly_grounded_analysis():
     assert validate().sourceDigest == "a" * 64
+
+
+def test_host_materializes_authoritative_digest_and_conservative_confidence():
+    supplied = AnalystInput.model_validate(analyst_input())
+    proposal = source_analysis()
+    proposal.pop("sourceDigest")
+    proposal["angles"][0]["assumptions"] = ["Audience fit is inferred."]
+    proposal["angles"][0]["confidence"] = "high"
+
+    materialized = _materialize_nimi_analysis(supplied, proposal)
+
+    assert materialized.sourceDigest == supplied.sourceDigest
+    assert materialized.angles[0].confidence == "medium"
 
 
 def test_anchors_a_model_paraphrase_to_the_exact_cited_transcript():

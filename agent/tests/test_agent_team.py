@@ -425,6 +425,8 @@ def test_team_applies_each_roles_generation_and_safety_policy():
     assert analyst.generate_content_config.temperature == 0.2
     assert analyst.generate_content_config.max_output_tokens == 8192
     assert analyst.tools == []
+    assert "sourceDigest" not in analyst.output_schema["properties"]
+    assert "sourceDigest" not in analyst.output_schema["required"]
     research_analyst = next(
         agent for agent in root.sub_agents if agent.name == "nimi_research_analyst"
     )

@@ -11,6 +11,7 @@ import os
 import re
 import unicodedata
 import time
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -277,6 +278,14 @@ def _gemini_wire_schema(schema: type[BaseModel]) -> dict[str, Any]:
         return value
 
     return compatible(raw)
+
+
+def _nimi_semantic_output_schema() -> dict[str, Any]:
+    """Expose only semantic judgment; authoritative digests stay host-owned."""
+    schema = _gemini_wire_schema(SourceAnalysis)
+    schema["properties"].pop("sourceDigest", None)
+    schema["required"] = [name for name in schema.get("required", []) if name != "sourceDigest"]
+    return schema
 
 
 def _reset_nimi_capability_traces(callback_context: Any) -> None:
@@ -600,7 +609,7 @@ def build_agent_team(
             f"{NIMI_ANALYST_INSTRUCTION}\n\n{nimi_analysis_skill_context()}"
         ),
         input_schema=AnalystInput,
-        output_schema=_gemini_wire_schema(SourceAnalysis),
+        output_schema=_nimi_semantic_output_schema(),
         output_key="source_analysis",
         tools=[],
         mode="single_turn",
@@ -617,7 +626,7 @@ def build_agent_team(
             f"{NIMI_ANALYST_INSTRUCTION}\n\n{nimi_analysis_skill_context()}"
         ),
         input_schema=AnalystInput,
-        output_schema=_gemini_wire_schema(SourceAnalysis),
+        output_schema=_nimi_semantic_output_schema(),
         output_key="source_analysis",
         tools=analyst_tools,
         mode="single_turn",
@@ -1810,6 +1819,18 @@ def _anchor_model_moment_quotes(
     return analysis.model_copy(update={"moments": moments})
 
 
+def _materialize_nimi_analysis(
+    input: AnalystInput, proposal: Mapping[str, Any],
+) -> SourceAnalysis:
+    """Attach host authority and conservatively normalize confidence claims."""
+    value = deepcopy(dict(proposal))
+    value["sourceDigest"] = input.sourceDigest
+    for item in [value, *(value.get("moments") or []), *(value.get("angles") or [])]:
+        if isinstance(item, dict) and item.get("assumptions") and item.get("confidence") == "high":
+            item["confidence"] = "medium"
+    return SourceAnalysis.model_validate(value)
+
+
 def validate_source_analysis(
     input: AnalystInput,
     analysis: SourceAnalysis,
@@ -2004,7 +2025,23 @@ def _validate_run_output_unwrapped(
             )
         except ValueError as exc:
             raise AgentProtocolError(f"invalid Nimi skill or grounded-research trace: {exc}") from exc
-        result = _validated_state(state, "source_analysis", SourceAnalysis)
+        raw_result = state.get("source_analysis")
+        if not isinstance(raw_result, (dict, str)):
+            raise AgentProtocolError("coordinator did not produce required state key: source_analysis")
+        if isinstance(raw_result, str):
+            try:
+                raw_result = json.loads(raw_result)
+            except json.JSONDecodeError as exc:
+                raise AgentProtocolError("invalid agent output for source_analysis: invalid_json") from exc
+        try:
+            result = _materialize_nimi_analysis(AnalystInput.model_validate(payload), raw_result)
+        except ValidationError as exc:
+            details = ", ".join(
+                f"{'.'.join(str(part) for part in item['loc'])}:{item['type']}"
+                for item in exc.errors(include_url=False, include_context=False, include_input=False)
+            )
+            raise AgentProtocolError(f"invalid agent output for source_analysis: {details}") from exc
+        state["source_analysis"] = result.model_dump(mode="json")
         validate_source_analysis(
             AnalystInput.model_validate(payload), result, research_evidence=research_evidence,
         )

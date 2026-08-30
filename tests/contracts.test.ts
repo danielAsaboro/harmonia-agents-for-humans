@@ -12,6 +12,25 @@ import {
 } from "@/lib/contracts";
 
 describe("internal contracts", () => {
+  it("accepts provider-default sampling in Gemini 3.7 budget and usage evidence", () => {
+    const reservation = {
+      jobId: "j1", operationId: "j1:understand:nimi:0", stage: "understand",
+      role: "nimi", model: "gemini-3.7-flash",
+      estimatedCostUsd: "0.001000", pricingVersion: "2026-09-02",
+      modelPolicy: {
+        policyVersion: "gear-2026-08-24", pricingVersion: "2026-09-02",
+        temperature: null, topP: null, topK: null,
+        safetyProfile: "harmonia-standard", maxOutputTokens: 2048,
+        timeoutSeconds: 120, eligibleTasks: ["analyze_media"], minimumPassRate: "0.95",
+      },
+    };
+    expect(budgetReservationSchema.parse(reservation).modelPolicy?.temperature).toBeNull();
+    expect(usageRecordSchema.parse({
+      ...reservation, id: "u1", inputUnits: 100, outputUnits: 10,
+      unitType: "tokens", traceId: "a".repeat(32), createdAt: "2026-09-02T20:00:00Z",
+    }).modelPolicy?.temperature).toBeNull();
+  });
+
   it("preserves additive visual grounding on analyzed moments", () => {
     const parsed = analysisSubmissionSchema.parse({
       jobId: "j1",

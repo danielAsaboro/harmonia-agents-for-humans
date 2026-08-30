@@ -84,7 +84,7 @@ const usdDecimalSchema = z.string().regex(/^\d+\.\d{1,6}$/);
 const modelPolicySchema = z.object({
   policyVersion: z.string().min(1),
   pricingVersion: z.string().min(1),
-  temperature: z.number().min(0).max(2),
+  temperature: z.number().min(0).max(2).nullable(),
   topP: z.number().positive().max(1).nullable(),
   topK: z.number().int().positive().nullable(),
   safetyProfile: z.string().min(1),

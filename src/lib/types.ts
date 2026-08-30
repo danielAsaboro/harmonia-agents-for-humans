@@ -362,7 +362,7 @@ export interface UsageRecord {
 export interface ModelPolicySnapshot {
   policyVersion: string;
   pricingVersion: string;
-  temperature: number;
+  temperature: number | null;
   topP: number | null;
   topK: number | null;
   safetyProfile: string;

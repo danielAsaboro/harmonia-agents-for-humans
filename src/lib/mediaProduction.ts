@@ -107,16 +107,57 @@ export const generatedMusicSpecSchema = z.object({
   }
 });
 
+const sourceWindowSchema = z.object({
+  startSec: z.number().nonnegative(),
+  durationSec: z.number().positive(),
+}).strict();
+
+const reframeSchema = z.object({
+  xPercent: z.number().min(0).max(100),
+  yPercent: z.number().min(0).max(100),
+  scale: z.number().min(1).max(4),
+}).strict();
+
+const captionSchema = z.object({
+  id: identifier,
+  startSec: z.number().nonnegative(),
+  durationSec: z.number().positive(),
+  text: z.string().min(1).max(500),
+  sourceSegmentRefs: z.array(identifier).min(1).max(20),
+}).strict();
+
 const sceneSchema = z.object({
   id: identifier, order: z.number().int().positive(), startSec: z.number().nonnegative(), durationSec: z.number().positive(),
   purpose: z.string().min(1), sourceArtifact: verifiedProductionArtifactRefSchema.optional(), video: generatedVideoSpecSchema.optional(),
-  overlays: z.array(z.record(z.string(), z.unknown())), captions: z.array(z.record(z.string(), z.unknown())), transitions: z.array(z.record(z.string(), z.unknown())),
+  sourceWindow: sourceWindowSchema.optional(), sourceSegmentRefs: z.array(identifier).min(1).max(100).optional(),
+  preserveSourceAudio: z.boolean().optional(), reframe: reframeSchema.optional(),
+  overlays: z.array(z.record(z.string(), z.unknown())), captions: z.array(captionSchema), transitions: z.array(z.record(z.string(), z.unknown())),
 }).strict().superRefine((value, context) => {
   if (Boolean(value.sourceArtifact) === Boolean(value.video)) {
     context.addIssue({ code: "custom", path: ["sourceArtifact"], message: "scene requires exactly one verified source artifact or generated video" });
   }
   if (value.sourceArtifact && !value.sourceArtifact.mime.startsWith("video/")) {
     context.addIssue({ code: "custom", path: ["sourceArtifact", "mime"], message: "scene source artifact must be video" });
+  }
+  const sourceOnlyFields = [value.sourceWindow, value.sourceSegmentRefs, value.preserveSourceAudio, value.reframe];
+  if (value.sourceArtifact) {
+    if (!value.sourceWindow) context.addIssue({ code: "custom", path: ["sourceWindow"], message: "source artifact scene requires a sealed source window" });
+    if (!value.sourceSegmentRefs?.length) context.addIssue({ code: "custom", path: ["sourceSegmentRefs"], message: "source artifact scene requires source segment lineage" });
+    if (value.preserveSourceAudio === undefined) context.addIssue({ code: "custom", path: ["preserveSourceAudio"], message: "source artifact scene must seal source audio handling" });
+    if (!value.reframe) context.addIssue({ code: "custom", path: ["reframe"], message: "source artifact scene requires a deterministic reframe" });
+    if (value.sourceWindow && value.durationSec > value.sourceWindow.durationSec) {
+      context.addIssue({ code: "custom", path: ["sourceWindow", "durationSec"], message: "source window must cover the authored scene duration" });
+    }
+    for (const [index, caption] of value.captions.entries()) {
+      if (caption.startSec + caption.durationSec > value.durationSec) {
+        context.addIssue({ code: "custom", path: ["captions", index], message: "caption extends beyond its scene window" });
+      }
+      if (caption.sourceSegmentRefs.some((id) => !value.sourceSegmentRefs?.includes(id))) {
+        context.addIssue({ code: "custom", path: ["captions", index, "sourceSegmentRefs"], message: "caption lineage must be contained by scene source segment lineage" });
+      }
+    }
+  } else if (sourceOnlyFields.some((field) => field !== undefined)) {
+    context.addIssue({ code: "custom", path: ["sourceArtifact"], message: "source-only edit fields require a verified source artifact" });
   }
 });
 

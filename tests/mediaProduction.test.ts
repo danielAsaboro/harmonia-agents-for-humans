@@ -49,6 +49,17 @@ const lastFrameRef = {
   sizeBytes: 4096,
   rightsAuthorizationId: "license-frame-last-1",
 } as const;
+const sourceEdit = {
+  sourceWindow: { startSec: 120.5, durationSec: 12 },
+  sourceSegmentRefs: ["segment-wozniak-1"],
+  preserveSourceAudio: true,
+  reframe: { xPercent: 50, yPercent: 42, scale: 1.35 },
+  captions: [{
+    id: "caption-1", startSec: 0.25, durationSec: 3.5,
+    text: "The most important thing is to build.",
+    sourceSegmentRefs: ["segment-wozniak-1"],
+  }],
+} as const;
 const basePlan = {
   id: "plan-1",
   jobId: "job-1",
@@ -184,7 +195,7 @@ describe("media production contracts", () => {
   it("seals verified source and narration artifacts into the operation graph", () => {
     const sourceBacked = videoProductionPlanSchema.parse({
       ...basePlan,
-      scenes: [{ ...basePlan.scenes[0], sourceArtifact: sourceRef, video: undefined }],
+      scenes: [{ ...basePlan.scenes[0], ...sourceEdit, sourceArtifact: sourceRef, video: undefined }],
       narration: [{ id: "voice-1", artifact: narrationRef, startSec: 0.25, durationSec: 3.5 }],
       operationCostsUsd: { "plan-1:generate_music": "0.120000" },
       estimatedCostUsd: "0.120000",
@@ -200,6 +211,47 @@ describe("media production contracts", () => {
     ]);
   });
 
+  it("seals evidence-bound source windows, original speech, captions, and deterministic reframing", () => {
+    const parsed = videoProductionPlanSchema.parse({
+      ...basePlan,
+      scenes: [{ ...basePlan.scenes[0], ...sourceEdit, sourceArtifact: sourceRef, video: undefined }],
+      soundtrack: undefined,
+      operationCostsUsd: {},
+      estimatedCostUsd: "0.000000",
+      maximumCostUsd: "0.000000",
+    });
+
+    expect(parsed.scenes[0]).toMatchObject(sourceEdit);
+    expect(compileProductionOperations(parsed).filter((operation) => operation.executionAuthority === "production_mandate"))
+      .toEqual([]);
+  });
+
+  it("rejects ungrounded, out-of-window, or generated source-edit fields", () => {
+    const sourcePlan = {
+      ...basePlan,
+      scenes: [{ ...basePlan.scenes[0], ...sourceEdit, sourceArtifact: sourceRef, video: undefined }],
+      soundtrack: undefined,
+      operationCostsUsd: {},
+      estimatedCostUsd: "0.000000",
+      maximumCostUsd: "0.000000",
+    };
+    expect(() => videoProductionPlanSchema.parse({
+      ...sourcePlan,
+      scenes: [{ ...sourcePlan.scenes[0], sourceSegmentRefs: [] }],
+    })).toThrow(/source segment|lineage/i);
+    expect(() => videoProductionPlanSchema.parse({
+      ...sourcePlan,
+      scenes: [{
+        ...sourcePlan.scenes[0],
+        captions: [{ ...sourceEdit.captions[0], startSec: 11, durationSec: 2 }],
+      }],
+    })).toThrow(/caption.*scene|window/i);
+    expect(() => videoProductionPlanSchema.parse({
+      ...basePlan,
+      scenes: [{ ...basePlan.scenes[0], ...sourceEdit }],
+    })).toThrow(/source-only|source artifact/i);
+  });
+
   it("rejects unsealed or ambiguous production media sources", () => {
     expect(() => videoProductionPlanSchema.parse({
       ...basePlan,
@@ -211,26 +263,26 @@ describe("media production contracts", () => {
     })).toThrow(/exactly one/i);
     expect(() => videoProductionPlanSchema.parse({
       ...basePlan,
-      scenes: [{ ...basePlan.scenes[0], sourceArtifact: { ...sourceRef, digest: "not-a-digest" }, video: undefined }],
+      scenes: [{ ...basePlan.scenes[0], ...sourceEdit, sourceArtifact: { ...sourceRef, digest: "not-a-digest" }, video: undefined }],
       operationCostsUsd: { "plan-1:generate_music": "0.120000" },
       estimatedCostUsd: "0.120000",
     })).toThrow(/digest/i);
     const { rightsAuthorizationId: _rights, ...unlicensed } = sourceRef;
     expect(() => videoProductionPlanSchema.parse({
       ...basePlan,
-      scenes: [{ ...basePlan.scenes[0], sourceArtifact: unlicensed, video: undefined }],
+      scenes: [{ ...basePlan.scenes[0], ...sourceEdit, sourceArtifact: unlicensed, video: undefined }],
       operationCostsUsd: { "plan-1:generate_music": "0.120000" },
       estimatedCostUsd: "0.120000",
     })).toThrow(/authorization/i);
     expect(() => videoProductionPlanSchema.parse({
       ...basePlan,
-      scenes: [{ ...basePlan.scenes[0], sourceArtifact: { ...sourceRef, mime: "video/webm" }, video: undefined }],
+      scenes: [{ ...basePlan.scenes[0], ...sourceEdit, sourceArtifact: { ...sourceRef, mime: "video/webm" }, video: undefined }],
       operationCostsUsd: { "plan-1:generate_music": "0.120000" },
       estimatedCostUsd: "0.120000",
     })).toThrow(/mime|mp4/i);
     expect(() => videoProductionPlanSchema.parse({
       ...basePlan,
-      scenes: [{ ...basePlan.scenes[0], sourceArtifact: { ...sourceRef, sizeBytes: 64 * 1024 * 1024 + 1 }, video: undefined }],
+      scenes: [{ ...basePlan.scenes[0], ...sourceEdit, sourceArtifact: { ...sourceRef, sizeBytes: 64 * 1024 * 1024 + 1 }, video: undefined }],
       operationCostsUsd: { "plan-1:generate_music": "0.120000" },
       estimatedCostUsd: "0.120000",
     })).toThrow(/size|too big|less than/i);

@@ -398,7 +398,7 @@ def test_runtime_resumes_the_same_managed_session_after_process_restart():
     assert remote.queries[0]["session_id"] == remote.queries[1]["session_id"]
 
 
-def test_runtime_explicitly_directs_agents_to_the_pinned_projection_when_present():
+def test_runtime_keeps_audit_projection_out_of_model_visible_session_state():
     remote = _RemoteAgent()
     runtime = AgentEngineTeamRuntime(
         resource_name="projects/p/locations/us-central1/reasoningEngines/42",
@@ -417,8 +417,8 @@ def test_runtime_explicitly_directs_agents_to_the_pinned_projection_when_present
         session_key="op-1:projection-a",
     ))
     assert "# AUTHORITY" not in remote.queries[0]["message"]
-    assert "_durable_context_projection" in remote.queries[0]["message"]
-    assert "Read _durable_context_projection" in remote.queries[0]["message"]
+    assert "_durable_context_projection" not in remote.created[0]["state"]
+    assert "_durable_context_projection" not in remote.queries[0]["message"]
 
 
 def test_runtime_preserves_native_google_search_grounding_metadata():

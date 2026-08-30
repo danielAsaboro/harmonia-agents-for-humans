@@ -56,6 +56,15 @@ def _specialist_prompt_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if not key.startswith("_")}
 
 
+def _specialist_session_state(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep audit envelopes outside the model-visible ADK session."""
+    state = _specialist_prompt_payload(payload)
+    for key in ("_harmonia_repair", "_harmonia_output_contract"):
+        if payload.get(key):
+            state[key] = payload[key]
+    return state
+
+
 def _invalid_adk_output(exc: ValidationError) -> dict[str, Any] | None:
     """Recover only the model object rejected by ADK's output-schema hook.
 
@@ -124,7 +133,7 @@ class LocalAdkTeamRuntime:
                 app_name="harmonia-local",
                 user_id=user_id,
                 session_id=session_id,
-                state={**payload, "requested_specialist": specialist},
+                state={**_specialist_prompt_payload(payload), "requested_specialist": specialist},
             )
             async for event in runner.run_async(
                 user_id=user_id,
@@ -356,7 +365,7 @@ class AgentEngineTeamRuntime:
         session_key: str,
     ) -> dict[str, Any]:
         remote = self._remote()
-        seeded_state = dict(payload)
+        seeded_state = _specialist_session_state(payload)
         seeded_state["requested_specialist"] = specialist
         session_id = f"harmonia-{sha256(f'{user_id}|{session_key}'.encode()).hexdigest()[:40]}"
         state: dict[str, Any] = {}

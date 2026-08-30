@@ -116,7 +116,14 @@ def test_executor_claims_sealed_operation_before_provider_and_uploads_verified_b
     monkeypatch.setattr(production_executor.VeoGenerator, "generate", generate)
     monkeypatch.setattr(production_executor, "record_production_provider_operation", lambda *args, **kwargs: provider_records.append(kwargs))
     monkeypatch.setattr(production_executor, "upload_production_artifact", lambda *args, **kwargs: uploads.append(kwargs) or {"state": "succeeded"})
-    monkeypatch.setattr(production_executor, "reserve_budget", lambda payload: order.append(f"budget:{payload['estimatedCostUsd']}") or None)
+    def reserve(payload):
+        assert payload["productionAuthorization"] == {
+            "planId": "plan-1", "operationId": "plan-1:generate_video:scene-1",
+            "claimId": "claim-1", "claimToken": "worker-1",
+        }
+        order.append(f"budget:{payload['estimatedCostUsd']}")
+
+    monkeypatch.setattr(production_executor, "reserve_budget", reserve)
     monkeypatch.setattr(production_executor, "report_usage", lambda _payload: None)
     monkeypatch.setattr(production_executor, "inspect_generated_media_bytes", lambda data, mime: inspected.append((data, mime)) or {"durationSec": 4.0, "video": {"codec": "h264"}})
     monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: order.append("submission"))
@@ -134,6 +141,12 @@ def test_executor_claims_sealed_operation_before_provider_and_uploads_verified_b
         "raiMediaFilteredCount": 0,
     }
     assert inspected == [(b"real-video-bytes", "video/mp4")]
+
+
+def test_provider_poll_timestamp_uses_rfc3339_z_suffix():
+    value = production_executor._next_poll_at()
+    assert value.endswith("Z")
+    assert "+00:00" not in value
 
 
 def test_executor_materializes_exact_conditioning_input_before_budget_and_provider(monkeypatch):

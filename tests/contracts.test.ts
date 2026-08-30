@@ -78,6 +78,20 @@ describe("internal contracts", () => {
       estimatedCostUsd: "0.001000", pricingVersion: "2026-08-23",
       modelPolicy,
     }).success).toBe(true);
+    expect(budgetReservationSchema.safeParse({
+      jobId: "j1", operationId: "production:claim-1", stage: "production",
+      role: "veo_generator", model: "veo-3.1-fast-generate-001",
+      estimatedCostUsd: "0.320000", pricingVersion: "2026-08-31",
+      productionAuthorization: {
+        planId: "plan-1", operationId: "plan-1:generate_video:scene-1",
+        claimId: "claim-1", claimToken: "t".repeat(32),
+      },
+    }).success).toBe(true);
+    expect(budgetReservationSchema.safeParse({
+      jobId: "j1", operationId: "production:claim-1", stage: "production",
+      role: "veo_generator", model: "veo-3.1-fast-generate-001",
+      estimatedCostUsd: "0.320000", pricingVersion: "2026-08-31",
+    }).success).toBe(false);
     expect(usageRecordSchema.safeParse({
       id: "u1", jobId: "j1", operationId: "j1:draft:nimi:0", stage: "draft",
       role: "nimi", model: "gemini-3.5-flash", inputUnits: 100, outputUnits: 10,

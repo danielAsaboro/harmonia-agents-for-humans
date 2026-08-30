@@ -94,6 +94,13 @@ const modelPolicySchema = z.object({
   minimumPassRate: z.string().regex(/^(0(\.\d+)?|1(\.0+)?)$/),
 }).strict();
 
+const productionBudgetAuthorizationSchema = z.object({
+  planId: z.string().min(1).max(256),
+  operationId: z.string().min(1).max(512),
+  claimId: z.string().min(1).max(256),
+  claimToken: z.string().min(32).max(512),
+}).strict();
+
 export const budgetReservationSchema = z.object({
   jobId: z.string().min(1),
   operationId: z.string().min(1),
@@ -103,7 +110,15 @@ export const budgetReservationSchema = z.object({
   estimatedCostUsd: usdDecimalSchema,
   pricingVersion: z.string().min(1),
   modelPolicy: modelPolicySchema.optional(),
-}).strict();
+  productionAuthorization: productionBudgetAuthorizationSchema.optional(),
+}).strict().superRefine((value, context) => {
+  if (value.stage === "production" && !value.productionAuthorization) {
+    context.addIssue({ code: "custom", path: ["productionAuthorization"], message: "production budget requires sealed claim authorization" });
+  }
+  if (value.stage !== "production" && value.productionAuthorization) {
+    context.addIssue({ code: "custom", path: ["productionAuthorization"], message: "production authorization is valid only for production budget" });
+  }
+});
 
 export const budgetReservationResolutionSchema = z.object({
   jobId: z.string().min(1),

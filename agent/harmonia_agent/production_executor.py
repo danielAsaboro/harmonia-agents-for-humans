@@ -61,7 +61,7 @@ logger = logging.getLogger("harmonia.production_executor")
 
 
 def _next_poll_at() -> str:
-    return (datetime.now(timezone.utc) + timedelta(seconds=10)).isoformat()
+    return (datetime.now(timezone.utc) + timedelta(seconds=10)).isoformat().replace("+00:00", "Z")
 
 
 def inspect_generated_media_bytes(data: bytes, mime: str) -> dict[str, Any]:
@@ -585,6 +585,12 @@ def execute_production_operation(
             "model": model,
             "estimatedCostUsd": sealed_cost,
             "pricingVersion": claim.get("pricingVersion") or "sealed-production-plan",
+            "productionAuthorization": {
+                "planId": plan_id,
+                "operationId": operation_id,
+                "claimId": claim["id"],
+                "claimToken": token,
+            },
         })
     except Exception as exc:
         rejected = isinstance(exc, WebApiError) and exc.permanent

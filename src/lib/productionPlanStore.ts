@@ -938,6 +938,59 @@ export async function claimPaidProductionOperation(
   });
 }
 
+export async function authorizeProductionBudgetReservation(input: {
+  planId: string;
+  operationId: string;
+  claimId: string;
+  claimToken: string;
+  jobId: string;
+  estimatedCostUsd: string;
+  pricingVersion: string;
+}): Promise<void> {
+  const tenant = currentTenant();
+  requireService(tenant);
+  const aggregateRef = planRef(input.planId);
+  const [aggregateSnap, claimSnap] = await Promise.all([
+    aggregateRef.get(),
+    aggregateRef.collection("operation_claims").doc(checkedDocumentId("claim id", input.claimId)).get(),
+  ]);
+  if (!aggregateSnap.exists || !claimSnap.exists) throw new Error("production budget authorization not found");
+  const aggregate = assertAggregate(aggregateSnap.data());
+  const claim = claimSnap.data() as ProductionOperationClaim;
+  if (claim.kind !== "paid" || claim.operationId !== input.operationId || claim.jobId !== input.jobId) {
+    throw new Error("production budget claim binding mismatch");
+  }
+  assertClaimOwner(claim, input.claimId, input.claimToken);
+  if (!["claimed", "submitting", "waiting_provider"].includes(claim.state)) {
+    throw new Error("production budget claim is not executable");
+  }
+  if (
+    aggregate.state !== "approved"
+    || aggregate.currentRevision !== claim.planRevision
+    || aggregate.currentPlanDigest !== claim.planDigest
+    || aggregate.activeMandateId !== claim.mandateId
+    || claim.reservedCostUsd !== input.estimatedCostUsd
+    || claim.pricingVersion !== input.pricingVersion
+  ) throw new Error("production budget authorization binding mismatch");
+  const [revisionSnap, mandateSnap] = await Promise.all([
+    revisionRef(input.planId, claim.planRevision).get(),
+    aggregateRef.collection("mandates").doc(claim.mandateId).get(),
+  ]);
+  if (!revisionSnap.exists || !mandateSnap.exists) throw new Error("production budget authorization is incomplete");
+  const revision = assertRevision(revisionSnap.data());
+  const operation = revision.operations.find((candidate) => candidate.id === input.operationId);
+  if (!operation) throw new Error("production budget operation is missing");
+  assertProductionMandateAuthorizes({
+    mandate: productionMandateSchema.parse(mandateSnap.data()),
+    plan: revision.plan,
+    operation,
+    activeMandateId: aggregate.activeMandateId,
+    workspaceId: tenant.workspaceId,
+    brandId: tenant.brandId,
+    now: claim.providerOperationId ? new Date(claim.claimedAt) : new Date(),
+  });
+}
+
 async function claimInternalProductionOperation(
   planId: string,
   operationId: string,

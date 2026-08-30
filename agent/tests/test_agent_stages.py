@@ -178,7 +178,9 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
 
     path, payload = posts[-1]
     assert path == "/api/internal/content-artifacts"
-    assert set(payload) == {"jobId", "stage", "operation", "editorialPlanId", "editorialPlanDigest", "editorialItemId", "briefId", "result"}
+    assert set(payload) == {"jobId", "stage", "operation", "producerModel", "editorialPlanId", "editorialPlanDigest", "editorialItemId", "briefId", "result"}
+    from harmonia_agent.role_models import load_role_model_catalog
+    assert payload["producerModel"] == load_role_model_catalog().copywriter.model_id
     assert payload["result"]["accepted"]["artifacts"] == [{
         "id": "artifact-linkedin-post",
         "outputPlanItemId": "output-1-linkedin-post",

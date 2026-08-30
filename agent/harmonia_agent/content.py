@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import io
 import logging
 import os
 from math import ceil
@@ -11,6 +10,8 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Any
+from contextlib import contextmanager
+from uuid import uuid4
 
 from google import genai
 
@@ -39,10 +40,37 @@ def _resolve_without_masking(
 
 
 def _client() -> genai.Client:
-    key = settings().gemini_api_key
-    if not key:
-        raise RuntimeError("GEMINI_API_KEY is not configured")
-    return genai.Client(api_key=key)
+    return genai.Client(vertexai=True, project=settings().gcp_project, location="global")
+
+
+@contextmanager
+def _transcription_media(audio: bytes, mime_type: str, prompt: str, invocation: InvocationContext):
+    if len(audio) <= MAX_INLINE_MEDIA_BYTES:
+        yield {"role": "user", "parts": [
+            {"inlineData": {"mimeType": mime_type, "data": __import__("base64").b64encode(audio).decode()}},
+            {"text": prompt},
+        ]}
+        return
+    # Vertex uses private GCS media, not the Developer API Files service.
+    from google.cloud import storage
+    configured = settings()
+    if not configured.media_output_bucket:
+        raise RuntimeError("MEDIA_OUTPUT_BUCKET is required for large Vertex transcription media")
+    scope = sha256(f"{invocation.workspace_id}:{invocation.job_id}".encode()).hexdigest()
+    blob = storage.Client(project=configured.gcp_project).bucket(configured.media_output_bucket).blob(
+        f"transcription-inputs/{scope}/{uuid4()}",
+    )
+    blob.upload_from_string(audio, content_type=mime_type, if_generation_match=0)
+    try:
+        yield {"role": "user", "parts": [
+            {"fileData": {"mimeType": mime_type, "fileUri": f"gs://{configured.media_output_bucket}/{blob.name}"}},
+            {"text": prompt},
+        ]}
+    finally:
+        try:
+            blob.delete(if_generation_match=blob.generation)
+        except Exception:
+            logger.warning("temporary transcription media cleanup failed; retention cleanup required")
 
 
 def _parse_json(text: str) -> Any:
@@ -100,29 +128,9 @@ def transcribe_audio(
                 "agent": role,
                 "model": MODEL,
             }))
-            if len(audio) <= MAX_INLINE_MEDIA_BYTES:
-                media_content: Any = {"role": "user", "parts": [
-                    {"inlineData": {
-                        "mimeType": mime_type,
-                        "data": __import__("base64").b64encode(audio).decode(),
-                    }},
-                    {"text": prompt},
-                ]}
-            else:
+            with _transcription_media(audio, mime_type, prompt, invocation) as media_content:
                 dispatched = True
-                uploaded = client.files.upload(
-                    file=io.BytesIO(audio),
-                    config={
-                        "mime_type": mime_type,
-                        "display_name": "harmonia-transcription-media",
-                    },
-                )
-                media_content = [uploaded, prompt]
-            dispatched = True
-            res = client.models.generate_content(
-                model=model,
-                contents=media_content,
-            )
+                res = client.models.generate_content(model=model, contents=media_content)
             result = _parse_json(res.text)
             accumulator = UsageAccumulator(
                 job_id=invocation.job_id,

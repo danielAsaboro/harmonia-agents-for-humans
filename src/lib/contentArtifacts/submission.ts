@@ -26,6 +26,7 @@ const resultSchema = z.object({ original: batchSchema, firstReview: reviewBatchS
 
 export const artifactProductionSubmissionSchema = z.object({
   jobId: z.string().min(1), stage: z.literal("draft"), operation: z.literal("complete"),
+  producerModel: z.string().min(1).max(200),
   editorialPlanId: z.string().min(1), editorialPlanDigest: z.string().regex(/^[0-9a-f]{64}$/), editorialItemId: z.string().min(1), briefId: z.string().min(1), result: resultSchema,
 }).strict();
 

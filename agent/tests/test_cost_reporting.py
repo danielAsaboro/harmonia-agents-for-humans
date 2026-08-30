@@ -233,15 +233,21 @@ def test_transcription_reservation_prices_audio_duration_instead_of_encoded_byte
     assert 0.02 < float(reservations[0]["estimatedCostUsd"]) < 0.10
 
 
-def test_large_transcription_uses_files_api_instead_of_inline_base64(monkeypatch):
-    uploaded = SimpleNamespace(uri="https://generativelanguage.googleapis.com/v1beta/files/media-1", mime_type="audio/mp4")
+def test_large_transcription_uses_private_gcs_instead_of_developer_files(monkeypatch):
+    from google.cloud import storage
     calls: dict[str, object] = {}
     monkeypatch.setattr(youtube, "probe_audio_duration", lambda _audio: 600)
 
-    class Files:
-        def upload(self, **kwargs):
+    class Blob:
+        name = "transcription-inputs/test/media"
+        generation = 7
+        def upload_from_string(self, data, **kwargs):
             calls["upload"] = kwargs
-            return uploaded
+        def delete(self, **kwargs):
+            calls["delete"] = kwargs
+
+    monkeypatch.setattr(storage, "Client", lambda **kwargs: SimpleNamespace(bucket=lambda name: SimpleNamespace(blob=lambda key: Blob())))
+    monkeypatch.setattr(content, "settings", lambda: SimpleNamespace(gcp_project="project", media_output_bucket="private-bucket"))
 
     class Models:
         def generate_content(self, **kwargs):
@@ -251,7 +257,7 @@ def test_large_transcription_uses_files_api_instead_of_inline_base64(monkeypatch
                 usage_metadata=SimpleNamespace(prompt_token_count=120, candidates_token_count=30),
             )
 
-    monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(files=Files(), models=Models()))
+    monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=Models()))
 
     content.transcribe_audio(
         b"x" * (content.MAX_INLINE_MEDIA_BYTES + 1), "audio/mp4",
@@ -263,9 +269,10 @@ def test_large_transcription_uses_files_api_instead_of_inline_base64(monkeypatch
         usage_reporter=lambda _item: None,
     )
 
-    assert calls["upload"]["config"] == {"mime_type": "audio/mp4", "display_name": "harmonia-transcription-media"}
+    assert calls["upload"] == {"content_type": "audio/mp4", "if_generation_match": 0}
+    assert calls["delete"] == {"if_generation_match": 7}
     contents = calls["generate"]["contents"]
-    assert contents[0] is uploaded
+    assert contents["parts"][0]["fileData"]["fileUri"] == "gs://private-bucket/transcription-inputs/test/media"
     assert "inlineData" not in repr(contents)
 
 

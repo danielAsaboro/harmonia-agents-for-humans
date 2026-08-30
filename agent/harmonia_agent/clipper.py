@@ -119,7 +119,9 @@ def render_clip(
     notes: list[str] = []
     if geom:
         w_h = geom[0]
-        vf.append(f"scale={w_h}:force_original_aspect_ratio=increase,crop={w_h}")
+        # A generic center crop can erase source claims, attribution, or diagrams.
+        # Preserve the full source unless a separately approved crop exists.
+        vf.append(f"scale={w_h}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={w_h}:(ow-iw)/2:(oh-ih)/2,setsar=1")
 
     srt_path: Path | None = None
     if captions and has_filter("subtitles"):

@@ -641,7 +641,8 @@ async def run_draft(job_id: str) -> None:
         # than serialized as JSON null.
         submission_result.setdefault("revision", None)
         submission_result.setdefault("finalReview", None)
-        web_post("/api/internal/content-artifacts", {"jobId": job_id, "stage": "draft", "operation": "complete", "editorialPlanId": editorial_plan.planId, "editorialPlanDigest": stored_digest, "editorialItemId": selected.id, "briefId": selected.briefId, "result": submission_result})
+        from .role_models import load_role_model_catalog
+        web_post("/api/internal/content-artifacts", {"jobId": job_id, "stage": "draft", "operation": "complete", "producerModel": load_role_model_catalog().copywriter.model_id, "editorialPlanId": editorial_plan.planId, "editorialPlanDigest": stored_digest, "editorialItemId": selected.id, "briefId": selected.briefId, "result": submission_result})
         return
     raise AgentProtocolError("campaign output plan contains no supported typed content artifacts")
 

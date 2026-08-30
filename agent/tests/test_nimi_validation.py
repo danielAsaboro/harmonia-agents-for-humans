@@ -34,6 +34,12 @@ def test_host_materializes_authoritative_digest_and_conservative_confidence():
 
     assert materialized.sourceDigest == supplied.sourceDigest
     assert materialized.angles[0].confidence == "medium"
+    assert materialized.angles[0].id != proposal["angles"][0]["id"]
+    assert materialized.angles[0].evidenceRefs == [
+        segment.id for segment in supplied.sourceSegments
+    ] + [materialized.moments[0].id]
+    assert materialized.moments[0].id != proposal["moments"][0]["id"]
+    assert materialized.moments[0].sourceSegmentRefs == ["segment-1"]
 
 
 def test_anchors_a_model_paraphrase_to_the_exact_cited_transcript():

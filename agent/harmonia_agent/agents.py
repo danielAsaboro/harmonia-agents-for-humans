@@ -285,6 +285,14 @@ def _nimi_semantic_output_schema() -> dict[str, Any]:
     schema = _gemini_wire_schema(SourceAnalysis)
     schema["properties"].pop("sourceDigest", None)
     schema["required"] = [name for name in schema.get("required", []) if name != "sourceDigest"]
+    moment_schema = schema["properties"]["moments"]["items"]
+    for name in ("id", "sourceSegmentRefs", "visualEvidenceIds"):
+        moment_schema["properties"].pop(name, None)
+        moment_schema["required"] = [item for item in moment_schema.get("required", []) if item != name]
+    angle_schema = schema["properties"]["angles"]["items"]
+    for name in ("id", "evidenceRefs"):
+        angle_schema["properties"].pop(name, None)
+        angle_schema["required"] = [item for item in angle_schema.get("required", []) if item != name]
     return schema
 
 
@@ -1820,11 +1828,57 @@ def _anchor_model_moment_quotes(
 
 
 def _materialize_nimi_analysis(
-    input: AnalystInput, proposal: Mapping[str, Any],
+    input: AnalystInput, proposal: Mapping[str, Any], *,
+    research_evidence: dict[str, tuple[str, ...]] | None = None,
 ) -> SourceAnalysis:
-    """Attach host authority and conservatively normalize confidence claims."""
+    """Mint identifiers and bind evidence exclusively from host-authoritative input."""
     value = deepcopy(dict(proposal))
     value["sourceDigest"] = input.sourceDigest
+    timed = [segment for segment in input.sourceSegments if segment.locator.kind == "time_range"]
+    moments = []
+    for index, moment in enumerate(value.get("moments") or []):
+        start_ms, end_ms = float(moment.get("startSec", 0)) * 1000, float(moment.get("endSec", 0)) * 1000
+        cited = [
+            segment for segment in timed
+            if segment.locator.startMs <= start_ms and segment.locator.endMs >= end_ms
+        ]
+        if not cited:
+            cited = [
+                segment for segment in timed
+                if segment.locator.startMs < end_ms and segment.locator.endMs > start_ms
+            ][:1]
+        if not cited:
+            continue
+        identity = f"{input.sourceDigest}:{index}:{moment.get('title', '')}"
+        moment["id"] = f"moment-{hashlib.sha256(identity.encode()).hexdigest()[:20]}"
+        moment["sourceSegmentRefs"] = [segment.id for segment in cited]
+        cited_text = " ".join(segment.text for segment in cited)
+        if moment.get("quote") not in cited_text:
+            moment["quote"] = cited[0].text[:2_000]
+        moment["visualEvidenceIds"] = []
+        moment["visualHook"] = None
+        moment["cropSuitability"] = None
+        moment["captionSafeRegion"] = None
+        moments.append(moment)
+    value["moments"] = moments
+    evidence = research_evidence or {}
+    refs_by_kind = {
+        "source": [segment.id for segment in input.sourceSegments] + [item["id"] for item in moments],
+        "performance": [item.id for item in input.performanceObservations],
+        "memory": [item.id for item in input.memoryFacts],
+        "public_context": [key for key, item in evidence.items() if item and item[0] == "public_context"],
+        "private_context": [key for key, item in evidence.items() if item and item[0] == "private_context"],
+    }
+    angles = []
+    for index, angle in enumerate(value.get("angles") or []):
+        refs = refs_by_kind.get(str(angle.get("evidenceKind")), [])
+        if not refs:
+            continue
+        identity = f"{input.sourceDigest}:{index}:{angle.get('title', '')}"
+        angle["id"] = f"angle-{hashlib.sha256(identity.encode()).hexdigest()[:20]}"
+        angle["evidenceRefs"] = refs
+        angles.append(angle)
+    value["angles"] = angles
     for item in [value, *(value.get("moments") or []), *(value.get("angles") or [])]:
         if isinstance(item, dict) and item.get("assumptions") and item.get("confidence") == "high":
             item["confidence"] = "medium"
@@ -2034,7 +2088,10 @@ def _validate_run_output_unwrapped(
             except json.JSONDecodeError as exc:
                 raise AgentProtocolError("invalid agent output for source_analysis: invalid_json") from exc
         try:
-            result = _materialize_nimi_analysis(AnalystInput.model_validate(payload), raw_result)
+            result = _materialize_nimi_analysis(
+                AnalystInput.model_validate(payload), raw_result,
+                research_evidence=research_evidence,
+            )
         except ValidationError as exc:
             details = ", ".join(
                 f"{'.'.join(str(part) for part in item['loc'])}:{item['type']}"

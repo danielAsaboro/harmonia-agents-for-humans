@@ -75,7 +75,7 @@ class RepairingRuntime:
         self.calls.append(kwargs)
         if self.valid_on_call is None or len(self.calls) < self.valid_on_call:
             state = _valid_state()
-            state["source_analysis"]["angles"][0]["evidenceRefs"] = ["context: campaign"]
+            state["source_analysis"]["angles"] = []
             return state
         return _valid_state()
 
@@ -150,9 +150,9 @@ def test_contract_mismatch_gets_a_fresh_targeted_repair_attempt() -> None:
     assert runtime.calls[1]["payload"]["_harmonia_repair"] == {
         "attempt": 1,
         "maxAttempts": 2,
-        "code": "unknown_evidence_reference",
-        "path": "output.evidenceRefs",
-        "instruction": "Regenerate the complete output from the original typed input. Use only exact evidence IDs present in that input; do not create labels, aliases, or contextual pseudo-IDs.",
+        "code": "invalid_agent_output",
+        "path": "output",
+        "instruction": "Regenerate the complete output from the original typed input and satisfy the declared schema, evidence IDs, authority boundary, and role contract.",
     }
     assert state["_harmonia_repair"]["outcome"] == "repaired"
     assert state["_harmonia_repair"]["attemptsUsed"] == 1

@@ -129,14 +129,48 @@ def compile_hyperframes_composition(plan: dict[str, Any], workspace: Path) -> di
         source = _media_path(workspace, scene.get("videoPath"))
         inputs.add(source)
         title = html.escape(str(scene.get("title") or ""))
+        media_start = _number(scene.get("mediaStartSec", 0), "scene.mediaStartSec")
+        preserve_source_audio = scene.get("preserveSourceAudio", False)
+        if not isinstance(preserve_source_audio, bool):
+            raise CompositionCompileError("scene.preserveSourceAudio must be a boolean")
+        reframe = scene.get("reframe") or {"xPercent": 50, "yPercent": 50, "scale": 1}
+        if not isinstance(reframe, dict):
+            raise CompositionCompileError("scene.reframe must be an object")
+        x_percent = _number(reframe.get("xPercent"), "scene.reframe.xPercent")
+        y_percent = _number(reframe.get("yPercent"), "scene.reframe.yPercent")
+        scale = _number(reframe.get("scale"), "scene.reframe.scale", minimum=1)
+        if x_percent > 100 or y_percent > 100 or scale > 4:
+            raise CompositionCompileError("scene reframe is outside its supported range")
+        muted = "" if preserve_source_audio else " muted"
         scene_markup.append(
             f'<video id="hf-{plan_id}-{scene_id}-video" class="clip" src="{html.escape(source, quote=True)}" '
-            f'data-start="{start:g}" data-duration="{scene_duration:g}" data-track-index="{index}" muted playsinline></video>'
+            f'data-start="{start:g}" data-duration="{scene_duration:g}" data-media-start="{media_start:g}" '
+            f'data-track-index="{index}" style="object-position:{x_percent:g}% {y_percent:g}%;transform:scale({scale:g})"'
+            f'{muted} playsinline></video>'
         )
         if title:
             scene_markup.append(
                 f'<section id="hf-{plan_id}-{scene_id}-title" class="clip title" data-start="{start:g}" '
                 f'data-duration="{scene_duration:g}" data-track-index="{100 + index}"><h2>{title}</h2></section>'
+            )
+        captions = scene.get("captions") or []
+        if not isinstance(captions, list):
+            raise CompositionCompileError("scene.captions must be a list")
+        for caption_index, caption in enumerate(captions):
+            if not isinstance(caption, dict):
+                raise CompositionCompileError("caption must be an object")
+            caption_id = _safe_id(caption.get("id") or f"{scene_id}-caption-{caption_index + 1}", "caption id")
+            caption_start = _number(caption.get("startSec"), "caption.startSec")
+            caption_duration = _number(caption.get("durationSec"), "caption.durationSec", minimum=0.01)
+            if caption_start + caption_duration > scene_duration + 0.001:
+                raise CompositionCompileError("caption extends beyond its scene")
+            caption_text = html.escape(str(caption.get("text") or "").strip())
+            if not caption_text:
+                raise CompositionCompileError("caption text is required")
+            scene_markup.append(
+                f'<section id="hf-{plan_id}-{caption_id}" class="clip caption" '
+                f'data-start="{start + caption_start:g}" data-duration="{caption_duration:g}" '
+                f'data-track-index="{400 + index * 100 + caption_index}"><p>{caption_text}</p></section>'
             )
 
     audio_markup: list[str] = []
@@ -178,7 +212,7 @@ def compile_hyperframes_composition(plan: dict[str, Any], workspace: Path) -> di
     index_html = f'''<!doctype html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width={width}, height={height}">
 <title>Harmonia production {html.escape(plan_id)}</title><script src="vendor/gsap.min.js"></script>
-<style>html,body{{margin:0;width:{width}px;height:{height}px;background:#070b14;color:white;overflow:hidden}}#root{{position:relative;width:{width}px;height:{height}px;overflow:hidden}}.clip{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}}.title{{display:grid;place-items:end start;padding:8%;box-sizing:border-box}}h2{{font:700 clamp(24px,6vw,64px)/1.05 Inter,system-ui,sans-serif;margin:0;max-width:100%;overflow-wrap:anywhere;background:rgba(7,11,20,.92);padding:.35em .45em;border-radius:.2em;box-sizing:border-box}}</style></head>
+<style>html,body{{margin:0;width:{width}px;height:{height}px;background:#070b14;color:white;overflow:hidden}}#root{{position:relative;width:{width}px;height:{height}px;overflow:hidden}}.clip{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}}.title{{display:grid;place-items:end start;padding:8%;box-sizing:border-box}}h2{{font:700 clamp(24px,6vw,64px)/1.05 Inter,system-ui,sans-serif;margin:0;max-width:100%;overflow-wrap:anywhere;background:rgba(7,11,20,.92);padding:.35em .45em;border-radius:.2em;box-sizing:border-box}}.caption{{display:grid;place-items:end center;padding:0 8% 12%;box-sizing:border-box;pointer-events:none}}.caption p{{font:800 clamp(30px,5vw,58px)/1.08 Inter,system-ui,sans-serif;text-align:center;margin:0;padding:.24em .4em;color:#fff;background:rgba(7,11,20,.88);border-radius:.18em;text-wrap:balance;text-shadow:0 2px 8px rgba(0,0,0,.8)}}</style></head>
 <body><div id="root" data-composition-id="{composition_id}" data-start="0" data-width="{width}" data-height="{height}" data-duration="{duration:g}">
 {''.join(scene_markup)}{''.join(audio_markup)}</div>
 <script>window.__timelines=window.__timelines||{{}};const tl=gsap.timeline({{paused:true}});window.__timelines["{composition_id}"]=tl;</script></body></html>'''

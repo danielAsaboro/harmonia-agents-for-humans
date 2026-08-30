@@ -298,6 +298,13 @@ def _execute_internal_operation(
                     "durationSec": scene["durationSec"],
                     "videoPath": relative,
                     "title": scene.get("purpose") or "",
+                    "mediaStartSec": (scene.get("sourceWindow") or {}).get("startSec", 0),
+                    "preserveSourceAudio": bool(
+                        scene.get("preserveSourceAudio") if isinstance(source_reference, dict)
+                        else spec.get("generateAudio", False) if isinstance(spec, dict) else False
+                    ),
+                    "reframe": scene.get("reframe") or {"xPercent": 50, "yPercent": 50, "scale": 1},
+                    "captions": scene.get("captions") or [],
                 })
             music = None
             music_id = f"{plan_id}:generate_music"

@@ -44,6 +44,71 @@ def test_compiler_emits_deterministic_hyperframes_timeline_and_grouped_voice_car
     assert manifest["voiceoverCarve"]["sources"] == ["voiceover"]
 
 
+def test_compiler_emits_repeated_source_cuts_with_speech_captions_and_reframing(tmp_path: Path):
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "interview.mp4").write_bytes(b"video")
+    plan = {
+        "id": "founder-reel", "durationSec": 12, "width": 1080, "height": 1920,
+        "scenes": [
+            {
+                "id": "source-1", "startSec": 0, "durationSec": 5,
+                "videoPath": "assets/interview.mp4", "mediaStartSec": 120.5,
+                "preserveSourceAudio": True,
+                "reframe": {"xPercent": 48, "yPercent": 40, "scale": 1.4},
+                "captions": [{
+                    "id": "caption-a", "startSec": 0.25, "durationSec": 2.5,
+                    "text": "Build the thing that matters.",
+                }],
+            },
+            {
+                "id": "source-2", "startSec": 5, "durationSec": 7,
+                "videoPath": "assets/interview.mp4", "mediaStartSec": 355,
+                "preserveSourceAudio": True,
+                "reframe": {"xPercent": 52, "yPercent": 44, "scale": 1.25},
+                "captions": [{
+                    "id": "caption-b", "startSec": 1, "durationSec": 3,
+                    "text": "Meaning stays with the speaker.",
+                }],
+            },
+        ],
+        "narration": [],
+    }
+
+    manifest = compile_hyperframes_composition(plan, tmp_path)
+    document = (tmp_path / "index.html").read_text()
+
+    assert document.count('src="assets/interview.mp4"') == 2
+    assert 'data-media-start="120.5"' in document
+    assert 'data-media-start="355"' in document
+    assert 'object-position:48% 40%;transform:scale(1.4)' in document
+    assert 'object-position:52% 44%;transform:scale(1.25)' in document
+    assert 'id="hf-founder-reel-source-1-video"' in document
+    assert 'id="hf-founder-reel-source-1-video" class="clip"' in document
+    source_one = document.split('id="hf-founder-reel-source-1-video"', 1)[1].split("</video>", 1)[0]
+    assert " muted" not in source_one
+    assert 'id="hf-founder-reel-caption-a"' in document
+    assert 'data-start="0.25" data-duration="2.5"' in document
+    assert "Build the thing that matters." in document
+    assert manifest["inputs"] == ["assets/interview.mp4"]
+
+
+def test_compiler_rejects_caption_or_media_window_outside_scene(tmp_path: Path):
+    (tmp_path / "interview.mp4").write_bytes(b"video")
+    with pytest.raises(CompositionCompileError, match="caption.*scene"):
+        compile_hyperframes_composition({
+            "id": "reel", "durationSec": 4, "width": 1080, "height": 1920,
+            "scenes": [{
+                "id": "source-1", "startSec": 0, "durationSec": 4,
+                "videoPath": "interview.mp4", "mediaStartSec": 10,
+                "preserveSourceAudio": True,
+                "reframe": {"xPercent": 50, "yPercent": 50, "scale": 1},
+                "captions": [{"id": "late", "startSec": 3, "durationSec": 2, "text": "late"}],
+            }],
+            "narration": [],
+        }, tmp_path)
+
+
 def test_compiler_rejects_paths_outside_its_workspace(tmp_path: Path):
     with pytest.raises(CompositionCompileError, match="workspace"):
         compile_hyperframes_composition({

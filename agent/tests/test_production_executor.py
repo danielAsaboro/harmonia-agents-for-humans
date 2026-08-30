@@ -593,6 +593,15 @@ def test_internal_build_composes_verified_source_and_narration_with_voiceover_ca
             "scenes": [{
                 "id": "scene-1", "order": 1, "startSec": 0, "durationSec": 4,
                 "purpose": "Operator footage",
+                "sourceWindow": {"startSec": 88.25, "durationSec": 4},
+                "sourceSegmentRefs": ["segment-1"],
+                "preserveSourceAudio": True,
+                "reframe": {"xPercent": 48, "yPercent": 42, "scale": 1.3},
+                "captions": [{
+                    "id": "caption-1", "startSec": 0.5, "durationSec": 2,
+                    "text": "Evidence-bound source speech.",
+                    "sourceSegmentRefs": ["segment-1"],
+                }],
                 "sourceArtifact": {
                     "artifactId": source_artifact_id, "digest": "a" * 64,
                     "mime": "video/mp4", "sizeBytes": 20,
@@ -638,6 +647,11 @@ def test_internal_build_composes_verified_source_and_narration_with_voiceover_ca
         "enabled": True, "sources": ["voiceover"], "strength": 0.25, "dynamic": True,
     }
     assert 'data-audio-group="voiceover"' in html
+    assert 'data-media-start="88.25"' in html
+    assert 'object-position:48% 42%;transform:scale(1.3)' in html
+    assert "Evidence-bound source speech." in html
+    source_video = html.split('id="hf-plan-1-scene-1-video"', 1)[1].split("</video>", 1)[0]
+    assert " muted" not in source_video
     assert (extracted / "assets" / f"{'a' * 64}.mp4").read_bytes() == b"verified-source-video"
     assert (extracted / "assets" / f"{'b' * 64}.wav").read_bytes() == b"verified-narration-wav"
 

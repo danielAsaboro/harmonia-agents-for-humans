@@ -80,4 +80,22 @@ describe("Harmonia intent route client", () => {
       tenant: { workspaceId: "w", brandId: "b", userId: "u" },
     })).rejects.not.toThrow("private conversation contents");
   });
+
+  it("reports the agent's structured public failure without provider details", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      detail: {
+        code: "agent_engine_unavailable", category: "dependency",
+        message: "Harmonia's reasoning service is temporarily unavailable.", retryable: true,
+        providerDetail: "must never be shown",
+      },
+    }), { status: 502, headers: { "content-type": "application/json" } }));
+    await expect(requestIntentRoute({ message: "Help people find us", workspaceContext: context, attachmentCount: 0, recentConversation: [] }, {
+      baseUrl: "http://localhost:8080", token: "token", fetchImpl,
+      tenant: { workspaceId: "w", brandId: "b", userId: "u" },
+    })).rejects.toThrow("[agent_engine_unavailable] Harmonia's reasoning service is temporarily unavailable.");
+    await expect(requestIntentRoute({ message: "Help people find us", workspaceContext: context, attachmentCount: 0, recentConversation: [] }, {
+      baseUrl: "http://localhost:8080", token: "token", fetchImpl,
+      tenant: { workspaceId: "w", brandId: "b", userId: "u" },
+    })).rejects.not.toThrow("must never be shown");
+  });
 });

@@ -39,8 +39,17 @@ export interface IntentRouteRequest { message: string; workspaceContext: Workspa
 interface Options { baseUrl?: string; token?: string; fetchImpl?: typeof fetch; timeoutMs?: number; tenant?: { workspaceId: string; brandId: string; userId: string } }
 
 function safeValidationSummary(body: unknown): string {
-  if (!body || typeof body !== "object" || !("detail" in body) || !Array.isArray(body.detail)) return "";
-  const items = body.detail.flatMap((issue) => {
+  if (!body || typeof body !== "object" || !("detail" in body)) return "";
+  const detail = body.detail;
+  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+    const value = detail as { code?: unknown; message?: unknown };
+    if (typeof value.code === "string" && /^[a-z0-9_]{1,80}$/.test(value.code) && typeof value.message === "string" && value.message.length > 0 && value.message.length <= 240) {
+      return `: [${value.code}] ${value.message}`;
+    }
+    return "";
+  }
+  if (!Array.isArray(detail)) return "";
+  const items = detail.flatMap((issue) => {
     if (!issue || typeof issue !== "object") return [];
     const value = issue as { loc?: unknown; type?: unknown };
     if (!Array.isArray(value.loc) || typeof value.type !== "string") return [];

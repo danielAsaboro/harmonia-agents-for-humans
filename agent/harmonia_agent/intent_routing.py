@@ -15,6 +15,7 @@ from . import web_client
 from .tool_contracts import evidence, provider_error, success
 
 SKILL_DIR = pathlib.Path(__file__).parent / "skills" / "harmonia-intent-routing"
+CONTEXT_SKILL_DIR = pathlib.Path(__file__).parent / "skills" / "harmonia-context-assembly"
 
 IntentName = Literal[
     "establish_strategy", "revise_strategy", "advance_plan", "manage_calendar",
@@ -84,6 +85,52 @@ def source_urls_from_input(value: IntentRoutingInput) -> list[str]:
     return urls
 
 
+def deterministic_intent_classification(
+    value: IntentRoutingInput,
+) -> IntentClassification | None:
+    """Classify syntax that carries no model judgment; return None when ambiguous."""
+    urls = source_urls_from_input(value)
+    message = value.message.casefold()
+    if urls and re.search(
+        r"\b(?:repurpose|transcribe|analy[sz]e|clip|turn|transform|convert)\b",
+        message,
+    ):
+        platforms: list[SocialPlatform] = []
+        for platform, markers in (
+            ("linkedin", ("linkedin",)),
+            ("instagram", ("instagram",)),
+            ("tiktok", ("tiktok", "tik tok")),
+            ("x", (" twitter", " x ")),
+        ):
+            if any(marker in f" {message} " for marker in markers):
+                platforms.append(platform)  # type: ignore[arg-type]
+        outputs: list[OutputConcept] = []
+        if "linkedin" in platforms:
+            outputs.append("professional_post")
+        if re.search(r"\b(?:content package|content pack|exportable)\b", message):
+            outputs.append("content_package")
+        if re.search(r"\b(?:short video|short clip|video clip)\b", message):
+            outputs.append("short_video")
+        if not outputs:
+            outputs.append("short_social_post")
+        return IntentClassification(
+            intent="repurpose_source",
+            userOutcome="Repurpose the supplied source into the requested content.",
+            sourceUrls=urls,
+            outputConcepts=outputs,
+            platformRecommendations=platforms,
+            assumptions=[],
+            needsClarification=False,
+            clarifyingQuestion=None,
+            requiresRightsAttestation=any(
+                "youtube.com" in url or "youtu.be" in url for url in urls
+            ),
+            effectRequested=False,
+            jobId=None,
+        )
+    return None
+
+
 class IntentStrategyContext(StrictModel):
     company: StrictStr = Field(min_length=1, max_length=200)
     product: StrictStr = Field(min_length=1, max_length=500)
@@ -101,6 +148,39 @@ class IntentStrategyContext(StrictModel):
     supportedChannels: list[StrictStr] = Field(min_length=1, max_length=8)
     horizonWeeks: StrictInt = Field(default=4, ge=1, le=12)
     researchRequest: StrategyResearchRequest | None = None
+
+
+class IntentClassification(StrictModel):
+    """Small routing contract; strategy assembly is a separate bounded delegation."""
+
+    intent: IntentName
+    userOutcome: StrictStr = Field(min_length=1, max_length=500)
+    sourceUrls: list[StrictStr] = Field(max_length=10)
+    outputConcepts: list[OutputConcept] = Field(max_length=8)
+    platformRecommendations: list[SocialPlatform] = Field(max_length=5)
+    assumptions: list[StrictStr] = Field(max_length=8)
+    needsClarification: StrictBool
+    clarifyingQuestion: StrictStr | None = Field(default=None, max_length=300)
+    requiresRightsAttestation: StrictBool
+    effectRequested: StrictBool
+    jobId: StrictStr | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def enforce_question_shape(self) -> "IntentClassification":
+        if self.effectRequested != (self.intent == "effect_request"):
+            raise ValueError("effectRequested must match the effect_request intent")
+        if self.needsClarification != bool(self.clarifyingQuestion):
+            raise ValueError("clarifyingQuestion must match needsClarification")
+        return self
+
+
+class StrategyContextAssemblyInput(StrictModel):
+    message: StrictStr = Field(min_length=1, max_length=2000)
+    recentConversation: list[ConversationTurn] = Field(default_factory=list, max_length=8)
+    userOutcome: StrictStr = Field(min_length=1, max_length=500)
+    sourceUrls: list[StrictStr] = Field(max_length=10)
+    outputConcepts: list[OutputConcept] = Field(max_length=8)
+    requestedChannels: list[SocialPlatform] = Field(max_length=5)
 
 
 class IntentRoute(StrictModel):
@@ -171,4 +251,17 @@ def compiled_intent_routing_skill_context() -> str:
         "Activation: coordinator_compiled\n"
         "The immutable skill below is already loaded. Do not request or load it again.\n\n"
         f"{instructions.strip()}"
+    )
+
+
+def compiled_context_assembly_skill_context() -> str:
+    """Compile Harmonia's narrow context-assembly skill for one typed response."""
+    skill = load_skill_from_dir(CONTEXT_SKILL_DIR)
+    if skill.frontmatter.name != "harmonia-context-assembly":
+        raise RuntimeError("Harmonia context assembly skill name does not match")
+    return (
+        "# Coordinator-compiled Harmonia context-assembly skill\n"
+        "Activation: coordinator_compiled\n"
+        "The immutable skill below is already loaded. Do not request or load it again.\n\n"
+        f"{skill.instructions.strip()}"
     )

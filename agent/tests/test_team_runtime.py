@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 
 import pytest
 from google.adk.agents import Agent
@@ -37,7 +38,16 @@ class _RemoteAgent:
     async def async_get_session(self, **kwargs):
         return self.sessions.get(kwargs["session_id"])
 
+    def get_session(self, **kwargs):
+        return self.sessions.get(kwargs["session_id"])
+
     async def async_create_session(self, **kwargs):
+        self.created.append(kwargs)
+        session = {"id": kwargs["session_id"], "state": dict(kwargs["state"])}
+        self.sessions[kwargs["session_id"]] = session
+        return session
+
+    def create_session(self, **kwargs):
         self.created.append(kwargs)
         session = {"id": kwargs["session_id"], "state": dict(kwargs["state"])}
         self.sessions[kwargs["session_id"]] = session
@@ -274,128 +284,23 @@ def test_runtime_creates_session_when_managed_sdk_wraps_not_found_in_client_erro
     assert len(remote.created) == 1
 
 
-def test_runtime_uses_sync_sdk_methods_when_async_transport_connector_is_closed():
-    class SyncCapableRemote(_RemoteAgent):
-        async def async_get_session(self, **kwargs):
-            raise AssertionError("closed aiohttp connector")
-
+def test_runtime_rejects_agent_engine_without_async_streaming_interface():
+    class SyncOnlyRemote:
         def get_session(self, **kwargs):
-            return self.sessions.get(kwargs["session_id"])
+            return None
 
         def create_session(self, **kwargs):
-            self.created.append(kwargs)
-            session = {"id": kwargs["session_id"], "state": dict(kwargs["state"])}
-            self.sessions[kwargs["session_id"]] = session
-            return session
+            return {"id": kwargs["session_id"], "state": kwargs["state"]}
 
         def stream_query(self, **kwargs):
-            self.queries.append(kwargs)
-            yield {
-                "author": "nimi_analyst",
-                "actions": {"state_delta": {
-                    "source_analysis": {"summary": "Managed analysis", "moments": [], "angles": []},
-                }},
-            }
-
-    remote = SyncCapableRemote()
-    runtime = AgentEngineTeamRuntime(
-        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
-        client=_Client(remote),
-    )
-
-    state = asyncio.run(runtime.invoke(
-        specialist="nimi_analyst", payload={"title": "Demo"},
-        user_id="job-123", session_key="op-1",
-    ))
-
-    assert state["source_analysis"]["summary"] == "Managed analysis"
-    assert len(remote.created) == 1
-
-
-def test_sync_runtime_creates_session_before_opaque_managed_not_found_lookup():
-    """Catches a fresh Agent Engine rejecting get_session without exposing its cause."""
-
-    class OpaqueLookupRemote(_RemoteAgent):
-        def get_session(self, **kwargs):
-            raise RuntimeError("400 Invalid Argument")
-
-        def create_session(self, **kwargs):
-            self.created.append(kwargs)
-            session = {"id": kwargs["session_id"], "state": dict(kwargs["state"])}
-            self.sessions[kwargs["session_id"]] = session
-            return session
-
-        def stream_query(self, **kwargs):
-            yield {"actions": {"state_delta": {
-                "source_analysis": {"summary": "Managed analysis", "moments": [], "angles": []},
-            }}}
-
-    remote = OpaqueLookupRemote()
-    runtime = AgentEngineTeamRuntime(
-        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
-        client=_Client(remote),
-    )
-
-    state = asyncio.run(runtime.invoke(
-        specialist="nimi_analyst", payload={"title": "Demo"},
-        user_id="job-123", session_key="op-1",
-    ))
-
-    assert state["source_analysis"]["summary"] == "Managed analysis"
-    assert len(remote.created) == 1
-
-
-def test_sync_runtime_recovers_persisted_state_when_stream_terminates_after_handoff():
-    class InterruptedRemote(_RemoteAgent):
-        def create_session(self, **kwargs):
-            self.created.append(kwargs)
-            session = {"id": kwargs["session_id"], "state": dict(kwargs["state"])}
-            self.sessions[kwargs["session_id"]] = session
-            return session
-
-        def get_session(self, **kwargs):
-            return self.sessions[kwargs["session_id"]]
-
-        def stream_query(self, **kwargs):
-            self.sessions[kwargs["session_id"]]["state"].update({
-                "source_analysis": {"summary": "Persisted managed analysis", "moments": [], "angles": []},
-            })
-            raise RuntimeError("managed SSE stream terminated")
-            yield  # pragma: no cover
+            yield {}
 
     runtime = AgentEngineTeamRuntime(
         resource_name="projects/p/locations/us-central1/reasoningEngines/42",
-        client=_Client(InterruptedRemote()),
+        client=_Client(SyncOnlyRemote()),
     )
 
-    state = asyncio.run(runtime.invoke(
-        specialist="nimi_analyst", payload={"title": "Demo"},
-        user_id="job-123", session_key="op-1",
-    ))
-
-    assert state["source_analysis"]["summary"] == "Persisted managed analysis"
-
-
-def test_sync_runtime_does_not_mask_stream_failure_without_persisted_output_state():
-    class InterruptedRemote(_RemoteAgent):
-        def create_session(self, **kwargs):
-            session = {"id": kwargs["session_id"], "state": dict(kwargs["state"])}
-            self.sessions[kwargs["session_id"]] = session
-            return session
-
-        def get_session(self, **kwargs):
-            return self.sessions[kwargs["session_id"]]
-
-        def stream_query(self, **kwargs):
-            raise RuntimeError("managed SSE stream terminated")
-            yield  # pragma: no cover
-
-    runtime = AgentEngineTeamRuntime(
-        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
-        client=_Client(InterruptedRemote()),
-    )
-
-    with pytest.raises(Exception, match="managed SSE stream terminated"):
+    with pytest.raises(AgentEngineProtocolError, match="required async ADK interface"):
         asyncio.run(runtime.invoke(
             specialist="nimi_analyst", payload={"title": "Demo"},
             user_id="job-123", session_key="op-1",
@@ -422,6 +327,45 @@ def test_async_runtime_recovers_persisted_state_when_stream_terminates_after_han
     ))
 
     assert state["source_analysis"]["summary"] == "Persisted async analysis"
+
+
+def test_async_runtime_recovers_persisted_state_when_successful_stream_has_no_state_delta():
+    class PersistedOnlyRemote(_RemoteAgent):
+        async def async_stream_query(self, **kwargs):
+            self.sessions[kwargs["session_id"]]["state"].update({
+                "source_analysis": {"summary": "Persisted successful analysis", "moments": [], "angles": []},
+            })
+            yield {"author": "nimi_analyst", "content": {"parts": [{"text": "done"}]}}
+
+    runtime = AgentEngineTeamRuntime(
+        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
+        client=_Client(PersistedOnlyRemote()),
+    )
+
+    state = asyncio.run(runtime.invoke(
+        specialist="nimi_analyst", payload={"title": "Demo"},
+        user_id="job-123", session_key="op-1",
+    ))
+
+    assert state["source_analysis"]["summary"] == "Persisted successful analysis"
+
+
+def test_async_runtime_surfaces_terminal_provider_error_event():
+    class QuotaErrorRemote(_RemoteAgent):
+        async def async_stream_query(self, **kwargs):
+            yield {"errorCode": "RESOURCE_EXHAUSTED", "errorMessage": "quota exceeded"}
+
+    runtime = AgentEngineTeamRuntime(
+        resource_name="projects/p/locations/us-central1/reasoningEngines/42",
+        client=_Client(QuotaErrorRemote()),
+    )
+
+    with pytest.raises(AgentEngineProviderError) as caught:
+        asyncio.run(runtime.invoke(
+            specialist="nimi_analyst", payload={"title": "Demo"},
+            user_id="job-123", session_key="op-1",
+        ))
+    assert caught.value.status == 429
 
 
 def test_runtime_resumes_the_same_managed_session_after_process_restart():
@@ -526,7 +470,7 @@ def test_runtime_never_mutates_the_caller_payload_or_retrieved_session_state():
     assert payload == original
 
 
-def test_agent_engine_runtime_rejects_events_without_state_and_does_not_fallback():
+def test_agent_engine_runtime_rejects_response_text_without_authoritative_state():
     class EmptyRemote(_RemoteAgent):
         async def async_stream_query(self, **kwargs):
             yield {"author": "harmonia_coordinator", "content": {"parts": [{"text": "done"}]}}
@@ -538,27 +482,42 @@ def test_agent_engine_runtime_rejects_events_without_state_and_does_not_fallback
 
     with pytest.raises(AgentEngineProtocolError, match="state delta"):
         asyncio.run(runtime.invoke(
-            specialist="nimi_analyst",
-            payload={"title": "Demo", "transcript": "proof"},
-            user_id="job-123",
-            session_key="op-1",
+            specialist="nimi_analyst", payload={"title": "Demo", "transcript": "proof"},
+            user_id="job-123", session_key="op-1",
         ))
 
 
 def test_agent_engine_deployment_wraps_the_existing_root_hierarchy():
     class FakeAdkApp:
-        def __init__(self, *, agent):
-            self.agent = agent
+        def __init__(self, *, app):
+            self.app = app
 
     app = build_agent_engine_app(adk_app_type=FakeAdkApp, model="gemini-test")
 
-    assert app.agent.name == "harmonia_coordinator"
-    assert [agent.name for agent in app.agent.sub_agents] == [
+    assert app.app.name == "harmonia"
+    assert app.app.root_agent.name == "harmonia_coordinator"
+    assert [agent.name for agent in app.app.root_agent.sub_agents] == [
         "harmonia_intent_router",
+        "harmonia_context_assembler",
         "ryan_strategist", "nimi_analyst", "temi_editorial_planner",
         "noni_copywriter", "dara_editor", "noni_artifact_producer",
         "dara_artifact_editor", "maya_presenter", "nova_liaison",
     ]
+
+
+def test_agent_engine_serializes_vertex_global_models_before_deployment(monkeypatch):
+    class FakeAdkApp:
+        def __init__(self, *, app):
+            self.app = app
+
+    monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
+    monkeypatch.delenv("GEMINI_VERTEX_LOCATION", raising=False)
+    app = build_agent_engine_app(adk_app_type=FakeAdkApp, vertex_location="global")
+
+    router = app.app.root_agent.find_sub_agent("harmonia_intent_router")
+    assert router.model.client_kwargs == {"vertexai": True, "location": "global"}
+    assert "GOOGLE_GENAI_USE_VERTEXAI" not in os.environ
+    assert "GEMINI_VERTEX_LOCATION" not in os.environ
 
 
 def test_agent_engine_deployment_config_is_narrow_and_reproducible():
@@ -589,6 +548,7 @@ def test_agent_engine_deployment_config_is_narrow_and_reproducible():
         "PRESENTER_MODEL_ID": "gemini-3.5-flash",
         "COPYWRITER_MODEL_ID": "gemini-3.5-flash",
         "WEB_INTERNAL_URL": "https://harmonia-web.example",
+        "GOOGLE_GENAI_USE_VERTEXAI": "true",
         "GEMINI_VERTEX_LOCATION": "global",
         "INTERNAL_API_TOKEN": {"secret": "internal-api-token", "version": "latest"},
         "GEMINI_API_KEY": {"secret": "gemini-api-key", "version": "latest"},
@@ -596,6 +556,7 @@ def test_agent_engine_deployment_config_is_narrow_and_reproducible():
 
 
 def test_role_models_use_explicit_global_vertex_location(monkeypatch):
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
     monkeypatch.setenv("GEMINI_VERTEX_LOCATION", "global")
     monkeypatch.setenv("COORDINATOR_MODEL_ID", "gemini-3.5-flash-lite")
 
@@ -603,3 +564,13 @@ def test_role_models_use_explicit_global_vertex_location(monkeypatch):
 
     assert models.coordinator.model == "gemini-3.5-flash-lite"
     assert models.coordinator.client_kwargs == {"vertexai": True, "location": "global"}
+
+
+def test_role_models_default_to_gemini_developer_api_even_when_location_is_present(monkeypatch):
+    monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
+    monkeypatch.setenv("GEMINI_VERTEX_LOCATION", "us-central1")
+
+    models = _resolve_role_models()
+
+    assert models.coordinator.model == "gemini-3.5-flash"
+    assert models.coordinator.client_kwargs == {"vertexai": False}

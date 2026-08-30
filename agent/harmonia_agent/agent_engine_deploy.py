@@ -16,14 +16,12 @@ _FORWARDED_ENV = {
     "EDITOR_MODEL_ID",
     "PLANNER_MODEL_ID",
     "PRESENTER_MODEL_ID",
-    "GOOGLE_GENAI_USE_VERTEXAI",
     "HARMONIA_TELEMETRY_ENABLED",
     "HARMONIA_TELEMETRY_SAMPLE_RATE",
     "OTEL_SERVICE_NAME",
     "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
     "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS",
     "WEB_INTERNAL_URL",
-    "GEMINI_VERTEX_LOCATION",
 }
 
 
@@ -65,6 +63,11 @@ def build_deployment_config(
             key: value for key, value in environment.items()
             if key in _FORWARDED_ENV and value
         } | {
+            # Gemini 3.5 is verified on Vertex's global endpoint. Pin both the
+            # provider and location so Agent Engine's regional runtime defaults
+            # cannot silently move model traffic or consume Developer API quota.
+            "GOOGLE_GENAI_USE_VERTEXAI": "true",
+            "GEMINI_VERTEX_LOCATION": "global",
             "INTERNAL_API_TOKEN": {"secret": "internal-api-token", "version": "latest"},
             "GEMINI_API_KEY": {"secret": "gemini-api-key", "version": "latest"},
         },
@@ -78,7 +81,7 @@ def deploy(*, project: str, location: str, staging_bucket: str, service_account:
         raise RuntimeError("install the agent requirements before deployment") from exc
     client = vertexai.Client(project=project, location=location)
     remote = client.agent_engines.create(
-        agent=build_agent_engine_app(),
+        agent=build_agent_engine_app(vertex_location="global"),
         config=build_deployment_config(
             staging_bucket=staging_bucket,
             service_account=service_account,

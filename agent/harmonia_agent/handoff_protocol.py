@@ -51,7 +51,8 @@ class HandoffAcknowledgement(_WireModel):
 
 
 EXPECTED_OUTPUTS = {
-    "harmonia_intent_router": "IntentRoute",
+    "harmonia_intent_router": "IntentClassification",
+    "harmonia_context_assembler": "IntentStrategyContext",
     "nimi_analyst": "SourceAnalysis",
     "ryan_strategist": "StrategistResult",
     "temi_editorial_planner": "EditorialPlan",
@@ -133,6 +134,15 @@ def repair_request(
             "semantic relationship: visualHook must appear if and only if visualEvidenceIds are "
             "non-empty; high confidence requires an empty assumptions list; angleType must match "
             "evidenceKind; endSec must not precede startSec; and IDs and reference lists must be unique."
+        ),
+        "invalid_intent_classification": (
+            "Regenerate the complete route from the original typed input. An explicit request to "
+            "plan, establish, revise, build, create, make, generate, produce, prepare, draft, "
+            "repurpose, schedule, publish, export, approve, show, check, "
+            "or get status is operational and cannot be conversation. If planning or calendar work "
+            "is requested without an approved workspace strategy, route to establish_strategy and "
+            "either supply a fully typed strategyContext from known facts and explicit assumptions "
+            "or ask one blocking clarification. Never invent facts or authority."
         ),
     }
     request: dict[str, Any] = {

@@ -246,6 +246,28 @@ def _grounding_metadata(event: Any) -> dict[str, Any] | None:
     return dict(metadata) if isinstance(metadata, dict) else None
 
 
+def _raise_for_event_error(event: Any) -> None:
+    """Turn ADK terminal error events into provider failures before state recovery."""
+    if not isinstance(event, dict):
+        event = event.model_dump(mode="json", by_alias=True) if hasattr(event, "model_dump") else {}
+    code = event.get("error_code") or event.get("errorCode")
+    message = event.get("error_message") or event.get("errorMessage")
+    if not code and not message:
+        return
+    normalized = str(code or "").upper()
+    status = {
+        "RESOURCE_EXHAUSTED": 429,
+        "DEADLINE_EXCEEDED": 504,
+        "UNAVAILABLE": 503,
+        "UNAUTHENTICATED": 401,
+        "PERMISSION_DENIED": 403,
+        "INVALID_ARGUMENT": 400,
+    }.get(normalized)
+    raise AgentEngineProviderError(
+        f"managed ADK event failed: {normalized or 'UNKNOWN'}", status=status,
+    )
+
+
 def _invoke_sync_remote(
     remote: Any, *, user_id: str, session_id: str,
     seeded_state: dict[str, Any], prompt: str,
@@ -268,6 +290,7 @@ def _invoke_sync_remote(
         for event in remote.stream_query(
             user_id=user_id, session_id=session_id, message=prompt,
         ):
+            _raise_for_event_error(event)
             state.update(_state_delta(event))
             if metadata := _grounding_metadata(event):
                 state["_adk_grounding_metadata"] = metadata
@@ -281,6 +304,17 @@ def _invoke_sync_remote(
         if not recovered:
             raise
         state.update(recovered)
+    else:
+        # Agent Engine can commit output_key directly to durable session state
+        # while emitting only text/status stream events. Merge that authoritative
+        # delta after a successful stream as well as after transport recovery.
+        try:
+            state.update(_persisted_delta(
+                remote.get_session(user_id=user_id, session_id=session_id), seeded_state,
+            ))
+        except Exception:
+            if not state:
+                raise
     return state
 
 
@@ -330,46 +364,35 @@ class AgentEngineTeamRuntime:
                 "resource": self.resource_name,
             }))
             try:
-                prompt = json.dumps(
-                    {
-                        **{key: value for key, value in payload.items() if not key.startswith("_")},
-                        "requestedSpecialist": specialist,
-                    },
-                    separators=(",", ":"), sort_keys=True,
+                required = (
+                    "get_session", "create_session", "async_stream_query",
                 )
-                if all(callable(getattr(remote, name, None)) for name in (
-                    "get_session", "create_session", "stream_query",
-                )):
-                    state.update(await asyncio.to_thread(
-                        _invoke_sync_remote, remote, user_id=user_id,
-                        session_id=session_id, seeded_state=seeded_state, prompt=prompt,
-                    ))
-                    if not state:
-                        raise AgentEngineProtocolError("Agent Engine returned no state delta")
-                    span.set_attribute("state.key_count", len(state))
-                    return state
-                else:
+                if not all(callable(getattr(remote, name, None)) for name in required):
+                    raise AgentEngineProtocolError(
+                        "Agent Engine does not expose Harmonia's required async ADK interface"
+                    )
+                try:
+                    session = await asyncio.to_thread(
+                        remote.get_session, user_id=user_id, session_id=session_id,
+                    )
+                except Exception as exc:  # provider SDK wraps this in multiple exception types
+                    if not _is_missing_session_error(exc):
+                        raise
+                    session = None
+                if session is None:
                     try:
-                        session = await remote.async_get_session(
-                            user_id=user_id, session_id=session_id,
+                        session = await asyncio.to_thread(
+                            remote.create_session,
+                            user_id=user_id, session_id=session_id, state=seeded_state,
                         )
-                    except Exception as exc:  # provider SDK wraps this in multiple exception types
-                        if not _is_missing_session_error(exc):
+                    except Exception:  # a concurrent creator may have won
+                        session = await asyncio.to_thread(
+                            remote.get_session, user_id=user_id, session_id=session_id,
+                        )
+                        if session is None:
                             raise
-                        session = None
-                    if session is None:
-                        try:
-                            session = await remote.async_create_session(
-                                user_id=user_id, session_id=session_id, state=seeded_state,
-                            )
-                        except Exception:  # a concurrent creator may have won
-                            session = await remote.async_get_session(
-                                user_id=user_id, session_id=session_id,
-                            )
-                            if session is None:
-                                raise
-                    if _session_id(session) != session_id:
-                        raise AgentEngineProtocolError("Agent Engine returned the wrong managed session")
+                if _session_id(session) != session_id:
+                    raise AgentEngineProtocolError("Agent Engine returned the wrong managed session")
                 prompt = (
                     f"Delegate this request to {specialist} exactly once. "
                     "Use the typed payload already present in managed session state."
@@ -400,22 +423,49 @@ class AgentEngineTeamRuntime:
                         message=prompt,
                     )
                     async for event in events:
+                        _raise_for_event_error(event)
                         state.update(_state_delta(event))
                         if metadata := _grounding_metadata(event):
                             state["_adk_grounding_metadata"] = metadata
                 except Exception:
                     recovered = _persisted_delta(
-                        await remote.async_get_session(
-                            user_id=user_id, session_id=session_id,
+                        await asyncio.to_thread(
+                            remote.get_session, user_id=user_id, session_id=session_id,
                         ),
                         seeded_state,
                     )
                     if not recovered:
                         raise
                     state.update(recovered)
-            except AgentEngineProtocolError:
+                else:
+                    # See the synchronous adapter: a completed managed stream
+                    # is not guaranteed to carry the output_key state delta.
+                    try:
+                        state.update(_persisted_delta(
+                            await asyncio.to_thread(
+                                remote.get_session, user_id=user_id, session_id=session_id,
+                            ),
+                            seeded_state,
+                        ))
+                    except Exception:
+                        if not state:
+                            raise
+            except (AgentEngineProtocolError, AgentEngineProviderError):
                 raise
             except Exception as exc:  # noqa: BLE001 - normalized at provider boundary
+                chain: list[str] = []
+                current: BaseException | None = exc
+                while current is not None and len(chain) < 6:
+                    chain.append(type(current).__name__)
+                    current = current.__cause__ or current.__context__
+                logger.warning(
+                    "managed Agent Engine invocation failed status=%s chain=%s stack=%s",
+                    _provider_status(exc), " -> ".join(chain),
+                    " -> ".join(
+                        f"{frame.name}:{frame.lineno}"
+                        for frame in traceback.extract_tb(exc.__traceback__)[-8:]
+                    ),
+                )
                 raise AgentEngineProviderError(
                     f"Agent Engine invocation failed: {exc}", status=_provider_status(exc),
                 ) from exc

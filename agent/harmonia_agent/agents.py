@@ -164,10 +164,15 @@ from .context_projection import (
 )
 from .operation_context import current_operation
 from .intent_routing import (
+    IntentClassification,
     IntentRoute,
     IntentRoutingInput,
+    IntentStrategyContext,
+    StrategyContextAssemblyInput,
+    compiled_context_assembly_skill_context,
     compiled_intent_routing_skill_context,
     get_social_platform_connections,
+    deterministic_intent_classification,
     source_urls_from_input,
 )
 from .coordinator import HarmoniaCoordinator
@@ -180,6 +185,7 @@ T = TypeVar("T", bound=BaseModel)
 
 _SPECIALIST_ROLES = {
     "harmonia_intent_router": ("harmonia_intent_router",),
+    "harmonia_context_assembler": ("harmonia_context_assembler",),
     "nimi_analyst": ("nimi_analyst",),
     "ryan_strategist": ("ryan_strategist",),
     "temi_editorial_planner": ("temi_editorial_planner",),
@@ -192,6 +198,7 @@ _SPECIALIST_ROLES = {
 }
 _MAX_OUTPUT_TOKENS = {
     "harmonia_intent_router": 1024,
+    "harmonia_context_assembler": 4096,
     "harmonia_coordinator": 1024,
     "nimi_analyst": 8192,
     "ryan_strategist": 8192,
@@ -327,6 +334,7 @@ class RoleModelInstances:
     def model_for(self, role: str) -> str | BaseLlm:
         mapping = {
             "harmonia_intent_router": self.coordinator,
+            "harmonia_context_assembler": self.coordinator,
             "harmonia_coordinator": self.coordinator,
             "ryan_strategist": self.strategist,
             "nimi_analyst": self.analyst,
@@ -346,11 +354,11 @@ class RoleModelInstances:
     def config_for(self, role: str) -> RoleModelConfig:
         if role in self.configs:
             return self.configs[role]
-        if role == "harmonia_intent_router":
+        if role in {"harmonia_intent_router", "harmonia_context_assembler"}:
             base = self.config_for("harmonia_coordinator")
             return base.model_copy(update={
                 "role": role,
-                "eligible_tasks": ("route_operator_intent",),
+                "eligible_tasks": (("route_operator_intent",) if role == "harmonia_intent_router" else ("assemble_strategy_context",)),
                 "max_output_tokens": 4096,
             })
         if role == "noni_artifact_producer":
@@ -387,10 +395,18 @@ def _instance_model_id(model: str | BaseLlm) -> str:
 
 
 def _located_model(model_id: str) -> str | BaseLlm:
+    from google.adk.models.google_llm import Gemini
+
+    if os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").strip().lower() not in {
+        "1", "true", "yes",
+    }:
+        # Agent Engine injects GOOGLE_CLOUD_PROJECT/LOCATION, which otherwise
+        # makes google-genai select Vertex even when the deployment explicitly
+        # disables it. Pin the provider on the model instance itself.
+        return Gemini(model=model_id, client_kwargs={"vertexai": False})
     location = os.environ.get("GEMINI_VERTEX_LOCATION")
     if not location:
         return model_id
-    from google.adk.models.google_llm import Gemini
     return Gemini(model=model_id, client_kwargs={"vertexai": True, "location": location})
 
 
@@ -466,6 +482,8 @@ def _role_task(role: str, specialist: str, payload: BaseModel) -> str:
         return "route"
     if role == "harmonia_intent_router":
         return "route_operator_intent"
+    if role == "harmonia_context_assembler":
+        return "assemble_strategy_context"
     if role == "ryan_strategist":
         return "strategize"
     if role == "nimi_analyst":
@@ -518,20 +536,36 @@ def build_agent_team(
             "elicited; never make the operator repeat it. Infer user-level output concepts, never internal registry names. "
             "Return the strict route only; routing cannot authorize an external effect. The JSON "
             "object must contain exactly these schema keys: intent, userOutcome, sourceUrls, "
-            "outputConcepts, platformRecommendations, connectionSuggestions, assumptions, "
+            "outputConcepts, platformRecommendations, assumptions, "
             "needsClarification, clarifyingQuestion, requiresRightsAttestation, effectRequested, "
-            "effectAuthorized, jobId, and strategyContext. When enough ordinary conversation and "
+            "and jobId. Do not assemble strategy context; that is a separate bounded delegation. "
             "userOutcome must describe what the job should achieve; never claim that Harmonia has already accepted, extracted, prepared, repurposed, completed, published, executed, or verified work. "
-            "source context exists to start work, populate strategyContext with a bounded, typed "
-            "working context and expose every inference in assumptions; use null only when an "
-            "approved workspace strategy will be inherited or a blocking clarification is needed. "
             "Platform values are lowercase registry values. Do not "
             "invent alternate keys such as route, rationale, confidence, requiredContext, "
             "suggestedWorkflow, missingFacts, or userFacingMessage."
         ),
         input_schema=IntentRoutingInput,
-        output_schema=_gemini_wire_schema(IntentRoute),
-        output_key="intent_route",
+        output_schema=_gemini_wire_schema(IntentClassification),
+        output_key="intent_classification",
+        tools=[],
+        mode="single_turn",
+    )
+    context_assembler = Agent(
+        model=resolved.coordinator,
+        generate_content_config=generation_config(resolved.config_for("harmonia_context_assembler")),
+        name="harmonia_context_assembler",
+        description="Assembles bounded startup strategy context from exact operator language.",
+        instruction=_with_handoff_protocol(
+            f"{compiled_context_assembly_skill_context()}\n\n"
+            "Return one complete IntentStrategyContext from only the typed message, recent conversation, "
+            "desired outcome, exact source URLs, output concepts, and requested channels. Preserve explicit "
+            "facts verbatim where practical. Put bounded working assumptions in the context, never invent "
+            "identifiers, digests, tool results, approval, rights, connection state, or effect authority. "
+            "requestedChannels and supportedChannels must contain the supplied requestedChannels."
+        ),
+        input_schema=StrategyContextAssemblyInput,
+        output_schema=_gemini_wire_schema(IntentStrategyContext),
+        output_key="intent_strategy_context",
         tools=[],
         mode="single_turn",
     )
@@ -685,7 +719,7 @@ def build_agent_team(
         on_tool_error_callback=record_liaison_tool_error,
     )
     for specialist in (
-        intent_router, strategist, analyst, planner, copywriter, editor,
+        intent_router, context_assembler, strategist, analyst, planner, copywriter, editor,
         artifact_producer, artifact_editor, presenter, liaison,
     ):
         specialist.on_model_error_callback = record_model_error
@@ -695,7 +729,7 @@ def build_agent_team(
     return HarmoniaCoordinator(
         name="harmonia_coordinator",
         description="Routes Harmonia judgment tasks to typed specialists; never performs external effects.",
-        sub_agents=[intent_router, strategist, analyst, planner, copywriter, editor, artifact_producer, artifact_editor, presenter, liaison],
+        sub_agents=[intent_router, context_assembler, strategist, analyst, planner, copywriter, editor, artifact_producer, artifact_editor, presenter, liaison],
     )
 
 
@@ -1859,11 +1893,77 @@ def _validated_liaison_state(state: dict[str, Any]) -> LiaisonAnswer:
         raise AgentProtocolError(f"invalid liaison output: {exc}") from exc
 
 
+def _declared_social_platforms(message: str) -> list[str]:
+    normalized = f" {message.casefold()} "
+    return [
+        platform for platform, markers in (
+            ("linkedin", ("linkedin",)),
+            ("instagram", ("instagram",)),
+            ("tiktok", ("tiktok", "tik tok")),
+            ("x", (" x ", "twitter")),
+        )
+        if any(marker in normalized for marker in markers)
+    ]
+
+
+def _bind_authoritative_route_context(
+    payload: IntentRoutingInput, state: dict[str, Any],
+) -> None:
+    """Bind exact operator channel declarations before model-output validation."""
+    raw = state.get("intent_route")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return
+    if not isinstance(raw, dict):
+        return
+    context = raw.get("strategyContext")
+    if not isinstance(context, dict):
+        return
+    declared = _declared_social_platforms(payload.message)
+    if not declared:
+        return
+    normalized = dict(raw)
+    normalized_context = dict(context)
+    if not normalized_context.get("requestedChannels"):
+        normalized_context["requestedChannels"] = declared
+    if not normalized_context.get("supportedChannels"):
+        normalized_context["supportedChannels"] = declared
+    normalized["strategyContext"] = normalized_context
+    state["intent_route"] = normalized
+
+
 def _validate_run_output_unwrapped(
     specialist: str, payload: BaseModel, state: dict[str, Any],
 ) -> None:
     if specialist == "harmonia_intent_router":
-        _validated_state(state, "intent_route", IntentRoute)
+        routing_input = IntentRoutingInput.model_validate(payload)
+        route = _validated_state(state, "intent_classification", IntentClassification)
+        operational = re.search(
+            r"\b(?:plan|establish|revise|build|create|make|generate|produce|prepare|"
+            r"write|draft|turn|repurpose|schedule|publish|export|approve|show|check|status)\b",
+            routing_input.message,
+            re.IGNORECASE,
+        )
+        if route.intent == "conversation" and operational:
+            raise AgentProtocolError(
+                "unambiguous operational request was downgraded to conversation"
+            )
+        if (
+            route.intent in {"advance_plan", "manage_calendar"}
+            and not routing_input.workspaceContext.strategyReady
+        ):
+            raise AgentProtocolError(
+                "planning request requires strategy establishment when no approved strategy exists"
+            )
+        return
+    if specialist == "harmonia_context_assembler":
+        assembler_input = StrategyContextAssemblyInput.model_validate(payload)
+        context = _validated_state(state, "intent_strategy_context", IntentStrategyContext)
+        declared = list(assembler_input.requestedChannels)
+        if declared and (not set(declared).issubset(context.requestedChannels) or not set(declared).issubset(context.supportedChannels)):
+            raise AgentProtocolError("strategy context omitted authoritative requested channels")
         return
     if specialist == "maya_presenter":
         _validated_state(state, "surface_plan", SurfacePlan)
@@ -2001,6 +2101,7 @@ def _validate_run_output_unwrapped(
 
 _AGENT_DISPLAY_NAMES = {
     "harmonia_intent_router": "Harmonia",
+    "harmonia_context_assembler": "Harmonia",
     "nimi_analyst": "Nimi", "ryan_strategist": "Ryan",
     "temi_editorial_planner": "Temi", "noni_copywriter": "Noni",
     "dara_editor": "Dara", "noni_artifact_producer": "Noni", "dara_artifact_editor": "Dara", "maya_presenter": "Maya", "nova_liaison": "Nova",
@@ -2010,6 +2111,11 @@ _AGENT_DISPLAY_NAMES = {
 def _safe_contract_failure(specialist: str, exc: Exception) -> tuple[str, str]:
     """Map private validator causes to stable, non-content-bearing repair codes."""
     message = str(exc).lower()
+    if specialist == "harmonia_intent_router" and (
+        "downgraded to conversation" in message
+        or "requires strategy establishment" in message
+    ):
+        return "invalid_intent_classification", "output.intent"
     if specialist == "temi_editorial_planner" and "planning snapshot section" in message:
         return "missing_planning_snapshot_read", "tool_trace.planning_snapshot"
     if "unknown evidence reference" in message or "unknown evidence ids" in message:
@@ -3154,16 +3260,20 @@ async def route_intent_with_team(
     team_runtime: TeamRuntime | None = None,
 ) -> IntentRoute:
     """Route one natural operator request through Harmonia's owned ADK skill."""
-    state = await _run_coordinator(
-        "harmonia_intent_router", value, invocation=invocation, team_runtime=team_runtime,
-        job_scoped_accounting=False,
-    )
-    route = _validated_state(state, "intent_route", IntentRoute)
+    classification = deterministic_intent_classification(value)
+    if classification is None:
+        state = await _run_coordinator(
+            "harmonia_intent_router", value, invocation=invocation, team_runtime=team_runtime,
+            job_scoped_accounting=False,
+        )
+        classification = _validated_state(
+            state, "intent_classification", IntentClassification,
+        )
 
     known_source_urls = source_urls_from_input(value)
-    routed_source_urls = [url for url in route.sourceUrls if url in known_source_urls]
-    source_assumptions = list(route.assumptions)
-    if route.sourceUrls and not routed_source_urls:
+    routed_source_urls = [url for url in classification.sourceUrls if url in known_source_urls]
+    source_assumptions = list(classification.assumptions)
+    if classification.sourceUrls and not routed_source_urls:
         if not known_source_urls:
             raise AgentProtocolError("intent router invented a source URL")
         routed_source_urls = [known_source_urls[-1]]
@@ -3176,28 +3286,45 @@ async def route_intent_with_team(
     # them with the live connection registry so a model cannot omit required setup
     # guidance after correctly choosing a strategy-first route.
     message = value.message.casefold()
-    declared_platforms = [
-        platform for platform, markers in (
-            ("linkedin", ("linkedin",)),
-            ("instagram", ("instagram",)),
-            ("tiktok", ("tiktok", "tik tok")),
-            ("x", (" x ", "twitter")),
-        )
-        if any(marker in f" {message} " for marker in markers)
-    ]
-    recommendations = list(dict.fromkeys([*route.platformRecommendations, *declared_platforms]))
+    declared_platforms = _declared_social_platforms(message)
+    recommendations = list(dict.fromkeys([*classification.platformRecommendations, *declared_platforms]))
     connection_observation = await asyncio.to_thread(get_social_platform_connections)
     if connection_observation.get("status") != "success":
         raise AgentProtocolError("live platform connection lookup failed")
     connections = connection_observation.get("data", {}).get("platforms", [])
     connected = {str(item.get("id")): item.get("connected") is True for item in connections}
     suggestions = [platform for platform in recommendations if not connected.get(platform, False)]
+
+    strategy_context = None
+    needs_context = (
+        classification.intent in {"establish_strategy", "revise_strategy", "repurpose_source", "one_off_content"}
+        and not value.workspaceContext.strategyReady
+        and not classification.needsClarification
+    )
+    if needs_context:
+        context_input = StrategyContextAssemblyInput(
+            message=value.message,
+            recentConversation=value.recentConversation,
+            userOutcome=classification.userOutcome,
+            sourceUrls=routed_source_urls,
+            outputConcepts=classification.outputConcepts,
+            requestedChannels=recommendations,
+        )
+        context_state = await _run_coordinator(
+            "harmonia_context_assembler", context_input, invocation=invocation,
+            team_runtime=team_runtime, job_scoped_accounting=False,
+        )
+        strategy_context = _validated_state(
+            context_state, "intent_strategy_context", IntentStrategyContext,
+        )
     return IntentRoute.model_validate({
-        **route.model_dump(mode="json"),
+        **classification.model_dump(mode="json"),
         "sourceUrls": routed_source_urls,
         "assumptions": source_assumptions,
         "platformRecommendations": recommendations,
         "connectionSuggestions": suggestions,
+        "effectAuthorized": False,
+        "strategyContext": strategy_context,
     })
 
 

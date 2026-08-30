@@ -12,8 +12,8 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().min(1).optional(),
   MODEL_ID: z.string().default("gemini-3.5-flash"),
   MODEL_PRICING_VERSION: z.string().min(1).default("unconfigured"),
-  LYRIA_3_CLIP_COST_USD: z.string().regex(/^\d+\.\d{6}$/).optional(),
-  VEO_3_1_COST_PER_SECOND_USD: z.string().regex(/^\d+\.\d{6}$/).optional(),
+  LYRIA_3_CLIP_COST_USD: z.preprocess((value) => value === "" ? undefined : value, z.string().regex(/^\d+\.\d{6}$/).optional()),
+  VEO_3_1_COST_PER_SECOND_USD: z.preprocess((value) => value === "" ? undefined : value, z.string().regex(/^\d+\.\d{6}$/).optional()),
   DEFAULT_JOB_BUDGET_USD: z.string().regex(/^\d+\.\d{1,6}$/).default("5.00"),
   DEFAULT_JOB_APPROVAL_THRESHOLD_USD: z.string().regex(/^\d+\.\d{1,6}$/).default("0.25"),
   DEFAULT_WORKSPACE_BUDGET_USD: z.string().regex(/^\d+\.\d{1,6}$/).default("100.00"),
@@ -31,6 +31,11 @@ export function parseBudgetConfig(environment: Record<string, string | undefined
 }
 
 export type Config = z.infer<typeof envSchema>;
+
+/** Parse a supplied runtime environment without mutating the process cache. */
+export function parseConfig(environment: Record<string, string | undefined>): Config {
+  return envSchema.parse(environment);
+}
 
 let cached: Config | null = null;
 

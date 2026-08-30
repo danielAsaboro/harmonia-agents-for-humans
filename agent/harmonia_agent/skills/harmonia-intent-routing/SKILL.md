@@ -13,7 +13,7 @@ Translate the operator's desired outcome, not their familiarity with Harmonia's 
 
 1. Read the supplied workspace readiness, summaries, and recent conversation before classifying the message. Carry forward facts the operator already supplied.
 2. Call `get_social_platform_connections` once before recommending distribution channels. Treat only `connected: true` as connected.
-3. When the conversation and a supplied source provide enough context to begin, construct the typed `strategyContext` yourself. Use the operator's words for known facts, make bounded working assumptions for missing positioning, audience, funnel, voice, and conversion details, and repeat those assumptions in `assumptions` for the later strategy approval screen. Do not ask the operator to name product concepts they would not normally know.
+3. Classify only. Context assembly is a separate coordinator-owned typed delegation.
 4. Route an ongoing content program without an approved strategy to `establish_strategy`.
 5. Route changes to an existing strategy to `revise_strategy`.
 6. Route requests for a schedule, campaign sequence, or next month/quarter to `advance_plan` or `manage_calendar`.

@@ -307,6 +307,7 @@ def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
     assert root.name == "harmonia_coordinator"
     assert [(a.name, a.mode) for a in root.sub_agents] == [
         ("harmonia_intent_router", "single_turn"),
+        ("harmonia_context_assembler", "single_turn"),
         ("ryan_strategist", "single_turn"),
         ("nimi_analyst", "single_turn"),
         ("temi_editorial_planner", "single_turn"),
@@ -402,6 +403,7 @@ def test_team_assigns_the_configured_model_to_each_role():
 
     assert not hasattr(root, "model")
     assert [agent.model.model for agent in root.sub_agents] == [
+        "coordinator-fake",
         "coordinator-fake",
         "strategist-fake", "analyst-fake", "planner-fake", "copywriter-fake",
         "editor-fake", "copywriter-fake", "editor-fake", "presenter-fake", "liaison-fake",

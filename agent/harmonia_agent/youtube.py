@@ -63,15 +63,33 @@ def download_audio(url: str, max_bytes: int = 24_000_000) -> tuple[bytes, str]:
     """Downloads bestaudio via yt-dlp and returns (audio_bytes, sha256)."""
     with tempfile.TemporaryDirectory() as td:
         out = Path(td) / "a.m4a"
-        proc = subprocess.run(
-            ["yt-dlp", "--extractor-args", "youtube:player_client=web_embedded",
-             "-f", "bestaudio[ext=m4a][abr<=160]/bestaudio[abr<=160]/bestaudio",
-             "-x", "--audio-format", "m4a", "--audio-quality", "9",
-             "--no-playlist", "-o", str(out), url],
-            capture_output=True, text=True, timeout=600,
-        )
-        if proc.returncode != 0 or not out.exists():
-            raise IngestError(f"yt-dlp failed: {(proc.stderr or '')[-300:]}")
+        failures = []
+        # YouTube can reject one anonymous player client while another remains
+        # valid. Keep this recovery host-owned, cookie-free, and strictly
+        # bounded; never ask an LLM to select clients or invent success.
+        for player_client in ("web_embedded", "android_vr", "mweb"):
+            out.unlink(missing_ok=True)
+            extractor_args = ["--extractor-args", f"youtube:player_client={player_client}"]
+            if player_client == "mweb":
+                # Use the provider's per-invocation script as the authoritative
+                # fallback. This avoids a startup race with its HTTP server and
+                # keeps token generation bound to this exact video request.
+                extractor_args.extend([
+                    "--extractor-args",
+                    "youtubepot-bgutilscript:server_home=/opt/bgutil-ytdlp-pot-provider/server",
+                ])
+            proc = subprocess.run(
+                ["yt-dlp", *extractor_args,
+                 "-f", "bestaudio[ext=m4a][abr<=160]/bestaudio[abr<=160]/bestaudio",
+                 "-x", "--audio-format", "m4a", "--audio-quality", "9",
+                 "--no-playlist", "--no-part", "-o", str(out), url],
+                capture_output=True, text=True, timeout=600,
+            )
+            if proc.returncode == 0 and out.exists():
+                break
+            failures.append(f"{player_client}: {(proc.stderr or '')[-240:]}")
+        else:
+            raise IngestError(f"yt-dlp failed after bounded client recovery: {' | '.join(failures)}")
         data = out.read_bytes()
         if len(data) > max_bytes:
             raise IngestError(f"audio too large for inline transcription ({len(data)} bytes)")

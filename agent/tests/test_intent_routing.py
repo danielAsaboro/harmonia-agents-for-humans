@@ -5,10 +5,34 @@ from pydantic import ValidationError
 
 from harmonia_agent.intent_routing import (
     IntentRoute,
+    deterministic_intent_classification,
     IntentRoutingInput,
     build_intent_routing_skillset,
     source_urls_from_input,
 )
+
+
+def test_explicit_source_repurpose_is_host_classified_without_model_judgment():
+    value = IntentRoutingInput.model_validate({
+        "message": "Repurpose https://www.youtube.com/watch?v=aqz-KE-bpKQ into a LinkedIn post and exportable content package. Do not publish.",
+        "attachmentCount": 0,
+        "workspaceContext": {
+            "strategyReady": False, "planReady": False, "calendarReady": False,
+            "pendingApprovalCount": 0, "goals": [], "channels": [],
+            "strategySummary": None, "planSummary": None,
+            "upcomingItemCount": 0, "recentJobs": [],
+        },
+    })
+
+    route = deterministic_intent_classification(value)
+
+    assert route is not None
+    assert route.intent == "repurpose_source"
+    assert route.sourceUrls == ["https://www.youtube.com/watch?v=aqz-KE-bpKQ"]
+    assert route.outputConcepts == ["professional_post", "content_package"]
+    assert route.platformRecommendations == ["linkedin"]
+    assert route.requiresRightsAttestation is True
+    assert route.effectRequested is False
 
 
 def context(**overrides):

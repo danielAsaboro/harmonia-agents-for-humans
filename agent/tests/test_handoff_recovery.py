@@ -130,6 +130,9 @@ def test_every_agent_receives_the_shared_handoff_protocol() -> None:
     agents = root.sub_agents
 
     assert "Harmonia inter-agent handoff" in harmonia_handoff_skill_context()
+    assert "Harmonia alone advances the workflow" in harmonia_handoff_skill_context()
+    assert "No specialist may skip a prerequisite" in harmonia_handoff_skill_context()
+    assert "unknown external-effect outcome" in harmonia_handoff_skill_context()
     assert all(HANDOFF_PROTOCOL_VERSION in str(agent.instruction) for agent in agents)
 
 

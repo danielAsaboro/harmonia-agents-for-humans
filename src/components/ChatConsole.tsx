@@ -14,11 +14,19 @@ import { latestSurfaceOperations } from "@/lib/a2ui/surfaceSlots";
 import { apiFetch } from "@/lib/clientApi";
 import { dayLabel, groupSessions, sessionPreview, type ConsoleMessage } from "@/lib/chatSessions";
 import { activeJobIdForConversation, buildStudioChapters } from "@/lib/studio/conversationModel";
+import { startJobRefresh } from "@/lib/jobRefresh";
 
 export interface JobDetailBundle {
   job: JobFull;
   events: TimelineEvent[];
   receipts: Receipt[];
+}
+
+async function readJobDetail(jobId: string, signal: AbortSignal): Promise<JobDetailBundle> {
+  const response = await fetch(`/api/jobs/${jobId}`, { cache: "no-store", signal });
+  const body = await response.json().catch(() => null) as { job?: JobFull; events?: TimelineEvent[]; receipts?: Receipt[]; decisions?: NonNullable<JobFull["decisions"]>; claims?: NonNullable<JobFull["claims"]>; assets?: NonNullable<JobFull["assets"]>; error?: string } | null;
+  if (!response.ok || !body?.job) throw new Error(body?.error ?? `Unable to load job (${response.status})`);
+  return { job: { ...body.job, decisions: body.decisions ?? body.job.decisions ?? [], claims: body.claims ?? body.job.claims ?? [], assets: body.assets ?? body.job.assets ?? [] }, events: body.events ?? [], receipts: body.receipts ?? [] };
 }
 
 interface StudioConsoleViewProps {
@@ -145,10 +153,8 @@ export default function ChatConsole() {
     setDetailLoading(true);
     setDetailError(null);
     try {
-      const response = await fetch(`/api/jobs/${jobId}`, { cache: "no-store", signal: controller.signal });
-      const body = await response.json().catch(() => null) as { job?: JobFull; events?: TimelineEvent[]; receipts?: Receipt[]; decisions?: NonNullable<JobFull["decisions"]>; claims?: NonNullable<JobFull["claims"]>; assets?: NonNullable<JobFull["assets"]>; error?: string } | null;
-      if (!response.ok || !body?.job) throw new Error(body?.error ?? `Unable to load job (${response.status})`);
-      if (!controller.signal.aborted) setDetail({ job: { ...body.job, decisions: body.decisions ?? body.job.decisions ?? [], claims: body.claims ?? body.job.claims ?? [], assets: body.assets ?? body.job.assets ?? [] }, events: body.events ?? [], receipts: body.receipts ?? [] });
+      const bundle = await readJobDetail(jobId, controller.signal);
+      if (!controller.signal.aborted) setDetail(bundle);
     } catch (error) {
       if (!controller.signal.aborted) setDetailError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -159,6 +165,15 @@ export default function ChatConsole() {
   useEffect(() => {
     if (activeJobId && detail?.job.id !== activeJobId) void openJob(activeJobId);
   }, [activeJobId, detail?.job.id, openJob]);
+
+  useEffect(() => {
+    const jobId = detail?.job.id;
+    if (busy || detailLoading || !jobId || (activeJobId && jobId !== activeJobId) || !["running", "waiting_for_approval"].includes(detail.job.status)) return;
+    return startJobRefresh(async (signal) => {
+      const bundle = await readJobDetail(jobId, signal);
+      if (!signal.aborted) { setDetail(bundle); setDetailError(null); }
+    }, (error) => setDetailError(error instanceof Error ? error.message : String(error)));
+  }, [activeJobId, detail?.job.id, detail?.job.status, busy, detailLoading]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

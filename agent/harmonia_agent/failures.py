@@ -85,6 +85,8 @@ def _classification(exc: Exception) -> tuple[FailureCategory, str, bool]:
     if isinstance(exc, (WebApiError, XError)):
         if status in (401, 403):
             return FailureCategory.AUTHORIZATION, "service_authorization_failed", False
+        if isinstance(exc, WebApiError) and status in (400, 422):
+            return FailureCategory.VALIDATION, "internal_contract_rejected", False
         if getattr(exc, "permanent", False):
             return FailureCategory.PROVIDER_PERMANENT, "provider_request_rejected", False
         return FailureCategory.PROVIDER_TRANSIENT, "provider_request_failed", True

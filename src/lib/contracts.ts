@@ -245,7 +245,7 @@ export const momentSchema = z.object({
   endSec: z.number().nonnegative(),
   hook: z.string().min(1).max(500),
   quote: z.string().min(1).max(2000),
-  sourceSegmentRefs: z.array(z.string().min(1).max(100)).min(1).max(12),
+  sourceSegmentRefs: z.array(z.string().min(1).max(100)).min(1).max(500),
   visualHook: z.string().min(1).max(500).optional(),
   cropSuitability: z.enum(["poor", "fair", "good", "excellent"]).optional(),
   captionSafeRegion: z.string().min(1).max(200).optional(),
@@ -266,7 +266,7 @@ export const angleSchema = z.object({
   evidenceKind: z.enum(["source", "public_context", "private_context", "performance", "memory"]),
   title: z.string().min(1).max(300),
   rationale: z.string().min(1).max(1000),
-  evidenceRefs: z.array(z.string().min(1).max(100)).min(1).max(12),
+  evidenceRefs: z.array(z.string().min(1).max(100)).min(1).max(512),
   assumptions: z.array(z.string().min(1).max(500)).max(8),
   confidence: z.enum(["low", "medium", "high"]),
 }).strict().superRefine((angle, context) => {

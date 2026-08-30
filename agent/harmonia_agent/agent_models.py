@@ -247,7 +247,8 @@ class Moment(StrictModel):
     endSec: float = Field(ge=0)
     hook: StrictStr = Field(min_length=1, max_length=500)
     quote: StrictStr = Field(min_length=1, max_length=2_000)
-    sourceSegmentRefs: list[StrictIdentifier] = Field(min_length=1, max_length=12)
+    # A host-bound interval may overlap every segment in the bounded input.
+    sourceSegmentRefs: list[StrictIdentifier] = Field(min_length=1, max_length=500)
     visualHook: StrictStr | None = Field(default=None, min_length=1, max_length=500)
     cropSuitability: Literal["poor", "fair", "good", "excellent"] | None = None
     captionSafeRegion: StrictStr | None = Field(default=None, min_length=1, max_length=200)

@@ -69,6 +69,14 @@ def test_policy_failure_is_explicit_and_never_retryable():
     assert result.public_message == "Operator or policy action is required before this stage can continue."
 
 
+def test_internal_contract_rejection_is_not_reported_as_a_provider_failure():
+    result = envelope(WebApiError("invalid payload with private details", 400))
+    assert result.category == FailureCategory.VALIDATION
+    assert result.code == "internal_contract_rejected"
+    assert result.retryable is False
+    assert "private details" not in result.model_dump_json()
+
+
 def test_effect_claim_contention_retries_but_uncertain_effect_requires_operator():
     in_progress = envelope(EffectClaimInProgress("another worker owns the claim"))
     assert in_progress.category == FailureCategory.DEPENDENCY

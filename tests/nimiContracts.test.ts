@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { analysisSubmissionSchema, sourceAnalysisSchema } from "@/lib/contracts";
 import { sourceAnalysisDigest } from "@/lib/sourceAnalysis";
 import { validateAnalysisSearchGrounding } from "@/lib/analysisGrounding";
@@ -18,6 +20,38 @@ const analysis = () => ({
 });
 
 describe("Nimi source analysis contracts", () => {
+  it.each([18, 500])("preserves Python-authoritative evidence and digest for %i segments", (count) => {
+    const value = analysis();
+    value.moments[0].sourceSegmentRefs = Array.from({ length: count }, (_, i) => `source-1:segment-${i}`);
+    value.angles[0].evidenceRefs = [...value.moments[0].sourceSegmentRefs, ...Array.from({ length: 12 }, (_, i) => `moment-${i}`)];
+    const python = existsSync("agent/.venv/bin/python") ? "agent/.venv/bin/python" : "python";
+    const serialized = JSON.parse(execFileSync(python, ["-c", `
+import hashlib, json, sys
+from harmonia_agent.agent_models import SourceAnalysis
+from harmonia_agent.stages import _canonical_typed_bytes
+value = SourceAnalysis.model_validate(json.load(sys.stdin)).model_dump(mode="json", exclude_none=True)
+print(json.dumps({"analysis": value, "digest": hashlib.sha256(_canonical_typed_bytes(value).encode("utf-8")).hexdigest()}))
+`], { input: JSON.stringify(value), encoding: "utf8", env: { ...process.env, PYTHONPATH: "agent" } }));
+    const parsed = analysisSubmissionSchema.parse({
+      jobId: "job-1", stage: "understand", analysis: serialized.analysis,
+      analysisDigest: serialized.digest, modelUsed: "gemini-3.7-flash",
+      researchRequest: null, searchEvidence: [], groundingMetadata: null,
+    });
+    expect(parsed.analysis).toEqual(serialized.analysis);
+    expect(sourceAnalysisDigest(parsed.analysis)).toBe(serialized.digest);
+  });
+
+  it("keeps complete host evidence bounded and rejects duplicates", () => {
+    const value = analysis();
+    value.moments[0].sourceSegmentRefs = Array.from({ length: 501 }, (_, i) => `segment-${i}`);
+    expect(sourceAnalysisSchema.safeParse(value).success).toBe(false);
+    value.moments[0].sourceSegmentRefs = ["segment-1"];
+    value.angles[0].evidenceRefs = Array.from({ length: 513 }, (_, i) => `segment-${i}`);
+    expect(sourceAnalysisSchema.safeParse(value).success).toBe(false);
+    value.angles[0].evidenceRefs = ["segment-1", "segment-1"];
+    expect(sourceAnalysisSchema.safeParse(value).success).toBe(false);
+  });
+
   it("accepts one complete strict persisted analysis", () => {
     expect(sourceAnalysisSchema.safeParse(analysis()).success).toBe(true);
     expect(analysisSubmissionSchema.safeParse({

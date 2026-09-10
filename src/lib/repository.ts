@@ -2206,6 +2206,18 @@ export async function saveVerifications(
       if (Date.parse(result.checkedAt) < Date.parse(receipt.performedAt)) {
         throw new Error("verification predates its receipt");
       }
+      if (action.type === "publish_x_post") {
+        if (receipt.actionType !== "publish_x_post") {
+          throw new Error("verification does not match an applied job action");
+        }
+        const publishedPostId = receipt.detail.id;
+        if (typeof publishedPostId !== "string" || !publishedPostId.trim()) {
+          throw new Error("applied X publish receipt is missing post id");
+        }
+        if (result.target !== `x:${publishedPostId}`) {
+          throw new Error("X verification target does not match applied receipt post id");
+        }
+      }
       const expectedMethod = receipt.actionType === "publish_x_post"
         ? "official_api_readback"
         : "artifact_digest_reread";

@@ -37,7 +37,7 @@ from .agent_models import (
     StrategistInput,
     StrategistResult,
 )
-from .a2ui_models import SurfacePlan, UiContext
+from .ui_models import SurfacePlan, UiContext
 from .content_artifacts import (
     ArtifactProductionInput,
     ArtifactReviewBatch,
@@ -578,7 +578,7 @@ def build_agent_team(
         generation=generation_config(resolved.config_for("maya_presenter")),
         name="maya_presenter",
         description=(
-            "Composes trustworthy Harmonia A2UI workspaces from bounded entity references."
+            "Composes trustworthy Harmonia AI SDK workspaces from bounded entity references."
         ),
         instruction=_with_handoff_protocol(MAYA_PRESENTER_INSTRUCTION),
         input_schema=UiContext,

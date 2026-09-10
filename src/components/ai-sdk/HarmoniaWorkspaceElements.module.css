@@ -120,7 +120,7 @@
   min-width: 0;
 }
 
-/* Trusted A2UI art-direction grammar. Values arrive only as validated enums. */
+/* Trusted AI SDK art-direction grammar. Values arrive only as validated enums. */
 .artifact {
   --artifact-surface: #fffdf7;
   --artifact-ink: #171714;

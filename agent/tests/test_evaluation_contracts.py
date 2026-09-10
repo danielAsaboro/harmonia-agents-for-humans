@@ -42,7 +42,7 @@ def _temi_trace():
         {"sequence": 3, "name": "read_editorial_commitments", "args": {"snapshot_id": snapshot_id}, "response": {"snapshotId": snapshot_id, "commitments": []}},
     ]
 from tests.test_nimi_contracts import analyst_input, source_analysis
-from tests.test_a2ui_models import context_payload
+from tests.test_ui_models import context_payload
 
 
 def _analysis(**moment_overrides) -> SourceAnalysis:

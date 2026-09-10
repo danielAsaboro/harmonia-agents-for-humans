@@ -105,7 +105,7 @@ const allNodes: FlowNode[] = [
   n("temi", 480, 990, "Temi", "PLANNER", "Turns approved strategy into a validated plan.", ["agents"], "agent"),
   n("noni", 720, 990, "Noni", "CONTENT PRODUCER", "Produces the exact typed artifact batch requested by the approved output plan.", ["agents"], "agent"),
   n("dara", 960, 990, "Dara", "EDITOR", "Returns seven bounded checks without replacement copy.", ["agents"], "agent"),
-  n("maya", 1200, 990, "Maya", "A2UI PRESENTER", "Builds validated component graphs from trusted state.", ["agents"], "agent"),
+  n("maya", 1200, 990, "Maya", "AI SDK PRESENTER", "Builds validated component graphs from trusted state.", ["agents"], "agent"),
   n("nova", 1440, 990, "Nova", "READ-ONLY LIAISON", "Answers only from actual traces and evidence IDs.", ["agents", "telemetry"], "agent"),
 
   n("outbox", 0, 1370, "Transactional outbox", "ATOMIC WRITE", "State transition and pending trigger commit together.", ["state", "recovery"], "store"),

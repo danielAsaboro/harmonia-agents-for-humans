@@ -22,7 +22,7 @@ from .agent_models import (
     LiaisonAnswer,
     StrategistInput,
 )
-from .a2ui_models import SurfacePlan, UiContext
+from .ui_models import SurfacePlan, UiContext
 
 
 class EvaluationFailure(BaseModel):
@@ -307,7 +307,7 @@ def evaluate_surface_plan(
     try:
         supplied = ui_context if isinstance(ui_context, UiContext) else UiContext.model_validate(ui_context)
         parsed = surface_plan if isinstance(surface_plan, SurfacePlan) else SurfacePlan.model_validate(surface_plan)
-        from .a2ui_presenter import validate_surface_plan
+        from .ui_presenter import validate_surface_plan
         validate_surface_plan(supplied, parsed)
     except Exception as exc:
         message = str(exc)

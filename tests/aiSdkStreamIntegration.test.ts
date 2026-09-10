@@ -3,24 +3,24 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ChatResponse } from "../src/lib/chatHandler";
 import type { JobFull } from "../src/components/jobTypes";
-import { loadGeneratedPresentation } from "../src/lib/a2ui/generatedPresentation";
+import { loadGeneratedPresentation } from "../src/lib/ai-sdk/generatedPresentation";
 
 const job: JobFull = {
   id: "job-1", status: "running", stage: "draft", createdAt: "2026-08-23T00:00:00.000Z", updatedAt: "2026-08-23T00:01:00.000Z",
   config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, normalizedSources: [], actions: [],
 };
 
-describe("streamed A2UI presentation integration", () => {
+describe("streamed AI SDK presentation integration", () => {
   it("keeps a successful chat mutation terminally successful when presentation fails", () => {
     const route = readFileSync(resolve(process.cwd(), "src/app/api/chat/stream/route.ts"), "utf8");
     const presentationCatch = route.slice(route.indexOf("} catch (error) {", route.indexOf("loadGeneratedPresentation")), route.indexOf("          }\n          for (let offset", route.indexOf("loadGeneratedPresentation")));
     expect(presentationCatch).toContain("Maya could not compose the campaign workspace");
     expect(presentationCatch).not.toContain("throw error");
   });
-  it("reloads authenticated job state and returns exact slot operations", async () => {
-    const canvas = [{ version: "v0.9", createSurface: { surfaceId: "studio-run-1-canvas-r1", catalogId: "catalog" } }];
-    const conversation = [{ version: "v0.9", createSurface: { surfaceId: "studio-run-1-conversation-r1", catalogId: "catalog" } }];
-    const approval = [{ version: "v0.9", createSurface: { surfaceId: "studio-run-1-approval-r1", catalogId: "catalog" } }];
+  it("reloads authenticated job state and returns exact slot data parts", async () => {
+    const canvas = [{ type: "data-harmonia-surface", id: "canvas", data: {} }];
+    const conversation = [{ type: "data-harmonia-surface", id: "conversation", data: {} }];
+    const approval = [{ type: "data-harmonia-surface", id: "approval", data: {} }];
     const generate = vi.fn().mockResolvedValue({ canvas, conversation, approval });
     const response: ChatResponse = { intent: "status", reply: "Drafting.", jobId: "job-1" };
 
@@ -39,7 +39,7 @@ describe("streamed A2UI presentation integration", () => {
       message: "Show status",
       job: expect.objectContaining({ id: "job-1", assets: [expect.objectContaining({ actionId: "image-1" })] }),
     }));
-    expect(result?.operations).toEqual([...canvas, ...conversation, ...approval]);
+    expect(result?.parts).toEqual([...canvas, ...conversation, ...approval]);
   });
 
   it("does not invent a surface when the chat response has no active job", async () => {

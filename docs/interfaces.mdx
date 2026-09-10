@@ -16,7 +16,7 @@ Harmonia exposes the same job submission, status, drafting, and approval surface
 
 ## Chat console
 
-The full Console uses `POST /api/chat/stream` for durable, replayable NDJSON events and A2UI surfaces. `POST /api/chat` remains the JSON compatibility contract used by Telegram and contextual Drawer requests.
+The full Console uses `POST /api/chat/stream` for durable, replayable NDJSON events and AI SDK surfaces. `POST /api/chat` remains the JSON compatibility contract used by Telegram and contextual Drawer requests.
 
 The Console supports direct resumable uploads for images, video, audio, and documents. Jobs can begin from an authorized YouTube or public web URL, a ready uploaded file, pasted factual context, or an operator brief. The interface shows upload progress, agent activity, tool status, task plans, queues, safe reasoning summaries, generated assets, and explicit confirmation cards. It never renders raw chain-of-thought.
 
@@ -32,7 +32,7 @@ Natural-language control:
 | "show artifacts for \<id\>" | `list_artifacts` |
 | "approve [job \<id\>]" | `approve` |
 
-Existing action confirmations call the same `/api/jobs/{jobId}/actions/{actionId}/decision` endpoint as the dashboard. A generic A2UI confirmation can reference only a server-created, tenant-scoped, expiring `pending_operation`; unknown handlers, stale decisions, and replays fail closed.
+Existing action confirmations call the same `/api/jobs/{jobId}/actions/{actionId}/decision` endpoint as the dashboard. A generic AI SDK confirmation can reference only a server-created, tenant-scoped, expiring `pending_operation`; unknown handlers, stale decisions, and replays fail closed.
 
 Intent parsing uses Strands structured output through Bedrock. Conversations persist per surface so history renders in the console.
 

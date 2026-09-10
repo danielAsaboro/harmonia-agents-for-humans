@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 
-from harmonia_agent.a2ui_models import SurfacePlan, UiContext
-from harmonia_agent.a2ui_presenter import plan_surface, validate_surface_plan
+from harmonia_agent.ui_models import SurfacePlan, UiContext
+from harmonia_agent.ui_presenter import plan_surface, validate_surface_plan
 from harmonia_agent.agents import AgentProtocolError, build_agent_team
 from harmonia_agent.agent_errors import AgentContractError
 from harmonia_agent.usage import InvocationContext

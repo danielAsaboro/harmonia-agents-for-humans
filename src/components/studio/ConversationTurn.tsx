@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { AttachmentCard, MessageContent } from "@/components/a2ui/HarmoniaElements";
-import { HarmoniaA2uiHost } from "@/components/a2ui/HarmoniaCatalog";
-import { latestSurfaceOperations } from "@/lib/a2ui/surfaceSlots";
-import { surfaceRevisionRequest } from "@/lib/a2ui/workspaceActions";
+import { AttachmentCard, MessageContent } from "@/components/ai-sdk/HarmoniaElements";
+import { HarmoniaMessageRenderer } from "@/components/ai-sdk/HarmoniaMessageRenderer";
+import { latestSurfaceParts } from "@/lib/ai-sdk/surfaceSlots";
+import { surfaceRevisionRequest } from "@/lib/ai-sdk/workspaceActions";
 import type { StudioConversationMessage } from "@/lib/studio/conversationModel";
 import { contentArtifactPreview } from "@/lib/contentArtifacts/presentation";
 import { operatorStatusForJob } from "@/lib/studio/operatorStatus";
@@ -31,8 +31,8 @@ export function ConversationTurn({ message, onActivateArtifact, onActivateJob, o
   let conversationOperations: unknown[] = [];
   let protocolError: string | null = null;
   try {
-    conversationOperations = message.run?.operations.length
-      ? latestSurfaceOperations(message.run.operations, "conversation")
+    conversationOperations = message.run?.parts.length
+      ? latestSurfaceParts(message.run.parts, "conversation")
       : [];
   } catch (error) {
     protocolError = error instanceof Error ? error.message : String(error);
@@ -54,9 +54,9 @@ export function ConversationTurn({ message, onActivateArtifact, onActivateJob, o
       >
         <MessageContent text={message.text} />
       </div>
-      {conversationOperations.length ? <HarmoniaA2uiHost operations={conversationOperations} live={live} className="mt-2 flex w-full flex-col gap-2" onAction={(action) => {
+      {conversationOperations.length ? <HarmoniaMessageRenderer parts={conversationOperations} live={live} className="mt-2 flex w-full flex-col gap-2" onAction={(action) => {
         if (action.name !== "request_surface_revision") {
-          setActionError(`Unknown A2UI action: ${action.name}`);
+          setActionError(`Unknown AI SDK action: ${action.name}`);
           return;
         }
         const jobId = String(action.context.jobId ?? "");
@@ -68,8 +68,8 @@ export function ConversationTurn({ message, onActivateArtifact, onActivateJob, o
         setActionError(null);
         void onRequestSurfaceRevision(surfaceRevisionRequest(jobId, draftId));
       }} /> : null}
-      {actionError ? <div className="mt-2 w-full"><StudioFailure message={`A2UI action blocked: ${actionError}`} permanent /></div> : null}
-      {protocolError ? <div className="mt-2 w-full"><StudioFailure message={`A2UI protocol error: ${protocolError}`} permanent /></div> : null}
+      {actionError ? <div className="mt-2 w-full"><StudioFailure message={`AI SDK action blocked: ${actionError}`} permanent /></div> : null}
+      {protocolError ? <div className="mt-2 w-full"><StudioFailure message={`AI SDK message error: ${protocolError}`} permanent /></div> : null}
 
       {message.attachments?.length ? (
         <div className="mt-2 grid w-full grid-cols-1 gap-2 sm:grid-cols-2">

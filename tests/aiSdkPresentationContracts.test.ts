@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { surfacePlanSchema, uiContextSchema, validateSurfacePlan } from "../src/lib/a2ui/presentationContracts";
+import { surfacePlanSchema, uiContextSchema, validateSurfacePlan } from "../src/lib/ai-sdk/presentationContracts";
 
 const context = {
   runId: "run-1",
@@ -20,7 +20,7 @@ const context = {
   receipts: [],
 };
 
-describe("A2UI presentation contracts", () => {
+describe("AI SDK presentation contracts", () => {
   it("accepts bounded reference summaries", () => {
     expect(uiContextSchema.parse(context).drafts[0].id).toBe("draft-1");
   });

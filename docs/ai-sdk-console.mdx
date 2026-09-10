@@ -1,9 +1,9 @@
 ---
-title: "Generative A2UI console"
+title: "Generative AI SDK console"
 description: "Durable streamed chat runs, trusted presentation catalogs, hydration, uploads, and approval-safe operator UI."
 ---
 
-The Harmonia Console combines operator conversation with a living editorial canvas. Bedrock may select and arrange a fixed vocabulary of trusted A2UI components; it cannot generate JavaScript, HTML, CSS, arbitrary React components, or executable callbacks.
+The Harmonia Console combines operator conversation with a living editorial canvas. Bedrock may select and arrange a fixed vocabulary of trusted AI SDK components; it cannot generate JavaScript, HTML, CSS, arbitrary React components, or executable callbacks.
 
 <CardGroup cols={3}>
   <Card title="Conversation" icon="comments">Chaptered messages, safe activity summaries, tool state, and context.</Card>
@@ -19,7 +19,8 @@ flowchart LR
   MAYA --> PLAN[Reference-only surface plan]
   PLAN --> VALIDATE[Schema + catalog validation]
   VALIDATE --> HYDRATE[Server hydration from DynamoDB]
-  HYDRATE --> RENDER[Official A2UI React renderer]
+  HYDRATE --> MESSAGE[AI SDK 7 UIMessage data part]
+  MESSAGE --> RENDER[Harmonia React component renderer]
   FIRE[(Authoritative records)] --> HYDRATE
 ```
 

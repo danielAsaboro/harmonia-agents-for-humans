@@ -1,4 +1,4 @@
-import { parseChatStreamEvent,type ChatStreamEvent } from "./a2ui/contracts";
+import { parseChatStreamEvent,type ChatStreamEvent } from "./ai-sdk/contracts";
 import { awsRepository,limited,ordered,partition,recordKey,where } from "./dynamo";
 import { newId } from "./idempotency";
 import { db } from "./repository";

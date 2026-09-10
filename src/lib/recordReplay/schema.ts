@@ -24,7 +24,7 @@ const eventPayloads = {
   sqs_delivery: z.object({ ...commonPayload, messageId: id, deliveryAttempt: z.number().int().positive(), status }).strict(),
   scheduler_trigger: z.object({ ...commonPayload, scheduleId: id, scheduledAt: iso, status }).strict(),
   resident_autonomy: z.object({ cycleId: id, cycleType: z.enum(["heartbeat", "micro_reflection", "dream_cycle", "wakeup_call"]), state: status, summary: z.string().max(2000), historical: z.literal(true) }).strict(),
-  a2ui_event: z.object({ ...commonPayload, runId: id, surfaceId: id, operation: z.string().max(4000) }).strict(),
+  ui_message_chunk: z.object({ ...commonPayload, runId: id, surfaceId: id, chunk: z.string().max(4000) }).strict(),
   surface_revision: z.object({ ...commonPayload, surfaceId: id, revision: z.number().int().nonnegative(), status }).strict(),
   usage: z.object({ ...commonPayload, model: id, inputTokens: z.number().int().nonnegative(), outputTokens: z.number().int().nonnegative(), estimatedCostUsd: z.number().nonnegative() }).strict(),
   trace_correlation: z.object({ ...commonPayload, traceId: id, spanId: id, parentSpanId: id.optional(), name: z.string().max(500) }).strict(),

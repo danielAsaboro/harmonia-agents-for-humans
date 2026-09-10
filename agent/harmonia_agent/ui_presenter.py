@@ -1,11 +1,11 @@
-"""Managed Strands presentation-agent boundary for Harmonia A2UI."""
+"""Managed Strands presentation-agent boundary for Harmonia AI SDK UI."""
 
 from __future__ import annotations
 
 import re
 from collections.abc import Callable
 
-from .a2ui_models import SurfacePlan, UiContext
+from .ui_models import SurfacePlan, UiContext
 from .agents import AgentProtocolError, _run_coordinator, _validated_state
 from .team_runtime import TeamRuntime
 from .usage import InvocationContext

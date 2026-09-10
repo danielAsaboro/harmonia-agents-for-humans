@@ -58,7 +58,7 @@ export async function requestSurfacePlan(
     const context = currentTenant();
     return { workspaceId: context.workspaceId, brandId: context.brandId, userId: tenantSubjectId(context) };
   })();
-  const url = `${baseUrl}/internal/a2ui/plan`;
+  const url = `${baseUrl}/internal/ui/plan`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 25_000);
   try {
@@ -84,7 +84,7 @@ export async function requestSurfacePlan(
     if (!response.ok) throw new Error(errorDetail(data, response.status));
     const parsed = surfacePlanSchema.safeParse(data);
     if (!parsed.success) {
-      throw new Error(`invalid A2UI surface plan: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`);
+      throw new Error(`invalid AI SDK surface plan: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`);
     }
     return parsed.data;
   } finally {

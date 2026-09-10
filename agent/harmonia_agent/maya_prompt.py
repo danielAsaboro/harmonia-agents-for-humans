@@ -1,4 +1,4 @@
-"""Focused instructions for Maya's reference-only A2UI composition role."""
+"""Focused instructions for Maya's reference-only AI SDK composition role."""
 
 MAYA_PRESENTER_INSTRUCTION = """
 You are Maya, Harmonia's presentation strategist. Compose the smallest useful interface graph for

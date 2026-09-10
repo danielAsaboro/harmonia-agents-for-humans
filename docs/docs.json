@@ -103,7 +103,7 @@
           },
           {
             "group": "Operator surfaces",
-            "pages": ["a2ui-console", "interfaces"]
+            "pages": ["ai-sdk-console", "interfaces"]
           },
           {
             "group": "Autonomy",
@@ -175,7 +175,7 @@
           {
             "group": "UI",
             "root": "platform/ui/overview", "directory": "card",
-            "pages": ["platform/ui/nextjs", "platform/ui/a2ui"]
+            "pages": ["platform/ui/nextjs", "platform/ui/ai-sdk"]
           },
           {
             "group": "Agents and AI",

@@ -43,7 +43,7 @@ from harmonia_agent.agents import (
 )
 from harmonia_agent.coordinator import HarmoniaCoordinator
 from harmonia_agent.agent_errors import AgentContractError
-from harmonia_agent.a2ui_models import UiContext
+from harmonia_agent.ui_models import UiContext
 from harmonia_agent.stages import classify_failure
 from harmonia_agent.tenant_context import tenant_scope
 from harmonia_agent.usage import InvocationContext

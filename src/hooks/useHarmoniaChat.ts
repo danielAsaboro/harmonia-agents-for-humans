@@ -2,8 +2,8 @@
 
 import { useCallback, useRef, useState } from "react";
 import { apiFetch } from "@/lib/clientApi";
-import { initialChatRunState, reduceChatStreamEvent, type ChatRunState } from "@/lib/a2ui/chatReducer";
-import { parseChatStreamEvent, type ChatStreamEvent } from "@/lib/a2ui/contracts";
+import { initialChatRunState, reduceChatStreamEvent, type ChatRunState } from "@/lib/ai-sdk/messageReducer";
+import { parseChatStreamEvent, type ChatStreamEvent } from "@/lib/ai-sdk/contracts";
 
 async function consumeNdjson(response: Response, onEvent: (event: ChatStreamEvent) => void): Promise<void> {
   if (!response.body) throw new Error("chat stream returned no body");

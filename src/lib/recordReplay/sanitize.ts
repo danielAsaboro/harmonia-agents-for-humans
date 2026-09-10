@@ -24,7 +24,7 @@ const allowed: Record<string, string[]> = {
   receipt: ["jobId", "traceId", "receiptId", "actionId", "outcome", "verified"], verification: ["jobId", "traceId", "receiptId", "verified", "method"],
   sqs_delivery: ["jobId", "traceId", "messageId", "deliveryAttempt", "status"], scheduler_trigger: ["jobId", "traceId", "scheduleId", "scheduledAt", "status"],
   resident_autonomy: ["cycleId", "cycleType", "state", "summary", "historical"],
-  a2ui_event: ["jobId", "traceId", "runId", "surfaceId", "operation"], surface_revision: ["jobId", "traceId", "surfaceId", "revision", "status"],
+  ui_message_chunk: ["jobId", "traceId", "runId", "surfaceId", "chunk"], surface_revision: ["jobId", "traceId", "surfaceId", "revision", "status"],
   usage: ["jobId", "traceId", "model", "inputTokens", "outputTokens", "estimatedCostUsd"], trace_correlation: ["jobId", "traceId", "spanId", "parentSpanId", "name"],
   failure: ["jobId", "traceId", "failureType", "code", "message", "retryable"],
 };

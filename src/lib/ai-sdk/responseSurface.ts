@@ -1,7 +1,7 @@
 import type { ChatResponse } from "@/app/api/chat/route";
 import type { JobFull, Receipt } from "@/components/jobTypes";
-import { requestSurfacePlan } from "./agentPresentationClient";
-import { hydrateSurfacePlan, type HydratedSurfaceSet } from "./hydrateSurfacePlan";
+import { requestSurfacePlan } from "./presentationClient";
+import { hydrateSurfacePlan, type HydratedSurfaceSet } from "./hydrateSurface";
 import { buildUiContext } from "./presentationContext";
 import { surfacePlanSchema, validateSurfacePlan, type SurfacePlan, type UiContext } from "./presentationContracts";
 
@@ -15,7 +15,7 @@ interface GenerateResponseSurfacesInput {
 }
 
 export async function generateResponseSurfaces(input: GenerateResponseSurfacesInput): Promise<HydratedSurfaceSet> {
-  if (!input.job) throw new Error("A2UI presentation requires a hydrated active job");
+  if (!input.job) throw new Error("AI SDK presentation requires a hydrated active job");
   const context = buildUiContext({
     runId: input.runId,
     message: input.message,

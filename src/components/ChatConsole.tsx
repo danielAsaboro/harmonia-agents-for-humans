@@ -2,16 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
-import type { ComposerAttachment } from "@/components/a2ui/AttachmentComposer";
+import type { ComposerAttachment } from "@/components/ai-sdk/AttachmentComposer";
 import type { TimelineEvent } from "@/components/Timeline";
 import type { JobFull, Receipt } from "@/components/jobTypes";
 import { ConversationPane } from "@/components/studio/ConversationPane";
 import { StudioShell } from "@/components/studio/StudioShell";
 import { WorkingCanvas } from "@/components/studio/WorkingCanvas";
 import { useHarmoniaChat } from "@/hooks/useHarmoniaChat";
-import type { ChatRunState } from "@/lib/a2ui/chatReducer";
-import { historyRunState } from "@/lib/a2ui/historyReplay";
-import { latestSurfaceOperations } from "@/lib/a2ui/surfaceSlots";
+import type { ChatRunState } from "@/lib/ai-sdk/messageReducer";
+import { historyRunState } from "@/lib/ai-sdk/historyReplay";
+import { latestSurfaceParts } from "@/lib/ai-sdk/surfaceSlots";
 import { apiFetch } from "@/lib/clientApi";
 import { conversationPath, dayLabel, groupSessions, sessionPreview, type ConsoleMessage } from "@/lib/chatSessions";
 import { activeJobIdForConversation, buildStudioChapters } from "@/lib/studio/conversationModel";
@@ -73,7 +73,7 @@ export function StudioConsoleView(props: StudioConsoleViewProps) {
   const canvasRun = props.liveRun ?? (persistedRunMatchesCanvas ? lastPersistedRunMessage?.run : null) ?? null;
   let generatedWorkspaceCount = 0;
   try {
-    generatedWorkspaceCount = canvasRun?.operations.length && latestSurfaceOperations(canvasRun.operations, "canvas").length ? 1 : 0;
+    generatedWorkspaceCount = canvasRun?.parts.length && latestSurfaceParts(canvasRun.parts, "canvas").length ? 1 : 0;
   } catch {
     generatedWorkspaceCount = 0;
   }
@@ -86,7 +86,7 @@ export function StudioConsoleView(props: StudioConsoleViewProps) {
       canvasBadge={generatedWorkspaceCount}
       approvalBadge={approvalCount}
       conversation={<ConversationPane chapters={chapters} liveRun={props.liveRun} loaded={props.loaded} input={props.input} onInputChange={props.onInputChange} attachments={props.attachments} onAttachmentsChange={props.onAttachmentsChange} busy={props.busy} onSend={props.onSend} onActivateArtifact={(artifactId) => { props.onSelectedArtifactChange(artifactId); props.onMobilePaneChange("canvas"); }} onActivateJob={(jobId) => { props.onOpenJob(jobId); props.onMobilePaneChange("canvas"); }} headerAccessory={props.historyAccessory} campaignTitle={campaignTitle} artifactCount={artifactCount} />}
-      canvas={<WorkingCanvas job={props.detail?.job ?? null} events={props.detail?.events ?? []} receipts={props.detail?.receipts ?? []} loading={props.detailLoading} error={props.detailError} selectedArtifactId={props.selectedArtifactId} onSelectedArtifactChange={props.onSelectedArtifactChange} onRetry={props.onRetryJob} operations={canvasRun?.operations ?? []} operationsLive={props.liveRun?.status === "running"} approvalBusy={props.busy} onDecide={props.onDecide} onOperationDecision={props.onOperationDecision} onRequestSurfaceRevision={props.onSend} onSealProductionPlan={props.onSealProductionPlan} onDecideProductionPlan={props.onDecideProductionPlan} />}
+      canvas={<WorkingCanvas job={props.detail?.job ?? null} events={props.detail?.events ?? []} receipts={props.detail?.receipts ?? []} loading={props.detailLoading} error={props.detailError} selectedArtifactId={props.selectedArtifactId} onSelectedArtifactChange={props.onSelectedArtifactChange} onRetry={props.onRetryJob} parts={canvasRun?.parts ?? []} partsLive={props.liveRun?.status === "running"} approvalBusy={props.busy} onDecide={props.onDecide} onOperationDecision={props.onOperationDecision} onRequestSurfaceRevision={props.onSend} onSealProductionPlan={props.onSealProductionPlan} onDecideProductionPlan={props.onDecideProductionPlan} />}
     />
     {props.historyDrawer}
   </>);

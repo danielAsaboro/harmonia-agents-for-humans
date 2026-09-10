@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { historyRunState } from "../src/lib/a2ui/historyReplay";
+import { historyRunState } from "../src/lib/ai-sdk/historyReplay";
 
 describe("historyRunState", () => {
   it("hydrates a persisted assistant message from its linked run events", () => {
@@ -16,6 +16,6 @@ describe("historyRunState", () => {
     ]);
     expect(state.status).toBe("failed");
     expect(state.permanent).toBe(true);
-    expect(state.error).toMatch(/protocol replay failed/i);
+    expect(state.error).toMatch(/message replay failed/i);
   });
 });

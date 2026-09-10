@@ -4,11 +4,11 @@ import { useEffect, useState } from "react";
 import type { JobFull, Receipt } from "@/components/jobTypes";
 import type { TimelineEvent } from "@/components/Timeline";
 import { buildStudioWorkspace } from "@/lib/studio/workspaceModel";
-import { latestSurfaceOperations } from "@/lib/a2ui/surfaceSlots";
-import { currentJobProgressOperations } from "@/lib/a2ui/liveJobProgress";
-import { surfaceRevisionRequest } from "@/lib/a2ui/workspaceActions";
+import { latestSurfaceParts } from "@/lib/ai-sdk/surfaceSlots";
+import { currentJobProgressParts } from "@/lib/ai-sdk/liveJobProgress";
+import { surfaceRevisionRequest } from "@/lib/ai-sdk/workspaceActions";
 import { operatorStatusForJob, type OperatorStatusKind } from "@/lib/studio/operatorStatus";
-import { HarmoniaA2uiHost } from "@/components/a2ui/HarmoniaCatalog";
+import { HarmoniaMessageRenderer } from "@/components/ai-sdk/HarmoniaMessageRenderer";
 import { ArtifactBoard } from "./ArtifactBoard";
 import { MediaWorkspace } from "./MediaWorkspace";
 import { SourcesWorkspace } from "./SourcesWorkspace";
@@ -34,8 +34,8 @@ interface WorkingCanvasProps {
   onSelectedArtifactChange: (artifactId: string | null) => void;
   onRetry?: () => void;
   supplemental?: React.ReactNode;
-  operations?: unknown[];
-  operationsLive?: boolean;
+  parts?: unknown[];
+  partsLive?: boolean;
   approvalBusy?: boolean;
   onDecide?: (jobId: string, actionId: string, decision: "approved" | "rejected") => Promise<void> | void;
   onOperationDecision?: (operationId: string, decision: "approved" | "rejected") => Promise<void> | void;
@@ -44,9 +44,9 @@ interface WorkingCanvasProps {
   onDecideProductionPlan?: (planId: string, planDigest: string, decision: "approved" | "rejected", feedback?: string) => Promise<void> | void;
 }
 
-export function WorkingCanvas({ job, events, receipts, loading, error, selectedArtifactId, onSelectedArtifactChange, onRetry, supplemental, operations = [], operationsLive = false, approvalBusy = false, onDecide, onOperationDecision, onRequestSurfaceRevision, onSealProductionPlan, onDecideProductionPlan }: WorkingCanvasProps) {
+export function WorkingCanvas({ job, events, receipts, loading, error, selectedArtifactId, onSelectedArtifactChange, onRetry, supplemental, parts = [], partsLive = false, approvalBusy = false, onDecide, onOperationDecision, onRequestSurfaceRevision, onSealProductionPlan, onDecideProductionPlan }: WorkingCanvasProps) {
   const [view, setView] = useState<CanvasView>("board");
-  const [a2uiActionError, setA2uiActionError] = useState<string | null>(null);
+  const [uiActionError, setUiActionError] = useState<string | null>(null);
   const [proofOpen, setProofOpen] = useState(false);
   const model = job ? buildStudioWorkspace(job, receipts) : null;
   const selectedView: CanvasView | null = selectedArtifactId?.startsWith("artifact:") ? "written"
@@ -58,13 +58,13 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
   const reviewCount = (model?.pendingActions.length ?? 0) + (job?.productionPlan?.aggregate.state === "sealed" ? 1 : 0) + (job?.stage === "awaiting_strategy_approval" ? 1 : 0);
   const operatorStatus = job ? operatorStatusForJob({ stage: job.stage, status: job.status, failed: Boolean(job.failure), reviewCount }) : null;
   let canvasOperations: unknown[] = [];
-  let a2uiError: string | null = null;
+  let uiError: string | null = null;
   try {
-    canvasOperations = operations.length ? latestSurfaceOperations(operations, "canvas") : [];
-    if (job) canvasOperations = currentJobProgressOperations(canvasOperations, job);
+    canvasOperations = parts.length ? latestSurfaceParts(parts, "canvas") : [];
+    if (job) canvasOperations = currentJobProgressParts(canvasOperations, job);
   } catch (partitionError) {
     canvasOperations = [];
-    a2uiError = partitionError instanceof Error ? partitionError.message : String(partitionError);
+    uiError = partitionError instanceof Error ? partitionError.message : String(partitionError);
   }
 
   useEffect(() => {
@@ -89,7 +89,7 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
   }
 
   return (
-    <section className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-r-[23px] bg-[#f3f0e8]" data-a2ui-slot="canvas">
+    <section className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-r-[23px] bg-[#f3f0e8]" data-ai-sdk-slot="canvas">
       <header className="flex h-[72px] shrink-0 items-center gap-3 border-b border-black/10 px-[22px]">
         <strong className="text-lg font-extrabold">harmonia</strong>
         <span className="min-w-0 truncate text-xs text-[#77736b]">/ {job ? (job.sourceAnalysis?.summary || "Untitled content job").slice(0, 44) : "No campaign"} / Working set</span>
@@ -114,33 +114,33 @@ export function WorkingCanvas({ job, events, receipts, loading, error, selectedA
           {visibleView === "audio" ? <MediaWorkspace kind="audio" jobId={job.id} assets={model.audio} selectedArtifactId={selectedArtifactId} onSelect={onSelectedArtifactChange} /> : null}
           {visibleView === "calendar" ? <EditorialCalendar job={job} /> : null}
           {visibleView === "sources" ? <SourcesWorkspace job={job} receipts={receipts} /> : null}
-          {a2uiError ? <div className="mb-5"><StudioFailure message={`A2UI protocol error: ${a2uiError}`} permanent /></div> : null}
+          {uiError ? <div className="mb-5"><StudioFailure message={`AI SDK message error: ${uiError}`} permanent /></div> : null}
           {canvasOperations.length || supplemental || job.productionPlan ? <details className="mt-5 rounded-[16px] border border-black/10 bg-white/55" open={job.productionPlan?.aggregate.state === "sealed"}>
             <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 px-4 py-3 text-sm font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3157ff]">Workflow details <span className="ml-auto text-xs font-normal text-black/45">Progress, production plan, and agent presentation</span></summary>
             <div className="border-t border-black/10 p-4">
-          {canvasOperations.length ? <HarmoniaA2uiHost key={`${job.id}:${job.stage}:${job.status}`} operations={canvasOperations} live={operationsLive} className="mb-5 flex w-full flex-col gap-3" onAction={(action) => {
+          {canvasOperations.length ? <HarmoniaMessageRenderer key={`${job.id}:${job.stage}:${job.status}`} parts={canvasOperations} live={partsLive} className="mb-5 flex w-full flex-col gap-3" onAction={(action) => {
             if (action.name !== "request_surface_revision") {
-              setA2uiActionError(`Unknown A2UI action: ${action.name}`);
+              setUiActionError(`Unknown AI SDK action: ${action.name}`);
               return;
             }
             const actionJobId = String(action.context.jobId ?? "");
             const draftId = String(action.context.draftId ?? "");
             if (!job || actionJobId !== job.id || !(job.contentArtifacts ?? []).some((artifact) => artifact.id === draftId) || !onRequestSurfaceRevision) {
-              setA2uiActionError("The generated revision request did not match the active persisted draft.");
+              setUiActionError("The generated revision request did not match the active persisted draft.");
               return;
             }
-            setA2uiActionError(null);
+            setUiActionError(null);
             void onRequestSurfaceRevision(surfaceRevisionRequest(actionJobId, draftId));
           }} /> : null}
           {supplemental ? <div className="mb-5">{supplemental}</div> : null}
           <ProductionWorkspace job={job} busy={approvalBusy} onSeal={onSealProductionPlan} onDecide={onDecideProductionPlan} />
             </div>
           </details> : null}
-          {a2uiActionError ? <div className="mt-5"><StudioFailure message={`A2UI action blocked: ${a2uiActionError}`} permanent /></div> : null}
+          {uiActionError ? <div className="mt-5"><StudioFailure message={`AI SDK action blocked: ${uiActionError}`} permanent /></div> : null}
         </> : null}
       </div>
       {job ? <ProofDrawer open={proofOpen} job={job} events={events} receipts={receipts} onClose={() => setProofOpen(false)} /> : null}
-      {job && onDecide ? <ApprovalDock job={job} jobId={job.id} actions={job.actions} verifications={job.verifications ?? []} receipts={receipts} claims={job.claims ?? []} busy={approvalBusy} onDecide={onDecide} operations={operations} operationsLive={operationsLive} onOperationDecision={onOperationDecision} /> : null}
+      {job && onDecide ? <ApprovalDock job={job} jobId={job.id} actions={job.actions} verifications={job.verifications ?? []} receipts={receipts} claims={job.claims ?? []} busy={approvalBusy} onDecide={onDecide} parts={parts} partsLive={partsLive} onOperationDecision={onOperationDecision} /> : null}
     </section>
   );
 }

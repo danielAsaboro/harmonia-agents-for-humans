@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/clientApi";
 import type { ChatResponse } from "@/app/api/chat/route";
 import { contentArtifactPreview } from "@/lib/contentArtifacts/presentation";
-import { AttachmentCard, ConfirmationCard, MessageContent } from "@/components/a2ui/HarmoniaElements";
+import { AttachmentCard, ConfirmationCard, MessageContent } from "@/components/ai-sdk/HarmoniaElements";
 
 interface ChatMessage {
   role: "user" | "assistant";

@@ -19,7 +19,7 @@ describe("public product capability documentation", () => {
   it("keeps current architecture surfaces free of replaced runtime contracts", () => {
     const current = [
       "README.md", "docs/pipeline.mdx", "docs/architecture/overview.mdx",
-      "docs/operational-model.mdx", "docs/a2ui-console.mdx",
+      "docs/operational-model.mdx", "docs/ai-sdk-console.mdx",
       "docs/architecture-explorer.mdx", "src/lib/architecture/data.ts",
       "src/docs-architecture-flow.tsx",
     ].map(read).join("\n");

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "vitest";
 import {
-  HARMONIA_CATALOG_ID,
+  AI_SDK_UI_PROTOCOL,
   parseCatalogComponent,
   parseChatStreamEvent,
-} from "../src/lib/a2ui/contracts";
+} from "../src/lib/ai-sdk/contracts";
 
-describe("Harmonia A2UI contracts", () => {
+describe("Harmonia AI SDK contracts", () => {
   test("accepts a sequenced safe activity event", () => {
     expect(
       parseChatStreamEvent({
@@ -65,7 +65,7 @@ describe("Harmonia A2UI contracts", () => {
     expect(() =>
       parseCatalogComponent({ component: "ArbitraryHtml", id: "x", html: "<script />" }),
     ).toThrow();
-    expect(HARMONIA_CATALOG_ID).toContain("harmonia");
+    expect(AI_SDK_UI_PROTOCOL).toContain("harmonia");
   });
 
   test("accepts only bounded hydrated presentation tokens", () => {

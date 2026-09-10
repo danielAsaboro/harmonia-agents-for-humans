@@ -6,7 +6,7 @@ import {
   ContextUsage,
   InlineCitation,
   ReasoningSummary,
-} from "../src/components/a2ui/HarmoniaElements";
+} from "../src/components/ai-sdk/HarmoniaElements";
 import {
   ApprovalReview,
   CampaignBrief,
@@ -15,9 +15,9 @@ import {
   MomentExplorer,
   SurfaceEmpty,
   VerificationReceipt,
-} from "../src/components/a2ui/HarmoniaWorkspaceElements";
+} from "../src/components/ai-sdk/HarmoniaWorkspaceElements";
 
-describe("Harmonia A2UI elements", () => {
+describe("Harmonia AI SDK elements", () => {
   test("activity trace renders safe progress without private reasoning", () => {
     const html = renderToStaticMarkup(createElement(ActivityTrace, {
       title: "Agent activity",

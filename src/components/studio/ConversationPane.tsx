@@ -3,8 +3,8 @@
 import { useMemo, useRef, useState } from "react";
 import { contentArtifactPreview } from "@/lib/contentArtifacts/presentation";
 import type { Dispatch, SetStateAction } from "react";
-import type { ComposerAttachment } from "@/components/a2ui/AttachmentComposer";
-import type { ChatRunState } from "@/lib/a2ui/chatReducer";
+import type { ComposerAttachment } from "@/components/ai-sdk/AttachmentComposer";
+import type { ChatRunState } from "@/lib/ai-sdk/messageReducer";
 import type { StudioChapter, StudioConversationMessage } from "@/lib/studio/conversationModel";
 import { ConversationTurn } from "./ConversationTurn";
 import { StudioComposer } from "./StudioComposer";
@@ -53,7 +53,7 @@ export function ConversationPane(props: ConversationPaneProps) {
   const turnCount = props.chapters.reduce((sum, chapter) => sum + chapter.messages.length, 0);
 
   return (
-    <section className="flex h-full min-h-0 flex-col border-r border-black/10 bg-[#e9e5dc]" data-a2ui-slot="conversation">
+    <section className="flex h-full min-h-0 flex-col border-r border-black/10 bg-[#e9e5dc]" data-ai-sdk-slot="conversation">
       <header className="h-[118px] shrink-0 border-b border-black/10 px-[18px] pb-3 pt-4">
         <div className="flex items-center gap-2">
           <span aria-hidden className="text-lg">‹</span>

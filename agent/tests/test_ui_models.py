@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from harmonia_agent.a2ui_models import SurfacePlan, UiContext
+from harmonia_agent.ui_models import SurfacePlan, UiContext
 
 
 def context_payload() -> dict:

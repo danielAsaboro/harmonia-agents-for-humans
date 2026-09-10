@@ -1,6 +1,5 @@
 import { z } from "zod";
-
-export const HARMONIA_CATALOG_ID = "https://harmonia.app/a2ui/catalogs/chat/v1";
+export const AI_SDK_UI_PROTOCOL = "harmonia.ai-sdk-ui-message/v1";
 
 const id = z.string().min(1).max(200);
 const status = z.enum(["pending", "active", "complete", "failed"]);
@@ -22,6 +21,7 @@ export const activitySchema = z.object({
 }).strict();
 
 const baseComponent = z.object({ id, component: z.string() });
+const columnSchema = baseComponent.extend({ component: z.literal("Column"), children: z.array(id).max(30) }).strict();
 
 const activityTraceSchema = baseComponent.extend({
   component: z.literal("ActivityTrace"),
@@ -315,6 +315,7 @@ const surfaceFailureSchema = baseComponent.extend({
 }).strict();
 
 export const catalogComponentSchema = z.discriminatedUnion("component", [
+  columnSchema,
   activityTraceSchema,
   reasoningSummarySchema,
   attachmentCardSchema,
@@ -360,8 +361,8 @@ const streamEventSchema = z.discriminatedUnion("type", [
     tool: toolActivitySchema.omit({ component: true, id: true }),
   }).strict(),
   eventBase.extend({
-    type: z.literal("a2ui_operation"),
-    operation: z.record(z.string(), z.unknown()),
+    type: z.literal("ui_message_chunk"),
+    chunk: z.record(z.string(), z.unknown()),
   }).strict(),
   eventBase.extend({
     type: z.literal("confirmation_requested"),
@@ -391,3 +392,17 @@ export type ChatStreamEvent = z.infer<typeof streamEventSchema>;
 export function parseChatStreamEvent(value: unknown): ChatStreamEvent {
   return streamEventSchema.parse(value);
 }
+
+const surfacePartSchema = z.object({
+  type: z.literal("data-harmonia-surface"),
+  id,
+  data: z.object({
+    surfaceId: id,
+    slot: z.enum(["canvas", "conversation", "approval"]),
+    revision: z.number().int().positive(),
+    components: z.array(catalogComponentSchema).min(1).max(100),
+  }).strict(),
+}).strict();
+
+export type HarmoniaSurfacePart = z.infer<typeof surfacePartSchema>;
+export function parseHarmoniaSurfacePart(value: unknown): HarmoniaSurfacePart { return surfacePartSchema.parse(value); }

@@ -3,7 +3,7 @@ import { operatorTenantHandler } from "@/lib/auth";
 import { handleChat, type ChatResponse } from "@/lib/chatHandler";
 import { requireReadyAttachments } from "@/lib/chatAttachments";
 import { appendChatRunEvent, createChatRun, type UnsequencedChatStreamEvent } from "@/lib/chatRuns";
-import { loadGeneratedPresentation } from "@/lib/a2ui/generatedPresentation";
+import { loadGeneratedPresentation } from "@/lib/ai-sdk/generatedPresentation";
 
 const streamRequestSchema = z.object({
   message: z.string().min(1).max(2_000),
@@ -77,9 +77,9 @@ async function post(req: Request): Promise<Response> {
                 response: payload,
               });
               if (!presentation) throw new Error("presentation job disappeared before hydration");
-              await emit({ type: "tool_activity", tool: { name: "maya_presenter", status: "complete", outputSummary: `${presentation.operations.length} validated A2UI operations`, durationMs: Date.now() - presentationStartedAt } });
+              await emit({ type: "tool_activity", tool: { name: "maya_presenter", status: "complete", outputSummary: `${presentation.parts.length} validated AI SDK data parts`, durationMs: Date.now() - presentationStartedAt } });
               await emit({ type: "activity", activity: { id: "interface-presenter", label: "Maya composed the campaign workspace", status: "complete" } });
-              for (const operation of presentation.operations) await emit({ type: "a2ui_operation", operation });
+              for (const chunk of presentation.parts) await emit({ type: "ui_message_chunk", chunk });
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);
               await emit({ type: "tool_activity", tool: { name: "maya_presenter", status: "failed", outputSummary: message.slice(0, 2_000), durationMs: Date.now() - presentationStartedAt } });

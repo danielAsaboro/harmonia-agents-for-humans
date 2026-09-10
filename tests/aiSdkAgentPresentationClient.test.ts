@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { UiContext } from "../src/lib/a2ui/presentationContracts";
-import { requestSurfacePlan } from "../src/lib/a2ui/agentPresentationClient";
+import type { UiContext } from "../src/lib/ai-sdk/presentationContracts";
+import { requestSurfacePlan } from "../src/lib/ai-sdk/presentationClient";
 
 const context: UiContext = {
   runId: "run-1",
@@ -54,7 +54,7 @@ describe("ADK presentation client", () => {
 
     expect(result.surfaces[0].slot).toBe("canvas");
     expect(fetchImpl).toHaveBeenCalledWith(
-      "http://localhost:8080/internal/a2ui/plan",
+      "http://localhost:8080/internal/ui/plan",
       expect.objectContaining({ method: "POST" }),
     );
     const request = fetchImpl.mock.calls[0][1] as RequestInit;
@@ -76,7 +76,7 @@ describe("ADK presentation client", () => {
       token: "internal-token",
       tenant,
       fetchImpl,
-    })).rejects.toThrow("invalid A2UI surface plan");
+    })).rejects.toThrow("invalid AI SDK surface plan");
   });
 
   it("surfaces a real agent-service failure without a fallback", async () => {

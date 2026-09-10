@@ -24,9 +24,9 @@ describe("studio console integration", () => {
     expect(html).toContain("Needs approval");
     expect(html).toContain("One decision is waiting for you");
     expect(html).toContain("Review &amp; decide");
-    expect(html).toContain('data-a2ui-slot="conversation"');
-    expect(html).toContain('data-a2ui-slot="canvas"');
-    expect(html).toContain('data-a2ui-slot="approval"');
+    expect(html).toContain('data-ai-sdk-slot="conversation"');
+    expect(html).toContain('data-ai-sdk-slot="canvas"');
+    expect(html).toContain('data-ai-sdk-slot="approval"');
     expect(html).not.toContain("Agent-generated interface");
   });
 });

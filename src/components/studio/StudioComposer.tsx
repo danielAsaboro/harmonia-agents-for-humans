@@ -1,7 +1,7 @@
 "use client";
 
 import type { Dispatch, SetStateAction } from "react";
-import { AttachmentComposer, type ComposerAttachment } from "@/components/a2ui/AttachmentComposer";
+import { AttachmentComposer, type ComposerAttachment } from "@/components/ai-sdk/AttachmentComposer";
 import { SendIcon } from "@/components/icons";
 
 interface StudioComposerProps {

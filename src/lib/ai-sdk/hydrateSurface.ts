@@ -1,5 +1,5 @@
 import type { JobFull, Receipt } from "@/components/jobTypes";
-import { HARMONIA_CATALOG_ID, parseCatalogComponent } from "./contracts";
+import { parseCatalogComponent, parseHarmoniaSurfacePart } from "./contracts";
 import { surfacePlanSchema, type SurfacePlan, type SurfaceSlot } from "./presentationContracts";
 import {
   resolveNodeArtDirection,
@@ -283,15 +283,16 @@ function hydrateSurface(runId: string, surface: PlannedSurface, job: JobFull | n
   const components = surface.nodes.map((node) => hydrateNode(surface, node, job, receipts));
   if (surface.rootId !== "root") {
     if (surface.nodes.some((node) => node.id === "root")) {
-      throw new Error("A2UI surface reserves root for its reachable layout root");
+      throw new Error("AI SDK surface reserves root for its reachable layout root");
     }
     components.unshift({ id: "root", component: "Column", children: [surface.rootId] });
   }
   const surfaceId = `studio-${runId}-${surface.slot}-r${surface.revision}`;
-  return [
-    { version: "v0.9", createSurface: { surfaceId, catalogId: HARMONIA_CATALOG_ID } },
-    { version: "v0.9", updateComponents: { surfaceId, components } },
-  ];
+  return [parseHarmoniaSurfacePart({
+    type: "data-harmonia-surface",
+    id: surfaceId,
+    data: { surfaceId, slot: surface.slot, revision: surface.revision, components },
+  })];
 }
 
 export function hydrateSurfacePlan(input: HydrateSurfacePlanInput): HydratedSurfaceSet {

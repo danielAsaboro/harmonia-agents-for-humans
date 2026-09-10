@@ -22,10 +22,10 @@ describe("public documentation truth boundaries", () => {
     expect(readme).toContain("ordinary allow-listed messages through the canonical chat router");
   });
 
-  it("distinguishes the A2UI wire protocol from installed package versions", () => {
-    expect(readme).toContain("v0.9 wire protocol");
-    expect(readme).toContain("`@a2ui/react` 0.10.2");
-    expect(readme).toContain("`@a2ui/web_core` 0.10.6");
+  it("distinguishes the AI SDK wire protocol from installed package versions", () => {
+    expect(readme).toContain("Vercel AI SDK 7");
+    expect(readme).toContain("`ai` 7.0.97");
+    expect(readme).toContain("`@ai-sdk/react` 4.0.100");
   });
 
   it("separates fixture inspection from authenticated evidence", () => {

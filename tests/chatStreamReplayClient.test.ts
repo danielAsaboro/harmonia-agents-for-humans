@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { replayChatRunUntilTerminal } from "../src/hooks/useHarmoniaChat";
-import type { ChatStreamEvent } from "../src/lib/a2ui/contracts";
+import type { ChatStreamEvent } from "../src/lib/ai-sdk/contracts";
 
 describe("chat stream reconnect client", () => {
   it("polls durable events until a terminal event arrives", async () => {

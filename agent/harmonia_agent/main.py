@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from opentelemetry import context as otel_context
 
 from .config import settings
-from .a2ui_api import router as a2ui_router
+from .ui_api import router as ui_router
 from .ask_api import router as ask_router
 from .intent_api import router as intent_router
 from .extraction_api import router as extraction_router
@@ -65,7 +65,7 @@ async def authenticate_internal(request: Request, call_next):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     return await call_next(request)
 
-app.include_router(a2ui_router)
+app.include_router(ui_router)
 app.include_router(ask_router)
 app.include_router(intent_router)
 app.include_router(extraction_router)

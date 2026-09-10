@@ -7,7 +7,7 @@ Harmonia separates three unmistakable modes: `fixture` for deterministic tests, 
 
 ## End-to-end flow
 
-1. A deliberately selected `live` run writes normal durable job, Strands handoff, A2UI, approval, delivery, receipt, verification, usage, and trace records.
+1. A deliberately selected `live` run writes normal durable job, Strands handoff, AI SDK, approval, delivery, receipt, verification, usage, and trace records.
 2. The operator exports selected observations to private parent-level evidence storage. Source text requires explicit capture authorization.
 3. `npm run replay:record -- --input <private-input.json> --output <private-output.json>` projects allowlisted fields, rejects the entire capture if forbidden material appears, computes deterministic terminal state, and signs a `private_candidate` bundle.
 4. A human reviews the sanitized candidate. Public inclusion is a separate explicit decision that changes provenance to `approved_public_bundle`; it is never inferred.

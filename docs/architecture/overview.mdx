@@ -13,7 +13,7 @@ Explore agents, state ownership, approval boundaries, effects and verification. 
 
 ```mermaid
 flowchart TB
-  UI[Editorial studio and conversational A2UI] --> AUTH[Cognito with Google federation]
+  UI[Editorial studio and conversational AI SDK] --> AUTH[Cognito with Google federation]
   AUTH --> WEB[Next.js control plane on ECS Fargate]
   TG[Allow-listed Telegram] --> WEB
   WEB --> DB[(DynamoDB state and outboxes)]
@@ -66,7 +66,7 @@ ffmpeg and HyperFrames perform deterministic media rendering under the same seal
 
 ## Operator experience and evidence
 
-The studio keeps conversation beside a living artifact canvas. Host-validated A2UI messages reference existing entities; generated markup or callbacks are not executable UI. Authenticated approval controls preserve the same authority boundary across dashboard, chat and Telegram. Durable chat events support replay without turning historical cards into current execution authority.
+The studio keeps conversation beside a living artifact canvas. Host-validated AI SDK messages reference existing entities; generated markup or callbacks are not executable UI. Authenticated approval controls preserve the same authority boundary across dashboard, chat and Telegram. Durable chat events support replay without turning historical cards into current execution authority.
 
 Resident Dream and Wakeup cycles use scoped leases, sealed observations, budget policy and deterministic projections. Incomplete or uncertain model calls do not replay paid inference. See [Governed resident autonomy](/resident-autonomy).
 

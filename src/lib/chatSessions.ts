@@ -1,6 +1,6 @@
 import type { ChatResponse } from "@/app/api/chat/route";
-import type { ChatRunState } from "@/lib/a2ui/chatReducer";
-import type { ComposerAttachment } from "@/components/a2ui/AttachmentComposer";
+import type { ChatRunState } from "@/lib/ai-sdk/messageReducer";
+import type { ComposerAttachment } from "@/components/ai-sdk/AttachmentComposer";
 
 export interface ConsoleMessage {
   id?: string;

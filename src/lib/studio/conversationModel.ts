@@ -1,6 +1,6 @@
-import type { ChatRunState } from "@/lib/a2ui/chatReducer";
+import type { ChatRunState } from "@/lib/ai-sdk/messageReducer";
 import type { ConsoleMessage } from "@/lib/chatSessions";
-import type { ComposerAttachment } from "@/components/a2ui/AttachmentComposer";
+import type { ComposerAttachment } from "@/components/ai-sdk/AttachmentComposer";
 
 export type StudioChapterKey = "discovery" | "narrative" | "production" | "approval";
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildUiContext } from "../src/lib/a2ui/presentationContext";
+import { buildUiContext } from "../src/lib/ai-sdk/presentationContext";
 import type { JobFull } from "../src/components/jobTypes";
 
 const job: JobFull = {
@@ -27,7 +27,7 @@ const job: JobFull = {
   assets: [{ actionId: "image-1", mime: "image/png", sizeBytes: 512, digest: "asset-digest" }],
 };
 
-describe("A2UI presentation context", () => {
+describe("AI SDK presentation context", () => {
   it("includes identifiers and summaries but excludes authored content and action payloads", () => {
     const context = buildUiContext({
       runId: "run-1",

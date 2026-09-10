@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { MediaWorkspace } from "../src/components/studio/MediaWorkspace";
 import { WorkingCanvas } from "../src/components/studio/WorkingCanvas";
-import { surfaceRevisionRequest } from "../src/lib/a2ui/workspaceActions";
+import { surfaceRevisionRequest } from "../src/lib/ai-sdk/workspaceActions";
 
 describe("studio canvas", () => {
   it("renders native audio only for a persisted audio asset", () => {
@@ -34,10 +34,7 @@ describe("studio canvas", () => {
         config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, normalizedSources: [], actions: [], assets: [],
       },
       events: [], receipts: [], selectedArtifactId: null, onSelectedArtifactChange: () => {},
-      operations: [
-        { version: "v0.9", createSurface: { surfaceId: "studio-run-1-canvas-r1", catalogId: "https://harmonia.app/a2ui/catalogs/chat/v1" } },
-        { version: "v0.9", updateComponents: { surfaceId: "studio-run-1-canvas-r1", components: [{ id: "root", component: "SurfaceEmpty", title: "Waiting", message: "No drafts yet", children: [], emphasis: "primary", agentFraming: false }] } },
-      ],
+      parts: [{ type: "data-harmonia-surface", id: "studio-run-1-canvas-r1", data: { surfaceId: "studio-run-1-canvas-r1", slot: "canvas", revision: 1, components: [{ id: "root", component: "SurfaceEmpty", title: "Waiting", message: "No drafts yet", children: [], emphasis: "primary", agentFraming: false }] } }],
     }));
     expect(html).not.toContain("Agent-generated interface");
     expect(html).not.toContain("<summary>Agent-generated");

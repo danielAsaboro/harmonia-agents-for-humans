@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { AgentRunSummary } from "../src/components/studio/AgentRunSummary";
 import { ConversationTurn } from "../src/components/studio/ConversationTurn";
-import { initialChatRunState } from "../src/lib/a2ui/chatReducer";
+import { initialChatRunState } from "../src/lib/ai-sdk/messageReducer";
 
 describe("studio conversation elements", () => {
   it("collapses completed activity but opens failures", () => {

@@ -1,4 +1,4 @@
-"""Strict reference-only contracts for Harmonia's generated A2UI surfaces."""
+"""Strict reference-only contracts for Harmonia's generated AI SDK surfaces."""
 
 from __future__ import annotations
 

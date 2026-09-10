@@ -1,5 +1,5 @@
-import type { ChatRunState } from "@/lib/a2ui/chatReducer";
-import { ActivityTrace, ToolActivity } from "@/components/a2ui/HarmoniaElements";
+import type { ChatRunState } from "@/lib/ai-sdk/messageReducer";
+import { ActivityTrace, ToolActivity } from "@/components/ai-sdk/HarmoniaElements";
 import { StudioFailure } from "./StudioStates";
 
 export function AgentRunSummary({ run }: { run: ChatRunState }) {

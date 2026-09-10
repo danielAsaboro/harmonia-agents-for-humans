@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { initialChatRunState, reduceChatStreamEvent } from "../src/lib/a2ui/chatReducer";
+import { initialChatRunState, reduceChatStreamEvent } from "../src/lib/ai-sdk/messageReducer";
 
 describe("chat stream reducer", () => {
   test("assembles deltas and live activity in sequence", () => {
@@ -12,12 +12,12 @@ describe("chat stream reducer", () => {
     expect(state.activities).toEqual([{ id: "analyst", label: "Analyze", status: "complete" }]);
   });
 
-  test("ignores replayed events and retains A2UI operations", () => {
+  test("ignores replayed events and retains AI SDK operations", () => {
     let state = initialChatRunState("run-1");
-    const event = { type: "a2ui_operation" as const, runId: "run-1", sequence: 1, operation: { version: "v0.9", createSurface: { surfaceId: "s", catalogId: "catalog" } } };
+    const event = { type: "ui_message_chunk" as const, runId: "run-1", sequence: 1, chunk: { type: "data-harmonia-surface", id: "s", data: {} } };
     state = reduceChatStreamEvent(state, event);
     state = reduceChatStreamEvent(state, event);
-    expect(state.operations).toHaveLength(1);
+    expect(state.parts).toHaveLength(1);
     expect(state.lastSequence).toBe(1);
   });
 

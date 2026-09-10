@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import type { JobFull, PlannedAction, Receipt } from "@/components/jobTypes";
-import { HarmoniaA2uiHost } from "@/components/a2ui/HarmoniaCatalog";
-import { latestSurfaceOperations } from "@/lib/a2ui/surfaceSlots";
+import { HarmoniaMessageRenderer } from "@/components/ai-sdk/HarmoniaMessageRenderer";
+import { latestSurfaceParts } from "@/lib/ai-sdk/surfaceSlots";
 import { isReplayableAction } from "@/lib/replayEligibility";
 import { StudioFailure } from "./StudioStates";
 
@@ -21,13 +21,13 @@ function actionTypeLabel(value: string): string {
   return value.replace("publish_x_", "Publish X ").replace("publish_linkedin_", "Publish LinkedIn ").replace("export_", "Export ").replace("generate_", "Generate ").replace("render_", "Render ").replaceAll("_", " ").replace(/^./, (character) => character.toUpperCase());
 }
 
-function generatedApprovalActionIds(operations: unknown[]): string[] {
+function generatedApprovalActionIds(parts: unknown[]): string[] {
   const ids: string[] = [];
-  for (const operation of operations) {
-    if (!operation || typeof operation !== "object") continue;
-    const update = (operation as { updateComponents?: unknown }).updateComponents;
-    if (!update || typeof update !== "object") continue;
-    const components = (update as { components?: unknown }).components;
+  for (const part of parts) {
+    if (!part || typeof part !== "object") continue;
+    const data = (part as { data?: unknown }).data;
+    if (!data || typeof data !== "object") continue;
+    const components = (data as { components?: unknown }).components;
     if (!Array.isArray(components)) continue;
     for (const component of components) {
       if (!component || typeof component !== "object") continue;
@@ -38,7 +38,7 @@ function generatedApprovalActionIds(operations: unknown[]): string[] {
   return ids;
 }
 
-export function ApprovalDock({ job, jobId, actions, verifications, receipts, claims = [], busy, onDecide, operations = [], operationsLive = false, onOperationDecision }: {
+export function ApprovalDock({ job, jobId, actions, verifications, receipts, claims = [], busy, onDecide, parts = [], partsLive = false, onOperationDecision }: {
   job?: JobFull;
   jobId: string;
   actions: PlannedAction[];
@@ -47,8 +47,8 @@ export function ApprovalDock({ job, jobId, actions, verifications, receipts, cla
   claims?: NonNullable<JobFull["claims"]>;
   busy: boolean;
   onDecide: (jobId: string, actionId: string, decision: "approved" | "rejected") => Promise<void> | void;
-  operations?: unknown[];
-  operationsLive?: boolean;
+  parts?: unknown[];
+  partsLive?: boolean;
   onOperationDecision?: (operationId: string, decision: "approved" | "rejected") => Promise<void> | void;
 }) {
   const [actionError, setActionError] = useState<string | null>(null);
@@ -61,7 +61,7 @@ export function ApprovalDock({ job, jobId, actions, verifications, receipts, cla
   let approvalOperations: unknown[] = [];
   let protocolError: string | null = null;
   try {
-    approvalOperations = operations.length ? latestSurfaceOperations(operations, "approval") : [];
+    approvalOperations = parts.length ? latestSurfaceParts(parts, "approval") : [];
     const pendingIds = new Set(pending.map((action) => action.id));
     const generatedIds = generatedApprovalActionIds(approvalOperations);
     if (generatedIds.some((actionId) => !pendingIds.has(actionId))) approvalOperations = [];
@@ -97,7 +97,7 @@ export function ApprovalDock({ job, jobId, actions, verifications, receipts, cla
   }
 
   return (
-    <aside className="shrink-0 border-t border-black/10 bg-[#ebe7de] pb-20 min-[900px]:pb-0" aria-label={proofOnly ? "Verification tools" : "Approval boundary"} aria-busy={busy} data-a2ui-slot="approval">
+    <aside className="shrink-0 border-t border-black/10 bg-[#ebe7de] pb-20 min-[900px]:pb-0" aria-label={proofOnly ? "Verification tools" : "Approval boundary"} aria-busy={busy} data-ai-sdk-slot="approval">
       <p className="sr-only" role="status" aria-live="polite">{busy ? "Recording operator decision" : proofOnly ? "Verification tools available" : `${decisionCount} approval decisions pending`}</p>
       <details className="group">
         <summary className="flex h-[72px] cursor-pointer list-none items-center gap-3 px-5">
@@ -108,10 +108,10 @@ export function ApprovalDock({ job, jobId, actions, verifications, receipts, cla
           <span className="rounded-[11px] bg-[#11110f] px-3 py-2.5 text-[11px] font-bold text-white">{proofOnly ? "Open tools →" : "Review & decide →"}</span>
         </summary>
         <div className="max-h-[48vh] overflow-y-auto border-t border-black/10 bg-[#fffdf7] p-3 shadow-[0_-14px_34px_rgba(22,21,18,0.08)]">
-        {protocolError ? <StudioFailure message={`A2UI protocol error: ${protocolError}`} permanent /> : null}
-        {actionError ? <StudioFailure message={`A2UI action blocked: ${actionError}`} permanent /> : null}
+        {protocolError ? <StudioFailure message={`AI SDK message error: ${protocolError}`} permanent /> : null}
+        {actionError ? <StudioFailure message={`AI SDK action blocked: ${actionError}`} permanent /> : null}
         {strategyPending ? <article className="mb-3 border-2 border-[#5165ff] bg-[#f0edff] p-4"><p className="text-xs font-black uppercase tracking-[0.12em] text-[#5165ff]">Strategy approval · v{job.contentStrategy!.version}</p><h3 className="mt-1 font-serif text-xl">{job.contentStrategy!.thesis}</h3><p className="mt-2 text-sm leading-6 text-black/60">Approves the exact four-week strategy before Temi&#39;s bounded editorial-plan proposal. Temi has no external-calendar authority.</p><details className="mt-2"><summary className="cursor-pointer text-xs font-bold">Decision provenance</summary><code className="mt-1 block break-all text-[10px] text-black/45">sha256 {job.strategyDigest}</code></details><textarea value={strategyFeedback} onChange={(event) => setStrategyFeedback(event.target.value)} placeholder="Required feedback when rejecting" className="mt-3 w-full border border-black/20 bg-white p-3 text-sm" maxLength={2000} /><div className="mt-3 flex gap-2"><button type="button" onClick={() => void decideStrategy("rejected")} className="min-h-10 rounded-full border-2 border-black px-4 text-xs font-black">Reject</button><button type="button" onClick={() => void decideStrategy("approved")} className="min-h-10 rounded-full bg-black px-4 text-xs font-black text-white">Approve strategy</button></div></article> : null}
-        {approvalOperations.length ? <HarmoniaA2uiHost operations={approvalOperations} live={operationsLive} onAction={(action) => {
+        {approvalOperations.length ? <HarmoniaMessageRenderer parts={approvalOperations} live={partsLive} onAction={(action) => {
         if (action.name === "decide_operation" && onOperationDecision) {
           const operationId = String(action.context.operationId ?? "");
           const decision = action.context.decision;
@@ -131,7 +131,7 @@ export function ApprovalDock({ job, jobId, actions, verifications, receipts, cla
             return;
           }
         }
-        setActionError(`Unknown or invalid A2UI action: ${action.name}`);
+        setActionError(`Unknown or invalid AI SDK action: ${action.name}`);
         }} /> : null}
         {pending.map((action) => {
         const cost = recordedCost(action);

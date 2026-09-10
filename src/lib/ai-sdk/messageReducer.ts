@@ -7,7 +7,7 @@ export interface ChatRunState {
   text: string;
   activities: Array<Extract<ChatStreamEvent, { type: "activity" }>["activity"]>;
   tools: Array<Extract<ChatStreamEvent, { type: "tool_activity" }>["tool"]>;
-  operations: Record<string, unknown>[];
+  parts: Record<string, unknown>[];
   confirmations: Array<Extract<ChatStreamEvent, { type: "confirmation_requested" }>["confirmation"]>;
   jobUpdates: Array<Extract<ChatStreamEvent, { type: "job_updated" }>>;
   error?: string;
@@ -22,7 +22,7 @@ export function initialChatRunState(runId: string): ChatRunState {
     text: "",
     activities: [],
     tools: [],
-    operations: [],
+    parts: [],
     confirmations: [],
     jobUpdates: [],
   };
@@ -60,8 +60,8 @@ export function reduceChatStreamEvent(state: ChatRunState, event: ChatStreamEven
       return { ...base, activities: upsertById(state.activities, event.activity) };
     case "tool_activity":
       return { ...base, tools: upsertTool(state.tools, event.tool) };
-    case "a2ui_operation":
-      return { ...base, operations: [...state.operations, event.operation] };
+    case "ui_message_chunk":
+      return { ...base, parts: [...state.parts, event.chunk] };
     case "confirmation_requested":
       return { ...base, confirmations: upsertById(state.confirmations, event.confirmation) };
     case "job_updated":

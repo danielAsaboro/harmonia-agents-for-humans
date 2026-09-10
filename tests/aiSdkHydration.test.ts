@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { JobFull, Receipt } from "../src/components/jobTypes";
-import { hydrateSurfacePlan } from "../src/lib/a2ui/hydrateSurfacePlan";
-import { surfacePlanSchema, type NodeArtDirection, type SurfaceArtDirection, type SurfacePlan } from "../src/lib/a2ui/presentationContracts";
+import { hydrateSurfacePlan } from "../src/lib/ai-sdk/hydrateSurface";
+import { surfacePlanSchema, type NodeArtDirection, type SurfaceArtDirection, type SurfacePlan } from "../src/lib/ai-sdk/presentationContracts";
 
 const job: JobFull = {
   id: "job-1",
@@ -56,16 +56,14 @@ function plan(
   });
 }
 
-function componentFrom(operations: Record<string, unknown>[], id: string): Record<string, unknown> {
-  const update = operations.find((operation) => "updateComponents" in operation) as {
-    updateComponents: { components: Array<Record<string, unknown>> };
-  };
-  const component = update.updateComponents.components.find((candidate) => candidate.id === id);
+function componentFrom(parts: Record<string, unknown>[], id: string): Record<string, unknown> {
+  const part = parts[0] as { data: { components: Array<Record<string, unknown>> } };
+  const component = part.data.components.find((candidate) => candidate.id === id);
   if (!component) throw new Error(`Missing hydrated component ${id}`);
   return component;
 }
 
-describe("A2UI trusted hydration", () => {
+describe("AI SDK trusted hydration", () => {
   it("hydrates plan as the active durable stage from persisted job truth", () => {
     const result = hydrateSurfacePlan({
       runId: "run-plan",
@@ -220,7 +218,7 @@ describe("A2UI trusted hydration", () => {
     expect(serialized).not.toContain("DraftComparison");
   });
 
-  it("keeps generated node hierarchy and revision in v0.9 operations", () => {
+  it("keeps generated node hierarchy and revision in a typed AI SDK data part", () => {
     const result = hydrateSurfacePlan({
       runId: "run-9",
       plan: {
@@ -240,12 +238,9 @@ describe("A2UI trusted hydration", () => {
       receipts,
     });
 
-    expect(result.canvas[0]).toEqual({
-      version: "v0.9",
-      createSurface: { surfaceId: "studio-run-9-canvas-r3", catalogId: "https://harmonia.app/a2ui/catalogs/chat/v1" },
-    });
-    const update = result.canvas[1] as { updateComponents: { components: Array<Record<string, unknown>> } };
-    expect(update.updateComponents.components).toEqual(expect.arrayContaining([
+    expect(result.canvas[0]).toMatchObject({ type: "data-harmonia-surface", id: "studio-run-9-canvas-r3", data: { slot: "canvas", revision: 3 } });
+    const part = result.canvas[0] as { data: { components: Array<Record<string, unknown>> } };
+    expect(part.data.components).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "root", component: "Column", children: ["brief"] }),
       expect.objectContaining({ id: "brief", component: "CampaignBrief", children: ["drafts"] }),
       expect.objectContaining({ id: "drafts", component: "DraftComparison" }),

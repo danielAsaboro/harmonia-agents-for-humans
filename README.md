@@ -84,7 +84,7 @@ flowchart LR
 
 Duplicate suppression returns `already_applied` with the original receipt identity; it does not invent a new execution receipt. Unknown external outcomes require reconciliation. Only explicit operator replay persists a replay observation.
 
-The retained A2UI renderer uses the v0.9 wire protocol with `@a2ui/react` 0.10.2 and `@a2ui/web_core` 0.10.6. Telegram routes ordinary allow-listed messages through the canonical chat router and the same decision service. This AWS edition is not live-evidenced yet.
+The console uses Vercel AI SDK 7 (`ai` 7.0.97 and `@ai-sdk/react` 4.0.100). Maya proposes reference-only layouts; the server hydrates them from authoritative records into validated `data-harmonia-surface` UI message parts. Durable DynamoDB event sequences support replay and reconnect, while approval controls remain server-owned. Telegram routes ordinary allow-listed messages through the canonical chat router and the same decision service. This AWS edition is not live-evidenced yet.
 
 ## License
 

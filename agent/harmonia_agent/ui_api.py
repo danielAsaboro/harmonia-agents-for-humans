@@ -1,4 +1,4 @@
-"""Authenticated FastAPI boundary for managed A2UI presentation planning."""
+"""Authenticated FastAPI boundary for AI SDK presentation planning."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import re
 
 from fastapi import APIRouter, HTTPException, Request
 
-from .a2ui_models import SurfacePlan, UiContext
-from .a2ui_presenter import plan_surface
+from .ui_models import SurfacePlan, UiContext
+from .ui_presenter import plan_surface
 from .agents import AgentProtocolError
 from .config import settings
 from .team_runtime import AgentCoreProviderError, AgentCoreProtocolError
@@ -27,8 +27,8 @@ def _required_id(request: Request, header: str) -> str:
     return value
 
 
-@router.post("/internal/a2ui/plan", response_model=SurfacePlan)
-async def create_a2ui_plan(context: UiContext, request: Request) -> SurfacePlan:
+@router.post("/internal/ui/plan", response_model=SurfacePlan)
+async def create_ui_plan(context: UiContext, request: Request) -> SurfacePlan:
     supplied = request.headers.get("x-harmonia-internal-token", "")
     if not hmac.compare_digest(supplied, settings().internal_api_token):
         raise HTTPException(status_code=401, detail="unauthorized")
@@ -36,7 +36,7 @@ async def create_a2ui_plan(context: UiContext, request: Request) -> SurfacePlan:
     brand_id = _required_id(request, "x-brand-id")
     user_id = _required_id(request, "x-user-id")
     if context.job is None:
-        raise HTTPException(status_code=422, detail="A2UI presentation requires an active job")
+        raise HTTPException(status_code=422, detail="AI SDK presentation requires an active job")
     invocation = InvocationContext(
         job_id=context.job.id,
         workspace_id=workspace_id,
@@ -52,4 +52,3 @@ async def create_a2ui_plan(context: UiContext, request: Request) -> SurfacePlan:
         raise HTTPException(status_code=502, detail=f"presentation protocol failed: {exc}") from exc
     except AgentCoreProviderError as exc:
         raise HTTPException(status_code=502, detail=f"Agent Engine unavailable: {exc}") from exc
-

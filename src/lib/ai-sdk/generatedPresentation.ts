@@ -1,8 +1,8 @@
 import { getJob, listAssets, listReceipts } from "@/lib/repository";
-import { generateResponseSurfaces } from "@/lib/a2ui/responseSurface";
+import { generateResponseSurfaces } from "@/lib/ai-sdk/responseSurface";
 import type { ChatResponse } from "@/lib/chatHandler";
 import type { JobFull } from "@/components/jobTypes";
-import type { HydratedSurfaceSet } from "@/lib/a2ui/hydrateSurfacePlan";
+import type { HydratedSurfaceSet } from "@/lib/ai-sdk/hydrateSurface";
 
 interface LoadGeneratedPresentationInput {
   runId: string;
@@ -17,7 +17,7 @@ interface LoadGeneratedPresentationInput {
 export async function loadGeneratedPresentation(input: LoadGeneratedPresentationInput): Promise<{
   job: JobFull;
   surfaces: HydratedSurfaceSet;
-  operations: Record<string, unknown>[];
+  parts: Record<string, unknown>[];
 } | null> {
   const jobId = input.response.jobId ?? input.response.job?.id ?? input.response.jobs?.[0]?.id;
   if (!jobId) return null;
@@ -54,6 +54,6 @@ export async function loadGeneratedPresentation(input: LoadGeneratedPresentation
   return {
     job,
     surfaces,
-    operations: [...surfaces.canvas, ...surfaces.conversation, ...surfaces.approval],
+    parts: [...surfaces.canvas, ...surfaces.conversation, ...surfaces.approval],
   };
 }

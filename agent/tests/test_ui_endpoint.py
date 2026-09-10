@@ -3,9 +3,9 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from harmonia_agent import a2ui_api
-from harmonia_agent.a2ui_api import router
-from harmonia_agent.a2ui_models import SurfacePlan
+from harmonia_agent import ui_api
+from harmonia_agent.ui_api import router
+from harmonia_agent.ui_models import SurfacePlan
 
 
 def context_payload() -> dict:
@@ -67,13 +67,13 @@ def headers() -> dict[str, str]:
     }
 
 
-def test_a2ui_plan_rejects_missing_internal_token() -> None:
-    response = client().post("/internal/a2ui/plan", json=context_payload())
+def test_ai_sdk_plan_rejects_missing_internal_token() -> None:
+    response = client().post("/internal/ui/plan", json=context_payload())
 
     assert response.status_code == 401
 
 
-def test_a2ui_plan_scopes_managed_invocation_to_headers(monkeypatch) -> None:
+def test_ai_sdk_plan_scopes_managed_invocation_to_headers(monkeypatch) -> None:
     captured = {}
 
     async def fake_plan_surface(context, *, invocation):
@@ -81,9 +81,9 @@ def test_a2ui_plan_scopes_managed_invocation_to_headers(monkeypatch) -> None:
         captured["invocation"] = invocation
         return plan_fixture()
 
-    monkeypatch.setattr(a2ui_api, "plan_surface", fake_plan_surface)
+    monkeypatch.setattr(ui_api, "plan_surface", fake_plan_surface)
 
-    response = client().post("/internal/a2ui/plan", json=context_payload(), headers=headers())
+    response = client().post("/internal/ui/plan", json=context_payload(), headers=headers())
 
     assert response.status_code == 200
     assert response.json()["surfaces"][0]["nodes"][0]["component"] == "MomentExplorer"
@@ -93,11 +93,10 @@ def test_a2ui_plan_scopes_managed_invocation_to_headers(monkeypatch) -> None:
     assert captured["invocation"].operation_id == "job-1:presentation:run-1"
 
 
-def test_a2ui_plan_requires_a_job_backed_context() -> None:
+def test_ai_sdk_plan_requires_a_job_backed_context() -> None:
     payload = context_payload()
     payload["job"] = None
 
-    response = client().post("/internal/a2ui/plan", json=payload, headers=headers())
+    response = client().post("/internal/ui/plan", json=payload, headers=headers())
 
     assert response.status_code == 422
-

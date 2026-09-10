@@ -40,7 +40,7 @@ _READ_FIELDS = {
 }
 
 _PLANNING_AUTHORITY_KEYS = (
-    "strategy", "strategyDigest", "strategyVersion", "strategyApproval",
+    "strategyRef", "strategy", "strategyDigest", "strategyVersion", "strategyApproval",
     "analysis", "planningSnapshot", "planningSnapshotDigest", "revision",
     "replanningFeedback",
 )

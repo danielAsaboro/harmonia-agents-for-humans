@@ -112,7 +112,7 @@ export async function POST(
       const outcome = await runWithTenant({ workspaceId: route.workspaceId, brandId: route.brandId, principal: verified.principal }, async () => (
         await existingStrategyDecision(prompt.jobId, prompt.payloadDigest, "rejected")
           ? { reconciled: true }
-          : decideStrategy(prompt.jobId, { decision: "rejected", payloadDigest: prompt.payloadDigest, feedback: verified.feedback })
+          : decideStrategy(prompt.jobId, { decision: "rejected", payloadDigest: prompt.payloadDigest, expectedActiveRevision: (await getJob(prompt.jobId)).strategyExpectedActiveRevision!, feedback: verified.feedback })
       ));
       const decisionId = `${prompt.jobId}:strategy:${prompt.payloadDigest}`;
       await finalizeTelegramStrategyPrompt(routeToken, verified.promptMessageId, decisionId);
@@ -163,6 +163,7 @@ export async function POST(
           ? { reconciled: true }
           : decideStrategy(claim.nonce.jobId, {
             decision: claim.nonce.decision, payloadDigest: claim.nonce.payloadDigest,
+            expectedActiveRevision: (await getJob(claim.nonce.jobId)).strategyExpectedActiveRevision!,
             ...(claim.nonce.feedback ? { feedback: claim.nonce.feedback } : {}),
           });
       }

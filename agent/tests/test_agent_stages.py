@@ -136,7 +136,7 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
         "strategyDigest": "a" * 64,
         "strategyApproval": {"decision": "approved", "payloadDigest": "a" * 64, "revision": 1, "decidedAt": "2026-08-27T00:00:00Z", "expiresAt": "2099-01-01T00:00:00Z"},
         "contentStrategy": _content_strategy().model_dump(mode="json"),
-        "strategyHistory": {"v1": {"strategy": _content_strategy().model_dump(mode="json"), "digest": "a" * 64, "revision": 1}},
+        "strategyRef": {"workspaceId": "workspace-test", "brandId": "brand-test", "strategyId": _content_strategy().strategyId, "revision": 8, "digest": "a" * 64},
         "stage": "draft", "editorialPlan": persisted_plan,
         "editorialPlanDigest": stages.editorial_plan_digest(persisted_plan),
         "selectedNextItemId": persisted_plan["selectedNextItemId"],

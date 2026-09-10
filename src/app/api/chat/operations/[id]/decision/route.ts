@@ -48,9 +48,9 @@ async function post(req: Request, { params }: { params: Promise<{ id: string }> 
     }
     const operation = await decidePendingOperation(id, parsed.data.decision);
     if (operation.handler === "decide_strategy") {
-      const { jobId, payloadDigest } = operation.arguments;
-      if (typeof jobId !== "string" || typeof payloadDigest !== "string") throw new Error("operation is not strategy-bound");
-      const outcome = await decideStrategy(jobId, { decision: parsed.data.decision, payloadDigest });
+      const { jobId, payloadDigest, expectedActiveRevision } = operation.arguments;
+      if (typeof jobId !== "string" || typeof payloadDigest !== "string" || typeof expectedActiveRevision !== "number") throw new Error("operation is not strategy-bound");
+      const outcome = await decideStrategy(jobId, { decision: parsed.data.decision, payloadDigest, expectedActiveRevision });
       if (outcome.outboxId) { try { await dispatchStageOutboxRecord(outcome.outboxId); } catch { /* durable dispatcher retries */ } }
       return Response.json({ operation, outcome });
     }

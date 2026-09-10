@@ -82,6 +82,7 @@ def plan() -> dict:
 
 def planner_input() -> dict:
     return {
+        "strategyRef": {"workspaceId": "w1", "brandId": "b1", "strategyId": strategy()["strategyId"], "revision": 8, "digest": "a" * 64},
         "strategy": strategy(), "strategyDigest": "a" * 64, "strategyVersion": 1,
         "strategyApproval": {"decision": "approved", "payloadDigest": "a" * 64, "revision": 1, "actorSubjectId": "operator-1", "decidedAt": "2026-08-30T00:00:00Z", "expiresAt": "2026-08-31T00:00:00Z"},
         "analysis": analysis(),
@@ -408,7 +409,7 @@ def test_selected_item_must_be_unblocked_and_highest_scoring_eligible_item():
 
 
 @pytest.mark.parametrize(("input_mutation", "plan_mutation", "message"), [
-    (lambda value: value.update(strategyDigest="b" * 64), lambda value: None, "strategy digest"),
+    (lambda value: (value.update(strategyDigest="b" * 64), value["strategyRef"].update(digest="b" * 64)), lambda value: None, "strategy digest"),
     (lambda value: value["strategyApproval"].update(payloadDigest="b" * 64), lambda value: None, "approval digest"),
     (lambda value: value.update(strategyVersion=2), lambda value: None, "strategy version"),
     (lambda value: None, lambda value: value.update(approvedStrategyDigest="b" * 64), "approved strategy digest"),

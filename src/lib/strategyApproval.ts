@@ -84,7 +84,7 @@ export function validatePersistedStrategy(job: { config: JobConfig; sourceAnalys
   }
 }
 
-export type StrategyDecisionInput = { decision: "approved" | "rejected"; payloadDigest: string; feedback?: string };
+export type StrategyDecisionInput = { decision: "approved" | "rejected"; payloadDigest: string; expectedActiveRevision: number; feedback?: string };
 
 export function assertStrategyProposalRevision(stage: string, persistedRevision: number | undefined, submittedRevision: number, strategyVersion: number): void {
   if (stage !== "strategize") throw new Error(`job stage is '${stage}'`);
@@ -94,7 +94,7 @@ export function assertStrategyProposalRevision(stage: string, persistedRevision:
 
 export function applyStrategyDecision(
   current: { revision: number; strategyDigest: string; approvalExpiresAt: string },
-  input: StrategyDecisionInput,
+  input: Omit<StrategyDecisionInput, "expectedActiveRevision">,
   actorSubjectId: string,
   now: Date,
 ) {

@@ -33,7 +33,7 @@ def test_rejects_second_revise_without_a_third_model_pass():
 
 
 def test_production_input_binds_requested_outputs_to_supplied_evidence():
-    value = {"outputPlanId": "plan-1", "outputPlanDigest": "a" * 64, "requests": [{"id": "output-1-newsletter", "outputType": "newsletter", "evidenceRefs": ["source-1:seg-1"]}], "evidence": [{"id": "source-1:seg-1", "text": "Proof"}], "brandContext": "Concise and factual", "constraints": [], "passType": "original", "priorBatch": None, "priorReview": None}
+    value = {"strategyRef": {"workspaceId": "w1", "brandId": "b1", "strategyId": "s1", "revision": 8, "digest": "a" * 64}, "outputPlanId": "plan-1", "outputPlanDigest": "a" * 64, "requests": [{"id": "output-1-newsletter", "outputType": "newsletter", "evidenceRefs": ["source-1:seg-1"]}], "evidence": [{"id": "source-1:seg-1", "text": "Proof"}], "brandContext": "Concise and factual", "constraints": [], "passType": "original", "priorBatch": None, "priorReview": None}
     assert ArtifactProductionInput.model_validate(value).requests[0].outputType == "newsletter"
     value["requests"][0]["evidenceRefs"] = ["invented"]
     with pytest.raises(ValueError, match="supplied evidence"):

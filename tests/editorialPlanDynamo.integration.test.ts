@@ -5,13 +5,17 @@ import { servicePrincipal } from "@/lib/authority";
 import { editorialPlanDigest, editorialPlanningSnapshotDigest } from "@/lib/editorialPlan";
 import { acceptEditorialPlan, db, getJob } from "@/lib/repository";
 import { runWithTenant } from "@/lib/tenancy";
-import type { ContentStrategy, EditorialPlan } from "@/lib/types";
+import type { EditorialPlan } from "@/lib/types";
+import { insertStrategyProposal, decideStrategyProposal } from "@/lib/strategy/repository";
+import { strategyDigest as calculateStrategyDigest } from "@/lib/strategyApproval";
+import { strategyFixture } from "./fixtures/strategy";
 
 const emulator = process.env.AWS_LOCAL_ENDPOINT;
 const scope = { workspaceId: "temi-plan-test", brandId: "brand-test", principal: servicePrincipal("temi-plan-integration") };
 const otherScope = { workspaceId: "temi-plan-other", brandId: "brand-test", principal: servicePrincipal("temi-plan-integration") };
 const jobId = `temi-plan-${Date.now()}`;
-const strategyDigest = "a".repeat(64);
+const strategy = strategyFixture("strategy-1");
+const strategyDigest = calculateStrategyDigest(strategy);
 const snapshot = {
   snapshotId: `planning-${jobId}-v1`, asOf: "2026-08-27T00:00:00Z",
   horizonStartAt: "2026-08-31T00:00:00Z", horizonEndAt: "2026-09-28T00:00:00Z", timezone: "UTC",
@@ -43,13 +47,15 @@ const plan: EditorialPlan = {
 
 describe.skipIf(!emulator)("Temi editorial plan DynamoDB boundary", () => {
   it("round-trips the complete plan and binds it to tenant and approved strategy", async () => {
-    const strategy = { strategyId: "strategy-1", version: 1 } as ContentStrategy;
+    const result = await runWithTenant(scope, async () => {
+      const proposal = await db().atomic((tx) => insertStrategyProposal(tx, { jobId, attempt: 1, strategy, digest: strategyDigest, evidenceLineage: ["m1"], invocationContext: { revision: 1, sourceIds: ["m1"], operatorContextIds: ["context:campaign"], performance: [], memoryFacts: [], audienceIds: ["founders"], requestedChannels: ["x"], supportedChannels: ["x"], horizonWeeks: 4, researchRequest: null, searchEvidence: [] }, proposedAt: new Date().toISOString(), expiresAt: "2099-01-01T00:00:00Z" }));
+      return db().atomic((tx) => decideStrategyProposal(tx, proposal.id, { decision: "approved", payloadDigest: strategyDigest, expectedActiveRevision: 0 }));
+    });
     const path = `workspaces/${scope.workspaceId}/jobs/${jobId}`;
     await awsRepository().put(recordKey(path), {
       workspaceId: scope.workspaceId, brandId: scope.brandId, createdByUserId: "operator-test",
       createdAt: "2026-08-27T00:00:00Z", updatedAt: "2026-08-27T00:00:00Z", status: "running", stage: "plan",
-      config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, contentStrategy: strategy, strategyDigest, strategyRevision: 1,
-      strategyApprovalState: "approved", strategyApproval: { decision: "approved", payloadDigest: strategyDigest, revision: 1, actorSubjectId: "operator-test", decidedAt: "2026-08-27T00:00:00Z", expiresAt: "2026-08-28T00:00:00Z" },
+      config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, strategyRef: result.strategyRef,
       editorialPlanningSnapshot: snapshot, editorialPlanningSnapshotDigest: snapshotDigest,
       campaignOutputPlan,
     });

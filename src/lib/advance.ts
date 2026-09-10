@@ -16,7 +16,7 @@ export async function advance(
 ): Promise<void> {
   const job = await getJob(jobId);
   assertTransition(job.stage, completedStage);
-  const next = nextStage(completedStage);
+  const next = nextStage(completedStage, job.strategyRef);
   if (!next) throw new Error(`no successor for stage '${completedStage}'`);
   const outboxId = await transitionStageWithOutbox(jobId, completedStage, next, note);
   try {

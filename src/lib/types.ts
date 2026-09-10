@@ -188,6 +188,7 @@ export interface StrategyApproval {
 }
 
 export interface EditorialPlannerInput {
+  strategyRef: import("./strategy/contracts").StrategyRef;
   strategy: ContentStrategy;
   strategyDigest: string;
   strategyVersion: number;
@@ -297,6 +298,9 @@ export interface Job {
   analysisSearchEvidence?: AnalysisSearchEvidence[];
   analysisGroundingMetadata?: Record<string, unknown> | null;
   contentStrategy?: ContentStrategy;
+  strategyRef?: import("./strategy/contracts").StrategyRef;
+  strategyProposalId?: string;
+  strategyExpectedActiveRevision?: number;
   strategyDigest?: string;
   strategyRevision?: number;
   strategyApprovalState?: "pending" | "approved" | "rejected";
@@ -304,7 +308,6 @@ export interface Job {
   strategyApprovalExpiresAt?: string;
   strategyRevisionFeedback?: string;
   strategyEvidenceLineage?: string[];
-  strategyHistory?: Record<string, { strategy: ContentStrategy; digest: string; revision: number; evidenceLineage: string[]; invocationContext: StrategyInvocationContext; proposedAt: string; expiresAt: string; approval?: StrategyApproval }>;
   strategyInvocationContext?: StrategyInvocationContext;
   editorialPlan?: EditorialPlan;
   editorialPlanningSnapshot?: EditorialPlanningSnapshot;

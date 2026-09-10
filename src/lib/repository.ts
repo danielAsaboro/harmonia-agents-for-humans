@@ -43,7 +43,9 @@ releaseStageOutboxClaim,
 type StageOutboxRecord,
 } from "./stageOutbox";
 import { deleteArtifactUri,deleteWorkspaceArtifactUri } from "./storage";
-import { applyStrategyDecision,assertStrategyProposalRevision,strategySourceEvidenceIds,validatePersistedStrategy,validateStrategySearchGrounding,type StrategyDecisionInput } from "./strategyApproval";
+import { assertStrategyProposalRevision,strategySourceEvidenceIds,validatePersistedStrategy,validateStrategySearchGrounding,type StrategyDecisionInput } from "./strategyApproval";
+import { decideStrategyProposal, insertStrategyProposal, readActiveStrategyRef } from "./strategy/repository";
+import { resolveJobStrategy } from "./strategy/context";
 import { decideTelegramNonceClaim,telegramDigest,type TelegramWebhookRoute } from "./telegramWebhook";
 import { currentTraceId } from "./telemetry";
 import {
@@ -454,7 +456,7 @@ export async function getOrCreateEditorialPlanningSnapshot(jobId: string) {
   return db().atomic(async (tx) => {
     const ref = jobRef(jobId);
     const snap = await tx.read(ref);
-    const current = requireJobDoc(snap);
+    const current = await resolveJobStrategy(requireJobDoc(snap), tx);
     if ((current.editorialPlanRevision ?? 1) !== revision || current.strategyDigest !== job.strategyDigest) {
       throw new Error("editorial planning authority changed while snapshot was assembled");
     }
@@ -1145,15 +1147,10 @@ function requireJobDoc(snap: StoredRecord): Job & {
     artifactProductionResult: data.artifactProductionResult,
     artifactProductionDigest: data.artifactProductionDigest,
     failure: data.failure,
-    contentStrategy: data.contentStrategy,
-    strategyDigest: data.strategyDigest,
+    strategyRef: data.strategyRef,
+    strategyProposalId: data.strategyProposalId,
     strategyRevision: data.strategyRevision,
-    strategyApprovalState: data.strategyApprovalState,
-    strategyApproval: data.strategyApproval,
-    strategyApprovalExpiresAt: data.strategyApprovalExpiresAt,
     strategyRevisionFeedback: data.strategyRevisionFeedback,
-    strategyEvidenceLineage: data.strategyEvidenceLineage,
-    strategyHistory: data.strategyHistory,
     strategyInvocationContext: data.strategyInvocationContext,
     editorialPlan: data.editorialPlan,
     editorialPlanDigest: data.editorialPlanDigest,
@@ -1345,6 +1342,9 @@ export async function createJob(
   };
   const outboxId = stageOutboxId(id, initialStage, 0);
   await db().atomic(async (tx) => {
+    const active = initialStage === "strategize" ? null : await readActiveStrategyRef(tx);
+    if (active) doc.strategyRef = active;
+    else delete doc.strategyRef;
     tx.insert(jobRef(id), doc);
     setup?.(tx, id, now);
     tx.insert(stageOutboxRef(outboxId), {
@@ -1395,12 +1395,12 @@ export async function retryFailedJobWithOutbox(
 
 export async function getJob(jobId: string) {
   const snap = await awsRepository().read(jobRef(jobId));
-  return requireJobDoc(snap);
+  return resolveJobStrategy(requireJobDoc(snap));
 }
 
 export async function listJobs(limit = 25): Promise<Job[]> {
-  const snaps = await awsRepository().query(limited(ordered(tenantCollection(JOBS), "createdAt", "desc"), limit));
-  return snaps.rows.map((d) => requireJobDoc(d));
+  const snaps = await awsRepository().query(limited(ordered(where(tenantCollection(JOBS), "brandId", "==", currentTenant().brandId), "createdAt", "desc"), limit));
+  return Promise.all(snaps.rows.map((d) => resolveJobStrategy(requireJobDoc(d))));
 }
 
 export async function setStage(
@@ -1717,6 +1717,7 @@ export async function acceptStrategyProposal(
     const snap = await tx.read(ref);
     const job = requireJobDoc(snap);
     assertStrategyProposalRevision(job.stage, job.strategyRevision, revision, strategy.version);
+    if (job.strategyRef) throw new Error("production job already pins an approved strategy");
     const invocationContext = {
       ...job.strategyInvocationContext,
       searchEvidence,
@@ -1735,13 +1736,9 @@ export async function acceptStrategyProposal(
       ...strategy.briefs.flatMap((item) => item.evidenceRefs),
       ...strategy.assumptions.flatMap((item) => item.evidenceRefs),
     ])].sort();
-    const historyKey = `strategyHistory.v${revision}`;
+    const proposal = await insertStrategyProposal(tx, { jobId, attempt: revision, strategy, digest, evidenceLineage, invocationContext, proposedAt: new Date().toISOString(), expiresAt });
     tx.patch(ref, {
-      contentStrategy: strategy, strategyDigest: digest, strategyRevision: revision,
-      strategyApprovalState: "pending", strategyApproval: REMOVE_FIELD,
-      strategyApprovalExpiresAt: expiresAt, strategyEvidenceLineage: evidenceLineage,
-      strategyInvocationContext: invocationContext,
-      [historyKey]: { strategy, digest, revision, evidenceLineage, invocationContext, proposedAt: new Date().toISOString(), expiresAt },
+      strategyProposalId: proposal.id, strategyRevision: revision,
       stage: "awaiting_strategy_approval", status: "waiting_for_approval", updatedAt: new Date().toISOString(),
     });
     return { digest, expiresAt, evidenceLineage };
@@ -1781,7 +1778,7 @@ export async function acceptEditorialPlan(
     const outboxId = stageOutboxId(jobId, "draft", 0);
     const outboxRef = stageOutboxRef(outboxId);
     const [snap, existingOutbox] = await Promise.all([tx.read(ref), tx.read(outboxRef)]);
-    const job = requireJobDoc(snap);
+    const job = await resolveJobStrategy(requireJobDoc(snap), tx);
     assertEditorialPlanSubmission(job, plan, revision);
     if (existingOutbox.present) throw new Error("editorial plan draft dispatch already exists");
     const digest = editorialPlanDigest(plan);
@@ -1819,7 +1816,7 @@ export async function claimSelectedEditorialItem(
   return db().atomic(async (tx) => {
     const ref = jobRef(jobId);
     const snap = await tx.read(ref);
-    const job = requireJobDoc(snap);
+    const job = await resolveJobStrategy(requireJobDoc(snap), tx);
     if (isMatchingActiveProduction(job, authority)) {
       return { outcome: "execute" as const, resumed: true, ...authority };
     }
@@ -1844,7 +1841,7 @@ export async function finalizeArtifactProduction(
 ) {
   const traceDigest = createHash("sha256").update(canonicalJson(productionResult), "utf8").digest("hex");
   return db().atomic(async (tx) => {
-    const ref = jobRef(jobId); const snap = await tx.read(ref); const job = requireJobDoc(snap);
+    const ref = jobRef(jobId); const snap = await tx.read(ref); const job = await resolveJobStrategy(requireJobDoc(snap), tx);
     if (job.artifactProductionResult && job.artifactProductionDigest === traceDigest) return { outcome: "already_applied" as const };
     assertSelectedProductionAuthority(job, lineage, "drafting");
     const active = job.activeProductionLineage;
@@ -1862,25 +1859,19 @@ export async function finalizeArtifactProduction(
 
 export async function decideStrategy(jobId: string, input: StrategyDecisionInput) {
   const tenant = currentTenant();
-  const actorSubjectId = tenantSubjectId(tenant);
   return db().atomic(async (tx) => {
     const ref = jobRef(jobId);
     const snap = await tx.read(ref);
     const job = requireJobDoc(snap);
+    if (!job.strategyProposalId) throw new Error("strategy proposal is incomplete");
+    const result = await decideStrategyProposal(tx, job.strategyProposalId, input);
+    if (result.replayed) return { ...result, outboxId: undefined };
     if (job.stage !== "awaiting_strategy_approval") throw new Error("strategy is not awaiting approval");
-    if (!job.strategyDigest || !job.strategyRevision) throw new Error("strategy proposal is incomplete");
-    const result = applyStrategyDecision(
-      { revision: job.strategyRevision, strategyDigest: job.strategyDigest,
-        approvalExpiresAt: job.strategyApprovalExpiresAt ?? "1970-01-01T00:00:00.000Z" }, input,
-      actorSubjectId, new Date(),
-    );
     const update: Record<string, unknown> = {
-      strategyApproval: result.approval,
-      strategyApprovalState: result.approval.decision,
       stage: result.nextStage,
       status: result.nextStage === "complete" ? "complete" : "running",
       updatedAt: new Date().toISOString(),
-      [`strategyHistory.v${job.strategyRevision}.approval`]: result.approval,
+      ...(result.strategyRef ? { strategyRef: result.strategyRef } : {}),
     };
     if (result.nextStage === "strategize") {
       update.strategyRevision = result.nextRevision;

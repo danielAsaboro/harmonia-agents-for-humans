@@ -7,7 +7,8 @@ const job = {
   createdByUserId: "u1", createdAt: "2026-08-30T00:00:00Z", updatedAt: "2026-08-30T00:00:00Z",
   config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, strategyDigest: "a".repeat(64), strategyRevision: 1,
   strategyApproval: { decision: "approved", payloadDigest: "a".repeat(64), revision: 1, actorSubjectId: "u1", decidedAt: "2026-08-31T00:00:00Z", expiresAt: "2026-09-01T00:00:00Z" },
-  contentStrategy: { horizonWeeks: 4, channelRoles: [{ channel: "x", operationallySupported: true, formats: ["text_post"] }] },
+  strategyRef: { workspaceId: "w1", brandId: "b1", strategyId: "strategy-1", revision: 8, digest: "a".repeat(64) },
+  contentStrategy: { strategyId: "strategy-1", horizonWeeks: 4, channelRoles: [{ channel: "x", operationallySupported: true, formats: ["text_post"] }] },
 } as Job;
 
 const item = {

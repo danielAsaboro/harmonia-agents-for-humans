@@ -14,7 +14,8 @@ const NEXT_STAGE: Partial<Record<Stage, Stage>> = {
   draft: "awaiting_approval",
 };
 
-export function nextStage(current: Stage): Stage | null {
+export function nextStage(current: Stage, strategyRef?: import("./strategy/contracts").StrategyRef): Stage | null {
+  if (current === "understand" && strategyRef) return "plan";
   return NEXT_STAGE[current] ?? null;
 }
 

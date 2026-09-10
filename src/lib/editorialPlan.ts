@@ -92,7 +92,8 @@ export function assertSelectedProductionAuthority(
     stage: string; editorialPlan?: EditorialPlan; editorialPlanDigest?: string;
     selectedNextItemId?: string;
     strategyDigest?: string; strategyApproval?: { revision: number };
-    strategyHistory?: Record<string, { digest: string; revision: number; strategy: { version: number; briefs: Array<{ id: string }> } }>;
+    strategyRef?: import("./strategy/contracts").StrategyRef;
+    contentStrategy?: { strategyId: string; version: number; briefs: Array<{ id: string }> };
     editorialItemStates?: Record<string, { status: string; updatedAt: string }>;
   },
   authority: ProductionAuthority,
@@ -104,12 +105,12 @@ export function assertSelectedProductionAuthority(
   if (job.editorialPlanDigest !== authority.editorialPlanDigest || editorialPlanDigest(plan) !== authority.editorialPlanDigest) throw new Error("editorial plan digest mismatch");
   if (!job.strategyDigest || plan.approvedStrategyDigest !== job.strategyDigest) throw new Error("editorial plan approved strategy digest mismatch");
   const revision = job.strategyApproval?.revision;
-  const strategyRecord = revision ? job.strategyHistory?.[`v${revision}`] : undefined;
-  if (!strategyRecord || strategyRecord.digest !== job.strategyDigest || strategyRecord.revision !== revision || strategyRecord.strategy.version !== revision) throw new Error("immutable approved strategy history mismatch");
+  const strategy = job.contentStrategy;
+  if (!job.strategyRef || job.strategyRef.digest !== job.strategyDigest || job.strategyRef.strategyId !== strategy?.strategyId || strategy.version !== revision) throw new Error("immutable approved strategy reference mismatch");
   if (job.selectedNextItemId !== authority.editorialItemId || plan.selectedNextItemId !== authority.editorialItemId) throw new Error("selected editorial item mismatch");
   const item = plan.items.find((candidate) => candidate.id === authority.editorialItemId);
   if (!item || item.briefId !== authority.briefId) throw new Error("selected editorial brief mismatch");
-  if (!strategyRecord.strategy.briefs.some((brief) => brief.id === item.briefId)) throw new Error("selected editorial brief missing from immutable strategy history");
+  if (!strategy.briefs.some((brief) => brief.id === item.briefId)) throw new Error("selected editorial brief missing from immutable strategy revision");
   if (job.editorialItemStates?.[authority.editorialItemId]?.status !== expectedStatus) throw new Error(`editorial item lifecycle is not ${expectedStatus}`);
   return item;
 }
@@ -119,6 +120,7 @@ export function assertEditorialPlanSubmission(
     stage: string;
     strategyDigest?: string;
     strategyRevision?: number;
+    strategyRef?: import("./strategy/contracts").StrategyRef;
     contentStrategy?: { strategyId: string; version: number };
     strategyApprovalState?: string;
     strategyApproval?: { decision: string; payloadDigest: string; revision: number };
@@ -131,6 +133,7 @@ export function assertEditorialPlanSubmission(
   revision: number,
 ): void {
   if (job.stage !== "plan") throw new Error(`job stage is '${job.stage}'`);
+  if (!job.strategyRef || job.strategyRef.digest !== job.strategyDigest || job.strategyRef.strategyId !== job.contentStrategy?.strategyId) throw new Error("pinned strategy reference required");
   const expectedRevision = job.editorialPlanRevision ?? 1;
   if (revision !== expectedRevision || plan.version !== revision) throw new Error("stale editorial plan revision");
   if (!job.contentStrategy?.strategyId || job.contentStrategy.version !== job.strategyRevision) throw new Error("persisted strategy identity required");

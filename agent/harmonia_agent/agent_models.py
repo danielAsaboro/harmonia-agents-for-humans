@@ -736,7 +736,16 @@ class EditorialPlanningSnapshot(StrictModel):
         return self
 
 
+class StrategyRef(StrictModel):
+    workspaceId: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
+    brandId: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
+    strategyId: str = Field(min_length=1, max_length=100)
+    revision: int = Field(ge=1, le=9007199254740991)
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class EditorialPlannerInput(StrictModel):
+    strategyRef: StrategyRef
     strategy: ContentStrategy
     strategyDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
     strategyVersion: int = Field(ge=1, le=2)
@@ -746,6 +755,12 @@ class EditorialPlannerInput(StrictModel):
     planningSnapshotDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
     revision: int = Field(ge=1, le=2)
     replanningFeedback: str | None = Field(default=None, max_length=2_000)
+
+    @model_validator(mode="after")
+    def validate_strategy_reference(self) -> "EditorialPlannerInput":
+        if self.strategyRef.digest != self.strategyDigest or self.strategyRef.strategyId != self.strategy.strategyId:
+            raise ValueError("strategy reference binding mismatch")
+        return self
 
     @property
     def horizonStartAt(self) -> datetime: return self.planningSnapshot.horizonStartAt

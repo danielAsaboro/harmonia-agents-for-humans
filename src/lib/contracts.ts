@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { strategyRefSchema } from "./strategy/contracts";
 
 export const sourceInputSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("youtube"), url: z.string().url(), rightsAuthorizationId: z.string().min(1) }).strict(),
@@ -451,6 +452,7 @@ export const editorialPlanningSnapshotSchema = z.object({
 );
 
 export const editorialPlannerInputSchema = z.object({
+  strategyRef: strategyRefSchema,
   strategy: contentStrategySchema,
   strategyDigest: z.string().regex(/^[0-9a-f]{64}$/),
   strategyVersion: z.number().int().min(1).max(2),
@@ -460,7 +462,7 @@ export const editorialPlannerInputSchema = z.object({
   planningSnapshotDigest: z.string().regex(/^[0-9a-f]{64}$/),
   revision: z.number().int().min(1).max(2),
   replanningFeedback: z.string().max(2000).optional(),
-}).strict();
+}).strict().refine((input) => input.strategyRef.digest === input.strategyDigest && input.strategyRef.strategyId === input.strategy.strategyId, "strategy reference binding mismatch");
 
 export const editorialPlanItemSchema = z.object({
   id: z.string().min(1).max(100), briefId: z.string().min(1).max(100),

@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { TransitionError, assertTransition, isKnownStage, nextStage } from "@/lib/stages";
 
 describe("stage pipeline", () => {
+  it("routes jobs with pinned strategy directly from understanding to planning", () => {
+    expect(nextStage("understand", { workspaceId: "w", brandId: "b", strategyId: "s", revision: 31, digest: "a".repeat(64) })).toBe("plan");
+  });
   it("walks the linear pipeline", () => {
     const path: string[] = [];
     let stage: string | null = "collect_sources";

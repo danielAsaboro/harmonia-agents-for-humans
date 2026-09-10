@@ -11,6 +11,7 @@ export function buildEditorialPlanningSnapshot(
   const strategy = job.contentStrategy;
   const approval = job.strategyApproval;
   const revision = job.editorialPlanRevision ?? 1;
+  if (!job.strategyRef || job.strategyRef.digest !== job.strategyDigest || job.strategyRef.strategyId !== strategy?.strategyId) throw new Error("pinned strategy reference required for editorial planning snapshot");
   if (!strategy || !job.strategyDigest || approval?.decision !== "approved") {
     throw new Error("approved strategy required for editorial planning snapshot");
   }

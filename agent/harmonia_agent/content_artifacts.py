@@ -4,7 +4,7 @@ import hashlib
 import json
 from typing import Annotated, Literal
 from pydantic import Field, field_validator, model_validator
-from .agent_models import StrictModel
+from .agent_models import StrictModel, StrategyRef
 
 
 class Section(StrictModel):
@@ -401,6 +401,7 @@ def assemble_content_pack_draft(
 
 
 class ArtifactProductionInput(StrictModel):
+    strategyRef: StrategyRef
     operatorBrief: str | None = Field(default=None, min_length=1, max_length=2000)
     outputPlanId: str = Field(min_length=1)
     outputPlanDigest: str = Field(pattern=r"^[0-9a-f]{64}$")

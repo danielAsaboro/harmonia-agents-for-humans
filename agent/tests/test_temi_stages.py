@@ -20,6 +20,7 @@ from tests.test_noni_contracts import editorial_checks
 def approved_job() -> dict:
     source = ryan_job()
     source.update({
+        "strategyRef": {"workspaceId": source["workspaceId"], "brandId": source["brandId"], "strategyId": strategy().strategyId, "revision": 8, "digest": "a" * 64},
         "stage": "plan", "contentStrategy": strategy().model_dump(mode="json"),
         "strategyDigest": "a" * 64, "strategyRevision": 1,
         "strategyApprovalState": "approved",
@@ -50,10 +51,6 @@ def drafting_job() -> dict:
                          "updatedAt": "2026-08-30T00:00:00Z"}
             for item in persisted_plan["items"]
         },
-        "strategyHistory": {"v1": {
-            "strategy": deepcopy(source["contentStrategy"]), "digest": source["strategyDigest"],
-            "revision": 1,
-        }},
     })
     return source
 

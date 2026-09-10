@@ -574,6 +574,7 @@ async def run_plan(job_id: str) -> None:
     if not isinstance(snapshot, dict) or not isinstance(snapshot_digest, str):
         raise AgentProtocolError("persisted editorial planning snapshot required before Temi")
     planner_input = EditorialPlannerInput.model_validate({
+        "strategyRef": job.get("strategyRef"),
         "strategy": strategy,
         "strategyDigest": digest,
         "strategyVersion": strategy["version"],
@@ -583,6 +584,8 @@ async def run_plan(job_id: str) -> None:
         "planningSnapshotDigest": snapshot_digest,
         "revision": revision,
     })
+    if planner_input.strategyRef.workspaceId != job["workspaceId"] or planner_input.strategyRef.brandId != job["brandId"]:
+        raise AgentProtocolError("strategy reference tenant mismatch")
     result = await plan_with_team(planner_input, invocation=InvocationContext(
         job_id=job_id, workspace_id=job["workspaceId"], brand_id=job["brandId"],
         user_id=job["createdByUserId"], stage="plan",
@@ -624,14 +627,16 @@ async def run_draft(job_id: str) -> None:
         raise AgentProtocolError("selected editorial item is not eligible for drafting")
     selected = next((item for item in editorial_plan.items if item.id == selected_id), None)
     approval_revision = approval.get("revision")
-    strategy_record = (job.get("strategyHistory") or {}).get(f"v{approval_revision}") or {}
-    strategy = strategy_record.get("strategy") or {}
+    strategy_ref = job.get("strategyRef") or {}
+    strategy = job.get("contentStrategy") or {}
     if (
-        strategy_record.get("digest") != job.get("strategyDigest")
-        or strategy_record.get("revision") != approval_revision
+        strategy_ref.get("digest") != job.get("strategyDigest")
+        or strategy_ref.get("strategyId") != strategy.get("strategyId")
+        or strategy_ref.get("workspaceId") != job.get("workspaceId")
+        or strategy_ref.get("brandId") != job.get("brandId")
         or strategy.get("version") != approval_revision
     ):
-        raise AgentProtocolError("immutable approved strategy history required before Noni")
+        raise AgentProtocolError("immutable approved strategy reference required before Noni")
     brief = next((item for item in strategy.get("briefs", []) if item.get("id") == selected.briefId), None) if selected else None
     if selected is None or brief is None:
         raise AgentProtocolError("selected editorial item has no exact approved brief")
@@ -668,6 +673,7 @@ async def run_draft(job_id: str) -> None:
         missing = [ref for ref in required_refs if ref not in evidence_by_id]
         if missing: raise AgentProtocolError(f"artifact output plan references unknown normalized evidence: {missing}")
         production_input = ArtifactProductionInput.model_validate({
+            "strategyRef": strategy_ref,
             "operatorBrief": (job.get("config") or {}).get("operatorBrief"),
             "outputPlanId": output_plan["id"], "outputPlanDigest": output_plan["digest"],
             "requests": [{"id": item["id"], "outputType": item["outputType"], "evidenceRefs": item["evidenceRefs"]} for item in requested],

@@ -1,0 +1,33 @@
+import { z } from "zod";
+import type { ContentStrategy, StrategyApproval, StrategyInvocationContext } from "../types";
+
+export const strategyRefSchema = z.object({
+  workspaceId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+  brandId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+  strategyId: z.string().min(1).max(100),
+  revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  digest: z.string().regex(/^[0-9a-f]{64}$/),
+}).strict();
+
+/** Lifetime approved revision; unrelated to the bounded proposal attempt. */
+export type StrategyRef = z.infer<typeof strategyRefSchema>;
+export interface ApprovedStrategyRevision {
+  workspaceId: string;
+  brandId: string;
+  ref: StrategyRef;
+  proposalId: string;
+  jobId: string;
+  strategy: ContentStrategy;
+  approval: StrategyApproval & { decision: "approved" };
+  evidenceLineage: string[];
+  invocationContext: StrategyInvocationContext;
+}
+export interface StrategyProposal {
+  id: string; workspaceId: string; brandId: string; jobId: string;
+  attempt: number; expectedActiveRevision: number;
+  strategy: ContentStrategy; digest: string;
+  evidenceLineage: string[]; invocationContext: StrategyInvocationContext;
+  proposedAt: string; expiresAt: string;
+  approval?: StrategyApproval;
+  strategyRef?: StrategyRef;
+}

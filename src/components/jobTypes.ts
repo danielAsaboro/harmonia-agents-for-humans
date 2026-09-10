@@ -21,6 +21,8 @@ export interface JobFull extends JobSummary {
   contentStrategy?: ContentStrategy;
   strategyDigest?: string;
   strategyRevision?: number;
+  strategyRef?: import("@/lib/strategy/contracts").StrategyRef;
+  strategyExpectedActiveRevision?: number;
   strategyApprovalState?: "pending" | "approved" | "rejected";
   strategyApproval?: StrategyApproval;
   strategyApprovalExpiresAt?: string;

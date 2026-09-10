@@ -74,9 +74,9 @@ export function ApprovalDock({ job, jobId, actions, verifications, receipts, cla
   const proofOnly = decisionCount === 0 && replayable.length > 0 && !protocolError;
 
   async function decideStrategy(decision: "approved" | "rejected") {
-    if (!job?.strategyDigest) return;
+    if (!job?.strategyDigest || job.strategyExpectedActiveRevision === undefined) return;
     if (decision === "rejected" && !strategyFeedback.trim()) { setActionError("Strategy rejection requires feedback."); return; }
-    const response = await fetch(`/api/jobs/${jobId}/strategy/decision`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision, payloadDigest: job.strategyDigest, ...(decision === "rejected" ? { feedback: strategyFeedback.trim() } : {}) }) });
+    const response = await fetch(`/api/jobs/${jobId}/strategy/decision`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision, payloadDigest: job.strategyDigest, expectedActiveRevision: job.strategyExpectedActiveRevision, ...(decision === "rejected" ? { feedback: strategyFeedback.trim() } : {}) }) });
     const body = await response.json();
     if (!response.ok) { setActionError(body.error ?? "Strategy decision failed"); return; }
     window.location.reload();

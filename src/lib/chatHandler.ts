@@ -89,7 +89,7 @@ export interface ChatResponse {
 
 type FullJob = Awaited<ReturnType<typeof getJob>>;
 type AnyJob = Pick<Job, "id" | "stage" | "status" | "sourceAnalysis" | "failure">;
-type ApprovalJob = Pick<FullJob, "id" | "stage" | "status" | "sourceAnalysis" | "failure" | "actions" | "contentStrategy" | "strategyDigest" | "strategyApprovalState">;
+type ApprovalJob = Pick<FullJob, "id" | "stage" | "status" | "sourceAnalysis" | "failure" | "actions" | "contentStrategy" | "strategyDigest" | "strategyApprovalState" | "strategyExpectedActiveRevision">;
 
 function toCard(job: AnyJob): JobCard {
   return {
@@ -136,7 +136,7 @@ export async function buildApprovalConfirmation(
     const operation = await createOperation({
       handler: "decide_strategy", title: `Decide: ${summary.title}`,
       description: job.contentStrategy!.thesis, risk: "material",
-      arguments: { jobId: job.id, actionId: "strategy", payloadDigest: job.strategyDigest },
+      arguments: { jobId: job.id, actionId: "strategy", payloadDigest: job.strategyDigest, expectedActiveRevision: job.strategyExpectedActiveRevision },
     }) as Pick<PendingOperation, "id">;
     return {
       intent: "approve", reply: `Review Ryan's strategy for job ${job.id}, then use the explicit confirmation control.`,

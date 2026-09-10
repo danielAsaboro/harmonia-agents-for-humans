@@ -31,6 +31,7 @@ const plan = {
 };
 
 const job = {
+  strategyRef: { workspaceId: "w", brandId: "b", strategyId: "strategy-job-1-v1", revision: 8, digest: "a".repeat(64) },
   stage: "plan", strategyDigest: "a".repeat(64), strategyRevision: 1,
   contentStrategy: { strategyId: "strategy-job-1-v1", version: 1 },
   strategyApprovalState: "approved", strategyApproval: { decision: "approved", payloadDigest: "a".repeat(64), revision: 1 },
@@ -39,6 +40,9 @@ const job = {
 };
 
 describe("editorial plan persistence boundary", () => {
+  it("requires a pinned StrategyRef even when job-local approval fields claim approval", () => {
+    expect(() => assertEditorialPlanSubmission({ ...job, strategyRef: undefined }, plan, 1)).toThrow("pinned strategy");
+  });
   it("digests canonical plan JSON independent of object key order", () => {
     expect(editorialPlanDigest({ b: 2, a: 1 })).toBe(editorialPlanDigest({ a: 1, b: 2 }));
     expect(editorialPlanDigest(plan)).toMatch(/^[0-9a-f]{64}$/);
@@ -71,7 +75,7 @@ describe("editorial plan persistence boundary", () => {
     expect(() => assertEditorialPlanSubmission(job, { ...plan, approvedStrategyDigest: "b".repeat(64) }, 1)).toThrow("strategy digest");
     expect(() => assertEditorialPlanSubmission(job, plan, 2)).toThrow("stale editorial plan revision");
     expect(() => assertEditorialPlanSubmission({ ...job, stage: "draft" }, plan, 1)).toThrow("job stage");
-    expect(() => assertEditorialPlanSubmission({ ...job, contentStrategy: undefined }, plan, 1)).toThrow("persisted strategy identity");
+    expect(() => assertEditorialPlanSubmission({ ...job, contentStrategy: undefined }, plan, 1)).toThrow("pinned strategy");
   });
 
   it("rejects replay and requires an eligible planned selected item", () => {
@@ -107,12 +111,12 @@ describe("selected production authority", () => {
     const authority = { editorialPlanId: plan.planId, editorialPlanDigest: editorialPlanDigest(plan), editorialItemId: item.id, briefId: item.briefId };
     const productionJob = { stage: "draft", editorialPlan: plan, editorialPlanDigest: authority.editorialPlanDigest, selectedNextItemId: item.id,
       strategyDigest: "a".repeat(64), strategyApproval: { revision: 1 },
-      strategyHistory: { v1: { digest: "a".repeat(64), revision: 1, strategy: { version: 1, briefs: [{ id: item.briefId }] } } },
+      strategyRef: job.strategyRef, contentStrategy: { ...job.contentStrategy, briefs: [{ id: item.briefId }] },
       editorialItemStates: { [item.id]: { status: "selected", updatedAt: "2026-08-30T00:00:00Z" } } };
     expect(assertSelectedProductionAuthority(productionJob, authority, "selected").id).toBe(item.id);
     expect(() => assertSelectedProductionAuthority({ ...productionJob, editorialPlanDigest: "b".repeat(64) }, authority, "selected")).toThrow("digest");
     expect(() => assertSelectedProductionAuthority(productionJob, { ...authority, briefId: "other" }, "selected")).toThrow("brief");
-    expect(() => assertSelectedProductionAuthority({ ...productionJob, strategyHistory: {} }, authority, "selected")).toThrow("strategy history");
+    expect(() => assertSelectedProductionAuthority({ ...productionJob, strategyRef: undefined }, authority, "selected")).toThrow("strategy reference");
     expect(() => assertSelectedProductionAuthority({ ...productionJob, editorialItemStates: { [item.id]: { status: "planned", updatedAt: "x" } } }, authority, "selected")).toThrow("lifecycle");
   });
   it("resumes only the exact already-claimed drafting lineage", () => {

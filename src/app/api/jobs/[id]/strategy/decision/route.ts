@@ -6,6 +6,7 @@ import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";
 const schema = z.object({
   decision: z.enum(["approved", "rejected"]),
   payloadDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  expectedActiveRevision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   feedback: z.string().min(1).max(2000).optional(),
 }).strict();
 

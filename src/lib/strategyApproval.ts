@@ -56,8 +56,9 @@ export function validatePersistedStrategy(job: { config: JobConfig; sourceAnalys
   const invocation = job.strategyInvocationContext;
   if (!invocation || invocation.revision !== strategy.version) throw new Error("persisted strategy invocation context required");
   if (strategy.horizonWeeks !== (context.horizonWeeks ?? 4)) throw new Error("strategy horizon mismatch");
-  if (!job.sourceAnalysis) throw new Error("persisted source analysis required");
-  const sourceIds = new Set(strategySourceEvidenceIds(job.sourceAnalysis));
+  const textOnly = job.config.intake && !job.config.sourceManifestId && Boolean(job.config.operatorBrief);
+  if (!job.sourceAnalysis && !textOnly) throw new Error("persisted source analysis required");
+  const sourceIds = new Set(job.sourceAnalysis ? strategySourceEvidenceIds(job.sourceAnalysis) : []);
   const audienceIds = new Set(context.audiences.map((item) => item.id));
   const requested = new Set(context.requestedChannels);
   const supported = new Set(context.supportedChannels);
@@ -79,7 +80,8 @@ export function validatePersistedStrategy(job: { config: JobConfig; sourceAnalys
   }
   for (const brief of strategy.briefs) {
     if (!audienceIds.has(brief.audienceId)) throw new Error(`unknown strategy audience: ${brief.audienceId}`);
-    if (!brief.evidenceRefs.some((ref) => sourceIds.has(ref))) throw new Error(`brief ${brief.id} lacks source evidence`);
+    const briefEvidence = textOnly ? new Set(invocation.operatorContextIds) : sourceIds;
+    if (!brief.evidenceRefs.some((ref) => briefEvidence.has(ref))) throw new Error(`brief ${brief.id} lacks ${textOnly ? "operator context" : "source evidence"}`);
     if (brief.channelCandidates.some((channel) => !requested.has(channel))) throw new Error(`brief ${brief.id} has unrequested channel`);
   }
 }

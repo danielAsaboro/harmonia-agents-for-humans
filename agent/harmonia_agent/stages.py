@@ -458,11 +458,14 @@ def _strategy_input(job: dict[str, Any], insights: dict[str, Any]) -> Strategist
     context = (job.get("config") or {}).get("strategyContext")
     if not isinstance(context, dict):
         raise AgentProtocolError("job requires typed strategyContext")
-    analysis = SourceAnalysis.model_validate(job.get("sourceAnalysis"))
+    text_only = bool((job.get("config") or {}).get("intake")) and not (job.get("config") or {}).get("sourceManifestId")
+    analysis = SourceAnalysis.model_validate(job["sourceAnalysis"]) if job.get("sourceAnalysis") else None
+    if analysis is None and not text_only:
+        raise AgentProtocolError("persisted source analysis required")
     performance = _performance_observations_for_ryan(insights)
     revision = int(job.get("strategyRevision") or 1)
     return StrategistInput(
-        source_title=str((job.get("sourceAnalysis") or {}).get("summary") or f"Source bundle {(job.get('config') or {}).get('sourceManifestId', '')[:12]}")[:300],
+        source_title=str((job.get("sourceAnalysis") or {}).get("summary") or ("Operator strategy brief" if text_only else f"Source bundle {(job.get('config') or {}).get('sourceManifestId', '')[:12]}"))[:300],
         company=CompanyContext(
             evidenceId="context:company",
             **{key: context[key] for key in ("company", "product", "positioning", "differentiators", "brandVoice", "exclusions", "safetyConstraints")},
@@ -500,7 +503,7 @@ async def run_strategize(job_id: str) -> None:
             *[ref for item in prepared.analysis.moments for ref in item.sourceSegmentRefs],
             *[item.id for item in prepared.analysis.angles],
             *[ref for item in prepared.analysis.angles for ref in item.evidenceRefs],
-        }),
+        }) if prepared.analysis else [],
         "operatorContextIds": [prepared.company.evidenceId, prepared.campaign.evidenceId],
         "performance": [{"id": item.id, "durableEvidenceRef": item.durableEvidenceRef} for item in prepared.performance],
         "memoryFacts": [{"id": item.id, "durableEvidenceRef": item.durableEvidenceRef} for item in prepared.memoryFacts],

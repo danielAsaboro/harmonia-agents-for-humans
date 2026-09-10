@@ -90,7 +90,7 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
       out = out.filter(
         (j) =>
           j.id.toLowerCase().includes(needle) ||
-          j.config.sourceManifestId.toLowerCase().includes(needle) ||
+          j.config.sourceManifestId?.toLowerCase().includes(needle) ||
           j.config.desiredOutputs.some((output) => output.includes(needle)),
       );
     }
@@ -156,7 +156,7 @@ export default function JobsTableView({ onOpenJob }: { onOpenJob?: (id: string) 
               >
                 <td className="px-3 py-2 font-mono">{j.id.slice(0, 16)}</td>
                 <td className="max-w-[220px] truncate px-3 py-2">
-                  {j.sourceAnalysis?.summary ?? `Bundle ${j.config.sourceManifestId.slice(0, 12)}`}
+                  {j.sourceAnalysis?.summary ?? `Bundle ${(j.config.sourceManifestId?.slice(0, 12) ?? "strategy")}`}
                 </td>
                 <td className="px-3 py-2 capitalize">{j.stage.replace("_", " ")}</td>
                 <td className="px-3 py-2">

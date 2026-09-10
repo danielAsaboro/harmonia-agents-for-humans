@@ -4,9 +4,10 @@ import { chatScopeKey, retentionPlan } from "@/lib/chatHistory";
 
 describe("scoped chat history", () => {
   it("binds history to authenticated user, interface, and conversation", () => {
-    expect(chatScopeKey("user-1", "dashboard", "conversation-1")).toBe("user-1:dashboard:conversation-1");
-    expect(chatScopeKey("user-2", "dashboard", "conversation-1")).not.toBe(chatScopeKey("user-1", "dashboard", "conversation-1"));
-    expect(() => chatScopeKey("user-1", "dashboard", "../escape")).toThrow("conversationId");
+    expect(chatScopeKey("user-1", "dashboard", "conversation-1", "brand-a")).toBe("brand-a:user-1:dashboard:conversation-1");
+    expect(chatScopeKey("user-2", "dashboard", "conversation-1", "brand-a")).not.toBe(chatScopeKey("user-1", "dashboard", "conversation-1", "brand-a"));
+    expect(chatScopeKey("user-1", "dashboard", "conversation-1", "brand-b")).not.toBe(chatScopeKey("user-1", "dashboard", "conversation-1", "brand-a"));
+    expect(() => chatScopeKey("user-1", "dashboard", "../escape", "brand-a")).toThrow("conversationId");
   });
 
   it("prunes oldest turns and produces metadata-only summary boundaries", () => {

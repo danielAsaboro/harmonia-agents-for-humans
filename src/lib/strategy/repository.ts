@@ -36,18 +36,19 @@ export async function readStrategyRevision(ref: StrategyRef, reader: StrategyRea
   return record;
 }
 
-export async function getActiveStrategy(): Promise<ApprovedStrategyRevision | null> {
-  const ref = await readActiveStrategyRef();
-  return ref ? readStrategyRevision(ref) : null;
+export async function getActiveStrategy(reader: StrategyReader = awsRepository()): Promise<ApprovedStrategyRevision | null> {
+  const ref = await readActiveStrategyRef(reader);
+  return ref ? readStrategyRevision(ref, reader) : null;
 }
 
-export async function insertStrategyProposal(tx: DynamoTransaction, input: Omit<StrategyProposal, "id" | "workspaceId" | "brandId" | "expectedActiveRevision" | "approval" | "strategyRef">): Promise<StrategyProposal> {
+export async function insertStrategyProposal(tx: DynamoTransaction, input: Omit<StrategyProposal, "id" | "workspaceId" | "brandId" | "expectedActiveRevision" | "baseStrategyRef" | "approval" | "strategyRef">, expectedBase?: StrategyRef | null): Promise<StrategyProposal> {
   const strategy = contentStrategySchema.parse(input.strategy);
   if (strategyDigest(strategy) !== input.digest) throw new Error("strategy payload changed");
   if (![1, 2].includes(input.attempt) || strategy.version !== input.attempt) throw new Error("invalid strategy proposal attempt");
   const active = await readActiveStrategyRef(tx);
+  if (expectedBase !== undefined && strategyDigest(expectedBase) !== strategyDigest(active)) throw new Error("strategy base changed before proposal");
   const tenant = currentTenant();
-  const proposal: StrategyProposal = { ...input, strategy, id: `${input.jobId}-${input.attempt}`, workspaceId: tenant.workspaceId, brandId: tenant.brandId, expectedActiveRevision: active?.revision ?? 0 };
+  const proposal: StrategyProposal = { ...input, strategy, id: `${input.jobId}-${input.attempt}`, workspaceId: tenant.workspaceId, brandId: tenant.brandId, expectedActiveRevision: active?.revision ?? 0, baseStrategyRef: active };
   tx.insert(proposalKey(proposal.id), proposal);
   return proposal;
 }
@@ -76,6 +77,7 @@ export async function decideStrategyProposal(tx: DynamoTransaction, id: string, 
   if (result.approval.decision === "approved") {
     const active = await readActiveStrategyRef(tx);
     if ((active?.revision ?? 0) !== input.expectedActiveRevision) throw new Error("stale active strategy revision");
+    if (strategyDigest(active) !== strategyDigest(proposal.baseStrategyRef)) throw new Error("strategy base changed before approval");
     strategyRef = strategyRefSchema.parse({ workspaceId: proposal.workspaceId, brandId: proposal.brandId, strategyId: proposal.strategy.strategyId, revision: proposal.expectedActiveRevision + 1, digest: proposal.digest });
     const revision: ApprovedStrategyRevision = { workspaceId: proposal.workspaceId, brandId: proposal.brandId, ref: strategyRef, proposalId: proposal.id, jobId: proposal.jobId, strategy: proposal.strategy, approval: { ...result.approval, decision: "approved" }, evidenceLineage: proposal.evidenceLineage, invocationContext: proposal.invocationContext };
     tx.insert(revisionKey(strategyRef.revision), revision);

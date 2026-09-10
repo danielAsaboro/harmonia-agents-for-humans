@@ -12,16 +12,15 @@ import {
 } from "@/lib/repository";
 import { currentTenant } from "@/lib/tenancy";
 import { parseIntent } from "@/lib/chatIntent";
-import { queueStageTrigger } from "@/lib/stageTrigger";
-import type { Job, PlannedAction, SourceInput, Stage } from "@/lib/types";
+import type { Job, PlannedAction, Stage } from "@/lib/types";
 import type { ContentArtifact } from "@/lib/contentArtifacts/contracts";
 import { requireReadyAttachments, type ChatAttachment } from "@/lib/chatAttachments";
 import { actionPayloadDigest } from "@/lib/idempotency";
 import { createPendingOperation, type PendingOperation } from "@/lib/pendingOperations";
-import { hasRightsAttestation, RIGHTS_ATTESTATION_PHRASE, sourceRightsAuthorization, persistSourceRightsAuthorization } from "@/lib/sourceRights";
-import { createSourceJob } from "@/lib/sourceManifest";
-import { latestHealthySnapshot, listLibraryConnections } from "@/lib/brandLibraries/repository";
-import { outputKindSchema } from "@/lib/contracts";
+import { hasRightsAttestation, RIGHTS_ATTESTATION_PHRASE } from "@/lib/sourceRights";
+import { executeIntakeDraft, intakeReply, submitIntakeTurn } from "@/lib/intake/commands";
+import { pendingIntakeDraft, replayIntakeTurn } from "@/lib/intake/repository";
+import type { IntakeAdvice, IntakeDraft } from "@/lib/intake/contracts";
 import { getProductionPlanWorkspaceForJob, proposeProductionPlan, requestProductionRerender, type ProductionPlanAggregate, type ProductionPlanWorkspaceView, type ProductionRerenderRequest } from "@/lib/productionPlanStore";
 import { authorProductionPlan } from "@/lib/productionPlanAuthor";
 import type { VideoProductionPlan } from "@/lib/mediaProduction";
@@ -72,6 +71,7 @@ export interface ChatAttachmentSummary {
 }
 
 export interface ChatResponse {
+  intakeDraft?: IntakeDraft;
   intent: string;
   reply: string;
   job?: JobCard;
@@ -360,7 +360,7 @@ export async function handleChat(req: Request, options: { chatRunId?: string } =
           previewUrl: `/api/chat/attachments/${attachment.id}`,
         })),
       } : undefined,
-    });
+    }, requestId);
     await saveChatMessage({
       surface,
       conversationId,
@@ -370,7 +370,7 @@ export async function handleChat(req: Request, options: { chatRunId?: string } =
         ...payload,
         ...(options.chatRunId ? { chatRunId: options.chatRunId } : {}),
       })) as Record<string, unknown>,
-    });
+    }, requestId);
   } catch (e) {
     console.error("chat history persistence failed:", e);
   }
@@ -417,112 +417,57 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
     } satisfies ChatResponse as ChatResponse };
   }
 
-  let intent;
-  let history: Awaited<ReturnType<typeof listChatMessages>> = [];
-  let effectiveMessage = message;
-  let effectiveAttachments = attachments;
-  const rightsAttested = hasRightsAttestation(message);
-  try {
-    const attachmentContext = attachments.length
-      ? `\n\nAttached files: ${attachments.map((attachment) => `${attachment.filename} (${attachment.mime})`).join(", ")}`
-      : "";
-    history = await listChatMessages(8, surface, conversationId);
-    const recentConversation = history
-      .filter((turn): turn is typeof turn & { role: "user" | "assistant" } => turn.role === "user" || turn.role === "assistant")
-      .map((turn) => ({ role: turn.role, text: turn.text }));
-    intent = await parseIntent(`${message}${attachmentContext}`, attachments.length, recentConversation);
-  } catch (e) {
-    return { __http: Response.json(
-      { error: `intent parsing failed: ${e instanceof Error ? e.message : String(e)}` },
-      { status: 502 },
-    ) };
-  }
-
-  if (rightsAttested && attachments.length === 0) {
-    const priorSourceTurn = [...history].reverse().find((turn) => {
-      if (turn.role !== "user" || !turn.data || typeof turn.data !== "object") return false;
-      const summaries = (turn.data as { attachments?: unknown }).attachments;
-      return Array.isArray(summaries) && summaries.some((summary) => summary && typeof summary === "object" && typeof (summary as { attachmentId?: unknown }).attachmentId === "string");
-    });
-    const attachmentIds = priorSourceTurn && Array.isArray((priorSourceTurn.data as { attachments?: unknown }).attachments)
-      ? (priorSourceTurn.data as { attachments: unknown[] }).attachments.flatMap((summary) => summary && typeof summary === "object" && typeof (summary as { attachmentId?: unknown }).attachmentId === "string" ? [(summary as { attachmentId: string }).attachmentId] : [])
-      : [];
-    if (priorSourceTurn && attachmentIds.length > 0) {
-      try {
-        effectiveAttachments = await requireReadyAttachments(attachmentIds);
-        effectiveMessage = priorSourceTurn.text;
-        const attachmentContext = `\n\nAttached files: ${effectiveAttachments.map((attachment) => `${attachment.filename} (${attachment.mime})`).join(", ")}`;
-        const recentConversation = history
-          .filter((turn): turn is typeof turn & { role: "user" | "assistant" } => turn.role === "user" || turn.role === "assistant")
-          .map((turn) => ({ role: turn.role, text: turn.text }));
-        intent = await parseIntent(`${effectiveMessage}${attachmentContext}`, effectiveAttachments.length, recentConversation);
-      } catch (error) {
-        return { __http: Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 409 }) };
-      }
+  if (requestId) {
+    const replay = await replayIntakeTurn({ surface, conversationId, requestId, message, attachmentIds: attachments.map(attachment => attachment.id) });
+    if (replay) {
+      const draft = await executeIntakeDraft(replay);
+      const job = draft.jobId ? await getJob(draft.jobId) : null;
+      return { payload: { intent: draft.action, reply: intakeReply(draft), intakeDraft: draft, ...(job ? { jobId: job.id, job: toCard(job) } : {}) } };
     }
   }
-
-  if (intent.needsClarification && intent.clarifyingQuestion) {
-    return { payload: { intent: intent.intent, reply: `${intent.clarifyingQuestion}${connectionGuidance(intent.connectionSuggestions)}` } satisfies ChatResponse };
+  let intent;
+  const latestDraft = await pendingIntakeDraft(surface, conversationId);
+  const pending = latestDraft?.state === "clarifying" || latestDraft?.state === "ready" ? latestDraft : null;
+  try {
+    if (pending?.state === "clarifying" && message.trim().replace(/[.!]$/, "").toLocaleLowerCase() === RIGHTS_ATTESTATION_PHRASE.toLocaleLowerCase()) {
+      intent = { intent: pending.action, workPlacement: pending.disposition, userOutcome: pending.expectedOutcome, desiredOutputs: pending.requestedOutputs, sources: [], targetName: pending.targetName, strategyContext: pending.strategyContext };
+    } else {
+      const history = await listChatMessages(8, surface, conversationId);
+      const recentConversation = pending
+        ? pending.answers.slice(-8).map(turn => ({ role: "user" as const, text: turn.message }))
+        : history.filter((turn): turn is typeof turn & { role: "user" | "assistant" } => turn.role === "user" || turn.role === "assistant").map(turn => ({ role: turn.role, text: turn.text }));
+      if (pending?.question) recentConversation.push({ role: "assistant", text: pending.question });
+      intent = await parseIntent(message, attachments.length || pending?.sourceHandles.filter(source => source.kind === "upload").length || 0, recentConversation.slice(-8));
+    }
+  } catch (e) {
+    return { __http: Response.json({ error: `intent parsing failed: ${e instanceof Error ? e.message : String(e)}` }, { status: 502 }) };
   }
 
-  if (["establish_strategy", "revise_strategy"].includes(intent.intent) && ((intent.sources?.length ?? 0) > 0 || effectiveAttachments.length > 0)) {
-    intent = { ...intent, intent: "create_job" };
+  if (["create_job", "establish_strategy", "revise_strategy", "advance_plan"].includes(intent.intent)
+      || intent.workPlacement === "knowledge_only"
+      || ((pending?.state === "clarifying" || pending?.state === "ready") && hasRightsAttestation(message))) {
+    if (!requestId) return { __http: Response.json({ error: "durable intake requestId is required" }, { status: 400 }) };
+    const action = ["create_job", "establish_strategy", "revise_strategy", "advance_plan"].includes(intent.intent)
+      ? intent.intent as IntakeAdvice["action"] : pending?.action ?? "create_job";
+    const sourceHandles: IntakeAdvice["sourceHandles"] = [
+      ...(intent.sources ?? []).flatMap(source => source.kind === "web" || source.kind === "youtube" ? [source] : []),
+      ...attachments.map(attachment => ({ kind: "upload" as const, attachmentId: attachment.id })),
+    ];
+    let draft = await submitIntakeTurn({ requestId, conversationId, surface, message, advice: {
+      action, disposition: intent.workPlacement ?? pending?.disposition ?? "independent",
+      expectedOutcome: intent.userOutcome ?? pending?.expectedOutcome ?? "",
+      requestedOutputs: intent.desiredOutputs ?? [], sourceHandles,
+      ...(intent.targetName ? { targetName: intent.targetName } : {}),
+      ...(intent.strategyContext ? { strategyContext: intent.strategyContext } : {}),
+    } });
+    draft = await executeIntakeDraft(draft);
+    const job = draft.jobId ? await getJob(draft.jobId) : null;
+    return { payload: { intent: action, reply: `${intakeReply(draft)}${connectionGuidance(intent.connectionSuggestions)}`, intakeDraft: draft,
+      ...(job ? { jobId: job.id, job: toCard(job) } : {}) } satisfies ChatResponse };
   }
+  if (intent.needsClarification && intent.clarifyingQuestion) return { payload: { intent: intent.intent, reply: intent.clarifyingQuestion } };
 
   switch (intent.intent) {
-    case "create_job": {
-      const descriptors = [...(intent.sources ?? [])];
-      if (descriptors.length === 0 && effectiveAttachments.length === 0) {
-        descriptors.push({ kind: "pasted_text", title: "Operator brief", text: intent.userOutcome ?? effectiveMessage });
-      }
-      const needsRightsAttestation = intent.requiresRightsAttestation || effectiveAttachments.length > 0 || descriptors.some((source) => source.kind === "youtube");
-      if (needsRightsAttestation && !rightsAttested) return { payload: { intent: intent.intent, reply: `Before processing uploaded or YouTube media, send the request again with: “${RIGHTS_ATTESTATION_PHRASE}”.` } satisfies ChatResponse };
-      const directSources: SourceInput[] = [];
-      for (const attachment of effectiveAttachments) {
-        const authorization = sourceRightsAuthorization(currentTenant(), "upload");
-        directSources.push({ kind: "upload", attachmentId: attachment.id, rightsAuthorizationId: await persistSourceRightsAuthorization(authorization) });
-      }
-      for (const source of descriptors) {
-        const authorization = sourceRightsAuthorization(currentTenant(), source.kind);
-        const rightsAuthorizationId = await persistSourceRightsAuthorization(authorization);
-        if (source.kind === "pasted_text") directSources.push({ ...source, rightsAuthorizationId });
-        else directSources.push({ ...source, rightsAuthorizationId });
-      }
-      let librarySnapshotId: string | undefined;
-      if (intent.libraryName) {
-        const libraries = await listLibraryConnections();
-        const library = libraries.find((candidate) => candidate.name.toLocaleLowerCase() === intent.libraryName!.toLocaleLowerCase());
-        if (!library) return { payload: { intent: intent.intent, reply: `No connected brand library is named “${intent.libraryName}”. Select an existing library in Settings first.` } satisfies ChatResponse };
-        const snapshot = await latestHealthySnapshot(library.id);
-        if (!snapshot) return { payload: { intent: intent.intent, reply: `Brand library “${library.name}” has no healthy synchronized snapshot yet.` } satisfies ChatResponse };
-        librarySnapshotId = snapshot.id;
-      }
-      if (directSources.length || librarySnapshotId) {
-        const desiredOutputs = (intent.desiredOutputs ?? []).map((item) => outputKindSchema.safeParse(item)).filter((item) => item.success).map((item) => item.data);
-        if (!desiredOutputs.length) desiredOutputs.push(intent.workspaceContext?.channels.includes("linkedin") ? "linkedin_post" : "x_post");
-        const platforms = Array.from(new Set(intent.strategyContext?.supportedChannels ?? intent.platformRecommendations ?? ["x"]));
-        const job = await createSourceJob({ operatorBrief: effectiveMessage, librarySnapshotId, directSources, desiredOutputs, allowedOutputs: desiredOutputs, platforms, strategyContext: intent.strategyContext });
-        await appendEvent(job.id, "collect_sources", `source manifest created via ${surface} chat`, "operator");
-        await queueStageTrigger(job.id, "collect_sources");
-        const inherited = intent.workspaceContext?.strategyReady ? " It is using your approved workspace strategy as context." : " Harmonia will state its assumptions before strategy approval.";
-        return { payload: { intent: intent.intent, reply: `Started job ${job.id} for “${intent.userOutcome ?? "your content request"}”. Harmonia will collect the sources, extract or transcribe them, decide where the material fits, and prepare the work for review.${inherited}${connectionGuidance(intent.connectionSuggestions)}`, jobId: job.id, job: toCard(job) } satisfies ChatResponse };
-      }
-      return { payload: {
-        intent: intent.intent,
-        reply: "Add at least one source: a YouTube or public web URL, an uploaded file, or pasted factual context.",
-      } satisfies ChatResponse };
-    }
-
-    case "establish_strategy":
-      return { payload: { intent: intent.intent, reply: `Share your company website (or attach your current positioning material). Harmonia will research the public context, draft the content strategy, and bring the exact strategy back for approval.${connectionGuidance(intent.connectionSuggestions)}` } satisfies ChatResponse };
-
-    case "revise_strategy":
-      return { payload: { intent: intent.intent, reply: `${intent.workspaceContext?.strategyReady ? "Tell me what changed—or share the updated company/product source—and Harmonia will revise the approved strategy without making any publishing changes." : "There is no approved workspace strategy yet. Share your company website and the business outcome you want; Harmonia will establish one first."}${connectionGuidance(intent.connectionSuggestions)}` } satisfies ChatResponse };
-
-    case "advance_plan":
-      return { payload: { intent: intent.intent, reply: `${intent.workspaceContext?.strategyReady ? (intent.workspaceContext.planReady ? `Your active plan is “${intent.workspaceContext.planSummary ?? "the current editorial plan"}”. Share the new campaign, source, or constraint and Harmonia will re-plan it against that strategy.` : "Your strategy is ready. Share the campaign window or next source and Harmonia will turn it into the editorial plan and calendar.") : "Harmonia needs a content strategy before it can build an ongoing plan. Share your company website and desired business outcome to start."}${connectionGuidance(intent.connectionSuggestions)}` } satisfies ChatResponse };
-
     case "manage_calendar":
       return { payload: { intent: intent.intent, reply: `${intent.workspaceContext?.planReady ? `Your plan is active with ${intent.workspaceContext.upcomingItemCount} upcoming item(s). Tell me the date, cadence, or priority change you want; external calendar sync will still require its normal confirmation.` : "There is no active editorial plan to schedule yet. Start with the company strategy, then Harmonia will build the plan and calendar in context."}${connectionGuidance(intent.connectionSuggestions)}` } satisfies ChatResponse };
 

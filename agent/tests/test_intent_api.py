@@ -40,7 +40,7 @@ def test_route_endpoint_returns_strict_harmonia_route(monkeypatch):
             "platformRecommendations": [], "connectionSuggestions": [],
             "needsClarification": False, "clarifyingQuestion": None,
             "requiresRightsAttestation": False, "effectRequested": False, "jobId": None,
-            "strategyContext": None,
+            "strategyContext": __import__("tests.test_intent_routing", fromlist=["strategy_context"]).strategy_context(),
         })
 
     monkeypatch.setattr(intent_api, "route_intent_with_team", route)

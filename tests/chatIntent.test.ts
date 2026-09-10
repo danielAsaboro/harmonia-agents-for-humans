@@ -62,11 +62,10 @@ describe("local intent grammar", () => {
     });
   });
 
-  it("treats longer operator context as a pasted-text source", async () => {
+  it("keeps operator instructions separate from factual source evidence", async () => {
     const res = parseLocalIntent("Announce our usage-based billing launch for AI agent workloads today");
     expect(res.intent).toBe("create_job");
-    expect(res.sources).toEqual([expect.objectContaining({ kind: "pasted_text" })]);
-    expect(res.sources?.[0]).toMatchObject({ text: expect.stringContaining("usage-based billing") });
+    expect(res.sources).toEqual([]);
   });
 
   it("returns unknown for short smalltalk", async () => {

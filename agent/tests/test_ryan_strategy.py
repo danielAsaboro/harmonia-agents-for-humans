@@ -104,6 +104,18 @@ def test_complete_grounded_strategy_is_accepted():
     assert result.channelRoles[1].operationallySupported is False
 
 
+def test_text_only_strategy_uses_operator_context_without_fabricated_source_ids():
+    request = StrategistInput.model_validate({**strategist_input().model_dump(), "analysis": None})
+    body = strategy().model_dump()
+    for key in ["objectives", "audiencePriorities", "pillars", "campaignThemes", "channelRoles", "kpis", "briefs", "assumptions"]:
+        for item in body[key]:
+            item["evidenceRefs"] = ["ctx-company", "ctx-campaign"]
+    candidate = ContentStrategy.model_validate(body)
+    assert validate_strategy_grounding(request, candidate) == candidate
+    with pytest.raises(AgentProtocolError, match="unknown evidence references"):
+        validate_strategy_grounding(request, strategy())
+
+
 def test_strategy_accepts_source_segment_references_already_grounded_by_nimi():
     grounded_segment = strategy(briefs=[strategy().briefs[0].model_copy(update={
         "evidenceRefs": ["segment-1", "ctx-campaign"],

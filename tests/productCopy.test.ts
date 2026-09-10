@@ -6,7 +6,7 @@ const firestore = vi.hoisted(() => ({
   saveChatMessage: vi.fn(),
 }));
 const chatIntent = vi.hoisted(() => ({ parseIntent: vi.fn() }));
-const sourceManifest = vi.hoisted(() => ({ createSourceJob: vi.fn() }));
+const intake = vi.hoisted(() => ({ submitIntakeTurn: vi.fn(), executeIntakeDraft: vi.fn(), pendingIntakeDraft: vi.fn(), replayIntakeTurn: vi.fn() }));
 const sourceRights = vi.hoisted(() => ({ hasRightsAttestation: vi.fn() }));
 const chatAttachments = vi.hoisted(() => ({ requireReadyAttachments: vi.fn() }));
 
@@ -19,12 +19,13 @@ vi.mock("@/lib/repository", () => ({
   saveChatMessage: firestore.saveChatMessage,
 }));
 vi.mock("@/lib/chatIntent", () => ({ parseIntent: chatIntent.parseIntent }));
-vi.mock("@/lib/sourceManifest", () => ({ createSourceJob: sourceManifest.createSourceJob }));
+vi.mock("@/lib/intake/repository", () => ({ pendingIntakeDraft: intake.pendingIntakeDraft, replayIntakeTurn: intake.replayIntakeTurn }));
+vi.mock("@/lib/intake/commands", async (original) => ({ ...await original<typeof import("@/lib/intake/commands")>(), submitIntakeTurn: intake.submitIntakeTurn, executeIntakeDraft: intake.executeIntakeDraft }));
 vi.mock("@/lib/stageTrigger", () => ({ queueStageTrigger: vi.fn() }));
 vi.mock("@/lib/tenancy", () => ({ currentTenant: () => ({ workspaceId: "workspace-local", brandId: "brand-local", principal: { subjectId: "user-local" } }) }));
 vi.mock("@/lib/sourceRights", () => ({
   hasRightsAttestation: sourceRights.hasRightsAttestation,
-  RIGHTS_ATTESTATION_PHRASE: "I confirm I have the rights to process this media.",
+  RIGHTS_ATTESTATION_PHRASE: "I confirm I have rights to use this source",
   sourceRightsAuthorization: () => ({ id: "rights-web" }),
   persistSourceRightsAuthorization: async () => "rights-web",
 }));
@@ -36,18 +37,17 @@ import { handleChat } from "../src/lib/chatHandler";
 
 describe("source-agnostic product copy", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
+    intake.pendingIntakeDraft.mockResolvedValue(null);
+    intake.replayIntakeTurn.mockResolvedValue(null);
+    intake.submitIntakeTurn.mockImplementation(async input => ({ ...input.advice, originalOperatorBrief: input.message, state: "clarifying", question: "What outcome should the strategy prioritize?", id: "draft-1" }));
+    intake.executeIntakeDraft.mockImplementation(async draft => draft);
     firestore.listJobs.mockResolvedValue([]);
     firestore.listChatMessages.mockResolvedValue([]);
     firestore.saveChatMessage.mockResolvedValue(undefined);
     chatAttachments.requireReadyAttachments.mockResolvedValue([]);
     sourceRights.hasRightsAttestation.mockReturnValue(false);
     chatIntent.parseIntent.mockResolvedValue({ intent: "status" });
-    sourceManifest.createSourceJob.mockResolvedValue({
-      id: "job-natural-1", workspaceId: "workspace-local", brandId: "brand-local",
-      status: "running", stage: "collect_sources", controlEpoch: 0, controlState: "running",
-      config: { sourceManifestId: "manifest-1", desiredOutputs: ["linkedin_post"], allowedOutputs: ["linkedin_post"], platforms: ["linkedin"] },
-      actions: [], assets: [], createdAt: "2026-09-01T00:00:00.000Z", updatedAt: "2026-09-01T00:00:00.000Z",
-    });
   });
 
   it("describes the supported source range in search metadata", () => {
@@ -64,6 +64,11 @@ describe("source-agnostic product copy", () => {
     expect(await response.json()).toMatchObject({
       reply: "No jobs yet. Share a URL, upload a file, paste source material, or describe a content brief to create one.",
     });
+  });
+  it("does not attach a completed request's files to a new request", async () => {
+    intake.pendingIntakeDraft.mockResolvedValue({ state: "dispatched", disposition: "knowledge_only", sourceHandles: [{ kind: "upload", attachmentId: "old-file" }] });
+    await handleChat(new Request("http://localhost/api/chat", { method: "POST", body: JSON.stringify({ message: "status" }) }));
+    expect(chatIntent.parseIntent).toHaveBeenCalledWith("status", 0, []);
   });
 
   it("offers source-agnostic examples when chat needs to explain its capabilities", async () => {
@@ -91,7 +96,7 @@ describe("source-agnostic product copy", () => {
     });
     const response = await handleChat(new Request("http://localhost/api/chat", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: "Build our content strategy" }),
+      body: JSON.stringify({ message: "Build our content strategy", requestId: "request-1" }),
     }));
     const payload = await response.json() as { reply: string };
     expect(payload.reply).toContain("LinkedIn is a good fit but not connected yet");
@@ -108,7 +113,7 @@ describe("source-agnostic product copy", () => {
     });
     const response = await handleChat(new Request("http://localhost/api/chat", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: "Help us plan LinkedIn content" }),
+      body: JSON.stringify({ message: "Help us plan LinkedIn content", requestId: "request-1" }),
     }));
     const payload = await response.json() as { reply: string };
     expect(payload.reply).toContain("What outcome should the strategy prioritize?");
@@ -132,13 +137,13 @@ describe("source-agnostic product copy", () => {
 
     const response = await handleChat(new Request("http://localhost/api/chat", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: "Can you help more founders find us? Here's our site: https://example.com" }),
+      body: JSON.stringify({ message: "Can you help more founders find us? Here's our site: https://example.com", requestId: "request-1" }),
     }));
 
     expect(response.status).toBe(200);
-    expect(sourceManifest.createSourceJob).toHaveBeenCalledWith(expect.objectContaining({
-      platforms: ["linkedin"], strategyContext,
-      operatorBrief: "Can you help more founders find us? Here's our site: https://example.com",
+    expect(intake.submitIntakeTurn).toHaveBeenCalledWith(expect.objectContaining({
+      advice: expect.objectContaining({ strategyContext, requestedOutputs: ["linkedin_post"] }),
+      message: "Can you help more founders find us? Here's our site: https://example.com",
     }));
   });
 
@@ -150,21 +155,16 @@ describe("source-agnostic product copy", () => {
       objectName: "chat-attachments/launch.mp4", storageUri: "file://chat-attachments/attachment-video-1", state: "ready",
       createdAt: "2026-09-04T04:07:00.000Z", updatedAt: "2026-09-04T04:07:00.000Z", category: "video",
     }] : []);
-    firestore.listChatMessages.mockResolvedValue([
-      { id: "original", role: "user", surface: "dashboard", text: "Turn this video into launch content", at: "2026-09-04T04:07:00.000Z", data: { attachments: [{ attachmentId: "attachment-video-1" }] } },
-      { id: "rights-prompt", role: "assistant", surface: "dashboard", text: "Confirm source rights", at: "2026-09-04T04:07:01.000Z" },
-    ]);
+    intake.pendingIntakeDraft.mockResolvedValue({ state: "clarifying", action: "create_job", disposition: "independent", expectedOutcome: "Teach founders", requestedOutputs: ["x_post"], sourceHandles: [{ kind: "upload", attachmentId: "attachment-video-1" }], answers: [{ message: "Turn this video into launch content" }], question: "Confirm source rights" });
     chatIntent.parseIntent.mockResolvedValue({ intent: "create_job", userOutcome: "Turn this video into launch content", desiredOutputs: ["x_post"], requiresRightsAttestation: true });
 
     const response = await handleChat(new Request("http://localhost/api/chat", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: "I confirm I have rights to use this source", conversationId: "primary" }),
+      body: JSON.stringify({ message: "I confirm I have rights to use this source", conversationId: "primary", requestId: "request-1" }),
     }));
 
     expect(response.status).toBe(200);
-    expect(sourceManifest.createSourceJob).toHaveBeenCalledWith(expect.objectContaining({
-      operatorBrief: "Turn this video into launch content",
-      directSources: [expect.objectContaining({ kind: "upload", attachmentId: "attachment-video-1" })],
-    }));
+    expect(chatIntent.parseIntent).not.toHaveBeenCalled();
+    expect(intake.submitIntakeTurn).toHaveBeenCalledWith(expect.objectContaining({ message: "I confirm I have rights to use this source", requestId: "request-1", advice: expect.objectContaining({ expectedOutcome: "Teach founders", requestedOutputs: ["x_post"] }) }));
   });
 });

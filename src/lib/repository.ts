@@ -808,13 +808,19 @@ export interface ChatMessageDoc {
 
 export async function saveChatMessage(
   m: Omit<ChatMessageDoc, "at" | "userId" | "scopeKey"> & { at?: ChatMessageDoc["at"] },
+  requestId?: string,
 ): Promise<void> {
   const tenant = currentTenant();
   const userId = tenantSubjectId(tenant);
-  const scopeKey = chatScopeKey(userId, m.surface, m.conversationId);
+  const scopeKey = chatScopeKey(userId, m.surface, m.conversationId, tenant.brandId);
   const document = { ...m, userId, scopeKey, at: new Date().toISOString() };
   if (document.data === undefined) delete document.data;
-  await awsRepository().insert(recordKey(tenantCollection(CHATS).partition + "/" + newRecordId()), document);
+  const id = requestId ? createHash("sha256").update(JSON.stringify([scopeKey, requestId, m.role])).digest("hex") : newRecordId();
+  const key = recordKey(tenantCollection(CHATS).partition + "/" + id);
+  await awsRepository().atomic(async tx => {
+    const prior = await tx.read(key);
+    if (!prior.present) tx.insert(key, document);
+  });
   const scoped = await awsRepository().query(where(tenantCollection(CHATS), "scopeKey", "==", scopeKey));
   const retained = scoped.rows.map((doc) => {
     const data = doc.value as unknown as ChatMessageDoc & { at?: string };
@@ -845,7 +851,7 @@ export async function listChatMessages(
   conversationId = "primary",
 ): Promise<Array<{ id: string; surface: string; role: string; text: string; data?: Record<string, unknown>; at: string | null }>> {
   const tenant = currentTenant();
-  const scopeKey = chatScopeKey(tenantSubjectId(tenant), surface, conversationId);
+  const scopeKey = chatScopeKey(tenantSubjectId(tenant), surface, conversationId, tenant.brandId);
   const snaps = await awsRepository().query(where(tenantCollection(CHATS), "scopeKey", "==", scopeKey));
   return snaps.rows
     .map((d) => {
@@ -1112,7 +1118,7 @@ export async function listRecentReceipts(limit = 200): Promise<ReceiptWithJob[]>
       const receipt = r.value as unknown as Receipt;
       out.push({
         ...receipt,
-        jobTitle: data.sourceAnalysis?.summary ?? `Source bundle ${data.config.sourceManifestId.slice(0, 8)}`,
+        jobTitle: data.sourceAnalysis?.summary ?? data.config.operatorBrief ?? `Source bundle ${data.config.sourceManifestId?.slice(0, 8) ?? ""}`,
       });
     }
   }
@@ -1319,9 +1325,10 @@ export async function eraseWorkspaceData(
 export async function createJob(
   config: JobConfig,
   initialStage: Stage,
-  setup?: (transaction: DynamoTransaction, jobId: string, now: string) => void,
+  setup?: (transaction: DynamoTransaction, jobId: string, now: string) => void | Promise<void>,
+  idempotentJobId?: string,
 ): Promise<Job> {
-  const id = newId();
+  const id = idempotentJobId ?? newId();
   const now = new Date().toISOString();
   const storedConfig: JobConfig = { ...config };
   if (storedConfig.strategyContext === undefined) delete storedConfig.strategyContext;
@@ -1345,12 +1352,17 @@ export async function createJob(
     budget: initialJobBudget(),
   };
   const outboxId = stageOutboxId(id, initialStage, 0);
-  await db().atomic(async (tx) => {
-    const active = initialStage === "strategize" ? null : await readActiveStrategyRef(tx);
+  return db().atomic(async (tx) => {
+    if (idempotentJobId) {
+      const existing = await tx.read(jobRef(id));
+      if (existing.present) return requireJobDoc(existing);
+    }
+    const strategyRequest = config.intake && ["establish_strategy", "revise_strategy"].includes(config.intake.action);
+    const active = initialStage === "strategize" || strategyRequest ? null : await readActiveStrategyRef(tx);
     if (active) doc.strategyRef = active;
     else delete doc.strategyRef;
     tx.insert(jobRef(id), doc);
-    setup?.(tx, id, now);
+    await setup?.(tx, id, now);
     tx.insert(stageOutboxRef(outboxId), {
       id: outboxId,
       workspaceId: tenant.workspaceId,
@@ -1362,8 +1374,8 @@ export async function createJob(
       state: "pending",
       createdAt: now,
     } satisfies StageOutboxRecord);
+    return { id, ...doc };
   });
-  return { id, ...doc };
 }
 
 export async function retryFailedJobWithOutbox(
@@ -1740,7 +1752,7 @@ export async function acceptStrategyProposal(
       ...strategy.briefs.flatMap((item) => item.evidenceRefs),
       ...strategy.assumptions.flatMap((item) => item.evidenceRefs),
     ])].sort();
-    const proposal = await insertStrategyProposal(tx, { jobId, attempt: revision, strategy, digest, evidenceLineage, invocationContext, proposedAt: new Date().toISOString(), expiresAt });
+    const proposal = await insertStrategyProposal(tx, { jobId, attempt: revision, strategy, digest, evidenceLineage, invocationContext, proposedAt: new Date().toISOString(), expiresAt }, job.config.intake?.strategyBaseRef);
     tx.patch(ref, {
       strategyProposalId: proposal.id, strategyRevision: revision,
       stage: "awaiting_strategy_approval", status: "waiting_for_approval", updatedAt: new Date().toISOString(),
@@ -1758,8 +1770,9 @@ export async function saveStrategyInvocationContext(jobId: string, context: impo
     const configured = job.config.strategyContext;
     if (!configured) throw new Error("typed strategy context required");
     if (JSON.stringify([...context.operatorContextIds].sort()) !== JSON.stringify(["context:campaign", "context:company"])) throw new Error("strategy operator context IDs mismatch");
-    if (!job.sourceAnalysis || !job.analysisDigest) throw new Error("persisted source analysis required");
-    const sourceIds = strategySourceEvidenceIds(job.sourceAnalysis);
+    const textOnly = job.config.intake && !job.config.sourceManifestId && Boolean(job.config.operatorBrief);
+    if ((!job.sourceAnalysis || !job.analysisDigest) && !textOnly) throw new Error("persisted source analysis required");
+    const sourceIds = job.sourceAnalysis ? strategySourceEvidenceIds(job.sourceAnalysis) : [];
     if (JSON.stringify([...context.sourceIds].sort()) !== JSON.stringify(sourceIds)) throw new Error("strategy source context mismatch");
     if (JSON.stringify([...context.audienceIds].sort()) !== JSON.stringify(configured.audiences.map((item) => item.id).sort())) throw new Error("strategy audience context mismatch");
     if (JSON.stringify([...context.requestedChannels].sort()) !== JSON.stringify([...configured.requestedChannels].sort())) throw new Error("strategy requested channels mismatch");
@@ -1868,7 +1881,9 @@ export async function decideStrategy(jobId: string, input: StrategyDecisionInput
     const snap = await tx.read(ref);
     const job = requireJobDoc(snap);
     if (!job.strategyProposalId) throw new Error("strategy proposal is incomplete");
-    const result = await decideStrategyProposal(tx, job.strategyProposalId, input);
+    const decision = await decideStrategyProposal(tx, job.strategyProposalId, input);
+    const strategyOnly = job.config.intake && ["establish_strategy", "revise_strategy"].includes(job.config.intake.action) && (!job.config.sourceManifestId || !job.config.desiredOutputs.length);
+    const result = strategyOnly && decision.approval.decision === "approved" ? { ...decision, nextStage: "complete" as const, terminalOutcome: "succeeded" as const } : decision;
     if (result.replayed) return { ...result, outboxId: undefined };
     if (job.stage !== "awaiting_strategy_approval") throw new Error("strategy is not awaiting approval");
     const update: Record<string, unknown> = {
@@ -1881,7 +1896,7 @@ export async function decideStrategy(jobId: string, input: StrategyDecisionInput
       update.strategyRevision = result.nextRevision;
       update.strategyRevisionFeedback = result.approval.feedback;
     }
-    if (result.nextStage === "complete") update.terminalOutcome = "rejected";
+    if (result.nextStage === "complete") update.terminalOutcome = result.approval.decision === "approved" ? "succeeded" : "rejected";
     tx.patch(ref, update);
     let outboxId: string | undefined;
     if (result.nextStage === "plan" || result.nextStage === "strategize") {

@@ -128,7 +128,8 @@ export interface CampaignOutputPlan { id: string; desiredOutputs: OutputKind[]; 
 
 export interface JobConfig {
   operatorBrief?: string;
-  sourceManifestId: string;
+  intake?: { draftId: string; action: import("./intake/contracts").IntakeAdvice["action"]; disposition: import("./intake/contracts").WorkPlacement; expectedOutcome: string; target?: import("./intake/contracts").IntakeTarget; strategyBaseRef: import("./strategy/contracts").StrategyRef | null };
+  sourceManifestId?: string;
   desiredOutputs: OutputKind[];
   allowedOutputs: OutputKind[];
   strategyContext?: StrategyContext;

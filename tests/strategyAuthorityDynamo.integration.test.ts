@@ -34,6 +34,13 @@ async function propose(id: string, attempt = 1) {
 }
 
 describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("brand strategy authority", () => {
+  it("rejects revision proposals authored against a changed exact strategy base", () => run(async () => {
+    const approval = await propose("intake-base");
+    const original = (await repository.decideStrategy("intake-base", approval)).strategyRef!;
+    const next = await propose("intake-new-base"); await repository.decideStrategy("intake-new-base", next);
+    const strategyBody = strategy("intake-stale");
+    await expect(store.atomic(tx => insertStrategyProposal(tx, { jobId: "intake-stale", attempt: 1, strategy: strategyBody, digest: strategyDigest(strategyBody), evidenceLineage: [], invocationContext: {} as never, proposedAt: new Date().toISOString(), expiresAt: "2099-01-01T00:00:00Z" }, original))).rejects.toThrow("strategy base");
+  }));
   it("approves the first strategy then plans and drafts a second pinned job with disjoint evidence", () => run(async () => {
     const input = await propose("disjoint-origin");
     const approval = await repository.decideStrategy("disjoint-origin", input);

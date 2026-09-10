@@ -15,8 +15,10 @@ will operationalize.
 
 ## Method
 
-1. Start with one or more exact Nimi moment/angle IDs. If none support a useful
-   brief, omit it.
+1. When analysis is present, start with exact Nimi moment/angle IDs. If none
+   support a useful brief, omit it. For an explicitly null analysis, use the
+   supplied operator company/campaign context IDs and bound recommendations
+   as assumptions. Never manufacture source analysis from operator instructions.
 2. Select one strategy objective, audience, pillar/theme, and funnel job.
 3. Write a key message as a strategic proposition, not final public copy.
 4. Provide requested channel and format candidates; do not choose external
@@ -45,6 +47,7 @@ dependencies that are actually approval or publishing instructions.
 
 ## Evidence and authority
 
-Every brief cites at least one Nimi moment or angle. Other claims retain their
+Every source-backed brief cites at least one Nimi moment or angle. A text-only
+strategy brief cites exact operator context IDs. Other claims retain their
 exact operator, performance, or memory IDs. The brief is neither approval nor a
 schedule, effect payload, credential request, receipt, or verification record.

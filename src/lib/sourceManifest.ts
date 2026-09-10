@@ -1,5 +1,5 @@
 import { createHash,randomUUID } from "node:crypto";
-import { recordKey } from "./dynamo";
+import { recordKey, type DynamoTransaction } from "./dynamo";
 
 import { createJob } from "./repository";
 import { sealManifest } from "./sourceRegistry";
@@ -15,6 +15,9 @@ export interface CreateSourceJobInput {
   strategyContext?: StrategyContext;
   analysisResearchRequest?: AnalysisResearchRequest;
   platforms: string[];
+  intake?: import("./types").JobConfig["intake"];
+  idempotentJobId?: string;
+  setup?: (tx: DynamoTransaction, jobId: string) => Promise<void>;
 }
 
 const digest = (value: string) => createHash("sha256").update(value, "utf8").digest("hex");
@@ -49,8 +52,10 @@ export async function createSourceJob(input: CreateSourceJobInput): Promise<Job>
     ...(input.operatorBrief ? { operatorBrief: input.operatorBrief } : {}),
     ...(input.strategyContext ? { strategyContext: input.strategyContext } : {}),
     ...(input.analysisResearchRequest ? { analysisResearchRequest: input.analysisResearchRequest } : {}),
+    ...(input.intake ? { intake: input.intake } : {}),
   };
-  return createJob(config, "collect_sources", (transaction, jobId, now) => {
+  return createJob(config, "collect_sources", async (transaction, jobId, now) => {
+    await input.setup?.(transaction, jobId);
     const manifest = sealManifest({
       id: manifestId, jobId, revision: 1,
       ...(input.librarySnapshotId ? { librarySnapshotId: input.librarySnapshotId } : {}),
@@ -63,5 +68,5 @@ export async function createSourceJob(input: CreateSourceJobInput): Promise<Job>
       transaction.insert(recordKey(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/sources/${record.id}`), record);
       transaction.insert(recordKey(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/source_payloads/${record.id}`), { sourceId: record.id, input: source, createdAt: now });
     });
-  });
+  }, input.idempotentJobId);
 }

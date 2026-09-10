@@ -485,7 +485,7 @@ class StrategistInput(StrictModel):
     source_title: str = Field(min_length=1, max_length=300)
     company: CompanyContext
     campaign: CampaignContext
-    analysis: SourceAnalysis
+    analysis: SourceAnalysis | None
     performance: list[PerformanceObservation] = Field(default_factory=list, max_length=12)
     memoryFacts: list[MemoryFact] = Field(default_factory=list, max_length=5)
     researchRequest: StrategyResearchRequest | None = None

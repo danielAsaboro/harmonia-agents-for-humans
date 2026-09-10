@@ -146,7 +146,7 @@ function hydrateNode(surface: PlannedSurface, node: PlannedNode, job: JobFull | 
         ...base,
         component: node.component,
         ...framing(surface, node, job.sourceAnalysis?.summary || "Campaign direction"),
-        brief: `Build ${job.config.desiredOutputs.join(", ")} from manifest ${job.config.sourceManifestId}.`,
+        brief: job.config.operatorBrief ?? `Build ${job.config.desiredOutputs.join(", ")} from the supplied sources.`,
         sourceKind: new Set((job.normalizedSources ?? []).map((source) => source.sourceKind)).size === 1
           ? ((job.normalizedSources ?? [])[0]?.sourceKind ?? "mixed") : "mixed",
         platforms: job.config.platforms.slice(0, 10),

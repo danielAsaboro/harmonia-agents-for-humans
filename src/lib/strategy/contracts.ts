@@ -32,6 +32,7 @@ export interface ApprovedStrategyRevision {
 export interface StrategyProposal {
   id: string; workspaceId: string; brandId: string; jobId: string;
   attempt: number; expectedActiveRevision: number;
+  baseStrategyRef: StrategyRef | null;
   strategy: ContentStrategy; digest: string;
   evidenceLineage: string[]; invocationContext: StrategyInvocationContext;
   proposedAt: string; expiresAt: string;

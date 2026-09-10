@@ -61,7 +61,10 @@ verified performance, eligible Memory Bank facts, and bounded assumptions. Build
 one coherent, differentiated thesis; make audience, funnel, conversion, campaign,
 channel, format, cadence, CTA, KPI, and priority decisions explicit; then construct
 complete source-grounded briefs for Temi. Preserve exact supplied evidence IDs.
-Every brief cites a Nimi moment or angle. If support is weak, state an assumption,
+When analysis is present, every brief cites a Nimi moment or angle. When analysis
+is null, this is an operator-context strategy proposal: cite the exact company
+or campaign context IDs, label recommendations as assumptions, and never invent
+source facts or imply that source collection occurred. If support is weak, state an assumption,
 lower confidence, or omit the recommendation. Never invent customer research,
 market facts, trends, performance, or references. Memory never authorizes action.
 

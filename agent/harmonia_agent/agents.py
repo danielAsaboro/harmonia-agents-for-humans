@@ -487,7 +487,11 @@ def build_agent_team(
             "object must contain exactly these schema keys: intent, userOutcome, sourceUrls, "
             "outputConcepts, platformRecommendations, assumptions, "
             "needsClarification, clarifyingQuestion, requiresRightsAttestation, effectRequested, "
-            "and jobId. Do not assemble strategy context; that is a separate bounded delegation. "
+            "jobId, workPlacement and targetName. Classify work placement separately from action: "
+            "independent, existing_plan_item, new_initiative, or knowledge_only; use null for non-work conversation. "
+            "Respect explicit independent/standalone opt-out. targetName is the operator's exact supplied campaign/item name or null; never invent IDs. "
+            "Retain the original requested action, outputs and placement when answering a pending clarification. "
+            "Do not assemble strategy context; that is a separate bounded delegation. "
             "userOutcome must describe what the job should achieve; never claim that Harmonia has already accepted, extracted, prepared, repurposed, completed, published, executed, or verified work. "
             "Platform values are lowercase registry values. Do not "
             "invent alternate keys such as route, rationale, confidence, requiredContext, "
@@ -2757,11 +2761,11 @@ def validate_strategy_grounding(
         *(item.id for item in [*input.analysis.moments, *input.analysis.angles]),
         *(reference for moment in input.analysis.moments for reference in moment.sourceSegmentRefs),
         *(reference for angle in input.analysis.angles if angle.evidenceKind == "source" for reference in angle.evidenceRefs),
-    }
+    } if input.analysis else set()
     analysis_grounding_ids = {
         *(reference for moment in input.analysis.moments for reference in moment.sourceSegmentRefs),
         *(reference for angle in input.analysis.angles for reference in angle.evidenceRefs),
-    }
+    } if input.analysis else set()
     audience_ids = {item.id for item in input.campaign.audiences}
     valid_ids = {
         input.company.evidenceId,
@@ -2786,7 +2790,7 @@ def validate_strategy_grounding(
     requested = set(input.campaign.requestedChannels)
     supported = set(input.campaign.supportedChannels)
     for brief in strategy.briefs:
-        if not set(brief.evidenceRefs) & source_ids:
+        if not set(brief.evidenceRefs) & (source_ids if input.analysis else {input.company.evidenceId, input.campaign.evidenceId}):
             raise AgentProtocolError(f"brief {brief.id} requires source evidence")
         if brief.audienceId not in audience_ids:
             raise AgentProtocolError(f"brief {brief.id} references unknown audience")
@@ -2834,7 +2838,7 @@ def validate_strategy_grounding(
         raise AgentProtocolError("strategy requires one coherent thesis reflected in themes or briefs")
     if any(re.search(r"https?://|#[a-z0-9_]", brief.keyMessage, re.IGNORECASE) for brief in strategy.briefs):
         raise AgentProtocolError("brief contains final-copy-shaped output")
-    if input.analysis.confidence == "low" and strategy.confidence == "high":
+    if input.analysis and input.analysis.confidence == "low" and strategy.confidence == "high":
         raise AgentProtocolError("strategy cannot claim high confidence from low-confidence analysis")
     serialized = strategy.model_dump_json().lower()
     if re.search(
@@ -3335,7 +3339,7 @@ async def route_intent_with_team(
     strategy_context = None
     needs_context = (
         classification.intent in {"establish_strategy", "revise_strategy", "repurpose_source", "one_off_content"}
-        and not value.workspaceContext.strategyReady
+        and (classification.intent in {"establish_strategy", "revise_strategy"} or not value.workspaceContext.strategyReady or not routed_source_urls)
         and not classification.needsClarification
     )
     if needs_context:

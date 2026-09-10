@@ -128,7 +128,7 @@ export default function JobDetail({
       <section className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="max-w-md truncate font-mono text-sm font-semibold" title={job.config.sourceManifestId}>
-            {job.sourceAnalysis?.summary ?? `Source bundle ${job.config.sourceManifestId.slice(0, 12)}`}
+            {job.sourceAnalysis?.summary ?? `Source bundle ${(job.config.sourceManifestId?.slice(0, 12) ?? "strategy")}`}
           </h2>
           <div className="flex items-center gap-2">
             {job.status === "complete" && <Chip tone="green">complete</Chip>}

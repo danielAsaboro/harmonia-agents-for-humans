@@ -89,6 +89,8 @@ def deterministic_intent_classification(
     """Classify syntax that carries no model judgment; return None when ambiguous."""
     urls = source_urls_from_input(value)
     message = value.message.casefold()
+    if value.recentConversation or re.search(r"\b(?:campaign|initiative|knowledge|planned|plan item)\b", message):
+        return None
     if urls and re.search(
         r"\b(?:repurpose|transcribe|analy[sz]e|clip|turn|transform|convert)\b",
         message,
@@ -110,9 +112,10 @@ def deterministic_intent_classification(
         if re.search(r"\b(?:short video|short clip|video clip)\b", message):
             outputs.append("short_video")
         if not outputs:
-            outputs.append("short_social_post")
+            return None
         return IntentClassification(
             intent="repurpose_source",
+            workPlacement="independent",
             userOutcome="Repurpose the supplied source into the requested content.",
             sourceUrls=urls,
             outputConcepts=outputs,
@@ -152,6 +155,8 @@ class IntentClassification(StrictModel):
     """Small routing contract; strategy assembly is a separate bounded delegation."""
 
     intent: IntentName
+    workPlacement: Literal["independent", "existing_plan_item", "new_initiative", "knowledge_only"] | None = None
+    targetName: StrictStr | None = Field(default=None, max_length=200)
     userOutcome: StrictStr = Field(min_length=1, max_length=500)
     sourceUrls: list[StrictStr] = Field(max_length=10)
     outputConcepts: list[OutputConcept] = Field(max_length=8)
@@ -185,6 +190,8 @@ class IntentRoute(StrictModel):
     model_config = ConfigDict(extra="forbid")
 
     intent: IntentName
+    workPlacement: Literal["independent", "existing_plan_item", "new_initiative", "knowledge_only"] | None = None
+    targetName: StrictStr | None = Field(default=None, max_length=200)
     userOutcome: StrictStr = Field(min_length=1, max_length=500)
     sourceUrls: list[StrictStr] = Field(max_length=10)
     outputConcepts: list[OutputConcept] = Field(max_length=8)
@@ -218,7 +225,6 @@ class IntentRoute(StrictModel):
             raise ValueError("userOutcome must describe the desired future outcome, not claim completed work")
         if (
             self.intent in {"establish_strategy", "revise_strategy"}
-            and self.sourceUrls
             and not self.needsClarification
             and self.strategyContext is None
         ):

@@ -21,8 +21,8 @@ function checked(label: string, value: string): string {
   return value;
 }
 
-export function chatScopeKey(userId: string, surface: ChatSurface, conversationId: string): string {
-  return `${checked("userId", userId)}:${surface}:${checked("conversationId", conversationId)}`;
+export function chatScopeKey(userId: string, surface: ChatSurface, conversationId: string, brandId: string): string {
+  return `${checked("brandId", brandId)}:${checked("userId", userId)}:${surface}:${checked("conversationId", conversationId)}`;
 }
 
 function linkedId(data: Record<string, unknown> | undefined, key: "jobId" | "chatRunId"): string | null {

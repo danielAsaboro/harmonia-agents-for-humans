@@ -24,10 +24,10 @@ export async function resolveJobStrategy<T extends Job>(job: T, reader?: Strateg
     strategyInvocationContext: revision.invocationContext };
 }
 
-export async function loadActiveStrategyContext() {
-  const activeStrategy = await getActiveStrategy();
+export async function loadActiveStrategyContext(reader: StrategyReader = awsRepository()) {
+  const activeStrategy = await getActiveStrategy(reader);
   if (!activeStrategy) return { activeStrategy: null, strategyPlan: null };
-  const row = await awsRepository().read(recordKey(`workspaces/${currentTenant().workspaceId}/jobs/${activeStrategy.jobId}`));
+  const row = await reader.read(recordKey(`workspaces/${currentTenant().workspaceId}/jobs/${activeStrategy.jobId}`));
   if (!row.present) return { activeStrategy, strategyPlan: null };
   const origin = row.value as unknown as Job;
   assertResourceWorkspace(currentTenant(), origin);

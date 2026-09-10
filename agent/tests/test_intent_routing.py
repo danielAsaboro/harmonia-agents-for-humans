@@ -47,6 +47,17 @@ def context(**overrides):
     return {**base, **overrides}
 
 
+def test_work_placement_is_not_bypassed_by_explicit_source_syntax():
+    for message in ["Repurpose https://example.com for the existing campaign Launch", "Analyze https://example.com as knowledge only"]:
+        value = IntentRoutingInput(message=message, workspaceContext=context(), attachmentCount=0)
+        assert deterministic_intent_classification(value) is None
+
+
+def test_router_does_not_invent_default_outputs():
+    value = IntentRoutingInput(message="Repurpose https://example.com", workspaceContext=context(), attachmentCount=0)
+    assert deterministic_intent_classification(value) is None
+
+
 def strategy_context():
     return {
         "company": "Harmonia",

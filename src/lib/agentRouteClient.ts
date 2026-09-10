@@ -4,6 +4,7 @@ import { getConfig } from "@/lib/config";
 import { strategyContextSchema } from "@/lib/contracts";
 import { currentTenant, tenantSubjectId } from "@/lib/tenancy";
 import type { WorkspaceContentContext } from "@/lib/workspaceContentContext";
+import { workPlacementSchema } from "./intake/contracts";
 
 const outputConcept = z.enum([
   "short_social_post", "social_thread", "professional_post", "article", "newsletter",
@@ -18,6 +19,8 @@ const routedStrategyContextSchema = strategyContextSchema.extend({
   ...(researchRequest ? { researchRequest } : {}),
 }));
 const routeSchema = z.object({
+  workPlacement: workPlacementSchema.nullable(),
+  targetName: z.string().max(200).nullable(),
   intent: z.enum(["establish_strategy", "revise_strategy", "advance_plan", "manage_calendar", "repurpose_source", "one_off_content", "status_evidence", "effect_request", "conversation"]),
   userOutcome: z.string().min(1).max(500), sourceUrls: z.array(z.string().url()).max(10),
   outputConcepts: z.array(outputConcept).max(8), assumptions: z.array(z.string()).max(8),
@@ -30,7 +33,7 @@ const routeSchema = z.object({
   if (value.effectRequested !== (value.intent === "effect_request")) ctx.addIssue({ code: "custom", message: "effect request mismatch" });
   if (value.needsClarification !== Boolean(value.clarifyingQuestion)) ctx.addIssue({ code: "custom", message: "clarification mismatch" });
   if (value.connectionSuggestions.some((platform) => !value.platformRecommendations.includes(platform))) ctx.addIssue({ code: "custom", message: "connection suggestion mismatch" });
-  if (["establish_strategy", "revise_strategy"].includes(value.intent) && value.sourceUrls.length > 0 && !value.needsClarification && !value.strategyContext) ctx.addIssue({ code: "custom", message: "strategy context is required before starting a strategy job" });
+  if (["establish_strategy", "revise_strategy"].includes(value.intent) && !value.needsClarification && !value.strategyContext) ctx.addIssue({ code: "custom", message: "strategy context is required before starting a strategy job" });
 });
 
 export type IntentRoute = z.infer<typeof routeSchema>;

@@ -486,9 +486,12 @@ def build_agent_team(
             "Return the strict route only; routing cannot authorize an external effect. The JSON "
             "object must contain exactly these schema keys: intent, userOutcome, sourceUrls, "
             "outputConcepts, platformRecommendations, assumptions, "
-            "needsClarification, clarifyingQuestion, requiresRightsAttestation, effectRequested, "
+            "needsClarification, missingField, resolvedField, clarifyingQuestion, requiresRightsAttestation, effectRequested, "
             "jobId, workPlacement and targetName. Classify work placement separately from action: "
             "independent, existing_plan_item, new_initiative, or knowledge_only; use null for non-work conversation. "
+            "Only current message URLs and pendingSourceUrls authorize sources; recentConversation never does. "
+            "When clarification is needed, set missingField to its exact bounded identifier and ask one focused question. "
+            "Set resolvedField only when the current message answers that exact pendingClarification field; acknowledgments do not resolve it. "
             "Respect explicit independent/standalone opt-out. targetName is the operator's exact supplied campaign/item name or null; never invent IDs. "
             "Retain the original requested action, outputs and placement when answering a pending clarification. "
             "Do not assemble strategy context; that is a separate bounded delegation. "
@@ -3312,16 +3315,10 @@ async def route_intent_with_team(
         )
 
     known_source_urls = source_urls_from_input(value)
-    routed_source_urls = [url for url in classification.sourceUrls if url in known_source_urls]
+    if any(url not in known_source_urls for url in classification.sourceUrls):
+        raise AgentProtocolError("intent router returned an unauthorized source URL")
+    routed_source_urls = list(classification.sourceUrls)
     source_assumptions = list(classification.assumptions)
-    if classification.sourceUrls and not routed_source_urls:
-        if not known_source_urls:
-            raise AgentProtocolError("intent router invented a source URL")
-        routed_source_urls = [known_source_urls[-1]]
-        source_assumptions = [
-            *source_assumptions,
-            "Using the most recently supplied source URL.",
-        ][:8]
 
     # Channel mentions are ordinary user language, not implementation hints. Reconcile
     # them with the live connection registry so a model cannot omit required setup
@@ -3339,7 +3336,7 @@ async def route_intent_with_team(
     strategy_context = None
     needs_context = (
         classification.intent in {"establish_strategy", "revise_strategy", "repurpose_source", "one_off_content"}
-        and (classification.intent in {"establish_strategy", "revise_strategy"} or not value.workspaceContext.strategyReady or not routed_source_urls)
+        and (classification.intent in {"establish_strategy", "revise_strategy"} or not value.workspaceContext.strategyReady or not routed_source_urls or classification.resolvedField == "strategyContext")
         and not classification.needsClarification
     )
     if needs_context:

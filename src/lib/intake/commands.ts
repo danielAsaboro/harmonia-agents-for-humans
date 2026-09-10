@@ -1,9 +1,7 @@
 import type { IntakeDraft } from "./contracts";
-import { bindIntakeJob, readIntakeDraft, submitIntakeTurn } from "./repository";
+import { bindIntakeJob, readIntakeDraft, readIntakeSourceRights, submitIntakeTurn } from "./repository";
 import { createJob } from "../repository";
 import { createSourceJob } from "../sourceManifest";
-import { currentTenant } from "../tenancy";
-import { persistSourceRightsAuthorization, sourceRightsAuthorization } from "../sourceRights";
 import { requireReadyAttachments } from "../chatAttachments";
 import type { SourceInput } from "../types";
 
@@ -19,8 +17,7 @@ export async function executeIntakeDraft(input: IntakeDraft): Promise<IntakeDraf
   const directSources: SourceInput[] = [];
   await requireReadyAttachments(draft.sourceHandles.flatMap(source => source.kind === "upload" ? [source.attachmentId] : []));
   for (const source of draft.sourceHandles) {
-    if ((source.kind === "upload" || source.kind === "youtube") && !draft.rightsAttested) throw new Error("source rights required");
-    const rightsAuthorizationId = await persistSourceRightsAuthorization(sourceRightsAuthorization(currentTenant(), source.kind));
+    const rightsAuthorizationId = await readIntakeSourceRights(draft, source);
     directSources.push({ ...source, rightsAuthorizationId });
   }
   const config = { operatorBrief: draft.originalOperatorBrief, desiredOutputs: draft.requestedOutputs, allowedOutputs: draft.requestedOutputs,

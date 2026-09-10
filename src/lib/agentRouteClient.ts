@@ -4,7 +4,7 @@ import { getConfig } from "@/lib/config";
 import { strategyContextSchema } from "@/lib/contracts";
 import { currentTenant, tenantSubjectId } from "@/lib/tenancy";
 import type { WorkspaceContentContext } from "@/lib/workspaceContentContext";
-import { workPlacementSchema } from "./intake/contracts";
+import { workPlacementSchema, intakeMissingFieldSchema, type IntakeAdvice } from "./intake/contracts";
 
 const outputConcept = z.enum([
   "short_social_post", "social_thread", "professional_post", "article", "newsletter",
@@ -25,19 +25,20 @@ const routeSchema = z.object({
   userOutcome: z.string().min(1).max(500), sourceUrls: z.array(z.string().url()).max(10),
   outputConcepts: z.array(outputConcept).max(8), assumptions: z.array(z.string()).max(8),
   platformRecommendations: z.array(socialPlatform).max(5), connectionSuggestions: z.array(socialPlatform).max(5),
+  missingField: intakeMissingFieldSchema.nullable(), resolvedField: intakeMissingFieldSchema.nullable(),
   needsClarification: z.boolean(), clarifyingQuestion: z.string().max(300).nullable(),
   requiresRightsAttestation: z.boolean(), effectRequested: z.boolean(),
   effectAuthorized: z.literal(false), jobId: z.string().max(128).nullable(),
   strategyContext: routedStrategyContextSchema.nullable(),
 }).superRefine((value, ctx) => {
   if (value.effectRequested !== (value.intent === "effect_request")) ctx.addIssue({ code: "custom", message: "effect request mismatch" });
-  if (value.needsClarification !== Boolean(value.clarifyingQuestion)) ctx.addIssue({ code: "custom", message: "clarification mismatch" });
+  if (value.needsClarification !== Boolean(value.clarifyingQuestion) || value.needsClarification !== Boolean(value.missingField)) ctx.addIssue({ code: "custom", message: "clarification mismatch" });
   if (value.connectionSuggestions.some((platform) => !value.platformRecommendations.includes(platform))) ctx.addIssue({ code: "custom", message: "connection suggestion mismatch" });
   if (["establish_strategy", "revise_strategy"].includes(value.intent) && !value.needsClarification && !value.strategyContext) ctx.addIssue({ code: "custom", message: "strategy context is required before starting a strategy job" });
 });
 
 export type IntentRoute = z.infer<typeof routeSchema>;
-export interface IntentRouteRequest { message: string; workspaceContext: WorkspaceContentContext; attachmentCount: number; recentConversation: Array<{ role: "user" | "assistant"; text: string }> }
+export interface IntentRouteRequest { pendingSourceUrls?: string[]; pendingClarification?: IntakeAdvice["clarification"]; message: string; workspaceContext: WorkspaceContentContext; attachmentCount: number; recentConversation: Array<{ role: "user" | "assistant"; text: string }> }
 interface Options { baseUrl?: string; token?: string; fetchImpl?: typeof fetch; timeoutMs?: number; tenant?: { workspaceId: string; brandId: string; userId: string } }
 
 function safeValidationSummary(body: unknown): string {

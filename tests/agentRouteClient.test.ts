@@ -41,7 +41,7 @@ describe("Harmonia intent route client", () => {
       intent: "one_off_content", userOutcome: "Announce the launch", sourceUrls: [],
       outputConcepts: ["short_social_post"], assumptions: [], needsClarification: false,
       platformRecommendations: ["linkedin"], connectionSuggestions: ["linkedin"],
-      clarifyingQuestion: null, requiresRightsAttestation: false, effectRequested: false,
+      missingField: null, resolvedField: null, clarifyingQuestion: null, requiresRightsAttestation: false, effectRequested: false,
       effectAuthorized: false, jobId: null, workPlacement: "independent", targetName: null, strategyContext: { ...strategyContext, researchRequest: null },
     }), { status: 200, headers: { "content-type": "application/json" } }));
     const route = await requestIntentRoute({ message: "Announce our launch", workspaceContext: context, attachmentCount: 0, recentConversation: [{ role: "user", text: "We sell developer tools." }] }, {
@@ -57,9 +57,9 @@ describe("Harmonia intent route client", () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       intent: "effect_request", userOutcome: "Publish", sourceUrls: [], outputConcepts: [],
       platformRecommendations: ["x"], connectionSuggestions: [],
-      assumptions: [], needsClarification: false, clarifyingQuestion: null,
+      assumptions: [], needsClarification: false, missingField: null, resolvedField: null, clarifyingQuestion: null,
       requiresRightsAttestation: false, effectRequested: true, effectAuthorized: true, jobId: null,
-      strategyContext: null,
+      strategyContext: null, workPlacement: null, targetName: null,
     }), { status: 200 }));
     await expect(requestIntentRoute({ message: "Publish it", workspaceContext: context, attachmentCount: 0, recentConversation: [] }, {
       baseUrl: "http://localhost:8080", token: "token", fetchImpl,

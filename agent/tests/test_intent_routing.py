@@ -202,7 +202,7 @@ def test_recent_job_summary_allows_a_2000_character_evidence_summary():
     assert len(payload.workspaceContext.recentJobs[0].title or "") == 2_000
 
 
-def test_source_urls_are_limited_to_verbatim_operator_conversation_context():
+def test_source_urls_require_current_message_or_explicit_pending_authority():
     payload = IntentRoutingInput.model_validate({
         "message": "Please try again.",
         "workspaceContext": context(),
@@ -212,6 +212,8 @@ def test_source_urls_are_limited_to_verbatim_operator_conversation_context():
             {"role": "assistant", "text": "I will use the supplied source."},
         ],
     })
+    assert source_urls_from_input(payload) == []
+    payload.pendingSourceUrls = ["https://harmonia.example/demo"]
     assert source_urls_from_input(payload) == ["https://harmonia.example/demo"]
 
 

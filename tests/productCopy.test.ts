@@ -68,7 +68,7 @@ describe("source-agnostic product copy", () => {
   it("does not attach a completed request's files to a new request", async () => {
     intake.pendingIntakeDraft.mockResolvedValue({ state: "dispatched", disposition: "knowledge_only", sourceHandles: [{ kind: "upload", attachmentId: "old-file" }] });
     await handleChat(new Request("http://localhost/api/chat", { method: "POST", body: JSON.stringify({ message: "status" }) }));
-    expect(chatIntent.parseIntent).toHaveBeenCalledWith("status", 0, []);
+    expect(chatIntent.parseIntent).toHaveBeenCalledWith("status", 0, [], { pendingSourceUrls: [], pendingClarification: null });
   });
 
   it("offers source-agnostic examples when chat needs to explain its capabilities", async () => {

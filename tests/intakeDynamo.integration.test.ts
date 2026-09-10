@@ -145,7 +145,7 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("durable intake commands", () =
     expect(draft.missingFields).toEqual(["rights"]);
     const accepted = await submitIntakeTurn({ ...input, requestId: randomUUID(), message: "I confirm I have rights to use this source", advice: { ...advice, sourceHandles: [] } });
     expect(accepted.id).toBe(draft.id);
-    expect(accepted.rightsAttested).toBe(true);
+    expect(Object.keys(accepted.sourceRights)).toHaveLength(1);
     expect(accepted.sourceHandles).toEqual(input.advice.sourceHandles);
   }));
   it("persists new initiatives and isolates other brands", () => run(async () => {

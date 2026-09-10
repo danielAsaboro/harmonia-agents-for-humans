@@ -1,9 +1,12 @@
 import { z } from "zod";
 import { outputKindSchema, strategyContextSchema } from "../contracts";
 import { strategyRefSchema } from "../strategy/contracts";
+import { strategyDigest } from "../strategyApproval";
 
 export const workPlacementSchema = z.enum(["independent", "existing_plan_item", "new_initiative", "knowledge_only"]);
 export const intakeActionSchema = z.enum(["create_job", "establish_strategy", "revise_strategy", "advance_plan"]);
+export const intakeMissingFieldSchema = z.enum(["expectedOutcome", "target", "rights", "requestedOutputs", "sources", "strategyContext", "activeStrategy"]);
+export const intakeClarificationSchema = z.object({ field: intakeMissingFieldSchema, question: z.string().trim().min(1).max(300) }).strict();
 export const sourceHandleSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("upload"), attachmentId: z.string().min(1) }).strict(),
   z.object({ kind: z.enum(["web", "youtube"]), url: z.string().url() }).strict(),
@@ -16,12 +19,15 @@ export const intakeAdviceSchema = z.object({
   sourceHandles: z.array(sourceHandleSchema).max(10),
   targetName: z.string().max(200).optional(),
   strategyContext: strategyContextSchema.optional(),
+  clarification: intakeClarificationSchema.nullable().optional(),
+  resolvedField: intakeMissingFieldSchema.nullable().optional(),
 }).strict();
 export type IntakeAdvice = Omit<z.infer<typeof intakeAdviceSchema>, "strategyContext"> & { strategyContext?: import("../types").StrategyContext };
 export type IntakeSourceHandle = z.infer<typeof sourceHandleSchema>;
+export const intakeSourceKey = (source: IntakeSourceHandle) => strategyDigest(sourceHandleSchema.parse(source));
 export type WorkPlacement = z.infer<typeof workPlacementSchema>;
 export interface IntakeTarget { campaignId: string; itemId: string; name: string }
-export type IntakeMissingField = "expectedOutcome" | "target" | "rights" | "requestedOutputs" | "sources" | "strategyContext" | "activeStrategy";
+export type IntakeMissingField = z.infer<typeof intakeMissingFieldSchema>;
 export interface IntakeDraft extends IntakeAdvice {
   id: string; workspaceId: string; brandId: string; subjectId: string;
   conversationId: string; operationId: string; surface: "dashboard" | "telegram";
@@ -30,7 +36,7 @@ export interface IntakeDraft extends IntakeAdvice {
   missingFields: IntakeMissingField[];
   question?: string;
   target?: IntakeTarget;
-  rightsAttested: boolean;
+  sourceRights: Record<string, string>;
   state: "clarifying" | "ready" | "ready_for_planning" | "dispatched" | "retained";
   revision: number; idempotencyKey: string;
   strategyBaseRef: z.infer<typeof strategyRefSchema> | null;

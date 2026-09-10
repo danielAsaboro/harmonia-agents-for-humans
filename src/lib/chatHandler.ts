@@ -430,14 +430,14 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
   const pending = latestDraft?.state === "clarifying" || latestDraft?.state === "ready" ? latestDraft : null;
   try {
     if (pending?.state === "clarifying" && message.trim().replace(/[.!]$/, "").toLocaleLowerCase() === RIGHTS_ATTESTATION_PHRASE.toLocaleLowerCase()) {
-      intent = { intent: pending.action, workPlacement: pending.disposition, userOutcome: pending.expectedOutcome, desiredOutputs: pending.requestedOutputs, sources: [], targetName: pending.targetName, strategyContext: pending.strategyContext };
+      intent = { intent: pending.action, workPlacement: pending.disposition, userOutcome: pending.expectedOutcome, desiredOutputs: pending.requestedOutputs, sources: [], targetName: pending.targetName, strategyContext: pending.strategyContext, resolvedField: "rights" as const };
     } else {
       const history = await listChatMessages(8, surface, conversationId);
       const recentConversation = pending
         ? pending.answers.slice(-8).map(turn => ({ role: "user" as const, text: turn.message }))
         : history.filter((turn): turn is typeof turn & { role: "user" | "assistant" } => turn.role === "user" || turn.role === "assistant").map(turn => ({ role: turn.role, text: turn.text }));
       if (pending?.question) recentConversation.push({ role: "assistant", text: pending.question });
-      intent = await parseIntent(message, attachments.length || pending?.sourceHandles.filter(source => source.kind === "upload").length || 0, recentConversation.slice(-8));
+      intent = await parseIntent(message, attachments.length || pending?.sourceHandles.filter(source => source.kind === "upload").length || 0, recentConversation.slice(-8), { pendingSourceUrls: pending?.sourceHandles.flatMap(source => source.kind === "upload" ? [] : [source.url]) ?? [], pendingClarification: pending?.clarification ?? null });
     }
   } catch (e) {
     return { __http: Response.json({ error: `intent parsing failed: ${e instanceof Error ? e.message : String(e)}` }, { status: 502 }) };
@@ -445,6 +445,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
 
   if (["create_job", "establish_strategy", "revise_strategy", "advance_plan"].includes(intent.intent)
       || intent.workPlacement === "knowledge_only"
+      || (pending && intent.intent === "unknown")
       || ((pending?.state === "clarifying" || pending?.state === "ready") && hasRightsAttestation(message))) {
     if (!requestId) return { __http: Response.json({ error: "durable intake requestId is required" }, { status: 400 }) };
     const action = ["create_job", "establish_strategy", "revise_strategy", "advance_plan"].includes(intent.intent)
@@ -457,6 +458,8 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
       action, disposition: intent.workPlacement ?? pending?.disposition ?? "independent",
       expectedOutcome: intent.userOutcome ?? pending?.expectedOutcome ?? "",
       requestedOutputs: intent.desiredOutputs ?? [], sourceHandles,
+      clarification: intent.needsClarification ? { field: intent.missingField!, question: intent.clarifyingQuestion! } : null,
+      resolvedField: intent.resolvedField ?? null,
       ...(intent.targetName ? { targetName: intent.targetName } : {}),
       ...(intent.strategyContext ? { strategyContext: intent.strategyContext } : {}),
     } });

@@ -11,6 +11,7 @@ export interface SourceRightsAuthorization {
   authenticationId: string;
   channel: "dashboard" | "telegram";
   attestedAt: string;
+  sourceHandleDigest?: string;
 }
 
 export function sourceRightsAuthorizationId(authorization: SourceRightsAuthorization): string {
@@ -25,6 +26,7 @@ export function sourceRightsAuthorization(
   context: TenantContext,
   sourceKind: SourceRightsAuthorization["sourceKind"],
   now = new Date().toISOString(),
+  sourceHandleDigest?: string,
 ): SourceRightsAuthorization {
   const actor = requireContentOperator(context);
   return {
@@ -34,6 +36,7 @@ export function sourceRightsAuthorization(
     authenticationId: actor.authenticationId,
     channel: actor.kind === "telegram_user" ? "telegram" : "dashboard",
     attestedAt: now,
+    ...(sourceHandleDigest ? { sourceHandleDigest } : {}),
   };
 }
 

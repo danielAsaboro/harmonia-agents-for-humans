@@ -15,7 +15,7 @@ const token=createHash('sha256').update(`knowledge-index\0${t.workspaceId}\0bran
 const input={estimatedCostUsd:'0.001000',pricingVersion:'test-price',estimatedInputUnits:100,jobId:'job',operationId:token,clientToken:token,sourceDigest:digest,objectUri:`s3://${process.env.S3_BUCKET}/knowledge/${t.workspaceId}/brand/source/${digest}.txt`,state:'prepared' as const};
 describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)('native source knowledge authority and erasure',()=>{
  it('binds rights, manifest, digest and provider job before completion; recovers deletion after source removal',async()=>runWithTenant(t,async()=>{
-  const rightsAuthorizationId=await persistSourceRightsAuthorization(sourceRightsAuthorization(t,'pasted_text'));
+  const rightsAuthorizationId=await persistSourceRightsAuthorization(sourceRightsAuthorization(t,'pasted_text',new Date().toISOString(),'f'.repeat(64)));
   await repo.put(sourceKey,{id:source,workspaceId:t.workspaceId,brandId:t.brandId,state:'ready',provider:'pasted_text',rightsAuthorizationId,contentDigest:digest});
   await repo.put(recordKey(`${root}/jobs/job`),{workspaceId:t.workspaceId,brandId:t.brandId,config:{sourceManifestId:'manifest'}});
   await repo.put(recordKey(root),{budget:{estimatedUsd:'0',observedUsd:'0',reservedUsd:'0',limitUsd:'10',approvalThresholdUsd:'10'}});

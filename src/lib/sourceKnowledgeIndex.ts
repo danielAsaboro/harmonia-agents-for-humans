@@ -45,7 +45,7 @@ export async function updateKnowledgeIndex(sourceId:string,input:KnowledgeIndexI
   if (!rights.present || rights.value?.revokedAt) throw new Error('source rights record missing or revoked');
   assertResourceWorkspace(scope, rights.value as {workspaceId:string;brandId:string});
   const r=rights.value!;
-  const authorization={version:r.version,sourceKind:r.sourceKind,attestedBySubjectId:r.attestedBySubjectId,authenticationId:r.authenticationId,channel:r.channel,attestedAt:r.attestedAt} as SourceRightsAuthorization;
+  const authorization={version:r.version,sourceKind:r.sourceKind,attestedBySubjectId:r.attestedBySubjectId,authenticationId:r.authenticationId,channel:r.channel,attestedAt:r.attestedAt,...(r.sourceHandleDigest ? {sourceHandleDigest:r.sourceHandleDigest} : {})} as SourceRightsAuthorization;
   if(authorization.version!=='source-rights-v1'||authorization.sourceKind!==snapshot.value.provider||sourceRightsAuthorizationId(authorization)!==snapshot.value.rightsAuthorizationId)throw new Error('source rights record integrity mismatch');
   const job=await tx.read(recordKey(`workspaces/${scope.workspaceId}/jobs/${input.jobId}`));
   if(!job.present||job.value?.brandId!==scope.brandId||!job.value?.config)throw new Error('source outside indexing job');

@@ -65,17 +65,27 @@ class ConversationTurn(StrictModel):
     text: StrictStr = Field(min_length=1, max_length=2000)
 
 
+IntakeMissingField = Literal["expectedOutcome", "target", "rights", "requestedOutputs", "sources", "strategyContext", "activeStrategy"]
+
+
+class IntakeClarification(StrictModel):
+    field: IntakeMissingField
+    question: StrictStr = Field(min_length=1, max_length=300)
+
+
 class IntentRoutingInput(StrictModel):
     message: StrictStr = Field(min_length=1, max_length=2000)
     workspaceContext: WorkspaceContentContext
     attachmentCount: StrictInt = Field(ge=0, le=10)
     recentConversation: list[ConversationTurn] = Field(default_factory=list, max_length=8)
+    pendingClarification: IntakeClarification | None = None
+    pendingSourceUrls: list[StrictStr] = Field(default_factory=list, max_length=10)
 
 
 def source_urls_from_input(value: IntentRoutingInput) -> list[str]:
-    """Return only HTTP(S) URLs the operator or prior conversation supplied verbatim."""
-    urls: list[str] = []
-    for text in [*(turn.text for turn in value.recentConversation), value.message]:
+    """Source authority comes from this message and the host's pending draft only."""
+    urls: list[str] = list(dict.fromkeys(value.pendingSourceUrls))
+    for text in [value.message]:
         for match in re.findall(r"https?://[^\s<>\"']+", text):
             url = match.rstrip(".,;:!?)]}")
             if url and url not in urls:
@@ -89,7 +99,7 @@ def deterministic_intent_classification(
     """Classify syntax that carries no model judgment; return None when ambiguous."""
     urls = source_urls_from_input(value)
     message = value.message.casefold()
-    if value.recentConversation or re.search(r"\b(?:campaign|initiative|knowledge|planned|plan item)\b", message):
+    if value.pendingClarification or value.recentConversation or re.search(r"\b(?:campaign|initiative|knowledge|planned|plan item)\b", message):
         return None
     if urls and re.search(
         r"\b(?:repurpose|transcribe|analy[sz]e|clip|turn|transform|convert)\b",
@@ -162,6 +172,8 @@ class IntentClassification(StrictModel):
     outputConcepts: list[OutputConcept] = Field(max_length=8)
     platformRecommendations: list[SocialPlatform] = Field(max_length=5)
     assumptions: list[StrictStr] = Field(max_length=8)
+    missingField: IntakeMissingField | None = None
+    resolvedField: IntakeMissingField | None = None
     needsClarification: StrictBool
     clarifyingQuestion: StrictStr | None = Field(default=None, max_length=300)
     requiresRightsAttestation: StrictBool
@@ -172,7 +184,7 @@ class IntentClassification(StrictModel):
     def enforce_question_shape(self) -> "IntentClassification":
         if self.effectRequested != (self.intent == "effect_request"):
             raise ValueError("effectRequested must match the effect_request intent")
-        if self.needsClarification != bool(self.clarifyingQuestion):
+        if self.needsClarification != bool(self.clarifyingQuestion) or self.needsClarification != bool(self.missingField):
             raise ValueError("clarifyingQuestion must match needsClarification")
         return self
 
@@ -198,6 +210,8 @@ class IntentRoute(StrictModel):
     platformRecommendations: list[SocialPlatform] = Field(max_length=5)
     connectionSuggestions: list[SocialPlatform] = Field(max_length=5)
     assumptions: list[StrictStr] = Field(max_length=8)
+    missingField: IntakeMissingField | None = None
+    resolvedField: IntakeMissingField | None = None
     needsClarification: StrictBool
     clarifyingQuestion: StrictStr | None = Field(default=None, max_length=300)
     requiresRightsAttestation: StrictBool
@@ -212,7 +226,7 @@ class IntentRoute(StrictModel):
             raise ValueError("intent routing cannot authorize an external effect")
         if self.effectRequested != (self.intent == "effect_request"):
             raise ValueError("effectRequested must match the effect_request intent")
-        if self.needsClarification != bool(self.clarifyingQuestion):
+        if self.needsClarification != bool(self.clarifyingQuestion) or self.needsClarification != bool(self.missingField):
             raise ValueError("clarifyingQuestion must match needsClarification")
         if not set(self.connectionSuggestions).issubset(self.platformRecommendations):
             raise ValueError("connection suggestions must be recommended platforms")
@@ -239,13 +253,6 @@ class IntentRoute(StrictModel):
 def compiled_intent_routing_skill_context() -> str:
     """Compile Harmonia's owned routing skill for a one-response typed handoff."""
     instructions = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-    instructions = instructions.replace(
-        "Call `get_social_platform_connections` once before recommending distribution channels. "
-        "Treat only `connected: true` as connected.",
-        "The trusted routing host calls `get_social_platform_connections` once and reconciles "
-        "your recommendations against its live result after this typed response. Recommend channels "
-        "for strategic fit; do not guess connection state or omit a useful disconnected channel.",
-    )
     return (
         "# Coordinator-compiled Harmonia intent-routing skill\n"
         "Activation: coordinator_compiled\n"

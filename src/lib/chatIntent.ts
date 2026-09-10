@@ -3,7 +3,7 @@ import { outputKindSchema } from "./contracts";
 import { OUTPUT_CAPABILITIES } from "./outputCapabilities";
 import { OUTPUT_CONCEPT_TO_KIND, requestIntentRoute } from "./agentRouteClient";
 import { loadWorkspaceContentContext, type WorkspaceContentContext } from "./workspaceContentContext";
-import type { WorkPlacement } from "./intake/contracts";
+import type { WorkPlacement, IntakeMissingField, IntakeAdvice } from "./intake/contracts";
 
 const URL_RE = /https?:\/\/[^\s<>"]+/gi;
 const YOUTUBE_RE = /(?:youtube\.com\/(?:watch\?\S*v=|shorts\/)|youtu\.be\/)/i;
@@ -20,7 +20,7 @@ export type ChatIntent = "create_job" | "establish_strategy" | "revise_strategy"
   | "create_production_plan" | "revise_production_plan" | "explain_production_plan"
   | "approve_production_plan" | "production_status" | "rerender_production_plan" | "unknown";
 export type ChatSourceDescriptor = { kind: "youtube" | "web"; url: string } | { kind: "pasted_text"; title: string; text: string };
-export interface ParsedIntent { intent: ChatIntent; workPlacement?: WorkPlacement; targetName?: string; sources?: ChatSourceDescriptor[]; desiredOutputs?: OutputKind[]; libraryName?: string; jobId?: string; productionRequest?: string; userOutcome?: string; assumptions?: string[]; needsClarification?: boolean; clarifyingQuestion?: string; requiresRightsAttestation?: boolean; workspaceContext?: WorkspaceContentContext; platformRecommendations?: string[]; connectionSuggestions?: string[]; strategyContext?: StrategyContext }
+export interface ParsedIntent { missingField?: IntakeMissingField | null; resolvedField?: IntakeMissingField | null; intent: ChatIntent; workPlacement?: WorkPlacement; targetName?: string; sources?: ChatSourceDescriptor[]; desiredOutputs?: OutputKind[]; libraryName?: string; jobId?: string; productionRequest?: string; userOutcome?: string; assumptions?: string[]; needsClarification?: boolean; clarifyingQuestion?: string; requiresRightsAttestation?: boolean; workspaceContext?: WorkspaceContentContext; platformRecommendations?: string[]; connectionSuggestions?: string[]; strategyContext?: StrategyContext }
 
 export function normalizeParsedIntent(value: unknown): ParsedIntent {
   const raw = value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -88,15 +88,15 @@ export function parseLocalIntent(message: string): ParsedIntent {
   return { intent: "unknown" };
 }
 
-export async function parseIntent(message: string, attachmentCount = 0, recentConversation: Array<{ role: "user" | "assistant"; text: string }> = []): Promise<ParsedIntent> {
+export async function parseIntent(message: string, attachmentCount = 0, recentConversation: Array<{ role: "user" | "assistant"; text: string }> = [], pending: { pendingSourceUrls?: string[]; pendingClarification?: IntakeAdvice["clarification"] } = {}): Promise<ParsedIntent> {
   const workspaceContext = await loadWorkspaceContentContext();
-  const route = await requestIntentRoute({ message, workspaceContext, attachmentCount, recentConversation });
+  const route = await requestIntentRoute({ message, workspaceContext, attachmentCount, recentConversation, ...pending });
   const sources: ChatSourceDescriptor[] = route.sourceUrls.map((url) => ({ kind: YOUTUBE_RE.test(url) ? "youtube" : "web", url }));
   const desiredOutputs = route.outputConcepts.map((concept) => OUTPUT_CONCEPT_TO_KIND[concept]).flatMap((kind) => {
     const parsed = outputKindSchema.safeParse(kind);
     return parsed.success && OUTPUT_CAPABILITIES[parsed.data].state !== "unavailable" ? [parsed.data] : [];
   });
-  const common = { workPlacement: route.workPlacement ?? undefined, targetName: route.targetName ?? undefined, sources, desiredOutputs, jobId: route.jobId ?? undefined, userOutcome: route.userOutcome, assumptions: route.assumptions, needsClarification: route.needsClarification, clarifyingQuestion: route.clarifyingQuestion ?? undefined, requiresRightsAttestation: route.requiresRightsAttestation, workspaceContext, platformRecommendations: route.platformRecommendations, connectionSuggestions: route.connectionSuggestions, strategyContext: route.strategyContext ?? undefined };
+  const common = { missingField: route.missingField, resolvedField: route.resolvedField, workPlacement: route.workPlacement ?? undefined, targetName: route.targetName ?? undefined, sources, desiredOutputs, jobId: route.jobId ?? undefined, userOutcome: route.userOutcome, assumptions: route.assumptions, needsClarification: route.needsClarification, clarifyingQuestion: route.clarifyingQuestion ?? undefined, requiresRightsAttestation: route.requiresRightsAttestation, workspaceContext, platformRecommendations: route.platformRecommendations, connectionSuggestions: route.connectionSuggestions, strategyContext: route.strategyContext ?? undefined };
   if (route.intent === "repurpose_source" || route.intent === "one_off_content") return { intent: "create_job", ...common };
   if (route.intent === "status_evidence") return { intent: /artifact|draft|content/i.test(message) ? "list_artifacts" : "status", ...common };
   if (route.intent === "effect_request") return { intent: /approv|review|accept/i.test(message) ? "approve" : "effect_request", ...common };

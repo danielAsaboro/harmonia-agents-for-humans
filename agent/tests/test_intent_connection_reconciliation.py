@@ -19,7 +19,7 @@ def test_natural_channel_mention_gets_live_connection_guidance(monkeypatch):
             "outputConcepts": ["professional_post", "calendar"],
             "platformRecommendations": ["linkedin"],
             "assumptions": [],
-            "needsClarification": True,
+            "needsClarification": True, "missingField": "strategyContext",
             "clarifyingQuestion": "What does your startup do, and who should the content reach?",
             "requiresRightsAttestation": False,
             "effectRequested": False,

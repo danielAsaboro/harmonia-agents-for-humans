@@ -102,7 +102,11 @@ export async function reconcilePlannedExecution(jobId: string): Promise<void> {
     tx.put(authorityKey("planned_item_states", ref), { ...state, status, reason: state.retryPending || state.dispositionProposalId ? state.reason : status === "blocked" ? `execution outcome ${job.terminalOutcome}` : "", updatedAt: new Date().toISOString(), retryable: Boolean((job.failure as { retryable?: boolean })?.retryable) });
     if (status === "completed") planId = item.planRef.id;
   });
-  if (planId) { await resumePendingPlannedRetries(); await claimNextPlannedItem(planId); }
+  if (planId) {
+    const { scheduleCompletedJob } = await import("../learning/repository");
+    await scheduleCompletedJob(jobId);
+    await resumePendingPlannedRetries(); await claimNextPlannedItem(planId);
+  }
 }
 export async function resumePendingPlannedRetries() {
   for (const item of await plannedCalendar()) if (item.lifecycle.retryPending && item.lifecycle.jobId) {

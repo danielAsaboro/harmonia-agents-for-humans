@@ -333,6 +333,7 @@ async def run_understand(job_id: str) -> None:
         stage="understand", operation_id=_invocation_operation_id(f"{job_id}:understand:0"),
     )
     performance: list[AnalystPerformanceObservation] = []
+    insights: dict[str, Any] = {}
     try:
         insights = get_insights()
         performance = _performance_observations_for_nimi(insights)
@@ -367,6 +368,7 @@ async def run_understand(job_id: str) -> None:
         sourceSegments=source_segments[:500],
         performanceObservations=performance,
         memoryFacts=[],
+        learningContext=insights.get("learningContext") or {},
         researchRequest=(job.get("config") or {}).get("analysisResearchRequest"),
     )
     run_result = await analyze_with_team(analyst_input, invocation=invocation)
@@ -476,7 +478,7 @@ def _strategy_input(job: dict[str, Any], insights: dict[str, Any]) -> Strategist
             **{key: context[key] for key in ("businessObjectives", "campaignObjectives", "audiences", "funnelStage", "intendedConversion", "requestedChannels", "supportedChannels")},
             horizonWeeks=int(context.get("horizonWeeks") or 4),
         ),
-        analysis=analysis, performance=performance, revision=revision,
+        analysis=analysis, performance=performance, revision=revision, learningContext=insights.get("learningContext") or {},
         researchRequest=context.get("researchRequest"),
         revisionFeedback="\n".join(filter(None, [job.get("strategyRevisionFeedback"), *[str(item.get("instruction")) for item in (job.get("steeringInstructions") or []) if item.get("instruction")]])) or None,
     )
@@ -1080,51 +1082,11 @@ async def run_verify(job_id: str) -> None:
 
 
 async def run_learn(job_id: str) -> None:
-    """Closes the loop: measure published posts, derive takeaways, complete job."""
+    """Complete delivery; the host schedules observations at pinned measurement windows."""
     job = get_job(job_id)
-    receipts = _receipts_for_job(job_id)
-    receipt_by_action = {r["actionId"]: r for r in receipts}
-
     engagement: list[dict[str, Any]] = []
-    for action in job.get("actions", []):
-        if action.get("type") != "publish_x_post" or action.get("state") != "executed":
-            continue
-        post_id = receipt_by_action.get(action["id"], {}).get("detail", {}).get("id")
-        if not post_id:
-            continue
-        connection = get_connection("x")
-        metrics = x_client.get_post_metrics(str(post_id), connection.get("accessToken"))
-        if not metrics:
-            continue
-        metrics = {key: value for key, value in metrics.items() if value is not None}
-        engagement.append({
-            "actionId": action["id"],
-            "postId": str(post_id),
-            "checkedAt": _now(),
-            **metrics,
-        })
-
-    notes: list[str] = []
-    if engagement:
-        best = max(engagement, key=lambda e: (e["likes"], e["reposts"]))
-        draft_text = next(
-            (
-                a["payload"].get("text", "")
-                for a in job.get("actions", [])
-                if a["id"] == best["actionId"]
-            ),
-            "",
-        )
-        notes.append(f"top post earned {best['likes']} likes / {best['reposts']} reposts")
-        if draft_text:
-            notes.append(f"winning pattern to double down on: \"{draft_text[:160]}\"")
-    else:
-        notes.append("no published posts measured yet (X publishing optional)")
-
-    summary = (
-        f"{len(engagement)} published post(s) measured; "
-        + (notes[0] if engagement else "insights will accrue as posts publish.")
-    )
+    notes = ["Delivery/export verification is separate from audience and business outcomes.", "Missing observations are unavailable, never zero; a single post establishes no causal pattern."]
+    summary = "Delivery complete. Host observation collection follows each planned item's pinned measurement window."
     memory = configured_memory(InvocationContext(
         job_id=job_id,
         workspace_id=job["workspaceId"],

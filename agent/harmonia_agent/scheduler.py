@@ -28,6 +28,11 @@ POLL_SECONDS = 60
 
 
 async def _tenant_tick() -> None:
+    from .learning_collector import tick_learning
+    try:
+        await asyncio.to_thread(tick_learning)
+    except Exception:
+        logger.exception("learning collection is unresolved; the durable outbox retains its state")
     await asyncio.to_thread(run_library_sync_tick)
     for command_id in get_due_effect_command_ids():
         try:

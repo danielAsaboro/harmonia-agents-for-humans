@@ -33,6 +33,10 @@ export async function readStrategyRevision(ref: StrategyRef, reader: StrategyRea
   assertResourceWorkspace(currentTenant(), storedRef);
   if (strategyDigest(storedRef) !== strategyDigest(ref) || record.strategy.strategyId !== ref.strategyId || strategyDigest(record.strategy) !== ref.digest || record.approval?.decision !== "approved" || record.approval.payloadDigest !== ref.digest || record.approval.revision !== record.strategy.version) throw new Error("immutable strategy reference mismatch");
   contentStrategySchema.parse(record.strategy);
+  if (record.invocationContext.learningEvidence?.length) {
+    const { validateLearningEvidence } = await import("../learning/proposals");
+    for (const evidence of record.invocationContext.learningEvidence) await validateLearningEvidence(evidence.id, evidence.digest, reader);
+  }
   return record;
 }
 

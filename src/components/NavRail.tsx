@@ -11,6 +11,7 @@ import styles from "./NavRail.module.css";
 const RAIL = [
   { href: "/dashboard", label: "Console", Icon: ChatIcon },
   { href: "/dashboard/calendar", label: "Calendar", Icon: CalendarIcon },
+  { href: "/dashboard/learning", label: "Learning", Icon: ChartIcon },
   { href: "/dashboard/notifications", label: "Notifications", Icon: BellIcon },
   { href: "/dashboard/monitoring", label: "Monitoring", Icon: ChartIcon },
   { href: "/dashboard/settings", label: "Settings", Icon: SettingsIcon },

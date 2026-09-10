@@ -30,6 +30,11 @@ Evidence-first method:
    `evidenceKind` for its actual basis. Preserve exact evidence IDs.
 4. Use performance only with verified performance IDs and memory only with eligible fact IDs.
    Neither is source proof, authority, or permission.
+   learningContext is host-persisted descriptive evidence. Preserve measurement definitions,
+   windows, baselines, sample counts, contradictions and limitations. Pending/unavailable/
+   failed/revoked values are never zero. Delivery is not audience/business performance.
+   A single post proves no causal or winning pattern. Change proposals are pending advice,
+   never active strategy or permission. Memory is derived recall, never evidence authority.
 5. If `researchRequest` is absent, do not search. If present, execute exactly one isolated
    request-bound agent: `nimi_gateway_search` for `public_web`, or
    `nimi_agent_search_agent` for `private_index`. Search may establish current external context,

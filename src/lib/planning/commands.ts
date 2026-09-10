@@ -158,7 +158,7 @@ export async function plannedCalendar(reader = awsRepository() as import("../str
   }
   return items;
 }
-export async function addPlannedDeliverable(input: { planId: string; expectedRevision: number; requestId: string; name: string; operatorBrief: string; requestedOutputs: PlannedItem["requestedOutputs"]; channel: string; scheduledFor: string; dependencies: AuthorityRef[]; requiredAssetIds: string[] }) {
+export async function addPlannedDeliverable(input: { planId: string; expectedRevision: number; requestId: string; name: string; operatorBrief: string; requestedOutputs: PlannedItem["requestedOutputs"]; channel: string; scheduledFor: string; dependencies: AuthorityRef[]; requiredAssetIds: string[]; measurements?: PlannedItem["measurements"] }) {
   requireContentOperator(currentTenant());
   if (!input.name.trim() || !input.operatorBrief.trim() || !input.requestedOutputs.length || !Number.isFinite(Date.parse(input.scheduledFor))) throw new Error("complete planned deliverable required");
   return awsRepository().atomic(async tx => {
@@ -174,7 +174,7 @@ export async function addPlannedDeliverable(input: { planId: string; expectedRev
       await readPlannedItem(dependency, tx);
       if (!plan.itemRefs.some(ref => digest(ref) === digest(dependency))) throw new Error("dependency must be an exact item in this plan");
     }
-    const item: PlannedItem = withItemProductionContext({ ref, workspaceId: ref.workspaceId, brandId: ref.brandId, planRef, campaignRef: plan.campaignRef, strategyRef: plan.strategyRef, name: input.name, objective: input.name, operatorBrief: input.operatorBrief, requestedOutputs: input.requestedOutputs, channel: input.channel, scheduledFor: new Date(input.scheduledFor).toISOString(), dependencies: input.dependencies, requiredAssetIds: input.requiredAssetIds, evidence: { mode: "operator_context", operatorBrief: input.operatorBrief, contextDigest: sourceAnalysisDigest(input.operatorBrief), evidenceIds: [], factualClaimsAllowed: false }, productionContext: { mode: "operator_context", policyRef: policy.ref }, createdAt: now });
+    const item: PlannedItem = withItemProductionContext({ ref, workspaceId: ref.workspaceId, brandId: ref.brandId, planRef, campaignRef: plan.campaignRef, strategyRef: plan.strategyRef, name: input.name, objective: input.name, operatorBrief: input.operatorBrief, requestedOutputs: input.requestedOutputs, channel: input.channel, scheduledFor: new Date(input.scheduledFor).toISOString(), dependencies: input.dependencies, requiredAssetIds: input.requiredAssetIds, measurements: input.measurements, evidence: { mode: "operator_context", operatorBrief: input.operatorBrief, contextDigest: sourceAnalysisDigest(input.operatorBrief), evidenceIds: [], factualClaimsAllowed: false }, productionContext: { mode: "operator_context", policyRef: policy.ref }, createdAt: now });
     const conflicts = calendarConflicts(item, await plannedCalendar(tx), policy);
     if (conflicts.length) throw new Error(`calendar proposal required: ${conflicts.join("; ")}`);
     const active = await getActiveStrategy(tx);

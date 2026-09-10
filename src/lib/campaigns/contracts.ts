@@ -34,6 +34,7 @@ export interface PlanRevision {
   acceptedEditorialDigest?: string;
 }
 export interface PlannedItem {
+  measurements: import("../learning/contracts").PinnedMeasurement[];
   ref: AuthorityRef; workspaceId: string; brandId: string; planRef: AuthorityRef; campaignRef: AuthorityRef | null;
   strategyRef: z.infer<typeof strategyRefSchema>; name: string; objective: string; operatorBrief: string;
   requestedOutputs: JobConfig["desiredOutputs"]; channel: string; scheduledFor: string; publicationWindowEndAt?: string; productionDeadlineAt?: string; productionReadyAt?: string;

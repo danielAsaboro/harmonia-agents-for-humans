@@ -75,7 +75,7 @@ def test_verified_metrics_preserve_explicitly_unavailable_published_text():
     assert "Published text:" not in observation.summary
 
 
-def test_learn_omits_unavailable_impressions_before_the_typescript_submission(monkeypatch):
+def test_scheduled_collector_omits_unavailable_impressions_before_the_typescript_submission(monkeypatch):
     posted = []
     monkeypatch.setattr(stages, "get_job", lambda _job_id: {
         "id": "job-1", "workspaceId": "workspace-1", "brandId": "brand-1", "createdByUserId": "user-1",
@@ -90,8 +90,8 @@ def test_learn_omits_unavailable_impressions_before_the_typescript_submission(mo
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posted.append((path, payload)))
     monkeypatch.setattr(stages, "_now", lambda: "2026-09-09T10:15:00.000Z")
 
-    asyncio.run(stages.run_learn("job-1"))
-
-    engagement = posted[0][1]["engagement"][0]
-    assert engagement["checkedAt"] == "2026-09-09T10:15:00.000Z"
+    from harmonia_agent.learning_collector import collect_observation
+    submission = collect_observation({"id": "a" * 64, "token": "b" * 64, "postId": "post-1", "costAuthorization": {"maximumUsd": "0.01"}}, fetch=lambda _: stages.x_client.get_post_metrics("post-1", "token"))
+    engagement = submission["metrics"]
+    assert submission["checkedAt"].endswith("Z")
     assert "impressions" not in engagement

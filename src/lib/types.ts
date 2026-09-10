@@ -266,6 +266,7 @@ export interface EditorialPlanningSnapshot {
 }
 
 export interface StrategyInvocationContext {
+  learningEvidence?: Array<{ id: string; digest: string }>;
   revision: number; sourceIds: string[]; operatorContextIds: string[];
   performance: Array<{ id: string; durableEvidenceRef: string }>;
   memoryFacts: Array<{ id: string; durableEvidenceRef: string }>;

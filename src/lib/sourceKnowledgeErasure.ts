@@ -10,7 +10,7 @@ export async function revokeSourceKnowledge(sourceId:string):Promise<string|null
  if(!/^[A-Za-z0-9_-]{1,300}$/.test(sourceId))throw new Error('invalid source id');
  const t=currentTenant(),source=recordKey(`workspaces/${t.workspaceId}/brands/${t.brandId}/sources/${sourceId}`);
  const id=createHash('sha256').update(`knowledge-erasure\0${t.workspaceId}\0${t.brandId}\0${sourceId}`).digest('hex');
- return awsRepository().atomic(async tx=>{
+ const result = await awsRepository().atomic(async tx=>{
   const [record,indexes,existing]=await Promise.all([tx.read(source),tx.read(partition(source.path+'/knowledge_index')),tx.read(recordKey('knowledge-erasure/'+id))]);
   if(!record.present)return existing.present?id:null;
   assertResourceWorkspace(t,record.value as {workspaceId:string;brandId:string});
@@ -19,6 +19,9 @@ export async function revokeSourceKnowledge(sourceId:string):Promise<string|null
   if(existing.present)return id;
   tx.insert(recordKey('knowledge-erasure/'+id),{id,workspaceId:t.workspaceId,brandId:t.brandId,sourceId,bucket:process.env.S3_BUCKET,prefix:`knowledge/${t.workspaceId}/${t.brandId}/${sourceId}/`,state:'pending',clientToken:id,generation:0,notBefore:new Date(Date.now()+60_000).toISOString(),createdAt:new Date().toISOString()});return id;
  });
+ const { revokeLearningObservations } = await import('./learning/repository');
+ await revokeLearningObservations({sourceId}, 'Source evidence revoked');
+ return result;
 }
 export async function revokeWorkspaceKnowledge():Promise<string[]>{
  const t=currentTenant(),registry=await awsRepository().query(partition(`partition-registry:${t.workspaceId}`)),ids:string[]=[];

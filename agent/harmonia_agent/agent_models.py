@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, field_validator, model_validator, model_serializer
+from .learning_models import LearningContext
 
 
 class StrictModel(BaseModel):
@@ -404,6 +405,7 @@ class AnalystResearchRequest(StrictModel):
 
 
 class AnalystInput(StrictModel):
+    learningContext: LearningContext = Field(default_factory=LearningContext)
     sourceIds: list[StrictIdentifier] = Field(min_length=1, max_length=10_000)
     sourceKind: Literal["video", "audio", "document", "web", "text", "mixed"]
     sourceDigest: StrictDigest
@@ -482,6 +484,7 @@ class StrategyResearchRequest(StrictModel):
 
 
 class StrategistInput(StrictModel):
+    learningContext: LearningContext = Field(default_factory=LearningContext)
     source_title: str = Field(min_length=1, max_length=300)
     company: CompanyContext
     campaign: CampaignContext

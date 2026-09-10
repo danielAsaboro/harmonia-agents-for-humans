@@ -1,0 +1,43 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import type { learningContextSchema } from "@/lib/learning/contracts";
+import type { z } from "zod";
+
+type Context = z.infer<typeof learningContextSchema>;
+export function LearningReview() {
+  const [context, setContext] = useState<Context | null>(null), [error, setError] = useState(""), [busy, setBusy] = useState(false);
+  const refresh = useCallback(async () => {
+    const response = await fetch("/api/learning", { cache: "no-store" });
+    const body = await response.json(); if (!response.ok) throw new Error(body.error || "Learning evidence unavailable");
+    setContext(body as Context);
+  }, []);
+  useEffect(() => { let active = true; async function load() { try { const response = await fetch("/api/learning", { cache: "no-store" }); const body = await response.json(); if (!response.ok) throw new Error(body.error || "Learning evidence unavailable"); if (active) setContext(body as Context); } catch (e) { if (active) setError(String(e)); } } void load(); return () => { active = false; }; }, []);
+  async function submit(body: object) {
+    if (busy) return; setBusy(true); setError("");
+    try { const response = await fetch("/api/learning", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || "Learning request failed"); await refresh(); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  }
+  return <main className="mx-auto max-w-5xl space-y-8 p-8">
+    <header><p className="text-sm text-gray-500">Harmonia / Strategy learning</p><h1 className="mt-2 text-3xl font-semibold">Evidence and strategy review</h1><p className="mt-3 text-gray-600">Review measured results and operator observations before changing the approved strategy. Delivery verification records completed exports and publications separately.</p><button className="mt-3 rounded border px-3 py-2" disabled={busy} onClick={() => { void refresh().catch(e => setError(String(e))); }}>Refresh evidence</button></header>
+    {error && <p role="alert" className="rounded border border-red-300 p-3">{error}</p>}
+    {!context && !error && <p role="status">Loading persisted evidence…</p>}
+    {context && <>
+      <section className="space-y-3"><h2 className="text-xl font-semibold">Observations</h2>{!context.observations.length && <p>Observations appear after planned work completes.</p>}
+        {context.observations.map(o => <article className="rounded-xl border p-4" key={o.id}>
+          <div className="flex justify-between gap-4"><h3 className="font-semibold">{o.measurement.definition.metricId}</h3><span>{o.availability.replaceAll("_", " ")}</span></div>
+          <p className="mt-2">{o.value === null ? "No measured value" : `${o.value} ${o.measurement.definition.unit}`} · {o.kind === "delivery_verification" ? "Delivery verification" : "Performance observation"}</p>
+          <p className="text-sm text-gray-600">Item {o.itemRef.id} · Strategy revision {o.strategyRef.revision} · {o.provider}{o.actor ? `, attributed to ${o.actor}` : ""}</p>
+          <p className="text-sm">Window: {o.window.startAt} – {o.window.endAt}</p>{o.reason && <p className="text-sm">{o.reason.replaceAll("_", " ")}</p>}
+          {o.measurement.definition.collectionMethod === "operator" && o.availability === "pending_window" && <form className="mt-3 flex flex-wrap gap-2" onSubmit={event => { event.preventDefault(); const fields = new FormData(event.currentTarget); void submit({ action: "observe", collectionId: o.collectionId, requestId: crypto.randomUUID(), value: Number(fields.get("value")), evidenceText: fields.get("evidence") }); }}>
+            <input aria-label="Observed value" name="value" type="number" step="any" required className="rounded border p-2" /><input aria-label="Evidence and method" name="evidence" placeholder="Describe what you observed and how" required className="min-w-64 flex-1 rounded border p-2" /><button disabled={busy} className="rounded border px-3 py-2">Record observation</button>
+          </form>}
+          <details className="mt-2 text-sm"><summary>Evidence references</summary><ul>{o.evidenceRefs.map(ref => <li key={ref}>{ref}</li>)}</ul><code className="break-all">{o.id}</code></details>
+        </article>)}
+      </section>
+      <section className="space-y-3"><h2 className="text-xl font-semibold">Compatible evaluations</h2>{!context.evaluations.length && <p>No measured performance evaluation is available.</p>}{context.evaluations.map(e => <article key={e.id} className="rounded-xl border p-4"><h3 className="font-semibold">{e.measurement.definition.metricId} · {e.sampleCount} item samples</h3><p>Mean: {e.value ?? "unavailable"} {e.measurement.definition.unit} · Confidence: {e.confidence}</p><p>Target: {e.measurement.definition.target === null ? "Observation only" : `${e.measurement.definition.comparator} ${e.measurement.definition.target}`}</p>{e.baseline && <p>Baseline: {e.baseline.value}, {e.baseline.sampleCount} samples</p>}<p>Supporting: {e.supportingObservationIds.length} · Contradicting: {e.contradictingObservationIds.length}</p><ul className="mt-2 list-inside list-disc text-sm text-gray-600">{e.limitations.map(note => <li key={note}>{note}</li>)}</ul><details className="mt-2 text-sm"><summary>Evidence and contradictions</summary><p>Supporting: {e.supportingObservationIds.join(", ") || "None"}</p><p>Contradicting: {e.contradictingObservationIds.join(", ") || "None"}</p><p>{e.observationIds.join(", ")}</p></details></article>)}</section>
+      <section className="space-y-3"><h2 className="text-xl font-semibold">Strategy change proposals</h2>{!context.proposals.length && <p>No strategy changes are proposed.</p>}{context.proposals.map(p => <article key={p.id} className="rounded-xl border p-4"><h3 className="font-semibold">Strategy revision {p.baseStrategyRef.revision} · {p.status}</h3><p className="mt-2">{p.rationale}</p><p>Evidence: {p.evidenceStatus} · Confidence: {p.confidence}</p><ul className="my-3 list-inside list-disc">{p.changes.map((c, i) => <li key={i}>{c.type.replaceAll("_", " ")}: {Array.isArray(c.value) ? c.value.join("; ") : c.value}</li>)}</ul><p className="text-sm">Affected work: {p.impactedCampaignRefs.length} campaigns, {p.impactedPlanRefs.length} plans, {p.impactedItemRefs.length} items.</p><details className="mt-2 text-sm"><summary>Exact proposal and evidence</summary><p className="break-all">{p.proposedStrategyDigest}</p><p>Supporting: {p.evidenceRefs.map(r => r.id).join(", ")}</p><p>Contradictions: {p.contradictionRefs.map(r => r.id).join(", ") || "None"}</p><p>Items: {p.impactedItemRefs.map(r => `${r.id} v${r.revision}`).join(", ")}</p></details>{p.status === "pending" && <div className="mt-4 flex gap-3"><button disabled={busy || p.evidenceStatus !== "valid"} className="rounded bg-black px-4 py-2 text-white disabled:opacity-40" onClick={() => void submit({ action: "decide", id: p.id, revision: p.revision, digest: p.digest, decision: "approved" })}>Approve exact revision</button><button disabled={busy || p.evidenceStatus !== "valid"} className="rounded border px-4 py-2" onClick={() => void submit({ action: "decide", id: p.id, revision: p.revision, digest: p.digest, decision: "rejected", feedback: "Rejected in learning review" })}>Reject proposal</button></div>}</article>)}</section>
+    </>}
+  </main>;
+}

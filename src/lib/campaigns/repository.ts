@@ -1,6 +1,7 @@
 import { awsRepository, DynamoTransaction, partition, recordKey } from "../dynamo";
 import { assertResourceWorkspace, currentTenant, tenantSubjectId, tenantCollectionPath } from "../tenancy";
 import { requireContentOperator } from "../authority";
+import { defaultMeasurements, pinnedMeasurementSchema } from "../learning/contracts";
 import { sourceAnalysisDigest } from "../sourceAnalysis";
 import { readStrategyRevision, type StrategyReader } from "../strategy/repository";
 import { authorityRefSchema, planningPolicySchema, type AuthorityRef, type Campaign, type PlanRevision, type PlannedItem, type PlannedItemState, type PlanningAsset, type PlanningPolicy } from "./contracts";
@@ -16,6 +17,9 @@ export async function readRequired<T>(key: ReturnType<typeof recordKey>, reader:
 export async function readCampaign(ref: AuthorityRef, reader?: StrategyReader) { return readRequired<Campaign>(authorityKey("campaign_revisions", ref), reader); }
 export async function readPlan(ref: AuthorityRef, reader?: StrategyReader) { return readRequired<PlanRevision>(authorityKey("plan_revisions", ref), reader); }
 export function assertItemProductionContext(item: PlannedItem) {
+  if (!item.measurements?.length || item.measurements.length > 8) throw new Error("planned item measurements required");
+  for (const measurement of item.measurements) pinnedMeasurementSchema.parse(measurement);
+  if (new Set(item.measurements.map(m => m.definition.id)).size !== item.measurements.length) throw new Error("duplicate planned measurement");
   assertResourceWorkspace(currentTenant(), item.productionContext.policyRef);
   if (item.productionContext.mode !== item.evidence.mode || item.productionContextDigest !== sourceAnalysisDigest({ evidence: item.evidence, context: item.productionContext })) throw new Error("planned item production context digest mismatch");
   if (item.productionContext.mode === "source_backed" && item.evidence.mode === "source_backed") {
@@ -25,8 +29,9 @@ export function assertItemProductionContext(item: PlannedItem) {
     if (item.operatorBrief !== item.evidence.operatorBrief || item.evidence.contextDigest !== sourceAnalysisDigest(item.operatorBrief)) throw new Error("planned item operator context mismatch");
   }
 }
-export function withItemProductionContext(item: Omit<PlannedItem, "productionContextDigest">): PlannedItem {
-  return { ...item, productionContextDigest: sourceAnalysisDigest({ evidence: item.evidence, context: item.productionContext }) };
+export function withItemProductionContext(item: Omit<PlannedItem, "productionContextDigest" | "measurements"> & { measurements?: PlannedItem["measurements"] }): PlannedItem {
+  const result = { ...item, measurements: item.measurements ?? defaultMeasurements(item.channel), productionContextDigest: sourceAnalysisDigest({ evidence: item.evidence, context: item.productionContext }) };
+  assertItemProductionContext(result); return result;
 }
 export async function readPlannedItem(ref: AuthorityRef, reader?: StrategyReader) {
   const item = await readRequired<PlannedItem>(authorityKey("planned_item_revisions", ref), reader); assertItemProductionContext(item); return item;

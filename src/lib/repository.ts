@@ -1223,6 +1223,8 @@ export async function eraseJobData(plan: DeletionPlan, actorSubjectId: string): 
     ...deletionTombstone(plan, actorSubjectId),
     state: "erasing",
   });
+  const { revokeLearningObservations } = await import("./learning/repository");
+  await revokeLearningObservations({ jobId: plan.jobId }, "Job evidence erased");
 
   const assets = await listAssets(plan.jobId);
   for (const asset of assets) await deleteArtifactUri(asset.storageUri);
@@ -2344,7 +2346,13 @@ export async function saveVerifications(
           throw new Error("X verification target does not match applied receipt post id");
         }
       }
-      const expectedMethod = receipt.actionType === "publish_x_post"
+      if (action.type === "publish_linkedin_post") {
+        if (receipt.actionType !== action.type || typeof receipt.detail.id !== "string" || result.target !== `linkedin:${receipt.detail.id}`) throw new Error("LinkedIn verification target does not match applied receipt post id");
+      }
+      if (action.type === "publish_x_thread") {
+        if (receipt.actionType !== action.type || !Array.isArray(receipt.detail.postIds) || !receipt.detail.postIds.length || result.target !== `x-thread:${receipt.detail.postIds[0]}`) throw new Error("X thread verification target does not match applied receipt post id");
+      }
+      const expectedMethod = ["publish_x_post", "publish_x_thread", "publish_linkedin_post"].includes(receipt.actionType)
         ? "official_api_readback"
         : "artifact_digest_reread";
       if (result.method !== expectedMethod) throw new Error("verification method does not match action type");
@@ -2501,16 +2509,8 @@ export function priorInsightsFromJob(jobId: string, data: Pick<JobDoc, "actions"
 }
 
 export async function listRecentEngagement(limit = 20): Promise<PriorInsight[]> {
-  const snaps = await awsRepository().query(limited(ordered(tenantCollection(JOBS), "createdAt", "desc"), limit));
-  const out: PriorInsight[] = [];
-  for (const doc of snaps.rows) {
-    const data = doc.value as unknown as JobDoc & { engagement?: Engagement[] };
-    out.push(...priorInsightsFromJob(doc.id, data));
-  }
-  return out.sort((a, b) => (
-    Number(b.availability === "available") - Number(a.availability === "available")
-    || (b.metrics?.likes ?? -1) - (a.metrics?.likes ?? -1)
-  ));
+  const { learningInsights } = await import("./learning/repository");
+  return (await learningInsights()).topPosts.slice(0, limit);
 }
 
 export async function markFailed(

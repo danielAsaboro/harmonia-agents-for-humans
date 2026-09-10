@@ -96,12 +96,12 @@ def get_post_metrics(post_id: str, bearer_token: str | None = None) -> dict | No
         raise XError(f"metrics fetch failed: {res.status_code}", res.status_code)
     data = res.json()["data"]
     m = data.get("public_metrics", {})
-    metrics = {
-        "likes": int(m.get("like_count", 0)),
-        "replies": int(m.get("reply_count", 0)),
-        "reposts": int(m.get("retweet_count", 0)),
-        "quotes": int(m.get("quote_count", 0)),
-    }
+    required = {"likes": "like_count", "replies": "reply_count", "reposts": "retweet_count", "quotes": "quote_count"}
+    if str(data.get("id")) != str(post_id) or any(type(m.get(key)) is not int or m[key] < 0 for key in required.values()):
+        return None
+    metrics = {name: m[key] for name, key in required.items()}
     if "impression_count" in m:
-        metrics["impressions"] = int(m["impression_count"])
+        if type(m["impression_count"]) is not int or m["impression_count"] < 0:
+            return None
+        metrics["impressions"] = m["impression_count"]
     return metrics

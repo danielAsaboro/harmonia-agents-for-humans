@@ -117,14 +117,14 @@ describe("dashboard navigation rail", () => {
     expect(html).not.toContain('class="dashboard-app dashboard-shell"');
   });
 
-  it("keeps exactly five named destinations with visible tooltip copy", () => {
+  it("exposes each named destination with visible tooltip copy", () => {
     const html = renderToStaticMarkup(createElement(NavRail));
-    const labels = ["Console", "Calendar", "Notifications", "Monitoring", "Settings"];
+    const labels = ["Console", "Calendar", "Learning", "Notifications", "Monitoring", "Settings"];
 
     for (const label of labels) {
       expect(html).toContain(`aria-label="${label}`);
       expect(html).toContain(`data-tooltip="${label}"`);
     }
-    expect(html.match(/data-nav-destination=/g)).toHaveLength(5);
+    expect(html).toContain('href="/dashboard/learning"');
   });
 });

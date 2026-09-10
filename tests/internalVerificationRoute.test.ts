@@ -93,6 +93,15 @@ describe("internal verification route", () => {
     await expect(response.json()).resolves.toMatchObject({ error: "X verification target does not match applied receipt post id" });
     expect(state.patches).toEqual([]);
   });
+  it("accepts official LinkedIn readback against the exact applied post and rejects artifact-method substitution", async () => {
+    const job = state.records.get("workspaces/workspace-1/jobs/job-1")!;
+    job.actions = [{ id: actionId, jobId, type: "publish_linkedin_post", state: "executed" }];
+    const receipt = state.records.get("workspaces/workspace-1/jobs/job-1/receipts/receipt-1")!;
+    receipt.actionType = "publish_linkedin_post"; receipt.detail = { id: "urn:li:share:42" };
+    const ok = await POST(request("linkedin:urn:li:share:42")); expect(ok.status).toBe(200);
+    const wrong = await POST(request("linkedin:urn:li:share:43")); expect(wrong.status).toBe(500);
+    const method = await POST(request("linkedin:urn:li:share:42", "artifact_digest_reread")); expect(method.status).toBe(500);
+  });
 
   it("keeps the existing artifact verification target handling for non-X actions", async () => {
     state.records.set("workspaces/workspace-1/jobs/job-1", {

@@ -2264,7 +2264,7 @@ export interface PriorInsight {
   text: string | null;
   textAvailability: "verified_action_payload_digest" | "unavailable";
   availability: "available" | "unavailable";
-  unavailableReason?: "missing_identity" | "missing_action" | "missing_or_invalid_checked_at" | "missing_metrics" | "unverified_publication" | "stale_verification";
+  unavailableReason?: "missing_identity" | "missing_action" | "invalid_publish_action" | "missing_or_invalid_checked_at" | "missing_metrics" | "unverified_publication" | "post_identity_mismatch" | "stale_verification";
 }
 
 function metricValue(value: unknown): number | null {
@@ -2308,13 +2308,16 @@ export function priorInsightsFromJob(jobId: string, data: Pick<JobDoc, "actions"
     }
     const action = (data.actions ?? []).find((candidate) => candidate.id === engagement.actionId);
     if (!action) return priorInsightUnavailable(jobId, engagement, "missing_action");
+    if (action.type !== "publish_x_post" || action.state !== "executed") {
+      return priorInsightUnavailable(jobId, engagement, "invalid_publish_action");
+    }
     const checkedAt = typeof engagement.checkedAt === "string" && !Number.isNaN(Date.parse(engagement.checkedAt))
       ? engagement.checkedAt
       : null;
     if (!checkedAt) return priorInsightUnavailable(jobId, engagement, "missing_or_invalid_checked_at");
     const metrics = engagementMetrics(engagement);
     if (!metrics) return priorInsightUnavailable(jobId, engagement, "missing_metrics");
-    const matchingVerifications = (data.verifications ?? []).filter((verification) => (
+    const verifiedActionVerifications = (data.verifications ?? []).filter((verification) => (
       verification.actionId === engagement.actionId
       && verification.verified
       && verification.method === "official_api_readback"
@@ -2323,13 +2326,22 @@ export function priorInsightsFromJob(jobId: string, data: Pick<JobDoc, "actions"
       && typeof verification.evidence.digest === "string"
       && verification.evidence.digest.length > 0
     ));
+    const matchingVerifications = verifiedActionVerifications.filter((verification) => (
+      verification.target === `x:${engagement.postId}`
+    ));
+    if (!matchingVerifications.length) {
+      return priorInsightUnavailable(
+        jobId,
+        engagement,
+        verifiedActionVerifications.length ? "post_identity_mismatch" : "unverified_publication",
+      );
+    }
     const verification = matchingVerifications.find((candidate) => (
       !Number.isNaN(Date.parse(candidate.checkedAt))
       && Date.parse(candidate.checkedAt) <= Date.parse(checkedAt)
     ));
     if (!verification) {
-      const unavailableReason = matchingVerifications.length ? "stale_verification" : "unverified_publication";
-      return priorInsightUnavailable(jobId, engagement, unavailableReason);
+      return priorInsightUnavailable(jobId, engagement, "stale_verification");
     }
     const text = typeof action.payload.text === "string"
       && createHash("sha256").update(action.payload.text).digest("hex") === verification.evidence.digest

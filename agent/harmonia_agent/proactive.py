@@ -115,12 +115,20 @@ def fetch_signals(limit: int = 6) -> list[dict[str, Any]]:
 
 # ---------- checks ----------
 
-def _measured_posts(insights: dict[str, Any]) -> list[dict[str, Any]]:
+def _measured_posts(insights: dict[str, Any], *, require_text: bool = False) -> list[dict[str, Any]]:
     return [
         post for post in (insights.get("topPosts") or [])
         if isinstance(post, dict)
         and post.get("availability") == "available"
         and isinstance(post.get("metrics"), dict)
+        and (
+            not require_text
+            or (
+                post.get("textAvailability") == "verified_action_payload_digest"
+                and isinstance(post.get("text"), str)
+                and bool(post["text"].strip())
+            )
+        )
     ]
 
 
@@ -131,7 +139,7 @@ def watch_engagement() -> list[dict[str, Any]]:
     except WebApiError:
         logger.warning("engagement watch: insights feed unavailable")
         return []
-    posts = [p for p in _measured_posts(insights) if p["metrics"].get("likes") is not None]
+    posts = [p for p in _measured_posts(insights, require_text=True) if p["metrics"].get("likes") is not None]
     if len(posts) < 3:
         return []
     likes = sorted(int(p["metrics"]["likes"]) for p in posts)
@@ -140,7 +148,7 @@ def watch_engagement() -> list[dict[str, Any]]:
         return []
     out = []
     for p in posts:
-        text = str(p.get("text", ""))
+        text = p["text"]
         if int(p["metrics"]["likes"]) >= max(median * OUTLIER_FACTOR, median + 10):
             out.append({
                 "topic": f"Follow-up to our breakout post: {text[:120]}",
@@ -223,7 +231,9 @@ def check_morning_briefing(ctx: dict[str, Any]) -> str:
     insights = ctx.get("insights") or {}
     top = _measured_posts(insights)[:1]
     if top:
-        lines.append(f"- Top recent post: {int(top[0]['metrics'].get('likes', 0))} likes - \"{str(top[0].get('text', ''))[:70]}\"")
+        top_text = top[0].get("text")
+        description = f'"{top_text[:70]}"' if isinstance(top_text, str) and top_text else f"verified post {top[0].get('postId', 'with unavailable text')}"
+        lines.append(f"- Top recent post: {int(top[0]['metrics'].get('likes', 0))} likes - {description}")
     body = "\n".join(lines)
 
     notify("daily_briefing", "Morning briefing", body, href="/dashboard")
@@ -290,7 +300,7 @@ def check_calendar_gap_scan(ctx: dict[str, Any]) -> str:
 
 def check_recycle_winners(ctx: dict[str, Any]) -> str:
     insights = ctx.get("insights") or {}
-    posts = _measured_posts(insights)
+    posts = _measured_posts(insights, require_text=True)
     if not posts:
         return "nothing worth recycling yet"
     best = max(posts, key=lambda p: int(p["metrics"].get("likes", 0)))
@@ -300,7 +310,7 @@ def check_recycle_winners(ctx: dict[str, Any]) -> str:
     if age_days < RECYCLE_MIN_AGE_DAYS or int(best["metrics"].get("likes", 0)) < 10:
         return "top post still fresh"
     ideas = [{
-        "topic": f"Revisit verified winner: {str(best.get('text', ''))[:180]}",
+        "topic": f"Revisit verified winner: {best['text'][:180]}",
         "angle": "Measured winner eligible for a new strategy cycle",
         "reason": f"The verified post is {round(age_days)} days old and earned {int(best['metrics'].get('likes', 0))} likes.",
         "sources": [], "suggestedPost": "",
@@ -334,7 +344,9 @@ def _goals_text(goals: dict[str, Any]) -> str:
 def _learnings_text(insights: dict[str, Any]) -> str:
     posts = _measured_posts(insights)
     return " | ".join(
-        f"{int(p['metrics'].get('likes', 0))} likes: \"{str(p.get('text', ''))[:80]}\"" for p in posts[:3]
+        f"{int(p['metrics'].get('likes', 0))} likes: "
+        + (f'"{p["text"][:80]}"' if isinstance(p.get("text"), str) and p["text"] else f"verified post {p.get('postId', 'with unavailable text')}")
+        for p in posts[:3]
     )
 
 

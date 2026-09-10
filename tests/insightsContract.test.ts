@@ -47,9 +47,9 @@ describe("engagement insight wire contract", () => {
       checkedAt,
       ...fixture.topPosts[0].metrics,
     });
-    const verification = (actionId: string, checkedAt: string) => ({
+    const verification = (actionId: string, checkedAt: string, target = "x:post-123") => ({
       id: `verification-${actionId}`,
-      target: "x:post-123",
+      target,
       actionId,
       receiptId: `receipt-${actionId}`,
       operationId: `verify-${actionId}`,
@@ -76,7 +76,7 @@ describe("engagement insight wire contract", () => {
       }),
       ...priorInsightsFromJob("job-stale-verification", {
         actions: [action("action-stale")],
-        verifications: [verification("action-stale", "2026-09-09T10:16:00.000Z")],
+        verifications: [verification("action-stale", "2026-09-09T10:16:00.000Z", "x:post-stale")],
         engagement: [measurement("action-stale", "post-stale", fixture.topPosts[0].checkedAt)],
       }),
       ...priorInsightsFromJob("job-unverified", {
@@ -86,5 +86,31 @@ describe("engagement insight wire contract", () => {
     ];
 
     expect(JSON.parse(JSON.stringify(rows))).toEqual(fixture.topPosts);
+  });
+
+  it("does not borrow action verification for a different published post", () => {
+    const row = fixture.topPosts[0];
+    const action = {
+      id: row.actionId, jobId: row.jobId, type: "publish_x_post" as const,
+      title: "Published post", description: "Approved post", risk: "high" as const,
+      requiresApproval: true, approvalState: "approved" as const,
+      payload: { text: row.text }, state: "executed" as const,
+    };
+    const observation = priorInsightsFromJob(row.jobId, {
+      actions: [action],
+      verifications: [{
+        id: "verification-1", target: "x:post-123", actionId: row.actionId,
+        receiptId: "receipt-1", operationId: "verify-1", traceId: "a".repeat(32),
+        verified: true, method: "official_api_readback" as const,
+        evidence: { kind: "x_api" as const, url: row.durableEvidenceRef, fetchedAt: row.checkedAt, digest: "fc23e4b060e1706a6c9251631074a16f7b6c4029d895897f6822a834ad34b439" },
+        checkedAt: row.checkedAt,
+      }],
+      engagement: [{ actionId: row.actionId, postId: "post-other", checkedAt: row.checkedAt, ...row.metrics }],
+    })[0];
+
+    expect(observation).toMatchObject({
+      availability: "unavailable", unavailableReason: "post_identity_mismatch", postId: "post-other",
+      durableEvidenceRef: null, metrics: null,
+    });
   });
 });

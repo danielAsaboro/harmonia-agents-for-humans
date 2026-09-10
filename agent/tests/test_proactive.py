@@ -50,6 +50,27 @@ def test_watch_engagement_quiet_when_few_posts(monkeypatch):
     assert proactive.watch_engagement() == []
 
 
+def test_text_unavailable_history_is_never_stringified_or_used_for_follow_up(monkeypatch):
+    import time as _time
+
+    textless = _measured("placeholder", 300, _iso(_time.time() - 30 * 86400))
+    textless["text"] = None
+    textless["textAvailability"] = "unavailable"
+    peers = [_measured("peer one", 40), _measured("peer two", 20), _measured("peer three", 30)]
+    insights = {"topPosts": [textless, *peers]}
+    monkeypatch.setattr(proactive, "get_insights", lambda: insights)
+
+    assert proactive.watch_engagement() == []
+    assert proactive.check_recycle_winners({"insights": {"topPosts": [textless]}}) == "nothing worth recycling yet"
+    assert "None" not in proactive._learnings_text(insights)
+    notices = []
+    monkeypatch.setattr(proactive, "notify", lambda _kind, _title, body, **_kwargs: notices.append(body))
+    monkeypatch.setattr(proactive.telegram_bot, "notify", lambda _body: False)
+    proactive.check_morning_briefing({"feed": {}, "insights": {"topPosts": [textless]}})
+    assert "verified post post-300" in notices[0]
+    assert "None" not in notices[0]
+
+
 def test_watch_engagement_handles_feed_failure(monkeypatch):
     from harmonia_agent.web_client import WebApiError
 

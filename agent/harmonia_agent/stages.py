@@ -1100,6 +1100,7 @@ async def run_learn(job_id: str) -> None:
         metrics = x_client.get_post_metrics(str(post_id), connection.get("accessToken"))
         if not metrics:
             continue
+        metrics = {key: value for key, value in metrics.items() if value is not None}
         engagement.append({
             "actionId": action["id"],
             "postId": str(post_id),

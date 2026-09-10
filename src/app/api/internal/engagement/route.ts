@@ -19,11 +19,29 @@ export async function POST(req: Request) {
         { status: 409 },
       );
     }
+    const invalidEngagement = body.engagement.find((engagement) => {
+      const action = job.actions.find((candidate) => candidate.id === engagement.actionId);
+      if (!action || action.type !== "publish_x_post" || action.state !== "executed") return true;
+      return !(job.verifications ?? []).some((verification) => (
+        verification.actionId === engagement.actionId
+        && verification.target === `x:${engagement.postId}`
+        && verification.verified
+        && verification.method === "official_api_readback"
+        && !Number.isNaN(Date.parse(verification.checkedAt))
+        && Date.parse(verification.checkedAt) <= Date.parse(engagement.checkedAt)
+      ));
+    });
+    if (invalidEngagement) {
+      return Response.json(
+        { error: "engagement must match an executed publish_x_post action and its verified X post target" },
+        { status: 409 },
+      );
+    }
     const commands = await listCommandsForJob(body.jobId);
     const terminalOutcome = decideTerminalOutcome(commands);
     await saveLearnings(
       body.jobId,
-      body.engagement.map((e) => ({ ...e, checkedAt: new Date().toISOString() })),
+      body.engagement,
       { ...body.learnings, generatedAt: new Date().toISOString() },
       terminalOutcome,
     );

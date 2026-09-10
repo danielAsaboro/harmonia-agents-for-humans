@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import asyncio
 
 from harmonia_agent import stages
 
@@ -72,3 +73,25 @@ def test_verified_metrics_preserve_explicitly_unavailable_published_text():
     assert observation.text is None
     assert observation.textAvailability == "unavailable"
     assert "Published text:" not in observation.summary
+
+
+def test_learn_omits_unavailable_impressions_before_the_typescript_submission(monkeypatch):
+    posted = []
+    monkeypatch.setattr(stages, "get_job", lambda _job_id: {
+        "id": "job-1", "workspaceId": "workspace-1", "brandId": "brand-1", "createdByUserId": "user-1",
+        "actions": [{"id": "action-1", "type": "publish_x_post", "state": "executed", "payload": {"text": "Verified text"}}],
+    })
+    monkeypatch.setattr(stages, "_receipts_for_job", lambda _job_id: [{"id": "receipt-1", "actionId": "action-1", "detail": {"id": "post-1"}}])
+    monkeypatch.setattr(stages, "get_connection", lambda _platform: {"accessToken": "token"})
+    monkeypatch.setattr(stages.x_client, "get_post_metrics", lambda _post_id, _token: {
+        "likes": 12, "replies": 4, "reposts": 3, "quotes": 1, "impressions": None,
+    })
+    monkeypatch.setattr(stages, "configured_memory", lambda _invocation: None)
+    monkeypatch.setattr(stages, "web_post", lambda path, payload: posted.append((path, payload)))
+    monkeypatch.setattr(stages, "_now", lambda: "2026-09-09T10:15:00.000Z")
+
+    asyncio.run(stages.run_learn("job-1"))
+
+    engagement = posted[0][1]["engagement"][0]
+    assert engagement["checkedAt"] == "2026-09-09T10:15:00.000Z"
+    assert "impressions" not in engagement

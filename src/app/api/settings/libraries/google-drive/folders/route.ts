@@ -1,6 +1,6 @@
 import { tenantHandler } from "@/lib/auth";
 import { listDriveFolders } from "@/lib/brandLibraries/googleDrive";
-import { getConnection } from "@/lib/firestore";
+import { getConnection } from "@/lib/repository";
 import { validPlatformConnection } from "@/lib/validConnection";
 async function get(request: Request) {
   if (!await getConnection("google-drive")) return Response.json({ error: "Google Drive is not connected" }, { status: 409 });

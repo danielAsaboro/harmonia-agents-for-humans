@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getJob, saveAsset } from "@/lib/firestore";
+import { getJob, saveAsset } from "@/lib/repository";
 import { internalTenantHandler } from "@/lib/internalAuth";
 import { putArtifact } from "@/lib/storage";
 
@@ -14,7 +14,7 @@ const assetMetaSchema = z.object({
 
 /**
  * Worker stores a generated/rendered asset after execution. Bytes go to the
- * storage backend (GCS in cloud, disk locally); Firestore keeps metadata.
+ * storage backend (GCS in cloud, disk locally); DynamoRepository keeps metadata.
  * Accepts JSON {dataBase64} (images) or raw octet-stream bodies (clips).
  */
 async function post(req: Request) {

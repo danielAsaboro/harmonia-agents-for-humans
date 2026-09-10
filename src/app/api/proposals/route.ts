@@ -1,4 +1,4 @@
-import { listProposals } from "@/lib/firestore";
+import { listProposals } from "@/lib/repository";
 import { tenantHandler } from "@/lib/auth";
 
 /** All proactive proposals (newest first) for the dashboard inbox. */

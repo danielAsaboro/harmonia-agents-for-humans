@@ -4,15 +4,11 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from google.adk.tools.agent_tool import AgentTool
-from google.adk.tools.google_search_tool import GoogleSearchTool
-from google.adk.tools import skill_toolset
 
 from harmonia_agent.agents import build_agent_team
 from harmonia_agent.noni_skills import (
     NONI_SKILL_NAME,
     NONI_SKILL_REFERENCES,
-    build_noni_writing_skillset,
     validate_noni_skill_trace,
 )
 from harmonia_agent import noni_skills
@@ -34,26 +30,23 @@ EXPECTED_REFERENCES = {
 
 
 def test_noni_skill_is_valid_and_covers_all_registered_writing_topics():
-    toolset = build_noni_writing_skillset()
+    from harmonia_agent.agents import build_agent_team
+    from harmonia_agent.noni_skills import NONI_SKILL_ROOT
+    specialist = build_agent_team().find_sub_agent("noni_copywriter")
+    assert NONI_SKILL_NAME in specialist.instruction
+    assert all((NONI_SKILL_ROOT / path).read_text().strip() for path in NONI_SKILL_REFERENCES)
+    assert not any(tool.tool_name in {"load_skill", "load_skill_resource"} for tool in specialist.tools)
 
-    assert isinstance(toolset, skill_toolset.SkillToolset)
-    assert [skill.frontmatter.name for skill in toolset.skills] == ["noni-writing-skills"]
-    assert NONI_SKILL_NAME == "noni-writing-skills"
-    assert set(NONI_SKILL_REFERENCES) == EXPECTED_REFERENCES
-    root = Path(__file__).parents[1] / "harmonia_agent" / "skills" / NONI_SKILL_NAME
-    assert all((root / relative).read_text().strip() for relative in EXPECTED_REFERENCES)
-    coverage = (root / "references" / "coverage.md").read_text()
-    assert all(relative.removeprefix("references/") in coverage for relative in EXPECTED_REFERENCES)
 
 
 def test_noni_skillset_exposes_loading_and_verified_publication_search_only():
-    toolset = build_noni_writing_skillset()
-    tools = asyncio.run(toolset.get_tools())
+    from harmonia_agent.agents import build_agent_team
+    from harmonia_agent.noni_skills import NONI_SKILL_ROOT
+    specialist = build_agent_team().find_sub_agent("noni_copywriter")
+    assert NONI_SKILL_NAME in specialist.instruction
+    assert all((NONI_SKILL_ROOT / path).read_text().strip() for path in NONI_SKILL_REFERENCES)
+    assert not any(tool.tool_name in {"load_skill", "load_skill_resource"} for tool in specialist.tools)
 
-    assert {tool.name for tool in tools} == {"load_skill", "load_skill_resource"}
-    assert set(toolset.skills[0].frontmatter.metadata["adk_additional_tools"]) == {
-        "search_verified_publications",
-    }
 
 
 def test_noni_research_tools_have_real_read_only_contracts():
@@ -84,15 +77,10 @@ def test_verified_publication_search_returns_only_live_canonical_provenance(monk
 
 
 def test_noni_agent_receives_exactly_the_dedicated_writing_skillset():
-    noni = next(agent for agent in build_agent_team().sub_agents if agent.name == "noni_copywriter")
+    noni = build_agent_team().find_sub_agent("noni_copywriter")
+    assert [tool.tool_name for tool in noni.tools] == ["search_verified_publications"]
+    assert "PRELOADED noni skill" in noni.instruction
 
-    assert len(noni.tools) == 2
-    assert isinstance(noni.tools[0], skill_toolset.SkillToolset)
-    assert [skill.frontmatter.name for skill in noni.tools[0].skills] == [NONI_SKILL_NAME]
-    assert isinstance(noni.tools[1], AgentTool)
-    assert noni.tools[1].name == "google_search_agent"
-    assert len(noni.tools[1].agent.tools) == 1
-    assert isinstance(noni.tools[1].agent.tools[0], GoogleSearchTool)
 
 
 def _trace(*resources: str) -> list[dict]:
@@ -106,7 +94,7 @@ def _trace(*resources: str) -> list[dict]:
 
 
 def _research_call(name: str, *, sequence: int, brief_id: str, evidence_id: str) -> dict:
-    if name == "google_search_agent":
+    if name == "gateway_search":
         return {
             "sequence": sequence,
             "name": name,
@@ -155,19 +143,10 @@ def test_noni_trace_accepts_the_short_form_video_script_method():
 
 
 def _grounding_metadata() -> dict:
-    return {
-        "webSearchQueries": ["agent approval workflow terminology"],
-        "groundingChunks": [{
-            "web": {
-                "title": "Google Search Grounding",
-                "uri": "https://adk.dev/grounding/google_search_grounding/",
-            },
-        }],
-        "groundingSupports": [{
-            "segment": {"text": "Ground responses with Google Search."},
-            "groundingChunkIndices": [0],
-        }],
-    }
+    return {"provider": "agentcore_gateway", "responseSha256": "a" * 64, "sources": [{
+        "evidenceId": "ev-2222222222222222", "title": "Google Search Grounding",
+        "url": "https://adk.dev/grounding/google_search_grounding/", "supportedText": "Ground responses with Google Search.",
+    }]}
 
 
 def test_noni_trace_allows_native_grounded_search_after_writing_reference():
@@ -177,7 +156,7 @@ def test_noni_trace_allows_native_grounded_search_after_writing_reference():
         evidence_id="ev-1111111111111111",
     ))
     calls.append(_research_call(
-        "google_search_agent", sequence=4, brief_id="brief-1",
+        "gateway_search", sequence=4, brief_id="brief-1",
         evidence_id="ev-2222222222222222",
     ))
 
@@ -199,7 +178,7 @@ def test_noni_trace_allows_native_grounded_search_after_writing_reference():
 def test_noni_trace_rejects_cross_brief_research_and_unprovenanced_results():
     wrong_brief = _trace("references/persuasion.md")
     wrong_brief.append(_research_call(
-        "google_search_agent", sequence=3, brief_id="brief-other",
+        "gateway_search", sequence=3, brief_id="brief-other",
         evidence_id="ev-2222222222222222",
     ))
     with pytest.raises(ValueError, match="exact brief"):
@@ -210,7 +189,7 @@ def test_noni_trace_rejects_cross_brief_research_and_unprovenanced_results():
 
     missing_evidence = _trace("references/persuasion.md")
     call = _research_call(
-        "google_search_agent", sequence=3, brief_id="brief-1",
+        "gateway_search", sequence=3, brief_id="brief-1",
         evidence_id="ev-2222222222222222",
     )
     call["response"]["sources"] = []
@@ -225,7 +204,7 @@ def test_noni_trace_rejects_cross_brief_research_and_unprovenanced_results():
 def test_noni_trace_rejects_research_outside_the_active_brief():
     calls = _trace("references/persuasion.md")
     call = _research_call(
-        "google_search_agent", sequence=3, brief_id="brief-1",
+        "gateway_search", sequence=3, brief_id="brief-1",
         evidence_id="ev-2222222222222222",
     )
     call["args"]["request"] = "Research celebrity fashion gossip."
@@ -242,13 +221,13 @@ def test_noni_trace_rejects_research_outside_the_active_brief():
 def test_noni_trace_rejects_native_search_source_missing_from_grounding_metadata():
     calls = _trace("references/persuasion.md")
     call = _research_call(
-        "google_search_agent", sequence=3, brief_id="brief-1",
+        "gateway_search", sequence=3, brief_id="brief-1",
         evidence_id="ev-2222222222222222",
     )
     call["response"]["sources"][0]["url"] = "https://example.com/invented"
     calls.append(call)
 
-    with pytest.raises(ValueError, match="native grounding metadata"):
+    with pytest.raises(ValueError, match="provider response"):
         validate_noni_skill_trace(
             calls, brief_id="brief-1", brief_text="Agent approval workflow terminology",
             grounding_metadata=_grounding_metadata(),

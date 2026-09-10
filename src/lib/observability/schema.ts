@@ -31,7 +31,7 @@ export const agentActivitySchema = z.object({
   toolCalls: z.number().int().min(0).max(10_000).default(0),
   errorCategory: z.enum(["authorization", "dependency", "protocol", "timeout", "internal"]).nullish(),
   errorType: z.string().regex(/^[A-Za-z][A-Za-z0-9_.]{0,127}$/).nullish(),
-  backend: z.enum(["google_cloud", "local"]),
+  backend: z.enum(["aws", "local"]),
 }).strict().superRefine((value, ctx) => {
   if (value.outcome === "success" && (value.errorCategory || value.errorType)) {
     ctx.addIssue({ code: "custom", message: "successful activity cannot contain error metadata" });

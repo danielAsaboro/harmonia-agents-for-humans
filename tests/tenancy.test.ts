@@ -9,12 +9,12 @@ import {
   tenantDocumentPath,
   type TenantContext,
 } from "@/lib/tenancy";
-import { firebasePrincipal } from "@/lib/authority";
+import { cognitoPrincipal } from "@/lib/authority";
 
 const tenant: TenantContext = {
   workspaceId: "workspace-a",
   brandId: "brand-a",
-  principal: firebasePrincipal({
+  principal: cognitoPrincipal({
     subjectId: "user-a", workspaceRole: "owner", authenticationId: "session-a",
   }),
 };
@@ -41,7 +41,7 @@ describe("workspace isolation", () => {
     const other: TenantContext = {
       workspaceId: "workspace-b",
       brandId: "brand-b",
-      principal: firebasePrincipal({
+      principal: cognitoPrincipal({
         subjectId: "user-b", workspaceRole: "member", authenticationId: "session-b",
       }),
     };

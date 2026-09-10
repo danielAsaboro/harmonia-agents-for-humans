@@ -27,7 +27,7 @@ const envelope: EventEnvelope = {
 
 const input = {
   envelope,
-  pubsubMessageId: "delivery-1",
+  transportMessageId: "delivery-1",
   ownerTokenDigest: "a".repeat(64),
   now: "2026-08-28T12:01:00.000Z",
   claimUntil: "2026-08-28T12:06:00.000Z",
@@ -62,7 +62,7 @@ describe("event inbox claims", () => {
       record: {
         state: "processing",
         deliveryAttempts: 1,
-        pubsubMessageIds: ["delivery-1"],
+        transportMessageIds: ["delivery-1"],
         operationId: envelope.operationId,
       },
     });
@@ -72,12 +72,12 @@ describe("event inbox claims", () => {
     const processing = claimEventInbox(null, input).record;
     const duplicate = claimEventInbox(processing, {
       ...input,
-      pubsubMessageId: "delivery-2",
+      transportMessageId: "delivery-2",
       now: "2026-08-28T12:02:00.000Z",
       claimUntil: "2026-08-28T12:07:00.000Z",
     });
     expect(duplicate.outcome).toBe("in_progress");
-    expect(duplicate.record.pubsubMessageIds).toEqual(["delivery-1", "delivery-2"]);
+    expect(duplicate.record.transportMessageIds).toEqual(["delivery-1", "delivery-2"]);
 
     const completed = completeEventInbox(processing, input.ownerTokenDigest, {
       outcome: "completed",
@@ -85,7 +85,7 @@ describe("event inbox claims", () => {
     });
     expect(claimEventInbox(completed, {
       ...input,
-      pubsubMessageId: "delivery-3",
+      transportMessageId: "delivery-3",
       now: "2026-08-28T12:04:00.000Z",
       claimUntil: "2026-08-28T12:09:00.000Z",
     }).outcome).toBe("already_completed");
@@ -98,7 +98,7 @@ describe("event inbox claims", () => {
     }).record;
     const reclaimed = claimEventInbox(processing, {
       ...input,
-      pubsubMessageId: "delivery-2",
+      transportMessageId: "delivery-2",
       ownerTokenDigest: "b".repeat(64),
       now: "2026-08-28T12:03:00.000Z",
       claimUntil: "2026-08-28T12:08:00.000Z",
@@ -110,7 +110,7 @@ describe("event inbox claims", () => {
 
     const blocked = claimEventInbox(processing, {
       ...input,
-      pubsubMessageId: "delivery-3",
+      transportMessageId: "delivery-3",
       now: "2026-08-28T12:03:00.000Z",
       claimUntil: "2026-08-28T12:08:00.000Z",
       replayPolicy: "reconcile",

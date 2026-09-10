@@ -1,5 +1,5 @@
 import { engagementSubmissionSchema } from "@/lib/contracts";
-import { appendEvent, getJob, saveLearnings } from "@/lib/firestore";
+import { appendEvent, getJob, saveLearnings } from "@/lib/repository";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { listCommandsForJob } from "@/lib/effectCommandStore";

@@ -8,9 +8,8 @@ description: Use when Dara must assess one bounded content draft, return an acce
 In host-activated artifact mode, apply these methods inside the supplied
 `ArtifactReviewInput` to `SemanticArtifactReview` contract and use the already
 activated references directly. No loader or research tools are exposed.
-In interactive editor mode only, follow `EditorialReviewInput` to
-`EditorialAssessment` and load relevant references through explicitly supplied
-tools. The active typed contract always determines the output fields.
+In editor mode, follow `EditorialReviewInput` to `EditorialAssessment` and
+apply the preloaded approved references directly. No tools are exposed. The active typed contract always determines the output fields.
 
 ## Review sequence
 

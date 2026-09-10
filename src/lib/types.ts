@@ -53,7 +53,7 @@ export interface SourceRecord {
   id: string;
   workspaceId: string;
   brandId: string;
-  provider: "youtube" | "web" | "upload" | "pasted_text" | "google_drive" | "gcs";
+  provider: "youtube" | "web" | "upload" | "pasted_text" | "google_drive" | "gcs" | "s3";
   providerResourceId: string;
   providerVersion: string;
   title: string;
@@ -264,8 +264,8 @@ export interface EditorialPlanningSnapshot {
 
 export interface StrategyInvocationContext {
   revision: number; sourceIds: string[]; operatorContextIds: string[];
-  performance: Array<{ id: string; firestoreEvidenceRef: string }>;
-  memoryFacts: Array<{ id: string; firestoreEvidenceRef: string }>;
+  performance: Array<{ id: string; durableEvidenceRef: string }>;
+  memoryFacts: Array<{ id: string; durableEvidenceRef: string }>;
   audienceIds: string[]; requestedChannels: string[]; supportedChannels: string[]; horizonWeeks: number;
   researchRequest: StrategyResearchRequest | null;
   searchEvidence: StrategySearchEvidence[];
@@ -354,6 +354,8 @@ export interface UsageRecord {
   unitType: "tokens" | "images" | "video_seconds" | "audio_seconds" | "endpoint_seconds" | "media_generations";
   estimatedCostUsd: string;
   observedCostUsd?: string;
+  measurementBasis?: "provider_observed" | "utf8_byte_token_upper_bound";
+  observedCostUnavailable?: boolean;
   pricingVersion: string;
   modelPolicy?: ModelPolicySnapshot;
   traceId: string;
@@ -381,7 +383,7 @@ export interface EvidenceRef {
     | "x_api"
     | "linkedin_api"
     | "http_probe"
-    | "firestore_doc"
+    | "dynamodb_record"
     | "asset_store";
   url: string;
   fetchedAt: string;
@@ -427,7 +429,7 @@ export interface ApprovalDecision {
   actionId: string;
   decision: "approved" | "rejected";
   payloadDigest: string;
-  actorType: "firebase_operator" | "telegram_operator";
+  actorType: "cognito_operator" | "telegram_operator";
   actorSubjectId: string;
   authenticationId: string;
   channel: "dashboard" | "telegram";
@@ -520,7 +522,7 @@ export interface StageEvent {
   actor: "system" | "agent" | "operator";
   operationId: string;
   traceId: string;
-  pubsubMessageId?: string;
+  transportMessageId?: string;
   activity?: import("./contracts").AgentActivity;
 }
 

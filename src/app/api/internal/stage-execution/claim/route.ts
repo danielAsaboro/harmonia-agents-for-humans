@@ -1,5 +1,5 @@
 import { stageExecutionClaimSchema } from "@/lib/contracts";
-import { claimJobStageExecution } from "@/lib/firestore";
+import { claimJobStageExecution } from "@/lib/repository";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { internalRoute } from "@/lib/internalHandler";
 

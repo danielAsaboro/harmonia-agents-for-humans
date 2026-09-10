@@ -37,13 +37,12 @@ import { GET as downloadSourceInternal } from "@/app/api/internal/production-pla
 const plan = {
   id: "plan-1", jobId: "job-1", workspaceId: "workspace-1", brandId: "brand-1", revision: 1,
   goal: "Launch reel", audience: "founders", tone: ["clear"],
-  target: { platform: "linkedin", durationSec: 30, aspectRatio: "9:16", resolution: "1080p", frameRate: 30, format: "mp4" },
+  target: { platform: "linkedin", durationSec: 30, aspectRatio: "16:9", resolution: "720p", frameRate: 30, format: "mp4" },
   scenes: [{
-    id: "scene-1", order: 1, startSec: 0, durationSec: 4, purpose: "Open",
+    id: "scene-1", order: 1, startSec: 0, durationSec: 6, purpose: "Open",
     video: {
-      modelCapability: "veo-3.1-fast", mode: "text_to_video", prompt: "A clean product launch",
-      durationSec: 4, aspectRatio: "9:16", resolution: "1080p", generateAudio: false,
-      enhancePrompt: true, outputCount: 1,
+      modelCapability: "nova-reel", mode: "text_to_video", prompt: "A clean product launch",
+      durationSec: 6, aspectRatio: "16:9", resolution: "720p", outputCount: 1,
     },
     overlays: [], captions: [], transitions: [],
   }],
@@ -167,7 +166,7 @@ describe("production plan routes", () => {
     const body = {
       claimId: "claim-1",
       claimToken: "worker-claim-1",
-      provider: "veo",
+      provider: "nova_reel",
       providerOperationId: "projects/p/locations/us-central1/operations/1",
       nextPollAt: "2026-08-31T12:00:00.000Z",
     };
@@ -199,7 +198,7 @@ describe("production plan routes", () => {
           "x-claim-token": "worker-claim-1",
           "x-artifact-mime": "video/mp4",
           "x-artifact-digest": digest,
-          "x-operation-metadata": JSON.stringify({ model: "veo-3.1-fast-generate-001" }),
+          "x-operation-metadata": JSON.stringify({ model: "amazon.nova-reel-v1:1" }),
         },
         body: bytes,
       },
@@ -215,7 +214,7 @@ describe("production plan routes", () => {
         claimId: "claim-1",
         claimToken: "worker-claim-1",
         artifact: expect.objectContaining({ mime: "video/mp4", digest, sizeBytes: 5 }),
-        operationMetadata: { model: "veo-3.1-fast-generate-001" },
+        operationMetadata: { model: "amazon.nova-reel-v1:1" },
       }),
     );
   });

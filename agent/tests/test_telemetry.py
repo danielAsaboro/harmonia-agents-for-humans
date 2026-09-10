@@ -7,7 +7,6 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 import harmonia_agent.telemetry as telemetry
 from harmonia_agent import stages
 from harmonia_agent.telemetry import (
-    configure_adk_telemetry,
     configure_telemetry,
     current_trace_id,
     inject_context,
@@ -16,46 +15,25 @@ from harmonia_agent.telemetry import (
 )
 
 
-def test_adk_cloud_exporters_enable_logs_metrics_and_traces(monkeypatch):
-    captured = {}
-    marker = object()
-    monkeypatch.setattr(telemetry, "get_gcp_exporters", lambda **kwargs: captured.update(kwargs) or marker)
-    monkeypatch.setattr(
-        telemetry,
-        "maybe_set_otel_providers",
-        lambda hooks, otel_resource=None: captured.update(hooks=hooks, resource=otel_resource),
-    )
-
-    configure_adk_telemetry(enabled=True)
-
-    assert captured["enable_cloud_logging"] is True
-    assert captured["enable_cloud_metrics"] is True
-    assert captured["enable_cloud_tracing"] is True
-    assert captured["hooks"] == [marker]
-    assert captured["resource"].attributes["service.name"] == "harmonia-agent"
-    assert captured["resource"].attributes["gcp.project_id"] == "harmonia-local"
+def test_native_resource_reports_aws_region():
+    assert telemetry._otel_resource().attributes["cloud.region"] == "us-east-1"
+    assert "gcp.project_id" not in telemetry._otel_resource().attributes
 
 
-def test_adk_telemetry_never_captures_message_content(monkeypatch):
-    monkeypatch.setattr(telemetry, "maybe_set_otel_providers", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(telemetry, "get_gcp_exporters", lambda **_kwargs: object())
 
-    configure_adk_telemetry(enabled=True)
-
+def test_native_telemetry_never_captures_message_content():
+    telemetry._privacy_environment()
+    assert os.environ["STRANDS_OTEL_CAPTURE_CONTENT"] == "false"
     assert os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] == "NO_CONTENT"
-    assert os.environ["ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS"] == "false"
 
 
-def test_adk_telemetry_applies_configured_parent_based_sampling(monkeypatch):
-    monkeypatch.setattr(telemetry, "maybe_set_otel_providers", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(telemetry, "get_gcp_exporters", lambda **_kwargs: object())
-    configured = replace(telemetry.settings(), telemetry_sample_rate=0.25)
+
+def test_native_telemetry_applies_configured_parent_based_sampling(monkeypatch):
+    configured = replace(telemetry.settings(), telemetry_sample_rate=.25)
     monkeypatch.setattr(telemetry, "settings", lambda: configured)
+    provider = configure_telemetry(exporter=InMemorySpanExporter(), force=True)
+    assert provider.sampler.get_description() == "ParentBased{root:TraceIdRatioBased{0.25},remoteParentSampled:AlwaysOnSampler,remoteParentNotSampled:AlwaysOffSampler,localParentSampled:AlwaysOnSampler,localParentNotSampled:AlwaysOffSampler}"
 
-    configure_adk_telemetry(enabled=True)
-
-    assert os.environ["OTEL_TRACES_SAMPLER"] == "parentbased_traceidratio"
-    assert os.environ["OTEL_TRACES_SAMPLER_ARG"] == "0.25"
 
 
 def test_w3c_context_round_trip():
@@ -80,22 +58,14 @@ def test_safe_attributes_drop_content_fields():
     }) == {"job_id": "j1", "model": "m1"}
 
 
-def test_cloud_exporter_uses_native_otlp_telemetry_endpoint(monkeypatch):
-    captured = {}
-    marker = object()
-    monkeypatch.setattr(telemetry, "_build_channel_credentials", lambda: marker)
-    monkeypatch.setattr(
-        telemetry,
-        "OTLPSpanExporter",
-        lambda **kwargs: captured.update(kwargs) or object(),
-    )
+def test_cloud_exporter_requires_explicit_native_otlp_endpoint(monkeypatch):
+    import pytest
+    configured = replace(telemetry.settings(), telemetry_enabled=True)
+    monkeypatch.setattr(telemetry, "settings", lambda: configured)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    with pytest.raises(ValueError, match="OTEL_EXPORTER_OTLP_ENDPOINT"):
+        configure_telemetry(force=True)
 
-    telemetry._cloud_exporter()
-
-    assert captured == {
-        "credentials": marker,
-        "endpoint": "telemetry.googleapis.com:443",
-    }
 
 
 def test_stage_dispatch_creates_a_metadata_only_child_span(monkeypatch):

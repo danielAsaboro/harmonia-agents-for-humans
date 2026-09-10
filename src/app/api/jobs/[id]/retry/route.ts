@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { appendEvent, getJob, retryFailedJobWithOutbox } from "@/lib/firestore";
+import { appendEvent, getJob, retryFailedJobWithOutbox } from "@/lib/repository";
 import { administratorTenantHandler } from "@/lib/auth";
 import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";
 import { isKnownStage } from "@/lib/stages";

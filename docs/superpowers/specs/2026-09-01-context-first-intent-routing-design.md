@@ -20,7 +20,7 @@ Internal output kinds remain a typed execution detail. The router infers a bound
 
 ## Ownership and boundaries
 
-The Harmonia Google ADK service owns routing. A filesystem skill named `harmonia-intent-routing` contains the routing policy and examples. A typed router agent loads that skill and returns a strict `IntentRoute` contract. The Next.js control plane supplies a compact, workspace-scoped context snapshot and validates the response again before executing deterministic handlers.
+The Harmonia Strands Agents SDK service owns routing. A filesystem skill named `harmonia-intent-routing` contains the routing policy and examples. A typed router agent loads that skill and returns a strict `IntentRoute` contract. The Next.js control plane supplies a compact, workspace-scoped context snapshot and validates the response again before executing deterministic handlers.
 
 The model may classify and infer. Deterministic code retains authority over identifiers, tenant scope, supported output kinds, source rights, approvals, and external effects.
 
@@ -50,5 +50,5 @@ The empty chat state leads with founder-language examples: establish a strategy 
 
 ## Failure behavior
 
-Routing fails closed when the ADK service is unavailable or returns an invalid contract. The UI reports that Harmonia could not understand the request and preserves the message; it does not silently run a local heuristic that could create the wrong effect. Existing explicit approval gates remain unchanged.
+Routing fails closed when the Strands service is unavailable or returns an invalid contract. The UI reports that Harmonia could not understand the request and preserves the message; it does not silently run a local heuristic that could create the wrong effect. Existing explicit approval gates remain unchanged.
 

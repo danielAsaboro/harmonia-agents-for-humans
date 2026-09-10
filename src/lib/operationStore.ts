@@ -1,18 +1,18 @@
-import type { Firestore, Transaction } from "@google-cloud/firestore";
+import { after,awsRepository,DynamoRepository,DynamoTransaction,limited,ordered,partition,recordKey,where } from "./dynamo";
 
 import {
-  assertOperationFence,
-  claimOperation,
-  createOperation,
-  finalizeOperation,
-  type CreateOperationInput,
-  type FinalizeOperationInput,
-  type OperationClaimInput,
-  type OperationClaimResult,
-  type OperationFence,
-  type OperationRecord,
+assertOperationFence,
+claimOperation,
+createOperation,
+finalizeOperation,
+type CreateOperationInput,
+type FinalizeOperationInput,
+type OperationClaimInput,
+type OperationClaimResult,
+type OperationFence,
+type OperationRecord,
 } from "./operations";
-import { currentTenant, tenantCollectionPath, type TenantScope } from "./tenancy";
+import { currentTenant,tenantCollectionPath,type TenantScope } from "./tenancy";
 
 const OPERATIONS = "operations";
 const OPERATION_DOCUMENT_ID = /^[A-Za-z0-9:_-]{1,512}$/;
@@ -166,29 +166,29 @@ export class OperationStore {
   }
 }
 
-function firestoreTransactionAdapter(transaction: Transaction, database: Firestore): OperationPersistenceTransaction {
+function dynamoOperationTransaction(transaction: DynamoTransaction): OperationPersistenceTransaction {
   return {
     get: async (path) => {
-      const snapshot = await transaction.get(database.doc(path));
-      return snapshot.exists ? snapshot.data() as OperationRecord : null;
+      const snapshot = await transaction.read(recordKey(path));
+      return snapshot.present ? snapshot.value as unknown as OperationRecord : null;
     },
-    create: (path, operation) => transaction.create(database.doc(path), operation),
-    set: (path, operation) => transaction.set(database.doc(path), operation),
+    create: (path, operation) => transaction.insert(recordKey(path), operation),
+    set: (path, operation) => transaction.put(recordKey(path), operation),
   };
 }
 
-export class FirestoreOperationPersistence implements OperationPersistence {
-  constructor(private readonly database: Firestore) {}
+export class DynamoOperationPersistence implements OperationPersistence {
+  constructor(private readonly database: DynamoRepository) {}
 
   transact<T>(work: (tx: OperationPersistenceTransaction) => Promise<T>): Promise<T> {
-    return this.database.runTransaction((transaction) => work(
-      firestoreTransactionAdapter(transaction, this.database),
+    return this.database.atomic((transaction) => work(
+      dynamoOperationTransaction(transaction),
     ));
   }
 
   async get(path: string): Promise<OperationRecord | null> {
-    const snapshot = await this.database.doc(path).get();
-    return snapshot.exists ? snapshot.data() as OperationRecord : null;
+    const snapshot = await awsRepository().read(recordKey(path));
+    return snapshot.present ? snapshot.value as unknown as OperationRecord : null;
   }
 
   async listExpired(
@@ -197,14 +197,9 @@ export class FirestoreOperationPersistence implements OperationPersistence {
     limit: number,
     cursor?: OperationRecoveryCursor,
   ): Promise<OperationRecord[]> {
-    let query = this.database.collection(collectionPath)
-      .where("state", "==", "claimed")
-      .where("leaseExpiresAt", "<=", now)
-      .orderBy("leaseExpiresAt", "asc")
-      .orderBy("id", "asc")
-      .limit(limit);
-    if (cursor) query = query.startAfter(cursor.leaseExpiresAt, cursor.id);
-    const snapshot = await query.get();
-    return snapshot.docs.map((document) => document.data() as OperationRecord);
+    let query = limited(ordered(ordered(where(where(partition(collectionPath), "state", "==", "claimed"), "leaseExpiresAt", "<=", now), "leaseExpiresAt", "asc"), "id", "asc"), limit);
+    if (cursor) query = after(query, [cursor.leaseExpiresAt, cursor.id]);
+    const snapshot = await awsRepository().query(query);
+    return snapshot.rows.map((document) => document.value as unknown as OperationRecord);
   }
 }

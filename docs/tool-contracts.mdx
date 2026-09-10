@@ -1,9 +1,9 @@
 ---
 title: "Agent tool contracts"
-description: "The complete least-privilege contract for tools exposed to Harmonia's ADK liaison."
+description: "The complete least-privilege contract for tools exposed to Harmonia's Strands liaison."
 ---
 
-Only Nova, the read-only liaison, receives these tools. No model-accessible tool can approve, publish, retry a job, mutate credentials or budgets, delete data, or write Firestore. The deterministic workflow owns all effects.
+Only Nova, the read-only liaison, receives these tools. No model-accessible tool can approve, publish, retry a job, mutate credentials or budgets, delete data, or write DynamoDB. The deterministic workflow owns all effects.
 
 Every call returns exactly:
 

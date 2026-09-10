@@ -1,4 +1,4 @@
-"""Invocation-local SaaS tenant identity propagated from Pub/Sub."""
+"""Invocation-local SaaS tenant identity propagated from SQS."""
 
 from __future__ import annotations
 

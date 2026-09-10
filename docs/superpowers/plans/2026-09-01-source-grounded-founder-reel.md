@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the full licensed source as one immutable verified artifact. Each source-backed production scene seals its own media window and cited Nimi source-segment identities; the worker repeats that artifact on the authored timeline using HyperFrames `data-media-start`, preserves source audio, and renders captions/reframing deterministically. Generated Veo scenes remain separate paid operations and cannot be substituted for source excerpts.
 
-**Tech Stack:** TypeScript/Zod production contracts and Firestore plan store; Python worker, HyperFrames 0.8.x, ffmpeg/ffprobe; Vitest and pytest.
+**Tech Stack:** TypeScript/Zod production contracts and DynamoDB plan store; Python worker, HyperFrames 0.8.x, ffmpeg/ffprobe; Vitest and pytest.
 
 **Spec:** `/Users/MAC/development/wip/allthingsagentichackathon/submission/harmonia-submission-demo-script.md` plus the delegated Steve Wozniak reel brief in task history.
 
@@ -96,7 +96,7 @@ Commit message: `feat: render evidence-bound source excerpts`
 
 - [ ] **Step 1: Run full verification**
 
-Run TypeScript tests, Firestore integration tests, lint, `npx tsc --noEmit`, Next build, full Python tests, and `git diff --check`.
+Run TypeScript tests, DynamoDB integration tests, lint, `npx tsc --noEmit`, Next build, full Python tests, and `git diff --check`.
 
 - [ ] **Step 2: Deploy the web and worker images**
 

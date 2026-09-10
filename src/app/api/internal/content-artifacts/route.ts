@@ -2,7 +2,7 @@ import { artifactProductionSubmissionSchema } from "@/lib/contentArtifacts/submi
 import { resolveContentPackPayload, sealContentArtifact } from "@/lib/contentArtifacts/digest";
 import { deriveArtifactActions } from "@/lib/contentArtifacts/actions";
 import { applyPolicy } from "@/lib/policy";
-import { appendEvent, createNotification, finalizeArtifactProduction, getConnection, getJob, transitionStageWithOutbox } from "@/lib/firestore";
+import { appendEvent, createNotification, finalizeArtifactProduction, getConnection, getJob, transitionStageWithOutbox } from "@/lib/repository";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { currentTraceId } from "@/lib/telemetry";

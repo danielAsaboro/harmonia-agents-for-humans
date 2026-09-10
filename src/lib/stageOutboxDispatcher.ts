@@ -4,12 +4,12 @@ import {
   finalizeStageOutboxPublish,
   listDispatchableStageOutbox,
   releaseStageOutbox,
-} from "./firestore";
-import { publishStage } from "./pubsub";
+} from "./repository";
+import { publishStage } from "./queue";
 import { currentTenant } from "./tenancy";
 
 export type StageOutboxDispatchResult =
-  | { id: string; outcome: "published"; pubsubMessageId: string }
+  | { id: string; outcome: "published"; transportMessageId: string }
   | { id: string; outcome: "in_progress" | "already_published" };
 
 export async function dispatchStageOutboxRecord(id: string): Promise<StageOutboxDispatchResult> {
@@ -23,9 +23,9 @@ export async function dispatchStageOutboxRecord(id: string): Promise<StageOutbox
       decision.record,
     );
     await finalizeStageOutboxPublish(id, tokenDigest, messageId);
-    return { id, outcome: "published", pubsubMessageId: messageId };
+    return { id, outcome: "published", transportMessageId: messageId };
   } catch (error) {
-    // Pub/Sub duplicate delivery is safe because the stage lease is durable. Releasing an
+    // SQS duplicate delivery is safe because the stage lease is durable. Releasing an
     // ambiguous publication claim therefore favors eventual delivery without duplicating effects.
     await releaseStageOutbox(id, tokenDigest);
     throw error;

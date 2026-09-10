@@ -6,9 +6,6 @@ import os
 from collections.abc import Mapping, MutableMapping
 from typing import Any
 
-import google.auth
-import google.auth.transport.grpc
-import google.auth.transport.requests
 import grpc
 from opentelemetry import propagate, trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -17,8 +14,6 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor, SpanExporter
 from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-from google.adk.telemetry.google_cloud import get_gcp_exporters
-from google.adk.telemetry.setup import maybe_set_otel_providers
 
 from .config import settings
 
@@ -27,31 +22,17 @@ _provider: Any | None = None
 _global_provider_registered = False
 
 
-def _build_channel_credentials():
-    credentials, _ = google.auth.default(
-        scopes=("https://www.googleapis.com/auth/cloud-platform",)
-    )
-    request = google.auth.transport.requests.Request()
-    plugin = google.auth.transport.grpc.AuthMetadataPlugin(
-        credentials=credentials,
-        request=request,
-    )
-    return grpc.composite_channel_credentials(
-        grpc.ssl_channel_credentials(),
-        grpc.metadata_call_credentials(plugin),
-    )
 
 
-def _cloud_exporter() -> OTLPSpanExporter:
-    return OTLPSpanExporter(
-        credentials=_build_channel_credentials(),
-        endpoint="telemetry.googleapis.com:443",
-    )
+
+
+
+
 
 
 def _privacy_environment() -> None:
-    """Disable ADK/GenAI message capture for every telemetry signal."""
-    os.environ["ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS"] = "false"
+    """Disable Strands/GenAI message capture for every telemetry signal."""
+    os.environ["STRANDS_OTEL_CAPTURE_CONTENT"] = "false"
     os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "NO_CONTENT"
 
 
@@ -59,30 +40,14 @@ def _otel_resource() -> Resource:
     cfg = settings()
     return Resource.create({
         SERVICE_NAME: cfg.otel_service_name,
-        "gcp.project_id": cfg.gcp_project,
-        "service.version": os.environ.get("K_REVISION", "local"),
+        "cloud.region": cfg.aws_region,
+        "service.version": os.environ.get("HARMONIA_RELEASE", "local"),
         "deployment.environment.name": os.environ.get("HARMONIA_ENVIRONMENT", "development"),
     })
 
 
-def configure_adk_telemetry(*, enabled: bool | None = None) -> None:
-    """Configure ADK's native logs, metrics, and traces through Google Cloud."""
-    _privacy_environment()
-    cfg = settings()
-    if enabled is None:
-        enabled = cfg.telemetry_enabled
-    if not enabled:
-        return
-    # ADK constructs the SDK provider, which reads the standard OTel sampler
-    # environment at construction time.
-    os.environ["OTEL_TRACES_SAMPLER"] = "parentbased_traceidratio"
-    os.environ["OTEL_TRACES_SAMPLER_ARG"] = str(cfg.telemetry_sample_rate)
-    hooks = get_gcp_exporters(
-        enable_cloud_logging=True,
-        enable_cloud_metrics=True,
-        enable_cloud_tracing=True,
-    )
-    maybe_set_otel_providers([hooks], otel_resource=_otel_resource())
+
+
 
 
 def configure_telemetry(
@@ -92,7 +57,7 @@ def configure_telemetry(
 ) -> TracerProvider:
     """Configure a tracer provider; tests may inject an in-memory exporter."""
     global _provider, _global_provider_registered
-    # ADK's legacy content capture defaults on. Harmonia's audit policy is
+    # Strands's legacy content capture defaults on. Harmonia's audit policy is
     # metadata-only, so enforce both the legacy and current controls here.
     _privacy_environment()
     if _provider is not None and not force:
@@ -102,11 +67,10 @@ def configure_telemetry(
 
     cfg = settings()
     if exporter is None and cfg.telemetry_enabled:
-        configure_adk_telemetry(enabled=True)
-        _provider = trace.get_tracer_provider()
-        propagate.set_global_textmap(TraceContextTextMapPropagator())
-        _global_provider_registered = True
-        return _provider
+        endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+        if not endpoint:
+            raise ValueError("OTEL_EXPORTER_OTLP_ENDPOINT is required when telemetry is enabled")
+        exporter = OTLPSpanExporter(endpoint=endpoint)
 
     provider = TracerProvider(
         resource=_otel_resource(),

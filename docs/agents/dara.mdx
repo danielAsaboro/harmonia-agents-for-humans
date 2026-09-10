@@ -1,72 +1,53 @@
 ---
-title: "Dara — editor"
-description: "Dara's seven-dimension review and bounded revision contract."
+title: "Dara — editorial reviewer"
+description: "Current Strands registration, model, inputs, tools and authority."
 ---
 
 ## Role
 
-Dara reviews one exact Noni draft against the immutable production input. Dara either accepts the
-candidate or returns bounded correction issues; Dara does not rewrite it.
+Reviews the exact Noni draft or host-identified artifact. Returns editorial findings without rewriting content or granting approval.
 
 ## Contract
 
 | Property | Value |
 |---|---|
-| ADK name | `dara_editor` |
-| Default model | `gemini-3.5-flash` |
-| Input | `EditorialReviewInput` |
-| Output | `EditorialAssessment` |
-| Runtime skill | `dara-editing-skills` |
-| Tools | ADK filesystem skill and resource loaders only |
+| Registered specialist | `dara_editor; dara_artifact_editor` |
+| Default Bedrock model ID | `us.anthropic.claude-sonnet-4-6` |
+| Typed boundary | `EditorialReviewInput → EditorialAssessment; ArtifactReviewInput → SemanticArtifactReview` |
+| Returned state key | `editorial_assessment; semantic_artifact_review` |
 
 ## Skills
 
-`dara-editing-skills` contains seven allow-listed methods for triage, grounding, structure, fit,
-platform/CTA usability, safety, and feedback. Dara loads it once and only relevant references.
+The host preloads `dara-editing-skills` method guidance and approved references into the system prompt. No `load_skill` or `load_skill_resource` tool is registered. Host bootstrap records activation provenance. Skill guidance is method, never evidence.
 
 ## Tools and research
 
-Dara receives only filesystem skill loaders. It has no search, Memory Bank, performance, calendar,
-publishing, or workflow tool.
+Both registered variants have no tools. Editing method text is preloaded by the host; there are no skill-loader or research calls.
 
 ## Prompt method
 
-Dara loads `dara-editing-skills` exactly once and at least one relevant allow-listed editing
-reference before reviewing. Its seven focused references cover triage, grounding and claims,
-structure and clarity, brief/voice/audience fit, platform/CTA usability, safety and inclusion, and
-feedback/revision. Dara then returns exactly seven checks: grounding, brief alignment, brand voice, CTA, platform
-constraints, safety, and clarity. Each check has a pass/fail result, rationale, and only valid
-evidence or constraint references. Revision issues identify a permitted draft field and precise
-correction instruction without supplying replacement wording.
+Assess grounding, brief alignment, brand voice, platform constraints, CTA, safety and clarity. Return typed issues and accept/revise judgment. The host allows at most one editorial revision and checks issue resolution.
 
 ## Evidence and provenance
 
-Checks may cite only evidence and constraint IDs supplied in the immutable review input. Skill
-resources are editing method, not evidence. Invented references or review metadata fail closed.
+Only the supplied typed input and authorized returned tool evidence can support factual claims. Preloaded skills, model memory and generated prose do not establish facts. The host retains request hashes and validated references without logging private prompts or chain-of-thought.
 
 ## Authority boundary
 
-Dara cannot rewrite copy, invent review metadata or evidence, request a third automatic pass,
-approve publication, schedule, publish, execute, create receipts, access credentials, verify, or
-mutate workflow state.
+The specialist cannot approve, grant permissions, publish, schedule an external effect, access credentials, mutate workflow state or create verification receipts. Those operations belong to deterministic host code and persisted authorization.
 
 ## Handoff
 
-An `accept` assessment releases the exact draft to deterministic final-approval preparation. A
-`revise` assessment returns issues to Noni; a second revise outcome stops for operator attention.
+The host attaches review metadata and either requests the bounded Noni revision, records acceptance or persists an unresolved failure. Operator effect approval remains separate.
 
 ## Runtime enforcement
 
-Deterministic code validates the assessment, assigns review identity, lineage and timestamp, and
-allows at most one Noni revision. It also validates the actual skill/resource trace, rejecting a
-missing, duplicate, out-of-order, or unapproved resource load. Skill guidance is method only: it
-cannot satisfy an evidence or constraint reference. A second revise outcome stops for operator
-attention.
+`LocalStrandsTeamRuntime` creates a fresh Strands `Agent` per invocation with `structured_output_model`, `AuthorityHooks` and automatic model retries disabled. The host selects the registration, projects bounded input and validates output before a stage mutation. Provider repair follows the bounded host policy. Authenticated AWS execution remains pending live verification.
 
 ## Implementation references
 
+- Registration: `agent/harmonia_agent/agents.py`
 - Prompt: `agent/harmonia_agent/dara_prompt.py`
-- Skill runtime: `agent/harmonia_agent/dara_skills.py`
-- Skill: `agent/harmonia_agent/skills/dara-editing-skills/SKILL.md`
-- Contracts: `EditorialReviewInput` and `EditorialAssessment` in `agent_models.py`
-- Tests: `agent/tests/test_dara_skills.py`, `test_dara_contracts.py`, `test_dara_validation.py`, and `test_noni_dara_loop.py`
+- Method/tool implementation: `agent/harmonia_agent/dara_skills.py`
+- Runtime: `agent/harmonia_agent/team_runtime.py`
+- Model assignment: `agent/harmonia_agent/role_models.py`

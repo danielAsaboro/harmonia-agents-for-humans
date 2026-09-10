@@ -1,46 +1,28 @@
 from decimal import Decimal
-
+import json
 import pytest
+from harmonia_agent.model_catalog import PRICING_VERSION, UnknownModelPrice, estimate_text_cost, lookup_pricing, lookup_media_price
 
-from harmonia_agent.model_catalog import (
-    PRICING_VERSION,
-    UnknownModelPrice,
-    estimate_text_cost,
-    lookup_pricing,
-    lookup_media_price,
-)
+MODEL='us.anthropic.claude-sonnet-4-6'
 
+def test_bedrock_cost_uses_explicit_decimal_rates(monkeypatch):
+    monkeypatch.setenv('BEDROCK_TEXT_PRICING_JSON',json.dumps({MODEL:{'input':'3','output':'15'}}))
+    assert PRICING_VERSION=='aws-configured-2026-09-10'
+    assert estimate_text_cost(MODEL,100000,10000)==Decimal('0.450000')
 
-def test_flash_cost_uses_decimal_rates():
-    assert PRICING_VERSION == "2026-09-02"
-    entry = lookup_pricing("gemini-3.5-flash")
-    assert entry.input_usd_per_million == Decimal("1.50")
-    assert entry.output_usd_per_million == Decimal("9.00")
-    assert estimate_text_cost("gemini-3.5-flash", 100_000, 10_000) == Decimal("0.240000")
+@pytest.mark.parametrize('rate',['0','-1','NaN','Infinity'])
+def test_nonpositive_nonfinite_prices_are_not_budget_authorized(monkeypatch,rate):
+    monkeypatch.setenv('BEDROCK_TEXT_PRICING_JSON',json.dumps({MODEL:{'input':rate,'output':'15'}}))
+    with pytest.raises(UnknownModelPrice):lookup_pricing(MODEL)
 
-
-def test_gemini_36_flash_introductory_price_is_budget_authorized():
-    entry = lookup_pricing("gemini-3.6-flash")
-    assert entry.input_usd_per_million == Decimal("0.75")
-    assert entry.output_usd_per_million == Decimal("3.75")
-    assert estimate_text_cost("gemini-3.6-flash", 100_000, 10_000) == Decimal("0.112500")
-
-
-def test_gemini_37_flash_introductory_price_is_budget_authorized():
-    entry = lookup_pricing("gemini-3.7-flash")
-    assert entry.input_usd_per_million == Decimal("0.75")
-    assert entry.output_usd_per_million == Decimal("3.75")
-    assert estimate_text_cost("gemini-3.7-flash", 100_000, 10_000) == Decimal("0.112500")
-
+def test_missing_deployment_price_is_not_guessed(monkeypatch):
+    monkeypatch.delenv('BEDROCK_TEXT_PRICING_JSON',raising=False)
+    with pytest.raises(UnknownModelPrice):lookup_pricing(MODEL)
 
 def test_unknown_model_price_is_not_treated_as_free():
-    with pytest.raises(UnknownModelPrice):
-        estimate_text_cost("unpriced-model", 100, 100)
+    with pytest.raises(UnknownModelPrice):estimate_text_cost('unpriced',100,100)
 
-
-def test_media_catalog_prices_by_real_billing_unit_and_never_guesses_preview_price():
-    assert lookup_media_price("veo-3.1-fast-generate-001", duration_sec=4) == Decimal("0.320000")
-    assert lookup_media_price("lyria-002", duration_sec=30) == Decimal("0.060000")
-    with pytest.raises(UnknownModelPrice, match="deployment price"):
-        lookup_media_price("lyria-3-clip-preview", duration_sec=30)
-    assert lookup_media_price("lyria-3-clip-preview", duration_sec=30, configured_price="0.120000") == Decimal("0.120000")
+def test_media_catalog_uses_actual_unit_and_explicit_price():
+    assert lookup_media_price('amazon.nova-reel-v1:1',duration_sec=6,configured_price='.08')==Decimal('.480000')
+    assert lookup_media_price('music_v1',duration_sec=30,configured_price='.10')==Decimal('.100000')
+    with pytest.raises(UnknownModelPrice):lookup_media_price('amazon.nova-canvas-v1:0',duration_sec=1)

@@ -2,7 +2,7 @@
 
 > **Archived implementation note (superseded 2026-08-28).** This detailed build record is preserved for engineering history and is not part of the maintained navigation. Current normative behavior lives in [Failure recovery](./failure-recovery.mdx), [State ownership](./state-ownership.mdx), and [Context and memory continuity](./optimization/context-memory-continuity.mdx).
 
-Harmonia treats a long-running agent as a durable state machine, not as an indefinitely growing chat transcript. Firestore is the system of record; Pub/Sub and external webhooks are at-least-once wake signals; Cloud Run workers are disposable compute. A worker may stop after any durable boundary and another worker may resume from the persisted operation epoch.
+Harmonia treats a long-running agent as a durable state machine, not as an indefinitely growing chat transcript. DynamoDB is the system of record; SQS and external webhooks are at-least-once wake signals; ECS Fargate workers are disposable compute. A worker may stop after any durable boundary and another worker may resume from the persisted operation epoch.
 
 The public documentation presents the full context- and memory-rot strategy under
 [Context and memory continuity](/optimization/context-memory-continuity).
@@ -23,7 +23,7 @@ Large tool results use prune + spill: the prompt retains a bounded head/tail pre
 
 The model-free heartbeat scans bounded pages under deadline, retry, and cost limits. Safe expired work becomes replayable; reconcile/never work becomes unknown or operator-required; abandoned inbox and outbox claims are requeued. Observed effects, unverified receipts, and broken artifacts emit idempotent `recovery_work` records. Recovery identities include the persisted attempt generation: repeated scans of one crash deduplicate, while a later crash of the same operation gets fresh recovery authority. Recovery never calls an unknown external effect.
 
-Harmonia can be awakened by Pub/Sub, Cloud Scheduler, Telegram's official webhook, and approved platform webhooks. These sources enter through the same inbox, operation, fencing, approval, and audit path as dashboard requests.
+Harmonia can be awakened by SQS, EventBridge Scheduler, Telegram's official webhook, and approved platform webhooks. These sources enter through the same inbox, operation, fencing, approval, and audit path as dashboard requests.
 
 ## Operator resolution
 
@@ -38,11 +38,11 @@ Every choice requires a human operator principal, a detailed reason, the current
 
 ## Local verification
 
-Run the Firestore emulator, then execute:
+Run the DynamoDB emulator, then execute:
 
 ```bash
 export FIRESTORE_EMULATOR_HOST=127.0.0.1:8787
-export GOOGLE_CLOUD_PROJECT=harmonia-durable-test
+export AWS_ACCOUNT_ID=harmonia-durable-test
 npm test
 npm run test:agent
 npm run verify:durable-runtime

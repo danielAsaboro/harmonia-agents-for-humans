@@ -37,22 +37,22 @@ export function runDurableRuntimeBenchmark(): DurableRuntimeBenchmarkReport {
   const now = "2026-08-28T12:00:00.000Z";
   const payload = { jobId: "job-1", stage: "draft" };
   const envelope: EventEnvelope = {
-    schemaVersion: 1, source: "pubsub", sourceEventId: "event-1",
+    schemaVersion: 1, source: "sqs", sourceEventId: "event-1",
     workspaceId: "workspace-1", brandId: "brand-1", jobId: "job-1",
     eventType: "stage.requested", operationId: "job:job-1:stage:draft",
     correlationId: "job:job-1", attempt: 0, trust: "system", occurredAt: now,
     payload, payloadDigest: eventPayloadDigest(payload),
   };
   const claimInput = {
-    envelope, pubsubMessageId: "message-1", ownerTokenDigest: "a".repeat(64),
+    envelope, transportMessageId: "message-1", ownerTokenDigest: "a".repeat(64),
     now, claimUntil: "2026-08-28T12:05:00.000Z", replayPolicy: "safe" as const,
   };
   const accepted = claimEventInbox(null, claimInput);
   invariant(accepted.outcome === "execute", "first event delivery must execute");
-  const duplicateLive = claimEventInbox(accepted.record, { ...claimInput, pubsubMessageId: "message-2" });
+  const duplicateLive = claimEventInbox(accepted.record, { ...claimInput, transportMessageId: "message-2" });
   invariant(duplicateLive.outcome === "in_progress", "live duplicate event must not execute");
   const completed = completeEventInbox(accepted.record, claimInput.ownerTokenDigest, { outcome: "completed", now: "2026-08-28T12:00:01.000Z" });
-  const duplicateDone = claimEventInbox(completed, { ...claimInput, pubsubMessageId: "message-3", now: "2026-08-28T12:00:02.000Z" });
+  const duplicateDone = claimEventInbox(completed, { ...claimInput, transportMessageId: "message-3", now: "2026-08-28T12:00:02.000Z" });
   invariant(duplicateDone.outcome === "already_completed", "completed duplicate event must remain terminal");
 
   const operation = claimOperation(createOperation({

@@ -3,7 +3,7 @@ title: "Operational control plane"
 description: "Operator attention, resumable live state, durable job controls, connector capabilities, and large-batch execution."
 ---
 
-Harmonia keeps Firestore as workflow authority and Pub/Sub as trigger transport. The operational control plane is a projection over that durable state; it is not a second workflow engine.
+Harmonia keeps DynamoDB as workflow authority and SQS as trigger transport. The operational control plane is a projection over that durable state; it is not a second workflow engine.
 
 ## Needs-you inbox and job shells
 
@@ -11,7 +11,7 @@ The operational feed returns a current snapshot plus sequence-numbered changes. 
 
 Every job is reduced to a compact shell: lifecycle, stage, control state, control epoch, bounded progress, liveness, last progress time, and attention counts. Lifecycle precedence is deliberately safety-biased: uncertain effects, operator work, pause/cancel, failure, scheduling, settlement, then active work.
 
-The dashboard polls with its last sequence cursor. Firestore allocates contiguous feed sequences and stores the current projection, so a reconnect does not depend on process memory or transient browser state.
+The dashboard polls with its last sequence cursor. DynamoDB allocates contiguous feed sequences and stores the current projection, so a reconnect does not depend on process memory or transient browser state.
 
 ## Pause, resume, and cancel
 
@@ -25,8 +25,8 @@ Connector descriptors declare capabilities, effect types, required scopes, provi
 
 ## Large-batch data plane
 
-A data batch points at an immutable `gs://` manifest with digest, byte count, and item count. Work item IDs are deterministic over batch, partition, source digest, and processor version. Initialization is chunked across Firestore writes and remains visibly `initializing` or `failed` if interrupted; retrying the same manifest resumes deterministically.
+A data batch points at an immutable `gs://` manifest with digest, byte count, and item count. Work item IDs are deterministic over batch, partition, source digest, and processor version. Initialization is chunked across DynamoDB writes and remains visibly `initializing` or `failed` if interrupted; retrying the same manifest resumes deterministically.
 
 The dispatcher publishes at most `maxInFlight` eligible items to the configured data-work topic. A visibility window counts recently published items against that limit before a worker claims them. Duplicate publications remain safe: workers must claim each item with a hashed owner token, lease, and monotonically increasing epoch. Stale finalizers are fenced out. Retry exhaustion becomes `dead_lettered`; fan-in records `complete`, policy-qualified `partial`, `failed`, or `cancelled` from literal persisted item states.
 
-This is a bounded foundation, not a claim that Harmonia has already processed a production-scale dataset. The repository and emulator suites verify contracts and Firestore concurrency; live cloud throughput still requires deployment evidence.
+This is a bounded foundation, not a claim that Harmonia has already processed a production-scale dataset. The repository and emulator suites verify contracts and DynamoDB concurrency; live cloud throughput still requires deployment evidence.

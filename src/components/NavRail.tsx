@@ -3,12 +3,9 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FocusEvent } from "react";
-import { signOut as firebaseSignOut } from "firebase/auth";
 import { BrandMark } from "@/components/BrandMark";
 import { ConfirmationDialog } from "@/components/dashboard/ConfirmationDialog";
 import { ChatIcon, CalendarIcon, ChartIcon, SettingsIcon } from "@/components/icons";
-import { clientAuth } from "@/lib/firebaseClient";
-import { signOutPersistedSession } from "@/lib/sessionPersistence";
 import styles from "./NavRail.module.css";
 
 const RAIL = [
@@ -109,10 +106,8 @@ export default function NavRail() {
   async function signOut() {
     setSigningOut(true);
     try {
-      await signOutPersistedSession(
-        () => firebaseSignOut(clientAuth()),
-        async () => { await fetch("/api/auth/session", { method: "DELETE" }); },
-      );
+      const response = await fetch("/api/auth/session", { method: "DELETE" });
+      if (!response.ok) throw new Error("Could not revoke the session");
       router.replace("/login");
       router.refresh();
     } finally {

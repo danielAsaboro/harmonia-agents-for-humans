@@ -1,4 +1,4 @@
-import type { ConnectionDoc } from "../firestore";
+import type { ConnectionDoc } from "../repository";
 import type { PublishDestination } from "./contracts";
 
 export interface SocialConnectionProjection {

@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 
-import { Timestamp } from "firebase-admin/firestore";
 
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 
@@ -28,7 +27,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 export function collectInstants(value: unknown): number[] {
   if (isIsoInstant(value)) return [Date.parse(value)];
-  if (value instanceof Timestamp) return [value.toMillis()];
   if (Array.isArray(value)) return value.flatMap(collectInstants);
   if (isPlainObject(value)) return Object.values(value).flatMap(collectInstants);
   return [];
@@ -37,7 +35,6 @@ export function collectInstants(value: unknown): number[] {
 export function shiftDemoValue(value: unknown, offsetMs: number): unknown {
   if (!Number.isSafeInteger(offsetMs)) throw new Error("demo history offset must be a safe integer");
   if (isIsoInstant(value)) return new Date(Date.parse(value) + offsetMs).toISOString();
-  if (value instanceof Timestamp) return Timestamp.fromMillis(value.toMillis() + offsetMs);
   if (Array.isArray(value)) return value.map((item) => shiftDemoValue(item, offsetMs));
   if (isPlainObject(value)) {
     return Object.fromEntries(

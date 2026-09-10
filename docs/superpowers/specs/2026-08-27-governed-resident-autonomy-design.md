@@ -37,7 +37,7 @@ The Dream Cycle may propose protected changes, but it cannot apply them. No mode
 ## Architecture
 
 ```text
-Cloud Scheduler
+EventBridge Scheduler
       │ authenticated wake
       ▼
 Heartbeat Controller ─── missed-wake recovery
@@ -50,20 +50,20 @@ Cycle Planner
       └── morning Wakeup Call
              │
              ▼
-      Pub/Sub work envelopes
+      SQS work envelopes
              │
              ▼
-      Bounded ADK specialists
+      Bounded Strands specialists
              │
              ▼
-Firestore evidence ledger
+DynamoDB evidence ledger
   observations → reflections → hypotheses
   → experiments → evaluations → promotions/rollbacks
 ```
 
-Cloud Scheduler is the clock. Cloud Run is the stateless execution boundary. Firestore owns cycle truth, leases, agendas, observations, experiments, and configuration revisions. Pub/Sub delivers bounded work. Agent Engine and Gemini perform typed cognitive work; they do not own scheduling, authorization, or durable truth.
+EventBridge Scheduler is the clock. ECS Fargate is the stateless execution boundary. DynamoDB owns cycle truth, leases, agendas, observations, experiments, and configuration revisions. SQS delivers bounded work. AgentCore Runtime and Gemini perform typed cognitive work; they do not own scheduling, authorization, or durable truth.
 
-This approach preserves scale-to-zero behavior and matches Harmonia's existing durable-control-plane architecture. A long-lived Agent Engine session is explicitly rejected as the operational clock because managed cognitive state is not an appropriate lease, recovery, or authorization store. Google Cloud Workflows is also deferred because it would duplicate the existing Firestore state machine.
+This approach preserves scale-to-zero behavior and matches Harmonia's existing durable-control-plane architecture. A long-lived AgentCore Runtime session is explicitly rejected as the operational clock because managed cognitive state is not an appropriate lease, recovery, or authorization store. Google Cloud Workflows is also deferred because it would duplicate the existing DynamoDB state machine.
 
 ## Cycle Model
 
@@ -92,7 +92,7 @@ The Heartbeat runs hourly. It performs cheap deterministic work first and normal
 - checks workspace budget and provider health;
 - records paused arms and attention requests.
 
-Time-sensitive scheduled publishing does not wait for the hourly Heartbeat. Already-authorized publishing retains precise Scheduler or Pub/Sub wakeups.
+Time-sensitive scheduled publishing does not wait for the hourly Heartbeat. Already-authorized publishing retains precise Scheduler or SQS wakeups.
 
 ### Post-job Micro-reflection
 
@@ -157,14 +157,14 @@ Every promotion creates a versioned configuration revision with previous and new
 
 ## Security
 
-- Scheduler authenticates to private Cloud Run with OIDC.
+- Scheduler authenticates to private ECS Fargate with OIDC.
 - Tenant scope is established before retrieving evidence or memory.
 - Dream and Wakeup Call agents receive sanitized evidence summaries and stable references.
 - Untrusted source content cannot create experiments or configuration changes.
 - Only authenticated operator decisions and independently verified outcomes qualify as evolutionary evidence.
 - Deterministic policy revalidates every proposed automatic change after model evaluation.
 - Models never receive credentials, approval capabilities, publishing tools, or configuration-write authority.
-- Firestore rules and server-side adapters enforce workspace and brand scope.
+- DynamoDB rules and server-side adapters enforce workspace and brand scope.
 - Replay and fixture provenance is permanently excluded from live learning and promotion.
 - Protected configuration categories require exact-payload human approval.
 
@@ -210,7 +210,7 @@ Implementation status must continue to distinguish `implemented`, `configured`, 
 
 - deterministic fixture tests for cycle states, leases, deduplication, safety policy, tuning bounds, promotion, and rollback;
 - sanitized replay scenarios for local UX development, visibly historical;
-- authenticated Scheduler-to-Cloud-Run-to-Firestore wake evidence;
+- authenticated Scheduler-to-Cloud-Run-to-DynamoDB wake evidence;
 - missed-wake recovery and duplicate suppression evidence;
 - one real Dream Cycle grounded in authorized verified records;
 - one real Wakeup Call that persists a durable agenda;
@@ -223,7 +223,7 @@ Until those authenticated checks exist, documentation must not claim that reside
 ## Delivery Order
 
 1. Add strict cycle, observation, reflection, hypothesis, experiment, configuration-revision, and agenda contracts.
-2. Add Firestore repositories and idempotent lease/state transitions.
+2. Add DynamoDB repositories and idempotent lease/state transitions.
 3. Replace the generic durable tick with explicit hourly Heartbeat orchestration while preserving precise scheduled-effect wakes.
 4. Add event-driven Micro-reflection.
 5. Add the nightly Dream Cycle and deterministic eligibility gates.

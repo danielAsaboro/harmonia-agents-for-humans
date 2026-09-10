@@ -1,5 +1,5 @@
 import { editorialPlanSubmissionSchema } from "@/lib/contracts";
-import { acceptEditorialPlan, appendEvent } from "@/lib/firestore";
+import { acceptEditorialPlan, appendEvent } from "@/lib/repository";
 import { editorialPlanDigest } from "@/lib/editorialPlan";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";

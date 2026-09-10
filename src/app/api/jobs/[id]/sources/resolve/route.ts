@@ -1,13 +1,14 @@
-import { randomUUID } from "node:crypto";
 import { operatorTenantHandler } from "@/lib/auth";
-import { db, getJob, transitionStageWithOutbox } from "@/lib/firestore";
-import { sealManifest } from "@/lib/sourceRegistry";
+import { db,getJob,transitionStageWithOutbox } from "@/lib/repository";
 import { buildSourceRecord } from "@/lib/sourceManifest";
-import { currentTenant, tenantSubjectId } from "@/lib/tenancy";
+import { sealManifest } from "@/lib/sourceRegistry";
+import { sourceRightsAuthorization,persistSourceRightsAuthorization } from "@/lib/sourceRights";
 import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";
-import { z } from "zod";
-import { sourceRightsAuthorization, sourceRightsAuthorizationId } from "@/lib/sourceRights";
+import { currentTenant,tenantSubjectId } from "@/lib/tenancy";
 import type { SourceInput } from "@/lib/types";
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import { awsRepository,field,recordKey } from "../../../../../../lib/dynamo";
 
 const replacementSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("web"), url: z.string().url() }).strict(),
@@ -35,39 +36,39 @@ async function post(request: Request, { params }: { params: Promise<{ id: string
   if (job.stage !== "awaiting_source_resolution") return Response.json({ error: "job is not awaiting source resolution" }, { status: 409 });
   const tenant = currentTenant(); const sourceRoot = `workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/sources`;
   if (parsed.data.action === "reconnect") {
-    const source = await db().doc(`${sourceRoot}/${parsed.data.sourceId}`).get();
-    if (!source.exists) return Response.json({ error: "source not found" }, { status: 404 });
-    return Response.json({ reconnectUrl: "/settings?section=brand-libraries", provider: source.get("provider") });
+    const source = await awsRepository().read(recordKey(`${sourceRoot}/${parsed.data.sourceId}`));
+    if (!source.present) return Response.json({ error: "source not found" }, { status: 404 });
+    return Response.json({ reconnectUrl: "/settings?section=brand-libraries", provider: field(source.value, "provider") });
   }
   if (parsed.data.action === "retry") {
-    const ref = db().doc(`${sourceRoot}/${parsed.data.sourceId}`);
-    await db().runTransaction(async (transaction) => { const source = await transaction.get(ref); if (!source.exists || source.get("state") !== "failed") throw new Error("only failed sources can be retried"); transaction.update(ref, { state: "queued", failure: null, updatedAt: new Date().toISOString() }); });
+    const ref = recordKey(`${sourceRoot}/${parsed.data.sourceId}`);
+    await db().atomic(async (transaction) => { const source = await transaction.read(ref); if (!source.present || field(source.value, "state") !== "failed") throw new Error("only failed sources can be retried"); transaction.patch(ref, { state: "queued", failure: null, updatedAt: new Date().toISOString() }); });
     return Response.json({ ok: true, nextStage: await resume(jobId, "extract_sources", `operator retried source ${parsed.data.sourceId}`) });
   }
-  const manifestRef = db().doc(`workspaces/${tenant.workspaceId}/jobs/${jobId}/source_manifests/${job.config.sourceManifestId}`);
-  const manifestSnapshot = await manifestRef.get(); if (!manifestSnapshot.exists) return Response.json({ error: "source manifest not found" }, { status: 404 });
-  const oldManifest = manifestSnapshot.data()!; const now = new Date().toISOString(); const nextManifestId = randomUUID();
+  const manifestRef = recordKey(`workspaces/${tenant.workspaceId}/jobs/${jobId}/source_manifests/${job.config.sourceManifestId}`);
+  const manifestSnapshot = await awsRepository().read(manifestRef); if (!manifestSnapshot.present) return Response.json({ error: "source manifest not found" }, { status: 404 });
+  const oldManifest = manifestSnapshot.value!; const now = new Date().toISOString(); const nextManifestId = randomUUID();
   let replacementId: string | undefined;
   const excludedSourceIds = [...new Set([...((oldManifest.excludedSourceIds as string[] | undefined) ?? []), ...(parsed.data.action === "continue" ? [] : [parsed.data.sourceId])])];
   let directSourceIds = ((oldManifest.directSourceIds as string[] | undefined) ?? []).filter((id) => !excludedSourceIds.includes(id));
   let replacement: SourceInput | undefined;
-  if (parsed.data.action === "replace") { replacementId = randomUUID(); directSourceIds.push(replacementId); const authorization = sourceRightsAuthorization(tenant, parsed.data.replacement.kind); replacement = { ...parsed.data.replacement, rightsAuthorizationId: sourceRightsAuthorizationId(authorization) } as SourceInput; }
+  if (parsed.data.action === "replace") { replacementId = randomUUID(); directSourceIds.push(replacementId); const authorization = sourceRightsAuthorization(tenant, parsed.data.replacement.kind); replacement = { ...parsed.data.replacement, rightsAuthorizationId: await persistSourceRightsAuthorization(authorization) } as SourceInput; }
   const exclusionRecords = [...((oldManifest.exclusionRecords as unknown[] | undefined) ?? []), ...(parsed.data.action === "continue" ? [] : [{ sourceId: parsed.data.sourceId, reason: parsed.data.reason, excludedAt: now, excludedBySubjectId: tenantSubjectId(tenant) }])];
   if (parsed.data.action === "continue") {
-    const ids = [...directSourceIds]; const records = await Promise.all(ids.map((id) => db().doc(`${sourceRoot}/${id}`).get()));
-    for (const record of records) if (record.get("state") === "failed") { excludedSourceIds.push(record.id); directSourceIds = directSourceIds.filter((id) => id !== record.id); exclusionRecords.push({ sourceId: record.id, reason: "operator continued without failed source", excludedAt: now, excludedBySubjectId: tenantSubjectId(tenant) }); }
+    const ids = [...directSourceIds]; const records = await Promise.all(ids.map((id) => awsRepository().read(recordKey(`${sourceRoot}/${id}`))));
+    for (const record of records) if (field(record.value, "state") === "failed") { excludedSourceIds.push(record.id); directSourceIds = directSourceIds.filter((id) => id !== record.id); exclusionRecords.push({ sourceId: record.id, reason: "operator continued without failed source", excludedAt: now, excludedBySubjectId: tenantSubjectId(tenant) }); }
   }
   const nextManifest = sealManifest({ id: nextManifestId, jobId, revision: Number(oldManifest.revision) + 1, ...(oldManifest.librarySnapshotId ? { librarySnapshotId: oldManifest.librarySnapshotId as string } : {}), directSourceIds, excludedSourceIds: [...new Set(excludedSourceIds)], exclusionRecords: exclusionRecords as never[], sealedAt: now, sealedBySubjectId: tenantSubjectId(tenant) });
   if (parsed.data.action === "remove" || parsed.data.action === "continue") {
-    const active = await Promise.all(directSourceIds.map((id) => db().doc(`${sourceRoot}/${id}`).get()));
-    const hasReady = active.some((record) => record.get("state") === "ready") || Boolean(oldManifest.librarySnapshotId);
+    const active = await Promise.all(directSourceIds.map((id) => awsRepository().read(recordKey(`${sourceRoot}/${id}`))));
+    const hasReady = active.some((record) => field(record.value, "state") === "ready") || Boolean(oldManifest.librarySnapshotId);
     if (!hasReady) return Response.json({ error: "cannot continue without at least one ready source" }, { status: 409 });
   }
-  await db().runTransaction(async (transaction) => {
-    transaction.create(db().doc(`workspaces/${tenant.workspaceId}/jobs/${jobId}/source_manifests/${nextManifestId}`), nextManifest);
-    transaction.update(db().doc(`workspaces/${tenant.workspaceId}/jobs/${jobId}`), { "config.sourceManifestId": nextManifestId, updatedAt: now });
-    if (parsed.data.action !== "continue") transaction.update(db().doc(`${sourceRoot}/${parsed.data.sourceId}`), { state: "excluded", updatedAt: now });
-    if (parsed.data.action === "replace" && replacementId && replacement) { const record = buildSourceRecord(replacement, replacementId, now); transaction.create(db().doc(`${sourceRoot}/${replacementId}`), record); transaction.create(db().doc(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/source_payloads/${replacementId}`), { sourceId: replacementId, input: replacement, createdAt: now }); }
+  await db().atomic(async (transaction) => {
+    transaction.insert(recordKey(`workspaces/${tenant.workspaceId}/jobs/${jobId}/source_manifests/${nextManifestId}`), nextManifest);
+    transaction.patch(recordKey(`workspaces/${tenant.workspaceId}/jobs/${jobId}`), { "config.sourceManifestId": nextManifestId, updatedAt: now });
+    if (parsed.data.action !== "continue") transaction.patch(recordKey(`${sourceRoot}/${parsed.data.sourceId}`), { state: "excluded", updatedAt: now });
+    if (parsed.data.action === "replace" && replacementId && replacement) { const record = buildSourceRecord(replacement, replacementId, now); transaction.insert(recordKey(`${sourceRoot}/${replacementId}`), record); transaction.insert(recordKey(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/source_payloads/${replacementId}`), { sourceId: replacementId, input: replacement, createdAt: now }); }
   });
   if (parsed.data.action === "remove" || parsed.data.action === "continue") {
     return Response.json({ ok: true, manifest: nextManifest, nextStage: await resume(jobId, "understand", "operator sealed source resolution") });

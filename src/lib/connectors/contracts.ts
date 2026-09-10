@@ -20,7 +20,7 @@ export const connectorDescriptorSchema = z.object({
   requiredScopes: z.array(z.string().min(1).max(300)).max(50),
   providerIdempotency: z.boolean(),
   independentVerification: z.boolean(),
-  regionalConstraint: z.enum(["selected_google_cloud_region", "provider_global", "none"]),
+  regionalConstraint: z.enum(["selected_aws_region", "provider_global", "none"]),
 }).strict().superRefine((descriptor, context) => {
   if (descriptor.independentVerification && !descriptor.capabilities.includes("verify")) {
     context.addIssue({ code: "custom", path: ["capabilities"], message: "independent verification requires the verification capability" });

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -30,6 +31,19 @@ async def run_durable_tick(
                 results.append({"workspaceId": workspace_id, "status": "already_claimed"})
                 continue
             arms: dict[str, Any] = {}
+            if os.environ.get("SQS_DATA_QUEUE_URL"):
+                try:
+                    from .web_client import post
+                    recovered_data = await asyncio.to_thread(post, "/api/internal/data-plane/recover", {})
+                    arms["data_plane"] = {"status": "ok", "result": recovered_data}
+                except Exception as exc:
+                    arms["data_plane"] = {"status": "failed", "errorType": type(exc).__name__}
+            try:
+                from .knowledge_index import recover_pending_indexes
+                indexed = await asyncio.to_thread(recover_pending_indexes)
+                arms["knowledge_index"] = {"status": "ok", "results": indexed}
+            except Exception as exc:
+                arms["knowledge_index"] = {"status": "failed", "errorType": type(exc).__name__}
             try:
                 dispatched = await asyncio.to_thread(stage_outbox, 20)
                 arms["stage_outbox"] = {

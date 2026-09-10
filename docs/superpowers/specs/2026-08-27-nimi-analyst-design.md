@@ -6,7 +6,7 @@ Nimi turns one bounded source package into a durable evidence analysis for Ryan.
 
 ## Current weaknesses
 
-The current contract stores transcript and advisory context as prose, gives moments no transcript references or confidence, gives angles no evidence references, and validates only unknown frame IDs at runtime. Quote presence and timestamp bounds exist only in an evaluation helper. The understand stage truncates the model result before persistence and stores neither a canonical digest nor a complete provenance ledger. Memory Bank facts lose their IDs and Firestore provenance when merged into `prior_learnings`, so they cannot be audited and can be mistaken for authority.
+The current contract stores transcript and advisory context as prose, gives moments no transcript references or confidence, gives angles no evidence references, and validates only unknown frame IDs at runtime. Quote presence and timestamp bounds exist only in an evaluation helper. The understand stage truncates the model result before persistence and stores neither a canonical digest nor a complete provenance ledger. AgentCore Memory facts lose their IDs and DynamoDB provenance when merged into `prior_learnings`, so they cannot be audited and can be mistaken for authority.
 
 ## Input boundary
 
@@ -15,8 +15,8 @@ The current contract stores transcript and advisory context as prose, gives mome
 - immutable source identity, kind (`brief` or `media`), title, channel, and source digest;
 - typed transcript segments with stable IDs and bounded start/end times;
 - optional media evidence carrying the same digest plus bounded frame evidence;
-- verified performance observations with IDs and Firestore evidence references;
-- eligible Memory Bank facts with IDs and Firestore evidence references.
+- verified performance observations with IDs and DynamoDB evidence references;
+- eligible AgentCore Memory facts with IDs and DynamoDB evidence references.
 
 Application code assembles this input. Nimi has no tools. Memory and performance are advisory context, never authorization or proof of facts in the source.
 
@@ -34,7 +34,7 @@ Nimi may label an idea as an angle; it may not claim that an external trend exis
 
 ## Deterministic workflow
 
-After ADK returns a `SourceAnalysis`, deterministic code validates grounding and authority, computes a canonical SHA-256 digest, and posts the complete analysis plus digest to the internal boundary. Firestore persists the complete object and digest before advancing to Ryan. Ryan and Temi consume that exact persisted object; no truncation or prose serialization is allowed.
+After Strands returns a `SourceAnalysis`, deterministic code validates grounding and authority, computes a canonical SHA-256 digest, and posts the complete analysis plus digest to the internal boundary. DynamoDB persists the complete object and digest before advancing to Ryan. Ryan and Temi consume that exact persisted object; no truncation or prose serialization is allowed.
 
 ## Presentation and evaluation
 

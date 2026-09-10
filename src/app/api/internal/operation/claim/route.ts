@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { durableOperationClaimSchema } from "@/lib/contracts";
-import { claimDurableOperation } from "@/lib/firestore";
+import { claimDurableOperation } from "@/lib/repository";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { internalRoute } from "@/lib/internalHandler";
 

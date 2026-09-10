@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { durableEventFinalizeSchema } from "@/lib/contracts";
-import { completeDurableEvent } from "@/lib/firestore";
+import { completeDurableEvent } from "@/lib/repository";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { internalRoute, readOperationFenceHeaders } from "@/lib/internalHandler";
 

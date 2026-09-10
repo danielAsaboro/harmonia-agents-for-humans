@@ -6,7 +6,7 @@
 
 **Architecture:** Replace unsealed source IDs with immutable artifact references containing ID, SHA-256 digest, MIME type, and byte count. Compile one cost-free `resolve_media` operation per referenced artifact; the production API verifies the exact current operation claim and artifact identity before returning bytes. Composition consumes only succeeded resolve-operation artifacts, choosing either verified source footage or generated video per scene and wiring verified narration into HyperFrames.
 
-**Tech Stack:** TypeScript, Zod, Firestore transactions, Next.js route handlers, Google Cloud Storage/local durable artifact storage, Python worker, HyperFrames 0.8.20, ffmpeg/ffprobe, Vitest, pytest.
+**Tech Stack:** TypeScript, Zod, DynamoDB transactions, Next.js route handlers, Google Cloud Storage/local durable artifact storage, Python worker, HyperFrames 0.8.20, ffmpeg/ffprobe, Vitest, pytest.
 
 **Spec:** `/Users/MAC/.codex/attachments/e192f7bd-b684-4f5c-8059-6cf063b0e933/pasted-text.txt`
 
@@ -70,7 +70,7 @@ Expected: PASS, including rejection of malformed digests, MIME mismatches, ident
 - Modify: `src/lib/artifactStore.ts`
 - Modify: `src/lib/productionPlanStore.ts`
 - Create: `src/app/api/internal/production-plans/[planId]/operations/[operationId]/source/route.ts`
-- Modify: route/store tests and Firestore integration tests
+- Modify: route/store tests and DynamoDB integration tests
 
 **Interfaces:**
 - Produces: `getProductionSourceArtifact(planId, operationId, claimId, claimToken)` returning the exact sealed artifact record and verified bytes.
@@ -96,7 +96,7 @@ Change approval scheduling from paid-only roots to every operation with `depends
 
 - [ ] **Step 5: Verify route, store, and emulator behavior**
 
-Run: `npm test -- tests/artifactStore.test.ts tests/productionPlanRoutes.test.ts tests/productionPlanFirestore.integration.test.ts`
+Run: `npm test -- tests/artifactStore.test.ts tests/productionPlanRoutes.test.ts tests/productionPlanDynamoDB.integration.test.ts`
 
 Expected: PASS; duplicate claims reuse the same identity and do not create a second paid submission.
 
@@ -138,7 +138,7 @@ Then run strict HyperFrames validation and an ffmpeg/ffprobe narration-carve smo
 
 - [ ] **Step 1: Run all required checks**
 
-Run `npm test`, `npm run test:agent`, lint, typecheck, `npm run build`, Firestore integration tests, HyperFrames strict validation, ffmpeg/ffprobe inspection, `git diff --check`, worker Docker build, and container runtime smoke.
+Run `npm test`, `npm run test:agent`, lint, typecheck, `npm run build`, DynamoDB integration tests, HyperFrames strict validation, ffmpeg/ffprobe inspection, `git diff --check`, worker Docker build, and container runtime smoke.
 
 - [ ] **Step 2: Review requirement and safety coverage**
 

@@ -7,7 +7,7 @@ import {
   getJob,
   getTelegramWebhookRoute,
   decideStrategy,
-} from "@/lib/firestore";
+} from "@/lib/repository";
 import { approveProductionPlan, getProductionPlan, getProductionPlanWorkspaceForJob } from "@/lib/productionPlanStore";
 import { resolveDecision } from "@/lib/decisions";
 import { runWithTenant } from "@/lib/tenancy";

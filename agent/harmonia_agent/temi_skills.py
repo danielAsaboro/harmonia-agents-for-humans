@@ -7,10 +7,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from google.adk.agents.context import Context
-from google.adk.skills import load_skill_from_dir
-from google.adk.tools import FunctionTool, ToolContext, skill_toolset
-from google.adk.tools.base_tool import BaseTool
 
 from .authority_records import (
     authority_read_record,
@@ -50,7 +46,7 @@ _PLANNING_AUTHORITY_KEYS = (
 )
 
 
-def _read(snapshot_id: str, tool_context: ToolContext, field: str, output: str) -> dict[str, Any]:
+def _read(snapshot_id: str, tool_context: Any, field: str, output: str) -> dict[str, Any]:
     snapshot = tool_context.state.get("planningSnapshot")
     if not isinstance(snapshot, dict) or snapshot.get("snapshotId") != snapshot_id:
         logger.warning(
@@ -62,12 +58,12 @@ def _read(snapshot_id: str, tool_context: ToolContext, field: str, output: str) 
     return {"snapshotId": snapshot_id, output: deepcopy(snapshot[field])}
 
 
-def read_editorial_commitments(snapshot_id: str, tool_context: ToolContext) -> dict[str, Any]:
+def read_editorial_commitments(snapshot_id: str, tool_context: Any) -> dict[str, Any]:
     """Read immutable existing commitments from the active planning snapshot."""
     return _read(snapshot_id, tool_context, "existingCommitments", "commitments")
 
 
-def read_planning_authority(snapshot_id: str, tool_context: ToolContext) -> dict[str, Any]:
+def read_planning_authority(snapshot_id: str, tool_context: Any) -> dict[str, Any]:
     """Read the exact typed planning authority already bound to this session."""
     snapshot = tool_context.state.get("planningSnapshot")
     if not isinstance(snapshot, dict) or snapshot.get("snapshotId") != snapshot_id:
@@ -81,27 +77,27 @@ def read_planning_authority(snapshot_id: str, tool_context: ToolContext) -> dict
     }
 
 
-def read_production_capacity(snapshot_id: str, tool_context: ToolContext) -> dict[str, Any]:
+def read_production_capacity(snapshot_id: str, tool_context: Any) -> dict[str, Any]:
     """Read immutable production capacity from the active planning snapshot."""
     return _read(snapshot_id, tool_context, "productionCapacity", "productionCapacity")
 
 
-def read_asset_readiness(snapshot_id: str, tool_context: ToolContext) -> dict[str, Any]:
+def read_asset_readiness(snapshot_id: str, tool_context: Any) -> dict[str, Any]:
     """Read immutable asset-readiness records from the active planning snapshot."""
     return _read(snapshot_id, tool_context, "assetReadiness", "assetReadiness")
 
 
-def read_posting_window_observations(snapshot_id: str, tool_context: ToolContext) -> dict[str, Any]:
+def read_posting_window_observations(snapshot_id: str, tool_context: Any) -> dict[str, Any]:
     """Read verified posting-window observations from the active planning snapshot."""
     return _read(snapshot_id, tool_context, "postingWindowObservations", "observations")
 
 
-def read_calendar_projection(snapshot_id: str, tool_context: ToolContext) -> dict[str, Any]:
+def read_calendar_projection(snapshot_id: str, tool_context: Any) -> dict[str, Any]:
     """Read downstream calendar projection state without mutating the calendar."""
     return _read(snapshot_id, tool_context, "calendarProjection", "calendarProjection")
 
 
-def read_blocked_dependencies(snapshot_id: str, tool_context: ToolContext) -> dict[str, Any]:
+def read_blocked_dependencies(snapshot_id: str, tool_context: Any) -> dict[str, Any]:
     """Read immutable blocked production dependencies from the active snapshot."""
     return _read(snapshot_id, tool_context, "blockedDependencies", "blockedDependencies")
 
@@ -112,14 +108,8 @@ _READ_TOOLS = (
 )
 
 
-def build_temi_editorial_planning_skillset() -> skill_toolset.SkillToolset:
-    skill = load_skill_from_dir(TEMI_SKILL_ROOT)
-    if skill.frontmatter.name != TEMI_SKILL_NAME:
-        raise RuntimeError("Temi planning skill name does not match its runtime contract")
-    return skill_toolset.SkillToolset(
-        skills=[skill], tool_filter=sorted({*_LOAD_TOOLS, *_READ_FIELDS}),
-        additional_tools=[FunctionTool(tool) for tool in _READ_TOOLS],
-    )
+
+
 
 
 def build_temi_planning_read_tools() -> list[FunctionTool]:
@@ -134,7 +124,7 @@ def compiled_temi_planning_skill_context() -> str:
     )
 
 
-def bootstrap_temi_trace(callback_context: Context) -> None:
+def bootstrap_temi_trace(callback_context: Any) -> None:
     trace = skill_activation_records(
         skill_name=TEMI_SKILL_NAME,
         skill_root=TEMI_SKILL_ROOT,
@@ -151,7 +141,7 @@ def bootstrap_temi_trace(callback_context: Context) -> None:
     callback_context.state[TEMI_TRACE_KEY] = trace
 
 
-def reset_temi_trace(callback_context: Context) -> None:
+def reset_temi_trace(callback_context: Any) -> None:
     callback_context.state[TEMI_TRACE_KEY] = []
 
 
@@ -160,7 +150,7 @@ def _skill_name(args: dict[str, Any]) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def guard_temi_tool(tool: BaseTool, args: dict[str, Any], tool_context: Context) -> None:
+def guard_temi_tool(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
     if tool.name == "set_model_response":
         return
     allowed = {*_LOAD_TOOLS, *_READ_FIELDS}
@@ -185,7 +175,7 @@ def guard_temi_tool(tool: BaseTool, args: dict[str, Any], tool_context: Context)
         raise ValueError("Temi may read only the exact planning snapshot")
 
 
-def record_temi_tool(tool: BaseTool, args: dict[str, Any], tool_context: Context, tool_response: dict[str, Any]) -> None:
+def record_temi_tool(tool: Any, args: dict[str, Any], tool_context: Any, tool_response: dict[str, Any]) -> None:
     if tool.name == "set_model_response":
         return
     trace = list(tool_context.state.get(TEMI_TRACE_KEY) or [])

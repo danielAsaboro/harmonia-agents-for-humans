@@ -1,6 +1,7 @@
-import { db } from "./firestore";
+import { awsRepository,partition,recordKey } from "./dynamo";
 import { newId } from "./idempotency";
-import { assertResourceWorkspace, currentTenant, tenantCollectionPath, tenantSubjectId } from "./tenancy";
+import { db } from "./repository";
+import { assertResourceWorkspace,currentTenant,tenantCollectionPath,tenantSubjectId } from "./tenancy";
 
 export type PendingOperationDecision = "approved" | "rejected";
 export type PendingOperationState = "pending" | "processing" | PendingOperationDecision | "failed" | "expired";
@@ -41,7 +42,7 @@ export interface PendingOperation {
 }
 
 function collection() {
-  return db().collection(tenantCollectionPath(currentTenant(), "pending_operations"));
+  return partition(tenantCollectionPath(currentTenant(), "pending_operations"));
 }
 
 export function decideOperationRecord(
@@ -154,70 +155,70 @@ export async function createPendingOperation(input: {
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + (input.ttlMs ?? 30 * 60 * 1000)).toISOString(),
   };
-  await collection().doc(operation.id).set(operation);
+  await awsRepository().put(recordKey(collection().partition + "/" + operation.id), operation);
   return operation;
 }
 
 export async function getPendingOperation(id: string): Promise<PendingOperation | null> {
-  const snap = await collection().doc(id).get();
-  if (!snap.exists) return null;
-  const operation = snap.data() as PendingOperation;
+  const snap = await awsRepository().read(recordKey(collection().partition + "/" + id));
+  if (!snap.present) return null;
+  const operation = snap.value as unknown as PendingOperation;
   assertResourceWorkspace(currentTenant(), operation);
   return operation;
 }
 
 export async function decidePendingOperation(id: string, decision: PendingOperationDecision): Promise<PendingOperation> {
   const tenant = currentTenant();
-  const ref = collection().doc(id);
-  return db().runTransaction(async (transaction) => {
-    const snap = await transaction.get(ref);
-    if (!snap.exists) throw new Error("operation not found");
-    const operation = snap.data() as PendingOperation;
+  const ref = recordKey(collection().partition + "/" + id);
+  return db().atomic(async (transaction) => {
+    const snap = await transaction.read(ref);
+    if (!snap.present) throw new Error("operation not found");
+    const operation = snap.value as unknown as PendingOperation;
     assertResourceWorkspace(tenant, operation);
     const decided = decideOperationRecord(operation, decision, new Date(), tenantSubjectId(tenant));
-    transaction.set(ref, decided);
+    transaction.put(ref, decided);
     return decided;
   });
 }
 
 export async function claimPendingOperationDecision(id: string, decision: PendingOperationDecision): Promise<PendingOperation> {
   const tenant = currentTenant();
-  const ref = collection().doc(id);
-  return db().runTransaction(async (transaction) => {
-    const snap = await transaction.get(ref);
-    if (!snap.exists) throw new Error("operation not found");
-    const operation = snap.data() as PendingOperation;
+  const ref = recordKey(collection().partition + "/" + id);
+  return db().atomic(async (transaction) => {
+    const snap = await transaction.read(ref);
+    if (!snap.present) throw new Error("operation not found");
+    const operation = snap.value as unknown as PendingOperation;
     assertResourceWorkspace(tenant, operation);
     const claimed = claimOperationDecisionRecord(operation, decision, new Date(), tenantSubjectId(tenant));
-    transaction.set(ref, claimed);
+    transaction.put(ref, claimed);
     return claimed;
   });
 }
 
 export async function finalizePendingOperationDecision(id: string, decision: PendingOperationDecision): Promise<PendingOperation> {
   const tenant = currentTenant();
-  const ref = collection().doc(id);
-  return db().runTransaction(async (transaction) => {
-    const snap = await transaction.get(ref);
-    if (!snap.exists) throw new Error("operation not found");
-    const operation = snap.data() as PendingOperation;
+  const ref = recordKey(collection().partition + "/" + id);
+  return db().atomic(async (transaction) => {
+    const snap = await transaction.read(ref);
+    if (!snap.present) throw new Error("operation not found");
+    const operation = snap.value as unknown as PendingOperation;
     assertResourceWorkspace(tenant, operation);
     const finalized = finalizeOperationDecisionRecord(operation, decision, new Date());
-    transaction.set(ref, finalized);
+    transaction.put(ref, finalized);
     return finalized;
   });
 }
 
 export async function failPendingOperationDecision(id: string, reason: string): Promise<PendingOperation> {
   const tenant = currentTenant();
-  const ref = collection().doc(id);
-  return db().runTransaction(async (transaction) => {
-    const snap = await transaction.get(ref);
-    if (!snap.exists) throw new Error("operation not found");
-    const operation = snap.data() as PendingOperation;
+  const ref = recordKey(collection().partition + "/" + id);
+  return db().atomic(async (transaction) => {
+    const snap = await transaction.read(ref);
+    if (!snap.present) throw new Error("operation not found");
+    const operation = snap.value as unknown as PendingOperation;
     assertResourceWorkspace(tenant, operation);
     const failed = failOperationDecisionRecord(operation, reason, new Date());
-    transaction.set(ref, failed);
+    transaction.put(ref, failed);
     return failed;
   });
 }

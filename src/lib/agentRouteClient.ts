@@ -1,4 +1,3 @@
-import { GoogleAuth } from "google-auth-library";
 import { z } from "zod";
 
 import { getConfig } from "@/lib/config";
@@ -61,12 +60,10 @@ function safeValidationSummary(body: unknown): string {
 
 async function authorizedFetch(url: string, init: RequestInit, custom?: typeof fetch): Promise<Response> {
   if (custom) return custom(url, init);
-  const host = new URL(url).hostname;
-  if (["localhost", "127.0.0.1", "::1"].includes(host)) return fetch(url, init);
-  const client = await new GoogleAuth().getIdTokenClient(new URL(url).origin);
-  const identity = await client.getRequestHeaders(url);
   const headers = new Headers(init.headers);
-  identity.forEach((value, name) => headers.set(name, value));
+  const token = headers.get("x-harmonia-internal-token");
+  if (!token) throw new Error("internal authentication is not configured");
+  headers.set("authorization", `Bearer ${token}`);
   return fetch(url, { ...init, headers });
 }
 

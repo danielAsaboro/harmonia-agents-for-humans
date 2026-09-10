@@ -1,4 +1,4 @@
-import { getJob, listAssets, listReceipts } from "@/lib/firestore";
+import { getJob, listAssets, listReceipts } from "@/lib/repository";
 import { generateResponseSurfaces } from "@/lib/a2ui/responseSurface";
 import type { ChatResponse } from "@/lib/chatHandler";
 import type { JobFull } from "@/components/jobTypes";

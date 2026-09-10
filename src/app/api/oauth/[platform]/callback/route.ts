@@ -1,8 +1,8 @@
-import { Timestamp } from "@google-cloud/firestore";
-import { db, getConnection, saveConnection } from "@/lib/firestore";
-import { discoverPublishDestinations, exchangeCode, fetchIdentity, getPlatform } from "@/lib/oauth";
-import { currentTenant, runWithTenant } from "@/lib/tenancy";
-import { oauthCallbackPrincipal, requireOAuthCallback } from "@/lib/authority";
+import { oauthCallbackPrincipal,requireOAuthCallback } from "@/lib/authority";
+import { discoverPublishDestinations,exchangeCode,fetchIdentity,getPlatform } from "@/lib/oauth";
+import { getConnection,saveConnection } from "@/lib/repository";
+import { currentTenant,runWithTenant } from "@/lib/tenancy";
+import { awsRepository,partition,recordKey } from "../../../../../lib/dynamo";
 
 function backToSettings(platform: string, result: "ok" | "error", reason?: string): Response {
   const q = new URLSearchParams({ connection: platform, result });
@@ -16,7 +16,7 @@ function backToSettings(platform: string, result: "ok" | "error", reason?: strin
 /**
  * OAuth callback: validates single-use state, exchanges the code server-side,
  * stores tokens (browser never sees them), then returns to Settings.
- * NOTE: tokens live in Firestore; production should mirror them to Secret
+ * NOTE: tokens live in DynamoRepository; production should mirror them to Secret
  * Manager before real accounts are connected.
  */
 export async function GET(
@@ -38,12 +38,12 @@ export async function GET(
   const state = url.searchParams.get("state");
   if (!code || !state) return backToSettings(platform, "error", "missing code/state");
 
-  const stateRef = db().collection("oauth_states").doc(state);
-  const stateSnap = await stateRef.get();
-  if (!stateSnap.exists) {
+  const stateRef = recordKey(partition("oauth_states").partition + "/" + state);
+  const stateSnap = await awsRepository().read(stateRef);
+  if (!stateSnap.present) {
     return backToSettings(platform, "error", "invalid or expired state");
   }
-  const stored = stateSnap.data() as {
+  const stored = stateSnap.value as unknown as {
     platform: string;
     codeVerifier: string;
     redirectUri: string;
@@ -51,12 +51,12 @@ export async function GET(
     workspaceId: string;
     brandId: string;
   };
-  await stateRef.delete(); // single use
+  await awsRepository().remove(stateRef); // single use
 
   if (stored.platform !== platform) {
     return backToSettings(platform, "error", "state/platform mismatch");
   }
-  const ageMin = (Date.now() - Timestamp.fromMillis(Date.parse(stored.createdAt)).toMillis()) / 60_000;
+  const ageMin = (Date.now() - Date.parse(stored.createdAt)) / 60_000;
   if (ageMin > 10) {
     return backToSettings(platform, "error", "authorization attempt expired; try again");
   }

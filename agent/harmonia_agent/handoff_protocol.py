@@ -8,7 +8,6 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from google.adk.skills import load_skill_from_dir
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -67,19 +66,9 @@ EXPECTED_OUTPUTS = {
 
 @lru_cache(maxsize=1)
 def harmonia_handoff_skill_context() -> str:
-    skill = load_skill_from_dir(HANDOFF_SKILL_ROOT)
-    if skill.frontmatter.name != HANDOFF_SKILL_NAME:
-        raise RuntimeError("Harmonia handoff skill name does not match its runtime contract")
-    references = skill.resources.model_dump().get("references") or {}
-    reference = references.get(Path(HANDOFF_PROTOCOL_REFERENCE).name)
-    if not isinstance(reference, str) or not reference.strip():
-        raise RuntimeError("Harmonia handoff protocol reference is missing")
-    return "\n".join((
-        f"Harmonia shared protocol {HANDOFF_PROTOCOL_VERSION}:",
-        skill.instructions,
-        f"\n## Loaded {HANDOFF_PROTOCOL_REFERENCE}",
-        reference,
-    ))
+    reference = (HANDOFF_SKILL_ROOT / HANDOFF_PROTOCOL_REFERENCE).read_text()
+    return "\n".join((f"Harmonia preloaded protocol {HANDOFF_PROTOCOL_VERSION}:",
+        (HANDOFF_SKILL_ROOT / "SKILL.md").read_text(), reference))
 
 
 def build_handoff(

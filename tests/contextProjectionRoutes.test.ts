@@ -7,7 +7,7 @@ const { create, assertDurableOperationFence } = vi.hoisted(() => ({
 vi.mock("@/lib/contextProjectionStore", () => ({
   createContextProjectionStore: () => ({ create }),
 }));
-vi.mock("@/lib/firestore", () => ({ db: vi.fn(), assertDurableOperationFence }));
+vi.mock("@/lib/repository", () => ({ db: vi.fn(), assertDurableOperationFence }));
 
 import { POST } from "@/app/api/internal/context-projections/route";
 

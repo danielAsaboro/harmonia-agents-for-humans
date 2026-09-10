@@ -1,10 +1,10 @@
-import type { Firestore, Transaction } from "@google-cloud/firestore";
+import { DynamoRepository,DynamoTransaction,recordKey } from "./dynamo";
 
 import type { ArtifactRecord } from "./artifacts";
 import type { ContextProjectionRecord } from "./contextProjections";
-import { assertOperationFence, type OperationFence, type OperationRecord } from "./operations";
+import { assertOperationFence,type OperationFence,type OperationRecord } from "./operations";
 import { canonicalJson } from "./recordReplay/integrity";
-import { currentTenant, tenantCollectionPath } from "./tenancy";
+import { currentTenant,tenantCollectionPath } from "./tenancy";
 
 const OPERATIONS = "operations";
 const ARTIFACTS = "artifacts";
@@ -82,27 +82,27 @@ export class ContextProjectionStore {
   }
 }
 
-function adapter(transaction: Transaction, database: Firestore): ContextProjectionTransaction {
+function adapter(transaction: DynamoTransaction): ContextProjectionTransaction {
   async function get<T>(documentPath: string): Promise<T | null> {
-    const snapshot = await transaction.get(database.doc(documentPath));
-    return snapshot.exists ? snapshot.data() as T : null;
+    const snapshot = await transaction.read(recordKey(documentPath));
+    return snapshot.present ? snapshot.value as unknown as T : null;
   }
   return {
     getOperation: (documentPath) => get<OperationRecord>(documentPath),
     getArtifact: (documentPath) => get<ArtifactRecord>(documentPath),
     getProjection: (documentPath) => get<ContextProjectionRecord>(documentPath),
-    createProjection: (documentPath, record) => transaction.create(database.doc(documentPath), record),
-    setOperation: (documentPath, record) => transaction.set(database.doc(documentPath), record),
+    createProjection: (documentPath, record) => transaction.insert(recordKey(documentPath), record),
+    setOperation: (documentPath, record) => transaction.put(recordKey(documentPath), record),
   };
 }
 
-export class FirestoreContextProjectionPersistence implements ContextProjectionPersistence {
-  constructor(private readonly database: Firestore) {}
+export class DynamoContextProjectionPersistence implements ContextProjectionPersistence {
+  constructor(private readonly database: DynamoRepository) {}
   transact<T>(work: (tx: ContextProjectionTransaction) => Promise<T>): Promise<T> {
-    return this.database.runTransaction((transaction) => work(adapter(transaction, this.database)));
+    return this.database.atomic((transaction) => work(adapter(transaction)));
   }
 }
 
-export function createContextProjectionStore(database: Firestore): ContextProjectionStore {
-  return new ContextProjectionStore(new FirestoreContextProjectionPersistence(database));
+export function createContextProjectionStore(database: DynamoRepository): ContextProjectionStore {
+  return new ContextProjectionStore(new DynamoContextProjectionPersistence(database));
 }

@@ -1,4 +1,4 @@
-"""Least-privilege contracts and value-free error envelopes for ADK tools."""
+"""Least-privilege contracts and value-free error envelopes for Strands tools."""
 
 from __future__ import annotations
 

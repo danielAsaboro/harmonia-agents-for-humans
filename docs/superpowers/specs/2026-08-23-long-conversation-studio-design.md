@@ -119,9 +119,9 @@ The first implementation uses current APIs and durable records:
 - `/api/jobs/{id}`
 - Existing asset, action-decision, receipt, notification, and upload routes
 
-Chapter labels, collapsed summaries, working-set selection, and trace links derive from current persisted data. The implementation adds no synthetic success state and requires no Firestore migration. Optional presentation preferences such as pane width and selected canvas view may persist locally because they have no workflow or audit meaning.
+Chapter labels, collapsed summaries, working-set selection, and trace links derive from current persisted data. The implementation adds no synthetic success state and requires no DynamoDB migration. Optional presentation preferences such as pane width and selected canvas view may persist locally because they have no workflow or audit meaning.
 
-The Telegram interface, floating chat drawer, public API payloads, Firestore job shapes, Pub/Sub messages, action IDs, receipts, publishing, and approval semantics remain unchanged.
+The Telegram interface, floating chat drawer, public API payloads, DynamoDB job shapes, SQS messages, action IDs, receipts, publishing, and approval semantics remain unchanged.
 
 ## Loading, Empty, Failure, and Accessibility States
 

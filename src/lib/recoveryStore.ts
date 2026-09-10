@@ -1,14 +1,14 @@
-import { FieldValue, type Firestore } from "@google-cloud/firestore";
+import { awsRepository,field,limited,partition,recordKey,REMOVE_FIELD,where,type DynamoRepository } from "./dynamo";
 
-import { db } from "./firestore";
-import { planRecovery, type RecoveryAction, type RecoveryBounds, type RecoveryCandidate } from "./recovery";
-import { currentTenant, tenantCollectionPath } from "./tenancy";
+import type { ArtifactRecord } from "./artifacts";
 import type { EffectCommand } from "./effectCommands";
 import type { EventInboxRecord } from "./eventInbox";
 import type { OperationRecord } from "./operations";
+import { planRecovery,type RecoveryAction,type RecoveryBounds,type RecoveryCandidate } from "./recovery";
+import { db } from "./repository";
 import type { StageOutboxRecord } from "./stageOutbox";
-import type { ArtifactRecord } from "./artifacts";
-import type { Job, Receipt, VerificationResult } from "./types";
+import { currentTenant,tenantCollectionPath } from "./tenancy";
+import type { Job,Receipt,VerificationResult } from "./types";
 
 const COLLECTIONS = {
   operations: "operations", inbox: "event_inbox", outbox: "stage_outbox",
@@ -16,8 +16,8 @@ const COLLECTIONS = {
   recovery: "recovery_work",
 } as const;
 
-function collection(database: Firestore, name: string) {
-  return database.collection(tenantCollectionPath(currentTenant(), name));
+function collection(database: DynamoRepository, name: string) {
+  return partition(tenantCollectionPath(currentTenant(), name));
 }
 
 function assertTenant(value: { workspaceId: string; brandId: string }): void {
@@ -54,7 +54,7 @@ function baseCandidate(
 }
 
 export async function scanRecoveryCandidates(
-  database: Firestore,
+  database: DynamoRepository,
   input: { now: string; limit: number },
 ): Promise<RecoveryCandidate[]> {
   if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) throw new Error("recovery scan limit must be between 1 and 100");
@@ -63,55 +63,55 @@ export async function scanRecoveryCandidates(
   const candidates: RecoveryCandidate[] = [];
   const remaining = () => Math.max(0, input.limit - candidates.length);
 
-  const operations = await collection(database, COLLECTIONS.operations).where("state", "==", "claimed").limit(input.limit).get();
-  for (const doc of operations.docs) {
+  const operations = await awsRepository().query(limited(where(collection(database, COLLECTIONS.operations), "state", "==", "claimed"), input.limit));
+  for (const doc of operations.rows) {
     if (!remaining()) break;
-    const value = doc.data() as OperationRecord;
+    const value = doc.value as unknown as OperationRecord;
     if (Date.parse(value.leaseExpiresAt ?? "") > nowMs) continue;
     candidates.push({
-      ...baseCandidate("operation", doc.id, value, value.state, value.replayPolicy, doc.ref.path),
+      ...baseCandidate("operation", doc.id, value, value.state, value.replayPolicy, doc.key.path),
       retryCount: value.attempt, leaseExpiresAt: value.leaseExpiresAt, operationId: value.id,
     });
   }
 
   if (remaining()) {
-    const inbox = await collection(database, COLLECTIONS.inbox).where("state", "==", "processing").limit(remaining()).get();
-    for (const doc of inbox.docs) {
-      const value = doc.data() as EventInboxRecord;
+    const inbox = await awsRepository().query(limited(where(collection(database, COLLECTIONS.inbox), "state", "==", "processing"), remaining()));
+    for (const doc of inbox.rows) {
+      const value = doc.value as unknown as EventInboxRecord;
       if (Date.parse(value.claimUntil ?? "") > nowMs) continue;
       candidates.push({
-        ...baseCandidate("event_inbox", doc.id, value, value.state, value.replayPolicy, doc.ref.path),
+        ...baseCandidate("event_inbox", doc.id, value, value.state, value.replayPolicy, doc.key.path),
         retryCount: value.deliveryAttempts, leaseExpiresAt: value.claimUntil, operationId: value.operationId,
       });
     }
   }
 
   if (remaining()) {
-    const outbox = await collection(database, COLLECTIONS.outbox).where("state", "==", "claimed").limit(remaining()).get();
-    for (const doc of outbox.docs) {
-      const value = doc.data() as StageOutboxRecord;
+    const outbox = await awsRepository().query(limited(where(collection(database, COLLECTIONS.outbox), "state", "==", "claimed"), remaining()));
+    for (const doc of outbox.rows) {
+      const value = doc.value as unknown as StageOutboxRecord;
       if (Date.parse(value.claimUntil ?? "") > nowMs) continue;
       candidates.push({
-        ...baseCandidate("stage_outbox", doc.id, value, value.state, "safe", doc.ref.path),
+        ...baseCandidate("stage_outbox", doc.id, value, value.state, "safe", doc.key.path),
         retryCount: value.publishAttempt, leaseExpiresAt: value.claimUntil, operationId: value.operationId,
       });
     }
   }
 
   if (remaining()) {
-    const effects = await collection(database, COLLECTIONS.commands).where("state", "in", ["dispatched", "observed", "unknown"]).limit(remaining()).get();
-    for (const doc of effects.docs) {
-      const value = doc.data() as EffectCommand;
+    const effects = await awsRepository().query(limited(where(collection(database, COLLECTIONS.commands), "state", "in", ["dispatched", "observed", "unknown"]), remaining()));
+    for (const doc of effects.rows) {
+      const value = doc.value as unknown as EffectCommand;
       assertTenant(value);
       const operationId = value.operationId;
       if (!operationId) continue;
-      const operation = await collection(database, COLLECTIONS.operations).doc(operationId).get();
-      const operationValue = operation.exists ? operation.data() as OperationRecord : null;
+      const operation = await awsRepository().read(recordKey(collection(database, COLLECTIONS.operations).partition + "/" + operationId));
+      const operationValue = operation.present ? operation.value as unknown as OperationRecord : null;
       const due = value.state === "observed" || value.state === "unknown"
         || (operationValue?.state === "claimed" && Date.parse(operationValue.leaseExpiresAt ?? "") <= nowMs);
       if (!due) continue;
       candidates.push({
-        ...baseCandidate("effect", doc.id, value, value.state, "reconcile", doc.ref.path),
+        ...baseCandidate("effect", doc.id, value, value.state, "reconcile", doc.key.path),
         retryCount: value.dispatchAttempt ?? 0, operationId,
         ...(operationValue?.leaseExpiresAt ? { leaseExpiresAt: operationValue.leaseExpiresAt } : {}),
       });
@@ -120,28 +120,28 @@ export async function scanRecoveryCandidates(
   }
 
   if (remaining()) {
-    const artifacts = await collection(database, COLLECTIONS.artifacts).where("state", "in", ["writing", "failed"]).limit(remaining()).get();
-    for (const doc of artifacts.docs) {
-      const value = doc.data() as ArtifactRecord;
+    const artifacts = await awsRepository().query(limited(where(collection(database, COLLECTIONS.artifacts), "state", "in", ["writing", "failed"]), remaining()));
+    for (const doc of artifacts.rows) {
+      const value = doc.value as unknown as ArtifactRecord;
       candidates.push({
-        ...baseCandidate("artifact", doc.id, value, value.state, "never", doc.ref.path),
+        ...baseCandidate("artifact", doc.id, value, value.state, "never", doc.key.path),
         artifactId: value.id,
       });
     }
   }
 
   if (remaining()) {
-    const jobs = await collection(database, COLLECTIONS.jobs).limit(Math.min(remaining(), 20)).get();
-    for (const jobDoc of jobs.docs) {
-      const job = jobDoc.data() as Job & { verifications?: VerificationResult[] };
+    const jobs = await awsRepository().query(limited(collection(database, COLLECTIONS.jobs), Math.min(remaining(), 20)));
+    for (const jobDoc of jobs.rows) {
+      const job = jobDoc.value as unknown as Job & { verifications?: VerificationResult[] };
       assertTenant(job);
       const verifiedReceipts = new Set((job.verifications ?? []).map((item) => item.receiptId));
-      const receipts = await jobDoc.ref.collection("receipts").limit(remaining()).get();
-      for (const receiptDoc of receipts.docs) {
-        const receipt = receiptDoc.data() as Receipt;
+      const receipts = await awsRepository().query(limited(partition(jobDoc.key.path + "/" + "receipts"), remaining()));
+      for (const receiptDoc of receipts.rows) {
+        const receipt = receiptDoc.value as unknown as Receipt;
         if (verifiedReceipts.has(receipt.id)) continue;
         candidates.push({
-          ...baseCandidate("receipt", receipt.id, { ...job, jobId: jobDoc.id }, "unverified", "safe", receiptDoc.ref.path),
+          ...baseCandidate("receipt", receipt.id, { ...job, jobId: jobDoc.id }, "unverified", "safe", receiptDoc.key.path),
           receiptId: receipt.id, operationId: receipt.operationId,
         });
         if (!remaining()) break;
@@ -162,50 +162,50 @@ function recoveryRecord(action: RecoveryAction, bounds: RecoveryBounds) {
 }
 
 export async function applyRecoveryPlan(
-  database: Firestore,
+  database: DynamoRepository,
   actions: RecoveryAction[],
   bounds: RecoveryBounds,
 ): Promise<Array<RecoveryAction & { emitted: boolean }>> {
   const work = collection(database, COLLECTIONS.recovery);
-  return database.runTransaction(async (tx) => {
+  return database.atomic(async (tx) => {
     actions.forEach((action) => {
       if (action.resourcePath) assertTenantResourcePath(action.resourcePath);
     });
     const resources = await Promise.all(actions.map((action) => action.resourcePath
-      ? tx.get(database.doc(action.resourcePath)) : Promise.resolve(null)));
+      ? tx.read(recordKey(action.resourcePath)) : Promise.resolve(null)));
     const eventOutboxes = await Promise.all(actions.map((action, index) => {
-      if (action.action !== "requeue_event" || !resources[index]?.exists) return Promise.resolve(null);
-      const sourceEventId = resources[index]!.get("sourceEventId");
+      if (action.action !== "requeue_event" || !resources[index]?.present) return Promise.resolve(null);
+      const sourceEventId = field(resources[index]!.value, "sourceEventId");
       if (typeof sourceEventId !== "string" || !sourceEventId.startsWith("stage-outbox:")) {
         throw new Error("recovery event is missing its durable stage outbox");
       }
       const outboxId = sourceEventId.slice("stage-outbox:".length);
       if (!/^[A-Za-z0-9_-]{1,256}$/.test(outboxId)) throw new Error("invalid recovery stage outbox id");
-      return tx.get(collection(database, COLLECTIONS.outbox).doc(outboxId));
+      return tx.read(recordKey(collection(database, COLLECTIONS.outbox).partition + "/" + outboxId));
     }));
     const receiptJobs = await Promise.all(actions.map((action) => (
       action.candidateKind === "receipt" && action.resourcePath
-        ? tx.get(database.doc(receiptJobPath(action.resourcePath)))
+        ? tx.read(recordKey(receiptJobPath(action.resourcePath)))
         : Promise.resolve(null)
     )));
-    const existingWork = await Promise.all(actions.map((action) => tx.get(work.doc(action.id))));
+    const existingWork = await Promise.all(actions.map((action) => tx.read(recordKey(work.partition + "/" + action.id))));
     const results: Array<RecoveryAction & { emitted: boolean }> = [];
     actions.forEach((action, index) => {
       const resource = resources[index];
       const existing = existingWork[index];
-      if (existing.exists) {
+      if (existing.present) {
         results.push({ ...action, emitted: false });
         return;
       }
-      if (resource?.exists) {
-        const value = resource.data() as {
+      if (resource?.present) {
+        const value = resource.value as unknown as {
           workspaceId?: string; brandId?: string; state?: string; replayPolicy?: string;
           leaseExpiresAt?: string; claimUntil?: string;
         };
         if (action.candidateKind === "receipt") {
           const receiptJob = receiptJobs[index];
-          if (!receiptJob?.exists) throw new Error("recovery receipt parent job missing");
-          assertTenant(receiptJob.data() as { workspaceId: string; brandId: string });
+          if (!receiptJob?.present) throw new Error("recovery receipt parent job missing");
+          assertTenant(receiptJob.value as unknown as { workspaceId: string; brandId: string });
         } else {
           assertTenant(value as { workspaceId: string; brandId: string });
         }
@@ -216,40 +216,40 @@ export async function applyRecoveryPlan(
           return;
         }
         if (action.action === "replay_operation" && value.state === "claimed" && value.replayPolicy === "safe") {
-          tx.update(resource.ref, {
-            state: "waiting", updatedAt: bounds.now, ownerId: FieldValue.delete(),
-            ownerTokenDigest: FieldValue.delete(), leaseExpiresAt: FieldValue.delete(),
+          tx.patch(resource.key, {
+            state: "waiting", updatedAt: bounds.now, ownerId: REMOVE_FIELD,
+            ownerTokenDigest: REMOVE_FIELD, leaseExpiresAt: REMOVE_FIELD,
           });
         } else if (["reconcile_operation", "operator_required"].includes(action.action) && action.candidateKind === "operation" && value.state === "claimed") {
-          tx.update(resource.ref, {
+          tx.patch(resource.key, {
             state: "unknown", updatedAt: bounds.now, unresolvedReason: action.reason,
-            ownerId: FieldValue.delete(), ownerTokenDigest: FieldValue.delete(), leaseExpiresAt: FieldValue.delete(),
+            ownerId: REMOVE_FIELD, ownerTokenDigest: REMOVE_FIELD, leaseExpiresAt: REMOVE_FIELD,
           });
         } else if (action.action === "requeue_event" && value.state === "processing") {
           const sourceOutbox = eventOutboxes[index];
-          if (!sourceOutbox?.exists) throw new Error("recovery stage outbox is missing");
-          const outboxValue = sourceOutbox.data() as StageOutboxRecord;
+          if (!sourceOutbox?.present) throw new Error("recovery stage outbox is missing");
+          const outboxValue = sourceOutbox.value as unknown as StageOutboxRecord;
           assertTenant(outboxValue);
-          if (outboxValue.operationId !== action.operationId || outboxValue.sourceEventId !== resource.get("sourceEventId")) {
+          if (outboxValue.operationId !== action.operationId || outboxValue.sourceEventId !== field(resource.value, "sourceEventId")) {
             throw new Error("recovery stage outbox lineage mismatch");
           }
-          tx.update(resource.ref, {
+          tx.patch(resource.key, {
             state: "accepted", updatedAt: bounds.now,
-            ownerTokenDigest: FieldValue.delete(), claimUntil: FieldValue.delete(),
+            ownerTokenDigest: REMOVE_FIELD, claimUntil: REMOVE_FIELD,
           });
-          tx.update(sourceOutbox.ref, {
-            state: "pending", claimTokenDigest: FieldValue.delete(), claimUntil: FieldValue.delete(),
-            pubsubMessageId: FieldValue.delete(), publishedAt: FieldValue.delete(),
+          tx.patch(sourceOutbox.key, {
+            state: "pending", claimTokenDigest: REMOVE_FIELD, claimUntil: REMOVE_FIELD,
+            transportMessageId: REMOVE_FIELD, publishedAt: REMOVE_FIELD,
           });
         } else if (action.action === "requeue_outbox" && value.state === "claimed") {
-          tx.update(resource.ref, {
-            state: "pending", claimTokenDigest: FieldValue.delete(), claimUntil: FieldValue.delete(),
+          tx.patch(resource.key, {
+            state: "pending", claimTokenDigest: REMOVE_FIELD, claimUntil: REMOVE_FIELD,
           });
         } else if (action.action === "reconcile_effect" && value.state === "dispatched") {
-          tx.update(resource.ref, { state: "unknown", unknownReason: action.reason, updatedAt: bounds.now });
+          tx.patch(resource.key, { state: "unknown", unknownReason: action.reason, updatedAt: bounds.now });
         }
       }
-      tx.create(work.doc(action.id), recoveryRecord(action, bounds));
+      tx.insert(recordKey(work.partition + "/" + action.id), recoveryRecord(action, bounds));
       results.push({ ...action, emitted: true });
     });
     return results;
@@ -258,7 +258,7 @@ export async function applyRecoveryPlan(
 
 export async function runRecovery(input: {
   limit: number; deadlineSeconds: number; maxRetries: number; maxCostUsd: string;
-}, database: Firestore = db()) {
+}, database: DynamoRepository = db()) {
   const now = new Date();
   if (!Number.isInteger(input.deadlineSeconds) || input.deadlineSeconds < 1 || input.deadlineSeconds > 60) throw new Error("recovery deadlineSeconds must be between 1 and 60");
   const bounds: RecoveryBounds = {

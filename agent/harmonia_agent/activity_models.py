@@ -37,7 +37,7 @@ class AgentActivityRecord(BaseModel):
     toolCalls: int = Field(default=0, ge=0, le=10_000)
     errorCategory: Literal["authorization", "dependency", "protocol", "timeout", "internal"] | None = None
     errorType: str | None = Field(default=None, pattern=r"^[A-Za-z][A-Za-z0-9_.]{0,127}$")
-    backend: Literal["google_cloud", "local"]
+    backend: Literal["aws", "local"]
 
     @model_validator(mode="after")
     def validate_outcome(self) -> "AgentActivityRecord":

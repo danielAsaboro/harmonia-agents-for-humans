@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getOrCreateEditorialPlanningSnapshot = vi.fn();
 const withInternalTenant = vi.fn((_request: Request, work: () => unknown) => work());
 
-vi.mock("@/lib/firestore", () => ({ getOrCreateEditorialPlanningSnapshot }));
+vi.mock("@/lib/repository", () => ({ getOrCreateEditorialPlanningSnapshot }));
 vi.mock("@/lib/internalAuth", () => ({
   isInternalAuthorized: () => true,
   unauthorized: () => Response.json({ error: "unauthorized" }, { status: 401 }),

@@ -18,7 +18,7 @@
 - [ ] Add failing runtime tests for quote/time/segment/frame grounding, cross-kind or invented references, unsupported trends/visual claims, memory authorization, final copy, strategy, and effect overreach.
 - [ ] Implement deterministic analysis validation and canonical digesting.
 - [ ] Add failing stage/persistence tests proving complete typed input assembly, exact persisted analysis, digest binding, and unchanged Ryan handoff.
-- [ ] Implement Firestore persistence and UI provenance rendering.
+- [ ] Implement DynamoDB persistence and UI provenance rendering.
 - [ ] Add public evaluation fixtures for good and adversarial cases; update current architecture documentation and labels.
 - [ ] Run focused tests, complete Python and Vitest suites, ESLint, TypeScript checking, production build, `git diff --check`, and critical diff review.
 - [ ] Commit the verified branch, fast-forward local main, rerun merged suites, and clean only Nimi's worktree and branch.

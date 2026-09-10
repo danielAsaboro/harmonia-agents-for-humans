@@ -31,7 +31,7 @@ const activity = {
   outputTokens: 20,
   inferenceCalls: 1,
   toolCalls: 0,
-  backend: "google_cloud",
+  backend: "aws",
 };
 
 describe("observability routes", () => {

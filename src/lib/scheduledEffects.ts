@@ -1,11 +1,11 @@
 import { requireContentOperator } from "./authority";
-import { createEffectCommand, effectCommandDigest, invalidateEffectCommand, type EffectCommand, type EffectCommandInput } from "./effectCommands";
+import { partition,recordKey,REMOVE_FIELD } from "./dynamo";
+import { createEffectCommand,effectCommandDigest,invalidateEffectCommand,type EffectCommand,type EffectCommandInput } from "./effectCommands";
 import { contentHash } from "./idempotency";
+import { db } from "./repository";
 import type { TenantContext } from "./tenancy";
-import type { ContentItem } from "./types";
-import { FieldValue } from "@google-cloud/firestore";
-import { db } from "./firestore";
 import { tenantCollectionPath } from "./tenancy";
+import type { ContentItem } from "./types";
 
 export function buildScheduledEffectCommand(
   item: ContentItem,
@@ -67,16 +67,16 @@ export async function applyScheduledContentMutation(
   updates: Partial<ContentItem> & { scheduledFor?: string | null },
   context: TenantContext,
 ): Promise<{ item: ContentItem; command: EffectCommand | null }> {
-  const itemRef = db().collection(tenantCollectionPath(context, "content_items")).doc(itemId);
-  return db().runTransaction(async (tx) => {
-    const itemSnap = await tx.get(itemRef);
-    if (!itemSnap.exists) throw new Error("content item not found");
-    const current = itemSnap.data() as ContentItem;
+  const itemRef = recordKey(partition(tenantCollectionPath(context, "content_items")).partition + "/" + itemId);
+  return db().atomic(async (tx) => {
+    const itemSnap = await tx.read(itemRef);
+    if (!itemSnap.present) throw new Error("content item not found");
+    const current = itemSnap.value as unknown as ContentItem;
     const commandRef = current.effectCommandId
-      ? db().collection(tenantCollectionPath(context, "effect_commands")).doc(current.effectCommandId)
+      ? recordKey(partition(tenantCollectionPath(context, "effect_commands")).partition + "/" + current.effectCommandId)
       : null;
-    const commandSnap = commandRef ? await tx.get(commandRef) : null;
-    const existingCommand = commandSnap?.exists ? commandSnap.data() as EffectCommand : null;
+    const commandSnap = commandRef ? await tx.read(commandRef) : null;
+    const existingCommand = commandSnap?.present ? commandSnap.value as unknown as EffectCommand : null;
     const normalizedUpdates = { ...updates };
     if (normalizedUpdates.scheduledFor === null) delete normalizedUpdates.scheduledFor;
     const planned = planScheduledMutation(current, existingCommand, normalizedUpdates);
@@ -94,15 +94,15 @@ export async function applyScheduledContentMutation(
     } else if (planned.command?.state === "cancelled") {
       next = { ...next, effectCommandId: undefined };
     }
-    if (existingCommand && planned.command?.state === "cancelled" && commandRef) tx.set(commandRef, planned.command);
+    if (existingCommand && planned.command?.state === "cancelled" && commandRef) tx.put(commandRef, planned.command);
     if (nextCommand?.state === "prepared" && nextCommand.id !== existingCommand?.id) {
-      tx.create(db().collection(tenantCollectionPath(context, "effect_commands")).doc(nextCommand.id), nextCommand);
+      tx.insert(recordKey(partition(tenantCollectionPath(context, "effect_commands")).partition + "/" + nextCommand.id), nextCommand);
     }
     const stored = Object.fromEntries(Object.entries(next).map(([key, value]) => [
       key,
-      value === undefined ? FieldValue.delete() : value,
+      value === undefined ? REMOVE_FIELD : value,
     ]));
-    tx.set(itemRef, stored, { merge: true });
+    tx.put(itemRef, stored, { merge: true });
     return { item: next, command: nextCommand };
   });
 }
@@ -111,16 +111,16 @@ export async function approveScheduledContent(
   itemId: string,
   context: TenantContext,
 ): Promise<{ item: ContentItem; command: EffectCommand }> {
-  const itemRef = db().collection(tenantCollectionPath(context, "content_items")).doc(itemId);
-  return db().runTransaction(async (tx) => {
-    const snap = await tx.get(itemRef);
-    if (!snap.exists) throw new Error("content item not found");
-    const item = snap.data() as ContentItem;
+  const itemRef = recordKey(partition(tenantCollectionPath(context, "content_items")).partition + "/" + itemId);
+  return db().atomic(async (tx) => {
+    const snap = await tx.read(itemRef);
+    if (!snap.present) throw new Error("content item not found");
+    const item = snap.value as unknown as ContentItem;
     if (item.status !== "awaiting_final_review") throw new Error(`item status is '${item.status}'`);
     const command = buildScheduledEffectCommand({ ...item, scheduledFor: new Date().toISOString() }, context);
-    tx.create(db().collection(tenantCollectionPath(context, "effect_commands")).doc(command.id), command);
+    tx.insert(recordKey(partition(tenantCollectionPath(context, "effect_commands")).partition + "/" + command.id), command);
     const next = { ...item, status: "publishing" as const, effectCommandId: command.id, updatedAt: new Date().toISOString() };
-    tx.update(itemRef, { status: next.status, effectCommandId: command.id, updatedAt: next.updatedAt });
+    tx.patch(itemRef, { status: next.status, effectCommandId: command.id, updatedAt: next.updatedAt });
     return { item: next, command };
   });
 }

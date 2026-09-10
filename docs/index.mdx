@@ -15,7 +15,7 @@ Harmonia turns one authorized source into a governed content operation. Its spec
     Understand the product promise, operator experience, and governed content loop.
   </Card>
   <Card title="Run the stack" icon="rocket" href="/quickstart">
-    Start the web app, ADK worker, Firestore emulator, and Pub/Sub emulator locally.
+    Start the web app and Strands worker; verify persistence with the isolated DynamoDB Local and MinIO harness.
   </Card>
   <Card title="Follow a content job" icon="diagram-project" href="/pipeline">
     Trace ingestion, analysis, strategy, production, approval, publishing, and proof.
@@ -34,7 +34,7 @@ Harmonia turns one authorized source into a governed content operation. Its spec
 ## The content loop
 
 1. **Ingest** authorized video, audio, documents, webpages, pasted text, or an operator brief.
-2. **Understand** the source with Gemini and grounded research.
+2. **Understand** the source with Bedrock and grounded research.
 3. **Strategize** with specialist agents that preserve evidence and uncertainty.
 4. **Approve** the exact strategy and consequential effects through deterministic gates.
 5. **Produce** reviewed posts, clips, schedules, and content packs.
@@ -42,8 +42,8 @@ Harmonia turns one authorized source into a governed content operation. Its spec
 
 ## Built for bounded autonomy
 
-- **Agents judge; code authorizes.** Google ADK specialists analyze, plan, write, review, and compose operator surfaces. Application code owns stage transitions, policy, and authority.
-- **State survives interruption.** Firestore is workflow truth; Pub/Sub delivers resumable work; failures remain visible and recoverable.
+- **Agents judge; code authorizes.** Strands Agents SDK specialists analyze, plan, write, review, and compose operator surfaces. Application code owns stage transitions, policy, and authority.
+- **State survives interruption.** DynamoDB is workflow truth; SQS delivers resumable work; failures remain visible and recoverable.
 - **Approval is payload-bound.** A conversational “yes” cannot publish by itself. It opens the same exact confirmation flow used by the dashboard.
 - **Effects are idempotent and auditable.** Approved actions carry stable identities, produce receipts, and are independently verified.
 - **Interfaces stay consistent.** Dashboard, conversational chat, and allow-listed Telegram entry points share the same pipeline and approval boundaries.
@@ -57,8 +57,8 @@ Harmonia turns one authorized source into a governed content operation. Its spec
 
 ## Evidence and deployment status
 
-Harmonia documents implemented contracts separately from authenticated deployment evidence. Repository tests and local emulator runs prove local behavior only; provider and cloud claims require captured authenticated evidence. The currently reachable Cloud Run revision is a **web-only preview** and does not prove a deployed worker, Scheduler, Agent Engine invocation, Memory Bank retrieval, or live publish. Use the [evidence runbook](/evidence-runbook) before presenting deployment, model, publishing, or verification claims.
+Harmonia documents implemented contracts separately from authenticated deployment evidence. Repository tests and local emulator runs prove local behavior only; provider and cloud claims require captured authenticated evidence. The currently reachable ECS Fargate revision is a **web-only preview** and does not prove a deployed worker, Scheduler, AgentCore Runtime invocation, AgentCore Memory retrieval, or live publish. Use the [evidence runbook](/evidence-runbook) before presenting deployment, model, publishing, or verification claims.
 
 <Note>
-  Start with the [quickstart](/quickstart) for local inspection. Use [configuration](/configuration) and [deployment](/deployment) only when you are ready to supply real Google Cloud and platform credentials.
+  Start with the [quickstart](/quickstart) for local inspection. Use [configuration](/configuration) and [deployment](/deployment) only when you are ready to supply real AWS and platform credentials.
 </Note>

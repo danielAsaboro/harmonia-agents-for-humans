@@ -4,9 +4,9 @@
 
 **Goal:** Make Dara return complete, grounded editorial judgment while deterministic code owns review metadata, lineage, persistence, and loop control.
 
-**Architecture:** Add a strict agentic `EditorialAssessment` and seven-dimension rubric, validate it against the exact `EditorialReviewInput`, then deterministically construct the persisted `EditorialReview`. Keep the existing one-revision maximum and canonical Firestore production trace.
+**Architecture:** Add a strict agentic `EditorialAssessment` and seven-dimension rubric, validate it against the exact `EditorialReviewInput`, then deterministically construct the persisted `EditorialReview`. Keep the existing one-revision maximum and canonical DynamoDB production trace.
 
-**Tech Stack:** Python 3.14, Pydantic v2, Google ADK, TypeScript, Zod, Firestore, Next.js, Vitest, pytest.
+**Tech Stack:** Python 3.14, Pydantic v2, Strands Agents SDK, TypeScript, Zod, DynamoDB, Next.js, Vitest, pytest.
 
 **Spec:** `docs/superpowers/specs/2026-08-27-dara-editor-design.md`
 
@@ -14,7 +14,7 @@
 
 - Inline execution only; no subagents.
 - Dara has no tools and no approval, scheduling, publishing, verification, credential, or workflow-mutation authority.
-- Firestore owns durable truth; agent/session output never advances a stage by itself.
+- DynamoDB owns durable truth; agent/session output never advances a stage by itself.
 - Use strict schemas, fail closed, and make a clean cut with no aliases or dual reads.
 - Do not make paid calls, deploy, publish, or fabricate authenticated evidence.
 - Preserve unrelated tracked and untracked files.
@@ -36,7 +36,7 @@
 
 - [ ] Write Python and TypeScript tests that require all seven unique dimensions, strict issue paths, verdict/check consistency, strict JSON containers and scalar types, and absence of model-authored review identity/timestamp fields.
 - [ ] Run the focused tests and verify failures are caused by the missing assessment contract.
-- [ ] Implement exact Pydantic/Zod/type parity and remove the old model-authored review schema from the ADK boundary.
+- [ ] Implement exact Pydantic/Zod/type parity and remove the old model-authored review schema from the Strands boundary.
 - [ ] Run focused tests green and commit.
 
 ### Task 2: Validate Dara's editorial judgment
@@ -66,12 +66,12 @@
 - Modify: `agent/tests/test_cost_reporting.py`
 
 **Interfaces:**
-- Consumes: `EditorialAssessment` from ADK.
+- Consumes: `EditorialAssessment` from Strands.
 - Produces: deterministic `EditorialReview` records in `DraftWorkflowResult` with exact prior-issue resolution and no third pass.
 
 - [ ] Write failing tests proving original assessments resolve nothing, accepted revisions resolve exactly every prior issue, rejected revisions may resolve only known subsets, and missing resolutions cannot advance.
 - [ ] Run focused tests red.
-- [ ] Change Dara's ADK output schema/key, materialize reviews after each invocation, and preserve separate cost/operation identities.
+- [ ] Change Dara's Strands output schema/key, materialize reviews after each invocation, and preserve separate cost/operation identities.
 - [ ] Keep the final second-review stopping condition deterministic and fail closed.
 - [ ] Run focused runtime tests green and commit.
 

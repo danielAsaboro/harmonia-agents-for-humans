@@ -1,38 +1,38 @@
-import type { Firestore } from "@google-cloud/firestore";
+import { awsRepository,DynamoRepository,field,limited,ordered,partition,recordKey,where } from "../dynamo";
 
-import { currentTenant, tenantDocumentPath } from "../tenancy";
-import {
-  parseOperationalUpdate,
-  type OperationalUpdate,
-  type UnsequencedOperationalUpdate,
-} from "./updateFeed";
+import { canonicalJson } from "../recordReplay/integrity";
+import { currentTenant,tenantDocumentPath } from "../tenancy";
 import type { AttentionItem } from "./attention";
 import type { JobShell } from "./jobShell";
-import { canonicalJson } from "../recordReplay/integrity";
+import {
+parseOperationalUpdate,
+type OperationalUpdate,
+type UnsequencedOperationalUpdate,
+} from "./updateFeed";
 
 const FEEDS = "operational_feeds";
 const MAX_EVENTS_PER_SYNC = 400;
 
 export class OperationalUpdateFeedStore {
-  constructor(private readonly firestore: Firestore) {}
+  constructor(private readonly repository: DynamoRepository) {}
 
   private feedRef() {
     const tenant = currentTenant();
-    return this.firestore.doc(tenantDocumentPath(tenant, FEEDS, tenant.brandId));
+    return recordKey(tenantDocumentPath(tenant, FEEDS, tenant.brandId));
   }
 
   async append(input: UnsequencedOperationalUpdate): Promise<OperationalUpdate> {
     const tenant = currentTenant();
     const feedRef = this.feedRef();
-    return this.firestore.runTransaction(async (transaction) => {
-      const feed = await transaction.get(feedRef);
-      const previous = feed.exists ? Number(feed.get("lastSequence")) : -1;
+    return this.repository.atomic(async (transaction) => {
+      const feed = await transaction.read(feedRef);
+      const previous = feed.present ? Number(field(feed.value, "lastSequence")) : -1;
       if (!Number.isInteger(previous) || previous < -1) throw new Error("operational feed head is invalid");
       const sequence = previous + 1;
       const event = parseOperationalUpdate({ ...input, sequence });
-      const updateRef = feedRef.collection("updates").doc(String(sequence).padStart(16, "0"));
-      transaction.create(updateRef, { ...event, workspaceId: tenant.workspaceId, brandId: tenant.brandId });
-      transaction.set(feedRef, {
+      const updateRef = recordKey(partition(feedRef.path + "/" + "updates").partition + "/" + String(sequence).padStart(16, "0"));
+      transaction.insert(updateRef, { ...event, workspaceId: tenant.workspaceId, brandId: tenant.brandId });
+      transaction.put(feedRef, {
         workspaceId: tenant.workspaceId,
         brandId: tenant.brandId,
         lastSequence: sequence,
@@ -43,9 +43,9 @@ export class OperationalUpdateFeedStore {
   }
 
   async headSequence(): Promise<number> {
-    const snapshot = await this.feedRef().get();
-    if (!snapshot.exists) return -1;
-    const value = Number(snapshot.get("lastSequence"));
+    const snapshot = await awsRepository().read(this.feedRef());
+    if (!snapshot.present) return -1;
+    const value = Number(field(snapshot.value, "lastSequence"));
     if (!Number.isInteger(value) || value < -1) throw new Error("operational feed head is invalid");
     return value;
   }
@@ -57,12 +57,12 @@ export class OperationalUpdateFeedStore {
   }): Promise<OperationalUpdate[]> {
     const tenant = currentTenant();
     const feedRef = this.feedRef();
-    return this.firestore.runTransaction(async (transaction) => {
-      const snapshot = await transaction.get(feedRef);
-      const previousSequence = snapshot.exists ? Number(snapshot.get("lastSequence")) : -1;
+    return this.repository.atomic(async (transaction) => {
+      const snapshot = await transaction.read(feedRef);
+      const previousSequence = snapshot.present ? Number(field(snapshot.value, "lastSequence")) : -1;
       if (!Number.isInteger(previousSequence) || previousSequence < -1) throw new Error("operational feed head is invalid");
-      const priorJobs = snapshot.exists ? (snapshot.get("projectionJobs") ?? {}) as Record<string, JobShell> : {};
-      const priorAttention = snapshot.exists ? (snapshot.get("projectionAttention") ?? {}) as Record<string, AttentionItem> : {};
+      const priorJobs = snapshot.present ? (field(snapshot.value, "projectionJobs") ?? {}) as Record<string, JobShell> : {};
+      const priorAttention = snapshot.present ? (field(snapshot.value, "projectionAttention") ?? {}) as Record<string, AttentionItem> : {};
       const jobs = Object.fromEntries(input.jobs.map((shell) => [shell.jobId, shell]));
       const attention = Object.fromEntries(input.attention.map((item) => [item.id, item]));
       const pending: UnsequencedOperationalUpdate[] = [];
@@ -80,11 +80,11 @@ export class OperationalUpdateFeedStore {
         if (event.type === "job_shell_removed") delete projectionJobs[event.jobId];
         if (event.type === "attention_upserted") projectionAttention[event.item.id] = event.item;
         if (event.type === "attention_removed") delete projectionAttention[event.attentionId];
-        transaction.create(feedRef.collection("updates").doc(String(event.sequence).padStart(16, "0")), {
+        transaction.insert(recordKey(partition(feedRef.path + "/" + "updates").partition + "/" + String(event.sequence).padStart(16, "0")), {
           ...event, workspaceId: tenant.workspaceId, brandId: tenant.brandId,
         });
       }
-      transaction.set(feedRef, {
+      transaction.put(feedRef, {
         workspaceId: tenant.workspaceId,
         brandId: tenant.brandId,
         lastSequence: previousSequence + events.length,
@@ -99,14 +99,10 @@ export class OperationalUpdateFeedStore {
   async listAfter(afterSequence: number, limit = 500): Promise<OperationalUpdate[]> {
     if (!Number.isInteger(afterSequence) || afterSequence < -1) throw new Error("afterSequence must be -1 or a non-negative integer");
     if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new Error("operational update limit must be between 1 and 500");
-    const snaps = await this.feedRef().collection("updates")
-      .where("sequence", ">", afterSequence)
-      .orderBy("sequence", "asc")
-      .limit(limit)
-      .get();
+    const snaps = await awsRepository().query(limited(ordered(where(partition(this.feedRef().path + "/" + "updates"), "sequence", ">", afterSequence), "sequence", "asc"), limit));
     const tenant = currentTenant();
-    return snaps.docs.map((snapshot) => {
-      const { workspaceId, brandId, ...event } = snapshot.data();
+    return snaps.rows.map((snapshot) => {
+      const { workspaceId, brandId, ...event } = snapshot.value!;
       if (workspaceId !== tenant.workspaceId || brandId !== tenant.brandId) {
         throw new Error("operational update tenant scope mismatch");
       }

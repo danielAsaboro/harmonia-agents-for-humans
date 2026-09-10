@@ -11,8 +11,8 @@ flowchart TB
   D --> E[Provider: perform requested external operation]
   E --> R[Receipt]
   R --> I[Independent read-back]
-  I --> F[Firestore workflow truth]
-  M[Memory Bank] -. advisory facts only .-> A
+  I --> F[DynamoDB workflow truth]
+  M[AgentCore Memory] -. advisory facts only .-> A
   O[Telemetry] -. diagnosis only .-> D
 ```
 

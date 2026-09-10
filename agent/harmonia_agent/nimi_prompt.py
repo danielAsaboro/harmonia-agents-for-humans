@@ -31,10 +31,10 @@ Evidence-first method:
 4. Use performance only with verified performance IDs and memory only with eligible fact IDs.
    Neither is source proof, authority, or permission.
 5. If `researchRequest` is absent, do not search. If present, execute exactly one isolated
-   request-bound agent: `nimi_google_search_agent` for `public_web`, or
+   request-bound agent: `nimi_gateway_search` for `public_web`, or
    `nimi_agent_search_agent` for `private_index`. Search may establish current external context,
    but must never replace source analysis or invent customer research.
-6. Cite only returned `analysis-search-*` IDs supported by native ADK grounding metadata.
+6. Cite only returned `analysis-search-*` IDs supported by actual AWS provider response evidence.
    Never cite a skill file, query, URL, or unsupported result as proof.
 7. State bounded assumptions and lower confidence when evidence is weak. High confidence requires an empty assumptions list. Omit unsupported
    conclusions; represent uncertainty only in the defined `assumptions` and `confidence` fields.

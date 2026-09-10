@@ -1,4 +1,4 @@
-import { appendEvent, getJob, markFailed, notifyPermanentFailure, transitionStageWithOutbox } from "./firestore";
+import { appendEvent, getJob, markFailed, notifyPermanentFailure, transitionStageWithOutbox } from "./repository";
 import { dispatchStageOutboxRecord } from "./stageOutboxDispatcher";
 import { assertTransition, nextStage } from "./stages";
 import type { Stage } from "./types";
@@ -6,7 +6,7 @@ import type { FailureSubmission } from "./contracts";
 
 /**
  * Single place where a completed stage result advances the pipeline:
- * persist the new stage, append an audit event, publish the next Pub/Sub
+ * persist the new stage, append an audit event, publish the next SQS
  * trigger. Called only after the caller has persisted its stage payload.
  */
 export async function advance(

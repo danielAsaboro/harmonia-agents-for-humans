@@ -1,0 +1,31 @@
+---
+title: "Generated media"
+description: "Native Canvas, Reel, Transcribe and ElevenLabs contracts and readiness."
+---
+
+## How Harmonia uses it
+
+Paid production is host code outside the specialist tool loop. The host validates a sealed request, reserves its configured cost, records provider submission authority and persists returned identity before downstream work. Publishing remains separately approved.
+
+| Provider | Native request | Supported contract |
+|---|---|---|
+| Amazon Nova Canvas | Bedrock `invoke_model`, `TEXT_IMAGE` | One standard 1024×1024 PNG, `amazon.nova-canvas-v1:0` |
+| Amazon Nova Reel | `start_async_invoke` / `get_async_invoke` | `amazon.nova-reel-v1:1`, 720p, 16:9, 24fps; six-second single shot or automated multi-shot in six-second increments from 12 to 120 seconds |
+| ElevenLabs | `POST /v1/music` | `music_v1`, `force_instrumental: true`, explicit MP3 format, 30 seconds by default, 3–600 seconds supported |
+| Amazon Transcribe | `start_transcription_job` / `get_transcription_job` | Private S3 input/output, deterministic resumable job identity and provider word timestamps |
+
+Reel single-shot prompts are at most 512 characters. A first-frame image is optional for a six-second request and must be verified JPEG/PNG at 1280×720. Multi-shot requests use `MULTI_SHOT_AUTOMATED`, permit up to 4000 prompt characters and cannot include an input image.
+
+## Admission and receipts
+
+Generation requires both `HARMONIA_ALLOW_PAID_AWS=true` and `GENERATIVE_MEDIA_ENABLED=true`, plus provider credentials, storage and explicit configured pricing. Missing ElevenLabs credentials fail before provider submission. The independent transcription stage requires the paid AWS gate, S3 storage and a configured Transcribe rate.
+
+Reel persists the invocation ARN and polls the same operation on resume. Its client request token binds the authorized claim output prefix. Downloads must stay under that S3 prefix. ElevenLabs synchronous responses require actual bytes and a provider song/request identity; an unknown submission outcome requires reconciliation and is not blindly replayed.
+
+Stored assets are read again and inspected/digested by the existing production verification boundary. ffmpeg and HyperFrames preserve deterministic composition and rendering.
+
+## Evidence status
+
+Configuration flags are not readiness evidence. Provider-generated output selectors remain unavailable pending authenticated AWS-edition proof. Local exports are labeled “Export available,” not “Verified export.” No paid provider rehearsal or deployment has been run for this edition.
+
+Implementation: `agent/harmonia_agent/content.py`, `generative_media.py`, `production_executor.py`, `src/lib/mediaProduction.ts` and `src/lib/outputCapabilities.ts`.

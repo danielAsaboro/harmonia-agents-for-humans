@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
-import type { Firestore } from "@google-cloud/firestore";
+import { DynamoRepository,limited,partition,recordKey,where } from "./dynamo";
 
-import { requireContentOperator } from "./authority";
 import type { ArtifactRecord } from "./artifacts";
+import { requireContentOperator } from "./authority";
 import type { EffectCommand } from "./effectCommands";
-import { db } from "./firestore";
 import type { OperationRecord } from "./operations";
 import { canonicalJson } from "./recordReplay/integrity";
-import { currentTenant, tenantCollectionPath } from "./tenancy";
-import type { EffectClaim, Job, PlannedAction, Receipt } from "./types";
+import { db } from "./repository";
+import { currentTenant,tenantCollectionPath } from "./tenancy";
+import type { EffectClaim,Job,PlannedAction,Receipt } from "./types";
 
 type ResolutionJob = Job & { actions: PlannedAction[] };
 
@@ -28,7 +28,7 @@ export interface OperationResolutionRecord {
   evidence: Array<{ artifactId: string; digest: string }>;
   operationGoalDigest: string;
   commandPayloadDigest: string;
-  actorType: "firebase_operator" | "telegram_operator";
+  actorType: "cognito_operator" | "telegram_operator";
   actorSubjectId: string;
   authenticationId: string;
   decidedAt: string;
@@ -101,7 +101,7 @@ export function resolveOperationAggregate(input: ResolveAggregateInput): {
     jobId: input.job.id, operationId: input.operation.id, operationEpoch: input.expectedEpoch,
     commandId: input.command.id, choice: input.choice, reason: input.reason.trim(), evidence,
     operationGoalDigest: input.operation.goal.digest, commandPayloadDigest: input.command.payloadDigest,
-    actorType: actor.kind === "firebase_user" ? "firebase_operator" as const : "telegram_operator" as const,
+    actorType: actor.kind === "cognito_user" ? "cognito_operator" as const : "telegram_operator" as const,
     actorSubjectId: actor.subjectId, authenticationId: actor.authenticationId, decidedAt: input.now,
   };
   const digest = createHash("sha256").update(canonicalJson(resolutionBase)).digest("hex");
@@ -126,7 +126,7 @@ export function resolveOperationAggregate(input: ResolveAggregateInput): {
       id: receiptId, jobId: input.job.id, actionId: input.command.actionId,
       idempotencyKey: input.command.payloadDigest, actionType: input.command.actionType,
       performedAt: input.now, outcome: "applied",
-      artifact: { kind: "firestore_doc", url: input.evidence[0].uri, fetchedAt: input.now, digest: input.evidence[0].sha256 },
+      artifact: { kind: "dynamodb_record", url: input.evidence[0].uri, fetchedAt: input.now, digest: input.evidence[0].sha256 },
       detail: { resolutionId: resolution.id, resolutionDigest: resolution.digest, evidenceRefs: evidence.map((item) => item.artifactId), operatorConfirmed: true },
       operationId: input.operation.id, traceId: input.claim.traceId,
     };
@@ -154,56 +154,56 @@ export async function resolveUnknownOperation(
   jobId: string,
   operationId: string,
   input: { choice: OperationResolutionChoice; reason: string; expectedEpoch: number; evidence: Array<{ artifactId: string; digest: string }> },
-  database: Firestore = db(),
+  database: DynamoRepository = db(),
 ): Promise<{ duplicate: boolean; resolution: OperationResolutionRecord }> {
   const tenant = currentTenant();
   requireContentOperator(tenant);
-  const operations = database.collection(tenantCollectionPath(tenant, "operations"));
-  const commands = database.collection(tenantCollectionPath(tenant, "effect_commands"));
-  const artifacts = database.collection(tenantCollectionPath(tenant, "artifacts"));
-  const jobs = database.collection(tenantCollectionPath(tenant, "jobs"));
-  const operationRef = operations.doc(operationId);
-  const jobRef = jobs.doc(jobId);
-  const resolutionRef = jobRef.collection("operation_resolutions").doc(createHash("sha256").update(`${operationId}\0${input.expectedEpoch}`).digest("hex"));
-  return database.runTransaction(async (tx) => {
-    const commandQuery = commands.where("operationId", "==", operationId).limit(2);
+  const operations = partition(tenantCollectionPath(tenant, "operations"));
+  const commands = partition(tenantCollectionPath(tenant, "effect_commands"));
+  const artifacts = partition(tenantCollectionPath(tenant, "artifacts"));
+  const jobs = partition(tenantCollectionPath(tenant, "jobs"));
+  const operationRef = recordKey(operations.partition + "/" + operationId);
+  const jobRef = recordKey(jobs.partition + "/" + jobId);
+  const resolutionRef = recordKey(partition(jobRef.path + "/" + "operation_resolutions").partition + "/" + createHash("sha256").update(`${operationId}\0${input.expectedEpoch}`).digest("hex"));
+  return database.atomic(async (tx) => {
+    const commandQuery = limited(where(commands, "operationId", "==", operationId), 2);
     const [operationSnap, jobSnap, commandSnaps, resolutionSnap, ...artifactSnaps] = await Promise.all([
-      tx.get(operationRef), tx.get(jobRef), tx.get(commandQuery), tx.get(resolutionRef),
-      ...input.evidence.map((item) => tx.get(artifacts.doc(item.artifactId))),
+      tx.read(operationRef), tx.read(jobRef), tx.read(commandQuery), tx.read(resolutionRef),
+      ...input.evidence.map((item) => tx.read(recordKey(artifacts.partition + "/" + item.artifactId))),
     ]);
-    if (!operationSnap.exists || !jobSnap.exists || commandSnaps.size !== 1) throw new Error("unknown effect aggregate not found");
-    const commandSnap = commandSnaps.docs[0];
-    const claimRef = commandSnap.ref.collection("claims").doc("effect");
-    const claimSnap = await tx.get(claimRef);
-    if (!claimSnap.exists) throw new Error("unknown effect claim not found");
-    if (resolutionSnap.exists) {
-      const existing = resolutionSnap.data() as OperationResolutionRecord;
+    if (!operationSnap.present || !jobSnap.present || commandSnaps.size !== 1) throw new Error("unknown effect aggregate not found");
+    const commandSnap = commandSnaps.rows[0];
+    const claimRef = recordKey(partition(commandSnap.key.path + "/" + "claims").partition + "/" + "effect");
+    const claimSnap = await tx.read(claimRef);
+    if (!claimSnap.present) throw new Error("unknown effect claim not found");
+    if (resolutionSnap.present) {
+      const existing = resolutionSnap.value as unknown as OperationResolutionRecord;
       if (existing.choice !== input.choice || existing.reason !== input.reason.trim() || canonicalJson(existing.evidence) !== canonicalJson([...input.evidence].sort((a, b) => a.artifactId.localeCompare(b.artifactId)))) {
         throw new Error("operation already has a different resolution");
       }
       return { duplicate: true, resolution: existing };
     }
     const evidenceRecords = artifactSnaps.map((snapshot, index) => {
-      if (!snapshot.exists) throw new Error("resolution evidence artifact not found");
-      const record = snapshot.data() as ArtifactRecord;
+      if (!snapshot.present) throw new Error("resolution evidence artifact not found");
+      const record = snapshot.value as unknown as ArtifactRecord;
       if (record.sha256 !== input.evidence[index].digest) throw new Error("resolution evidence digest mismatch");
       return record;
     });
     const result = resolveOperationAggregate({
-      operation: operationSnap.data() as OperationRecord,
-      command: commandSnap.data() as EffectCommand,
-      claim: claimSnap.data() as EffectClaim,
-      job: { id: jobSnap.id, ...jobSnap.data() } as ResolutionJob,
+      operation: operationSnap.value as unknown as OperationRecord,
+      command: commandSnap.value as unknown as EffectCommand,
+      claim: claimSnap.value as unknown as EffectClaim,
+      job: { id: jobSnap.id, ...jobSnap.value } as ResolutionJob,
       evidence: evidenceRecords, choice: input.choice, reason: input.reason,
       expectedEpoch: input.expectedEpoch, now: new Date().toISOString(),
     });
-    tx.create(resolutionRef, result.resolution);
-    tx.set(operationRef, result.operation);
-    tx.set(commandSnap.ref, result.command);
-    tx.set(claimRef, result.claim);
-    tx.update(jobRef, { actions: result.job.actions, updatedAt: result.job.updatedAt });
-    if (result.receipt) tx.create(jobRef.collection("receipts").doc(result.receipt.id), result.receipt);
-    if (result.operatorTask) tx.create(jobRef.collection("operator_tasks").doc(result.operatorTask.id), result.operatorTask);
+    tx.insert(resolutionRef, result.resolution);
+    tx.put(operationRef, result.operation);
+    tx.put(commandSnap.key, result.command);
+    tx.put(claimRef, result.claim);
+    tx.patch(jobRef, { actions: result.job.actions, updatedAt: result.job.updatedAt });
+    if (result.receipt) tx.insert(recordKey(partition(jobRef.path + "/" + "receipts").partition + "/" + result.receipt.id), result.receipt);
+    if (result.operatorTask) tx.insert(recordKey(partition(jobRef.path + "/" + "operator_tasks").partition + "/" + result.operatorTask.id), result.operatorTask);
     return { duplicate: false, resolution: result.resolution };
   });
 }

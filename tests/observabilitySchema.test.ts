@@ -24,7 +24,7 @@ const validActivity = {
   outputTokens: 20,
   inferenceCalls: 1,
   toolCalls: 0,
-  backend: "google_cloud",
+  backend: "aws",
 } as const;
 
 describe("agent activity schema", () => {

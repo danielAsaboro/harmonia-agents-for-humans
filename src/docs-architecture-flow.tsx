@@ -32,11 +32,11 @@ const presets: { id: View; label: string }[] = [
 const nodeLinks: Record<string, { href: string; label: string }> = {
   operator: { href: "/interfaces", label: "Operator interfaces" },
   api: { href: "/reference/api-routes", label: "API routes" },
-  firestore: { href: "/platform/data/firestore", label: "Firestore architecture" },
-  pubsub: { href: "/platform/data/pubsub", label: "Pub/Sub delivery" },
+  dynamodb: { href: "/platform/data/dynamodb", label: "DynamoDB architecture" },
+  sqs: { href: "/platform/data/sqs", label: "SQS delivery" },
   worker: { href: "/pipeline", label: "Pipeline workflow" },
-  adk: { href: "/platform/agents/google-adk", label: "Google ADK" },
-  gemini: { href: "/platform/agents/gemini", label: "Gemini models" },
+  strands: { href: "/platform/agents/strands", label: "Strands Agents SDK" },
+  bedrock: { href: "/platform/agents/bedrock", label: "Bedrock models" },
   effect: { href: "/reference/effect-contracts", label: "Effect contracts" },
   providers: { href: "/platform/integrations/x-api", label: "Platform integrations" },
   verify: { href: "/reference/receipts-verification", label: "Receipts and verification" },
@@ -57,7 +57,7 @@ const nodeLinks: Record<string, { href: string; label: string }> = {
   maya: { href: "/agents/maya", label: "Maya" },
   nova: { href: "/agents/nova", label: "Nova" },
   outbox: { href: "/state-ownership", label: "State ownership" },
-  memory: { href: "/platform/agents/memory-bank", label: "Memory Bank" },
+  memory: { href: "/platform/agents/agentcore-memory", label: "AgentCore Memory" },
   storage: { href: "/state-ownership", label: "Media state" },
   claim: { href: "/diagrams/effect-lifecycle", label: "Idempotency claims" },
   receipt: { href: "/reference/receipts-verification", label: "Effect receipts" },
@@ -80,12 +80,12 @@ const n = (id: string, x: number, y: number, title: string, eyebrow: string, det
 
 const allNodes: FlowNode[] = [
   n("operator", 0, 170, "Operator", "INTENT", "Dashboard, chat, or allow-listed Telegram request.", ["system", "workflow", "apis"]),
-  n("api", 250, 170, "Control plane", "NEXT.JS · CLOUD RUN", "Authenticates intent and applies deterministic policy.", ["system", "workflow", "apis"], "control"),
-  n("firestore", 510, 70, "Firestore", "DURABLE TRUTH", "Jobs, artifacts, approvals, claims, receipts, and outbox records.", ["system", "state", "recovery"], "store"),
-  n("pubsub", 510, 270, "Pub/Sub", "DELIVERY", "At-least-once stage triggers carrying identity and trace context.", ["system", "workflow", "state", "recovery", "telemetry"], "store"),
-  n("worker", 790, 170, "Pipeline worker", "CLOUD RUN", "Claims a stage, reads durable state, and invokes bounded work.", ["system", "workflow", "apis", "recovery"], "control"),
-  n("adk", 1060, 70, "Harmonia coordinator", "GOOGLE ADK", "Delegates exactly one specialist without effect authority.", ["system", "agents"], "agent"),
-  n("gemini", 1320, 70, "Gemini 3.5 Flash", "COGNITION", "Transcription and typed specialist reasoning.", ["system", "agents"], "agent"),
+  n("api", 250, 170, "Control plane", "NEXT.JS · ECS FARGATE", "Authenticates intent and applies deterministic policy.", ["system", "workflow", "apis"], "control"),
+  n("dynamodb", 510, 70, "DynamoDB", "DURABLE TRUTH", "Jobs, artifacts, approvals, claims, receipts, and outbox records.", ["system", "state", "recovery"], "store"),
+  n("sqs", 510, 270, "SQS", "DELIVERY", "At-least-once stage triggers carrying identity and trace context.", ["system", "workflow", "state", "recovery", "telemetry"], "store"),
+  n("worker", 790, 170, "Pipeline worker", "ECS FARGATE", "Claims a stage, reads durable state, and invokes bounded work.", ["system", "workflow", "apis", "recovery"], "control"),
+  n("strands", 1060, 70, "Strands / AgentCore", "HOST COORDINATION", "Delegates exactly one specialist without effect authority.", ["system", "agents"], "agent"),
+  n("bedrock", 1320, 70, "Amazon Bedrock", "COGNITION", "Claude Haiku 4.5, Sonnet 4.6 and Nova 2 Lite provide bounded specialist reasoning; Transcribe owns timed speech.", ["system", "agents"], "agent"),
   n("effect", 1060, 270, "Effect executor", "DETERMINISTIC", "Checks approval digest, claims idempotency, then acts.", ["system", "effects", "apis", "recovery"], "gate"),
   n("providers", 1330, 270, "External providers", "OFFICIAL APIS", "Approved X and LinkedIn publishing destinations.", ["system", "effects", "apis", "recovery"], "external"),
   n("verify", 1580, 270, "Independent read-back", "VERIFICATION", "Observes provider state and records evidence.", ["system", "workflow", "effects", "recovery"], "verified"),
@@ -109,8 +109,8 @@ const allNodes: FlowNode[] = [
   n("nova", 1440, 990, "Nova", "READ-ONLY LIAISON", "Answers only from actual traces and evidence IDs.", ["agents", "telemetry"], "agent"),
 
   n("outbox", 0, 1370, "Transactional outbox", "ATOMIC WRITE", "State transition and pending trigger commit together.", ["state", "recovery"], "store"),
-  n("memory", 260, 1370, "Memory Bank", "RETRIEVAL", "Scoped durable memory with explicit provenance.", ["state"], "store"),
-  n("storage", 520, 1370, "Cloud Storage", "ARTIFACT BYTES", "Authorized source media, clips, and immutable JSON/Markdown exports.", ["state", "effects"], "store"),
+  n("memory", 260, 1370, "AgentCore Memory", "RETRIEVAL", "Scoped durable memory with explicit provenance.", ["state"], "store"),
+  n("storage", 520, 1370, "Amazon S3", "ARTIFACT BYTES", "Authorized source media, clips, and immutable JSON/Markdown exports.", ["state", "effects"], "store"),
   n("claim", 780, 1370, "Idempotency claim", "EFFECT LOCK", "One operation ID owns an external side effect.", ["state", "effects", "recovery"], "gate"),
   n("receipt", 1040, 1370, "Effect receipt", "AUDIT", "Provider identifier, request digest, outcome, and timestamps.", ["state", "effects", "recovery"], "verified"),
   n("uncertain", 1300, 1370, "UNCERTAIN", "SAFE FAILURE", "An expired unresolved claim requires reconciliation, never blind retry.", ["state", "recovery"], "danger"),
@@ -119,7 +119,7 @@ const allNodes: FlowNode[] = [
   n("telegram", 250, 1740, "Telegram Bot API", "ENTRY", "Allow-listed chat surface; same approval rules.", ["apis"]),
   n("youtube", 500, 1740, "YouTube Data API", "SOURCE", "Authorized source lookup and metadata.", ["apis"], "external"),
   n("social", 750, 1740, "Social platform APIs", "EFFECT", "Official API calls only, after approval.", ["apis", "effects"], "external"),
-  n("trace", 1000, 1740, "OpenTelemetry trace", "CORRELATION", "Continues across HTTP, Pub/Sub, workers, agents, and providers.", ["telemetry"], "control"),
+  n("trace", 1000, 1740, "OpenTelemetry trace", "CORRELATION", "Continues across HTTP, SQS, workers, agents, and providers.", ["telemetry"], "control"),
   n("usage", 1260, 1740, "Usage ledger", "COST", "Immutable operation-level model usage and cost.", ["telemetry"], "store"),
   n("metrics", 1520, 1740, "Metrics + audit", "OPERATIONS", "Outcomes by job, stage, role, and model—without customer content.", ["telemetry"], "verified"),
 ];
@@ -132,25 +132,25 @@ const e = (id: string, source: string, target: string, label: string, views: Vie
 
 const allEdges: FlowEdge[] = [
   e("intent", "operator", "api", "authenticated intent", ["system", "workflow", "apis"]),
-  e("persist", "api", "firestore", "persist job + outbox", ["system", "state"]),
-  e("publish", "firestore", "pubsub", "publish trigger", ["system", "state", "recovery"]),
-  e("deliver", "pubsub", "worker", "deliver stage", ["system", "workflow", "recovery", "telemetry"], true),
-  e("read", "worker", "firestore", "read current truth", ["system", "state", "recovery"]),
-  e("delegate", "worker", "adk", "bounded task", ["system", "agents"]),
-  e("reason", "adk", "gemini", "typed prompt", ["system", "agents"]),
-  e("artifact", "gemini", "firestore", "validated artifact", ["system", "agents", "state"]),
-  e("authorize", "firestore", "effect", "approval + digest", ["system", "effects"]),
+  e("persist", "api", "dynamodb", "persist job + outbox", ["system", "state"]),
+  e("publish", "dynamodb", "sqs", "publish trigger", ["system", "state", "recovery"]),
+  e("deliver", "sqs", "worker", "deliver stage", ["system", "workflow", "recovery", "telemetry"], true),
+  e("read", "worker", "dynamodb", "read current truth", ["system", "state", "recovery"]),
+  e("delegate", "worker", "strands", "bounded task", ["system", "agents"]),
+  e("reason", "strands", "bedrock", "typed prompt", ["system", "agents"]),
+  e("artifact", "bedrock", "dynamodb", "validated artifact", ["system", "agents", "state"]),
+  e("authorize", "dynamodb", "effect", "approval + digest", ["system", "effects"]),
   e("act", "effect", "providers", "idempotent request", ["system", "effects", "apis", "recovery"], true),
   e("observe", "providers", "verify", "read provider state", ["system", "effects", "recovery"]),
-  e("evidence", "verify", "firestore", "verification receipt", ["system", "state", "effects", "recovery"]),
+  e("evidence", "verify", "dynamodb", "verification receipt", ["system", "state", "effects", "recovery"]),
   ...["collectSources","extractSources","analyze","strategy","strategyGate","plan","draft","effectGate","execute"].slice(0,-1).map((source, i) => e(`wf${i}`, source, ["collectSources","extractSources","analyze","strategy","strategyGate","plan","draft","effectGate","execute"][i+1], i === 3 || i === 6 ? "request approval" : "durable artifact", ["workflow"], true)),
-  e("delegateNimi", "adk", "nimi", "one task", ["agents"]), e("delegateRyan", "adk", "ryan", "one task", ["agents"]),
-  e("delegateTemi", "adk", "temi", "one task", ["agents"]), e("delegateNoni", "adk", "noni", "one task", ["agents"]),
-  e("review", "noni", "dara", "draft + evidence", ["agents"]), e("present", "adk", "maya", "trusted state", ["agents"]),
-  e("liaison", "adk", "nova", "evidence IDs", ["agents", "telemetry"]),
-  e("outboxPub", "outbox", "pubsub", "pending trigger", ["state", "recovery"]), e("claimReceipt", "claim", "receipt", "resolved outcome", ["state", "effects", "recovery"]),
+  e("delegateNimi", "strands", "nimi", "one task", ["agents"]), e("delegateRyan", "strands", "ryan", "one task", ["agents"]),
+  e("delegateTemi", "strands", "temi", "one task", ["agents"]), e("delegateNoni", "strands", "noni", "one task", ["agents"]),
+  e("review", "noni", "dara", "draft + evidence", ["agents"]), e("present", "strands", "maya", "trusted state", ["agents"]),
+  e("liaison", "strands", "nova", "evidence IDs", ["agents", "telemetry"]),
+  e("outboxPub", "outbox", "sqs", "pending trigger", ["state", "recovery"]), e("claimReceipt", "claim", "receipt", "resolved outcome", ["state", "effects", "recovery"]),
   e("claimUnknown", "claim", "uncertain", "lease expired", ["state", "recovery"]), e("reconcile", "uncertain", "providers", "operator read-back", ["recovery"]),
-  e("apiTrace", "http", "trace", "traceparent", ["telemetry"]), e("pubTrace", "pubsub", "trace", "message attributes", ["telemetry"]),
+  e("apiTrace", "http", "trace", "traceparent", ["telemetry"]), e("pubTrace", "sqs", "trace", "message attributes", ["telemetry"]),
   e("traceUsage", "trace", "usage", "model spans", ["telemetry"]), e("usageMetrics", "usage", "metrics", "aggregate", ["telemetry"]),
   e("httpControl", "http", "api", "request", ["apis"]), e("telegramControl", "telegram", "api", "webhook", ["apis"]),
   e("youtubeWorker", "youtube", "worker", "source metadata", ["apis"]), e("effectSocial", "effect", "social", "approved request", ["apis", "effects"]),
@@ -183,7 +183,7 @@ function ArchitectureFlow() {
 
   return <section className="hf-atlas">
     <header className="hf-hero">
-      <div><p>SYSTEM ATLAS · REPOSITORY-BACKED</p><h1>How Harmonia moves information into governed action.</h1><span>Follow intent, durable state, specialist judgment, human authority, external effects, and independent verification.</span></div>
+      <div><p>AWS SYSTEM ATLAS · PENDING LIVE VERIFICATION</p><h1>How Harmonia moves information into governed action.</h1><span>Follow the implemented AWS contracts. Every deployed service and provider invocation remains pending authenticated live verification.</span></div>
       <a href="/architecture/overview">Read the system guide →</a>
     </header>
     <div className="hf-toolbar" aria-label="Architecture views">

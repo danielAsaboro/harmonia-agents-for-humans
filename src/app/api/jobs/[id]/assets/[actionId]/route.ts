@@ -1,4 +1,4 @@
-import { getAsset } from "@/lib/firestore";
+import { getAsset } from "@/lib/repository";
 import { getArtifact } from "@/lib/storage";
 import { tenantHandler } from "@/lib/auth";
 

@@ -1,4 +1,4 @@
-import { eraseDueJobs } from "@/lib/firestore";
+import { eraseDueJobs } from "@/lib/repository";
 import { internalTenantHandler } from "@/lib/internalAuth";
 import { z } from "zod";
 

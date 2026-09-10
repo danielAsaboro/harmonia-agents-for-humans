@@ -1,4 +1,4 @@
-"""Managed Google ADK presentation-agent boundary for Harmonia A2UI."""
+"""Managed Strands presentation-agent boundary for Harmonia A2UI."""
 
 from __future__ import annotations
 

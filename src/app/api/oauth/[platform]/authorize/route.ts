@@ -1,8 +1,8 @@
-import { db } from "@/lib/firestore";
-import { getPlatform, oauthCredentialEnvNames, oauthRedirectUri, pkcePair, randomState } from "@/lib/oauth";
 import { administratorTenantHandler } from "@/lib/auth";
+import { getPlatform,oauthCredentialEnvNames,oauthRedirectUri,pkcePair,randomState } from "@/lib/oauth";
 import { platformStatus } from "@/lib/platforms";
 import { currentTenant } from "@/lib/tenancy";
+import { awsRepository,partition,recordKey } from "../../../../../lib/dynamo";
 
 function backToSettings(status: string, reason: string): Response {
   return new Response(null, {
@@ -39,10 +39,7 @@ async function get(
   const state = randomState();
   const pkce = def.oauth.usesPkce ? pkcePair() : null;
 
-  await db()
-    .collection("oauth_states")
-    .doc(state)
-    .set({
+  await awsRepository().put(recordKey(partition("oauth_states").partition + "/" + state), {
       platform,
       codeVerifier: pkce?.verifier ?? "",
       redirectUri,

@@ -6,7 +6,7 @@
 
 **Architecture:** Provider connections remain workspace/brand scoped and credential references stay server-side. A common library repository stores connections, sync operations, file versions, immutable snapshots, and last-healthy pointers. Scheduler-triggered sync performs incremental enumeration, extraction through Plan 1's registry, and atomic snapshot promotion.
 
-**Tech Stack:** Next.js, Firestore, Cloud Scheduler, Google Drive REST API, Google Picker, `@google-cloud/storage`, Secret Manager/encrypted connection boundary, Vitest, Firestore emulator.
+**Tech Stack:** Next.js, DynamoDB, EventBridge Scheduler, Google Drive REST API, Google Picker, `@google-cloud/storage`, Secret Manager/encrypted connection boundary, Vitest, DynamoDB emulator.
 
 **Spec:** `docs/superpowers/specs/2026-08-30-multisource-content-operations-design.md`
 
@@ -29,7 +29,7 @@
 - Modify: `src/lib/contracts.ts`
 - Modify: `firestore.indexes.json`
 - Test: `tests/brandLibraryContracts.test.ts`
-- Test: `tests/brandLibraryFirestore.integration.test.ts`
+- Test: `tests/brandLibraryDynamoDB.integration.test.ts`
 
 **Interfaces:**
 - Produces: `BrandLibraryConnection`, `LibrarySyncOperation`, `BrandLibrarySnapshot`, `LibraryFileVersion`, `SyncCadence`.
@@ -56,7 +56,7 @@ Expected: FAIL because contracts do not exist.
 
 Use provider-specific selectors: `{provider:"google_drive", driveId, folderId}` and `{provider:"gcs", projectId, bucket, prefix}`. Store only credential reference IDs.
 
-- [ ] **Step 4: Write failing Firestore tests**
+- [ ] **Step 4: Write failing DynamoDB tests**
 
 Cover cross-tenant denial, concurrent sync claims, immutable snapshots, failed-sync preservation, healthy promotion, and revoked connection behavior.
 
@@ -72,7 +72,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/lib/brandLibraries src/lib/types.ts src/lib/contracts.ts firestore.indexes.json tests/brandLibraryContracts.test.ts tests/brandLibraryFirestore.integration.test.ts
+git add src/lib/brandLibraries src/lib/types.ts src/lib/contracts.ts firestore.indexes.json tests/brandLibraryContracts.test.ts tests/brandLibraryDynamoDB.integration.test.ts
 git commit -m "feat: add brand library persistence"
 ```
 
@@ -172,7 +172,7 @@ git commit -m "feat: select GCS brand folders"
 - Modify: `infra/setup.sh`
 - Modify: `infra/deploy.sh`
 - Test: `tests/brandLibrarySync.test.ts`
-- Test: `tests/brandLibrarySyncFirestore.integration.test.ts`
+- Test: `tests/brandLibrarySyncDynamoDB.integration.test.ts`
 - Test: `agent/tests/test_library_sync_tick.py`
 - Test: `tests/brandLibraryInfra.test.ts`
 
@@ -209,7 +209,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/lib/brandLibraries/sync.ts src/app/api/internal/libraries/sync agent/harmonia_agent/durable_tick.py agent/harmonia_agent/web_client.py infra/setup.sh infra/deploy.sh tests/brandLibrarySync.test.ts tests/brandLibrarySyncFirestore.integration.test.ts agent/tests/test_library_sync_tick.py tests/brandLibraryInfra.test.ts
+git add src/lib/brandLibraries/sync.ts src/app/api/internal/libraries/sync agent/harmonia_agent/durable_tick.py agent/harmonia_agent/web_client.py infra/setup.sh infra/deploy.sh tests/brandLibrarySync.test.ts tests/brandLibrarySyncDynamoDB.integration.test.ts agent/tests/test_library_sync_tick.py tests/brandLibraryInfra.test.ts
 git commit -m "feat: synchronize brand libraries"
 ```
 

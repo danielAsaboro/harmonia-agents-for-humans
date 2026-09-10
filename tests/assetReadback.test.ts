@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from "vitest";
 
 const store = vi.hoisted(() => ({ getAsset: vi.fn(), getArtifact: vi.fn() }));
-vi.mock("@/lib/firestore", () => ({ getAsset: store.getAsset }));
+vi.mock("@/lib/repository", () => ({ getAsset: store.getAsset }));
 vi.mock("@/lib/storage", () => ({ getArtifact: store.getArtifact }));
 vi.mock("@/lib/internalAuth", () => ({ internalTenantHandler: (handler: unknown) => handler }));
 import { GET } from "@/app/api/internal/job/[id]/assets/[actionId]/route";

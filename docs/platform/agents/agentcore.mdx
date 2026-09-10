@@ -1,0 +1,18 @@
+---
+title: "AgentCore Runtime"
+description: "Managed cognition entrypoint and authenticated invocation envelope."
+---
+
+## How Harmonia uses it
+
+The ARM64 cognition container runs `BedrockAgentCoreApp` from `bedrock_agentcore.runtime`. Its entrypoint validates a strict envelope containing `specialist`, `payload`, `userId`, `sessionKey`, `workspaceId` and `brandId`. The actor must bind the workspace. IAM authenticates the runtime invocation.
+
+The worker's `AgentCoreTeamRuntime` calls native `invoke_agent_runtime`, using a deterministic session ID derived from the user and session key. The container invokes `LocalStrandsTeamRuntime`, which constructs a new specialist agent and returns its typed state. The session does not own durable job state or authorize workflow transitions.
+
+## Internal reads
+
+The infrastructure defines VPC networking to the private web service. The internal token is loaded from Secrets Manager; host tools use it with tenant scope on authorized internal routes. Model prompts do not contain credentials. Public research uses the separately authorized Gateway tool.
+
+## Evidence status
+
+`agent/harmonia_agent/agentcore_app.py`, `team_runtime.py`, `agent/Dockerfile.agentcore` and `infra/aws/stack.ts`. Image publication, IAM/network reachability and authenticated invocation remain unverified until a permitted live rehearsal. See [deployment](/deployment) for operator setup.

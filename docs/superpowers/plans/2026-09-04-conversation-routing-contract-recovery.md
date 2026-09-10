@@ -6,7 +6,7 @@
 
 **Architecture:** Keep conversation identity in the existing persisted `conversationId`, project it into the Next.js route, and make route changes the single selection mechanism for New and Past Chats. Keep Python as the producer of complete typed evidence, align the TypeScript ingestion schema to those documented bounds, and expose only safe validation metadata to the worker and persisted failure envelope.
 
-**Tech Stack:** Next.js App Router, React, TypeScript, Zod, Vitest, Python 3.12, Pydantic, pytest, Cloud Run, Firestore.
+**Tech Stack:** Next.js App Router, React, TypeScript, Zod, Vitest, Python 3.12, Pydantic, pytest, ECS Fargate, DynamoDB.
 
 **Spec:** `docs/superpowers/specs/2026-09-04-conversation-routing-contract-recovery.md`
 
@@ -97,7 +97,7 @@ Run full Vitest, pytest, TypeScript/build, and `git diff --check` using the exis
 
 - [ ] **Step 2: Deploy changed services**
 
-Use the existing deployment scripts and preserve the configured Vertex/global Gemini 3.7 Flash and current Agent Engine resource.
+Use the existing deployment scripts and preserve the configured Vertex/global Bedrock role models and current AgentCore Runtime resource.
 
 - [ ] **Step 3: Retry the exact live job through the supported API/UI recovery path**
 

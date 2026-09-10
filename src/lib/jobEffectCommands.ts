@@ -1,6 +1,6 @@
 import { createEffectCommand, effectCommandDigest, type EffectCommand, type EffectCommandInput } from "./effectCommands";
 import { createCommand, getCommand, listCommandsForJob } from "./effectCommandStore";
-import { getJob, listApprovalDecisions } from "./firestore";
+import { getJob, listApprovalDecisions } from "./repository";
 import { actionPayloadDigest, contentHash } from "./idempotency";
 import type { ApprovalDecision, Job, PlannedAction } from "./types";
 

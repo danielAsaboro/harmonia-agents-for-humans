@@ -29,10 +29,10 @@ export function validateArchitecture(input: unknown): ArchitectureDefinition {
       visited.add(cursor.id); cursor = nodes.get(cursor.parentId)!;
     }
   }
-  const firestore = nodes.get("firestore");
-  if (!firestore || firestore.stateLifetime !== "durable") throw new Error("Firestore must be the durable source of truth");
-  const engine = nodes.get("agent-engine");
-  if (!engine || engine.stateLifetime !== "ephemeral") throw new Error("Agent Engine must be ephemeral");
+  const dynamodb = nodes.get("dynamodb");
+  if (!dynamodb || dynamodb.stateLifetime !== "durable") throw new Error("DynamoDB must be the durable source of truth");
+  const engine = nodes.get("agentcore");
+  if (!engine || engine.stateLifetime !== "ephemeral") throw new Error("AgentCore must be ephemeral");
   for (const effect of definition.nodes.filter((node) => node.kind === "effect")) {
     if (effect.approval === "Required" && !definition.edges.some((edge) => edge.target === effect.id && edge.kind === "approval")) {
       throw new Error(`Approval-gated effect requires approval: ${effect.id}`);

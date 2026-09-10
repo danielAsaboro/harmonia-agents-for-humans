@@ -6,7 +6,7 @@
 
 **Architecture:** Steering requests are persisted as revision-bound control records. A deterministic impact engine derives stale lineage and approval/effect consequences before application. Workers check the job control epoch at durable checkpoints. Transactional application invalidates dependent records, revokes stale approvals, and queues recovery work without rewriting executed history.
 
-**Tech Stack:** TypeScript, Zod, Firestore transactions, Pub/Sub, Python worker checkpoints, React Studio controls, Vitest, Firestore emulator, pytest.
+**Tech Stack:** TypeScript, Zod, DynamoDB transactions, SQS, Python worker checkpoints, React Studio controls, Vitest, DynamoDB emulator, pytest.
 
 **Spec:** `docs/superpowers/specs/2026-08-30-multisource-content-operations-design.md`
 
@@ -72,12 +72,12 @@ git commit -m "feat: define durable steering contracts"
 **Files:**
 - Create: `src/lib/steering/repository.ts`
 - Create: `src/lib/steering/apply.ts`
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/repository.ts`
 - Modify: `src/lib/decisions.ts`
 - Modify: `src/lib/effectCommandStore.ts`
 - Modify: `src/lib/contextProjectionStore.ts`
 - Test: `tests/steeringRepository.test.ts`
-- Test: `tests/steeringFirestore.integration.test.ts`
+- Test: `tests/steeringDynamoDB.integration.test.ts`
 
 **Interfaces:**
 - Produces: `proposeNudge`, `applyNudge`, `pauseJob`, `redoJobStage`, `cancelJob`, `confirmBrandPreference`.
@@ -96,7 +96,7 @@ Expected: FAIL because repository operations do not exist.
 
 Every apply operation consumes `expectedControlEpoch` and produces the next epoch, audit event, invalidated IDs, and requeue intent.
 
-- [ ] **Step 4: Write failing Firestore concurrency tests**
+- [ ] **Step 4: Write failing DynamoDB concurrency tests**
 
 Run two concurrent apply attempts, apply during approval creation, cancel during effect claim, redo after receipt finalization, and cross-tenant steering.
 
@@ -105,7 +105,7 @@ Run two concurrent apply attempts, apply during approval creation, cancel during
 Run: `npm run test:integration`  
 Expected: FAIL because transactions do not exist.
 
-- [ ] **Step 6: Implement Firestore transactions**
+- [ ] **Step 6: Implement DynamoDB transactions**
 
 Read job control epoch, affected lineage, approvals, pending commands, claims, and projection in one transaction. Write invalidations and outbox intent atomically. Route claimed/uncertain effects to reconciliation.
 
@@ -117,7 +117,7 @@ Expected: PASS.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/lib/steering src/lib/firestore.ts src/lib/decisions.ts src/lib/effectCommandStore.ts src/lib/contextProjectionStore.ts tests/steeringRepository.test.ts tests/steeringFirestore.integration.test.ts
+git add src/lib/steering src/lib/repository.ts src/lib/decisions.ts src/lib/effectCommandStore.ts src/lib/contextProjectionStore.ts tests/steeringRepository.test.ts tests/steeringDynamoDB.integration.test.ts
 git commit -m "feat: apply steering transactionally"
 ```
 

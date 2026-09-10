@@ -20,6 +20,11 @@ function decodeKey(encoded: string): Buffer {
 }
 
 export function connectionEnvelopeKey(): string {
+  const raw = process.env.HARMONIA_CONNECTION_ENVELOPE_KEY_RAW;
+  if (raw !== undefined) {
+    if (Buffer.byteLength(raw, "utf8") !== 32) throw new Error("invalid raw envelope key: expected 32 bytes");
+    return Buffer.from(raw, "utf8").toString("base64");
+  }
   const value = process.env.HARMONIA_CONNECTION_ENVELOPE_KEY;
   if (!value) throw new Error("connection envelope key is not configured");
   return value;

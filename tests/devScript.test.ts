@@ -1,11 +1,9 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
-
-const script = readFileSync(new URL("../scripts/dev.sh", import.meta.url), "utf8");
-
-describe("local development runtime", () => {
-  it("adds the Homebrew JDK when macOS exposes only the Java launcher stub", () => {
-    expect(script).toContain("/opt/homebrew/opt/openjdk/bin");
-    expect(script).toContain('command -v java');
-  });
+import { expect,it } from "vitest";
+it("local startup requires real identity and opts out of paid work",()=>{
+ const script=readFileSync(new URL("../scripts/dev.sh",import.meta.url),"utf8");
+ expect(script).toContain("COGNITO_USER_POOL_ID:?");
+ expect(script).toContain("HARMONIA_ALLOW_PAID_AWS:-false");
+ expect(script).not.toContain("gcloud");
+ expect(script).not.toContain("kill 0");
 });

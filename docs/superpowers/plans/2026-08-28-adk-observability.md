@@ -1,20 +1,20 @@
-# ADK Observability and Agent Activity Implementation Plan
+# Strands Observability and Agent Activity Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Export Google ADK logs, metrics, and traces with content capture disabled and provide a safe tenant-scoped, filtered, cursor-paginated agent-activity dashboard.
+**Goal:** Export Strands Agents SDK logs, metrics, and traces with content capture disabled and provide a safe tenant-scoped, filtered, cursor-paginated agent-activity dashboard.
 
-**Architecture:** ADK configures standard OpenTelemetry Google Cloud exporters while Harmonia emits a separate allow-listed activity projection to an authenticated internal route. Firestore stores the projection under the active tenant; a cursor API and monitoring component expose logs, trace relationships, and aggregate metrics without querying cloud telemetry from the browser.
+**Architecture:** Strands configures standard OpenTelemetry Google Cloud exporters while Harmonia emits a separate allow-listed activity projection to an authenticated internal route. DynamoDB stores the projection under the active tenant; a cursor API and monitoring component expose logs, trace relationships, and aggregate metrics without querying cloud telemetry from the browser.
 
-**Tech Stack:** Google ADK 2.x, OpenTelemetry, Google Cloud Logging/Monitoring/Trace exporters, Python/FastAPI/Pydantic, Next.js/TypeScript/Zod, Firestore, Vitest, pytest.
+**Tech Stack:** Strands Agents SDK 2.x, OpenTelemetry, Google CloudWatch Logs/Monitoring/Trace exporters, Python/FastAPI/Pydantic, Next.js/TypeScript/Zod, DynamoDB, Vitest, pytest.
 
 **Spec:** `docs/superpowers/specs/2026-08-28-adk-observability-design.md`
 
 ## Global Constraints
 
-- Keep `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT` and `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false`.
+- Keep `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT` and `Strands_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false`.
 - Never project prompts, responses, transcripts, drafts, media, tool arguments/results, session state, credentials, provider bodies, exception messages, or chain-of-thought.
-- Firestore job/approval/receipt/verification records remain authoritative; observability records cannot advance workflow.
+- DynamoDB job/approval/receipt/verification records remain authoritative; observability records cannot advance workflow.
 - All persistence and reads derive tenant identity server-side.
 - Metric dimensions exclude workspace, job, invocation, trace, and span IDs.
 - No paid cloud calls, deployment, publishing, or authenticated telemetry capture.
@@ -22,19 +22,19 @@
 
 ---
 
-### Task 1: Configure all native ADK OpenTelemetry signals
+### Task 1: Configure all native Strands OpenTelemetry signals
 
 **Files:**
 - Modify: `agent/harmonia_agent/telemetry.py`
 - Modify: `agent/harmonia_agent/config.py`
 - Modify: `agent/harmonia_agent/main.py`
 - Modify: `agent/requirements.txt`
-- Modify: `agent/harmonia_agent/agent_engine_deploy.py`
+- Modify: `agent/harmonia_agent/agentcore_app.py`
 - Test: `agent/tests/test_telemetry.py`
 - Test: `agent/tests/test_team_runtime.py`
 
 **Interfaces:**
-- Consumes: `settings().telemetry_enabled`, Google ADK telemetry helpers, existing W3C propagation.
+- Consumes: `settings().telemetry_enabled`, Strands Agents SDK telemetry helpers, existing W3C propagation.
 - Produces: `configure_telemetry(*, exporters=None, force=False)`, configured tracer/logger/meter providers, metadata-only resource attributes.
 
 - [ ] **Step 1: Write failing exporter and privacy tests**
@@ -55,16 +55,16 @@ def test_adk_cloud_exporters_enable_logs_metrics_and_traces(monkeypatch):
 def test_adk_telemetry_never_captures_message_content(monkeypatch):
     telemetry.configure_adk_telemetry(force=True)
     assert os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] == "NO_CONTENT"
-    assert os.environ["ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS"] == "false"
+    assert os.environ["Strands_CAPTURE_MESSAGE_CONTENT_IN_SPANS"] == "false"
 ```
 
 - [ ] **Step 2: Run the focused tests and verify RED**
 
 Run: `cd agent && ./.venv/bin/python -m pytest tests/test_telemetry.py tests/test_team_runtime.py -q`
 
-Expected: FAIL because all-signal ADK configuration does not exist.
+Expected: FAIL because all-signal Strands configuration does not exist.
 
-- [ ] **Step 3: Implement ADK exporter setup without breaking injected trace exporters**
+- [ ] **Step 3: Implement Strands exporter setup without breaking injected trace exporters**
 
 Use `google.adk.telemetry.google_cloud.get_gcp_exporters` and
 `google.adk.telemetry.setup.maybe_set_otel_providers`. Preserve the existing
@@ -79,8 +79,8 @@ Run: `cd agent && ./.venv/bin/python -m pytest tests/test_telemetry.py tests/tes
 - [ ] **Step 5: Commit**
 
 ```bash
-git add agent/harmonia_agent/telemetry.py agent/harmonia_agent/config.py agent/harmonia_agent/main.py agent/requirements.txt agent/harmonia_agent/agent_engine_deploy.py agent/tests/test_telemetry.py agent/tests/test_team_runtime.py
-git commit -m "feat: configure ADK observability signals"
+git add agent/harmonia_agent/telemetry.py agent/harmonia_agent/config.py agent/harmonia_agent/main.py agent/requirements.txt agent/harmonia_agent/agentcore_app.py agent/tests/test_telemetry.py agent/tests/test_team_runtime.py
+git commit -m "feat: configure Strands observability signals"
 ```
 
 ### Task 2: Define and emit the safe agent-activity projection
@@ -155,7 +155,7 @@ git commit -m "feat: project safe agent activity"
 - Test: `tests/observabilityRoutes.test.ts`
 
 **Interfaces:**
-- Consumes: Python JSON `AgentActivityRecord`, `tenantHandler`, tenant Firestore collections.
+- Consumes: Python JSON `AgentActivityRecord`, `tenantHandler`, tenant DynamoDB collections.
 - Produces: `agentActivitySchema`, `writeAgentActivity`, `listAgentActivity`, `ObservabilityPage`.
 
 - [ ] **Step 1: Write failing TypeScript parity and route tests**
@@ -186,7 +186,7 @@ server record ID, and persist a retention timestamp. Return 201 with the ID.
 
 Use `occurredAt desc` plus document ID ordering, fetch `limit + 1`, encode the
 last timestamp and ID in base64url JSON, and validate cursor shape before
-`startAfter`. Apply exact filters through Firestore; apply bounded safe search
+`startAfter`. Apply exact filters through DynamoDB; apply bounded safe search
 to the fetched candidate window. Return facets derived from the page and never
 cross-tenant totals.
 
@@ -273,12 +273,12 @@ git commit -m "feat: add agent activity explorer"
 
 **Interfaces:**
 - Consumes: implemented configuration, API, and dashboard behavior.
-- Produces: accurate operator and deployment documentation with official ADK links.
+- Produces: accurate operator and deployment documentation with official Strands links.
 
 - [ ] **Step 1: Update documentation**
 
-Document the three ADK signal schemas, environment settings, content-exclusion
-policy, Firestore projection, filters, pagination, retention, cloud readiness,
+Document the three Strands signal schemas, environment settings, content-exclusion
+policy, DynamoDB projection, filters, pagination, retention, cloud readiness,
 and the distinction between telemetry and workflow audit truth.
 
 - [ ] **Step 2: Run the complete Python suite**
@@ -306,11 +306,11 @@ Run: `git status --short`
 Run: `git diff --stat HEAD~5..HEAD`
 
 Review every activity field against the prohibited-content list, every route
-against tenant scoping, and every Firestore query against its index.
+against tenant scoping, and every DynamoDB query against its index.
 
 - [ ] **Step 6: Commit documentation and verification changes**
 
 ```bash
 git add README.md docs/observability.mdx docs/agent-platform.mdx docs/configuration.mdx docs/deployment.mdx
-git commit -m "docs: explain ADK observability"
+git commit -m "docs: explain Strands observability"
 ```

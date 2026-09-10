@@ -1,86 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { browserLocalPersistence, GoogleAuthProvider, onAuthStateChanged, setPersistence, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { BrandMark } from "@/components/BrandMark";
 import { Button } from "@/components/dashboard/Button";
-import { clientAuth } from "@/lib/firebaseClient";
-import { establishPersistedIdentity, restorePersistedSession, shouldRestorePersistedSession } from "@/lib/sessionPersistence";
 import styles from "./login.module.css";
 
-export default function LoginPage() {
-  const router = useRouter();
+export default function LoginPage() { return <Suspense><LoginContent /></Suspense>; }
+
+function LoginContent() {
+  const error = useSearchParams().get("error");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const interactiveSignIn = useRef(false);
-
-  async function createServerSession(idToken: string): Promise<boolean> {
-    const response = await fetch("/api/auth/session", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ idToken }),
-    });
-    return response.ok;
-  }
-
-  useEffect(() => {
-    return onAuthStateChanged(clientAuth(), async (user) => {
-      if (!user || interactiveSignIn.current) return;
-      if (!shouldRestorePersistedSession(user.metadata.lastSignInTime)) {
-        await firebaseSignOut(clientAuth());
-        return;
-      }
-      setBusy(true);
-      try {
-        const restored = await restorePersistedSession(user, createServerSession);
-        if (!restored) return;
-        router.replace("/dashboard");
-        router.refresh();
-      } catch {
-        // Keep the interactive Google option available when silent restoration fails.
-      } finally {
-        setBusy(false);
-      }
-    });
-  }, [router]);
-
-  async function signIn() {
-    interactiveSignIn.current = true;
-    setBusy(true);
-    setError("");
-    try {
-      const modeResponse = await fetch("/api/auth/session", { cache: "no-store" });
-      const mode = await modeResponse.json() as { devBypassEnabled?: boolean };
-      if (mode.devBypassEnabled) {
-        const response = await fetch("/api/auth/session", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ devBypass: true }),
-        });
-        if (!response.ok) throw new Error("Could not create a local development session.");
-        router.replace("/dashboard");
-        router.refresh();
-        return;
-      }
-      const auth = clientAuth();
-      const credential = await establishPersistedIdentity(
-        () => setPersistence(auth, browserLocalPersistence),
-        () => signInWithPopup(auth, new GoogleAuthProvider()),
-      );
-      const idToken = await credential.user.getIdToken();
-      if (!await createServerSession(idToken)) throw new Error("Could not create a secure session.");
-      router.replace("/dashboard");
-      router.refresh();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Google sign-in failed.");
-    } finally {
-      interactiveSignIn.current = false;
-      setBusy(false);
-    }
-  }
-
   return (
     <main className={`${styles.shell} dashboard-app`}>
       <section className={styles.story} aria-label="About Harmonia">
@@ -111,11 +42,11 @@ export default function LoginPage() {
             <p>Continue with the Google identity that owns your Harmonia workspace.</p>
           </div>
 
-          {error && <p className={styles.error} role="alert">{error}</p>}
-
+          {error && <p className={styles.error} role="alert">Google sign-in failed. Please start a new sign-in.</p>}
+          <form aria-busy={busy} action="/api/auth/login" method="get" onSubmit={() => setBusy(true)}>
           <Button
             variant="primary"
-            onClick={signIn}
+            type="submit"
             busy={busy}
             busyLabel="Signing in…"
             className={styles.googleButton}
@@ -128,6 +59,7 @@ export default function LoginPage() {
             </svg>
             Continue with Google
           </Button>
+          </form>
 
           <p className={styles.privacy}>
             Jobs, connections, memory, assets, and publishing approvals remain isolated to your workspace.

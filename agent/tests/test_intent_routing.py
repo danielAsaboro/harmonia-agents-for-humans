@@ -7,7 +7,6 @@ from harmonia_agent.intent_routing import (
     IntentRoute,
     deterministic_intent_classification,
     IntentRoutingInput,
-    build_intent_routing_skillset,
     source_urls_from_input,
 )
 
@@ -206,9 +205,12 @@ def test_source_urls_are_limited_to_verbatim_operator_conversation_context():
 
 
 def test_harmonia_routing_skill_is_loadable():
-    skillset = build_intent_routing_skillset()
-    assert [skill.frontmatter.name for skill in skillset.skills] == ["harmonia-intent-routing"]
-    assert "internal output" in skillset.skills[0].instructions.lower()
+    from harmonia_agent.agents import build_agent_team
+    specialist = build_agent_team().find_sub_agent("harmonia_intent_router")
+    assert specialist.tools == []
+    assert "skill" in specialist.instruction.lower()
+    assert specialist.input_schema is not None
+
 
 
 def test_connection_tool_reports_real_safe_platform_state(monkeypatch):

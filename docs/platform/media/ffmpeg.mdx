@@ -1,36 +1,18 @@
 ---
-title: "ffmpeg"
-description: "How Harmonia deterministically renders clips, reels, captions, and local media fixtures."
+title: "ffmpeg and HyperFrames"
+description: "Deterministic rendering under sealed production authority."
 ---
-
-ffmpeg performs deterministic media transformation after cognitive stages have proposed grounded source moments. It is application tooling, not a model-accessible effect tool.
 
 ## How Harmonia uses it
 
-- Cut authorized source media to validated Nimi time ranges.
-- Reframe output for vertical social formats.
-- Burn captions when the installed build supports the subtitles filter.
-- Concatenate selected moments into reels.
-- Produce internal clip assets before any external publishing proposal.
-- Render deterministic local PNG fixtures in explicit mock development mode.
+ffmpeg and HyperFrames transform authorized source or generated media into clips and compositions. Host code supplies verified local inputs, source windows, captions, dimensions, frame rate and audio controls. These binaries are not model-accessible effect tools.
 
-Commands are constructed as argument arrays without a shell. Inputs, output paths, durations, and supported filters are checked before execution.
+The production executor resolves and verifies input bytes before rendering. It assembles the composition, renders it, mixes audio, inspects the output and applies the bounded repair path when required. Paid generation and public publication have separate authorization boundaries.
 
-## Security and authority
+## Failure and verification
 
-ffmpeg reads only authorized local or staged media and writes internal artifacts. Rendering does not approve publishing, choose copy, or prove that an external post exists.
-
-## Failure behavior
-
-Missing binaries, invalid media, non-zero exits, absent outputs, and unsupported caption filters remain explicit. Captions may be skipped with a recorded note when the local build lacks the filter; the system does not claim captioned output in that case.
+Missing binaries, malformed media, unsupported operations, process failures and empty outputs remain errors. A persisted artifact or saved digest alone is not independent verification: the verification path reads stored bytes and recomputes the digest.
 
 ## Evidence status
 
-Real local ffmpeg invocations and artifact checks have automated coverage. External publication of a rendered asset requires a separate approved effect and verification receipt.
-
-## Relevant files
-
-- `agent/harmonia_agent/clipper.py`
-- `agent/harmonia_agent/generative_media.py`
-- `agent/harmonia_agent/stages.py`
-- `agent/tests/test_generative_media.py`
+`agent/harmonia_agent/production_executor.py`, `clipper.py` and the HyperFrames tooling in the worker image define rendering. Local tests can establish byte-level behavior. The AWS container deployment and an authenticated end-to-end export remain unverified.

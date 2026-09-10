@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Temi converts one human-approved Ryan strategy into a durable four-week editorial plan. Temi plans the complete horizon but selects exactly one eligible item for immediate production. Noni writes only that selected item; all remaining items stay in Firestore as future planned work.
+Temi converts one human-approved Ryan strategy into a durable four-week editorial plan. Temi plans the complete horizon but selects exactly one eligible item for immediate production. Noni writes only that selected item; all remaining items stay in DynamoDB as future planned work.
 
 ## Boundaries
 
@@ -25,7 +25,7 @@ Temi cannot define marketing strategy, alter Ryan briefs, write post copy, appro
 - optional verified posting-window observations with evidence IDs;
 - plan revision and optional replanning feedback.
 
-Memory Bank may influence Ryan before approval. It does not independently authorize Temi choices or calendar effects.
+AgentCore Memory may influence Ryan before approval. It does not independently authorize Temi choices or calendar effects.
 
 ## Output Contract
 
@@ -72,10 +72,10 @@ Noni receives `ProductionDraftInput`, containing only the exact selected editori
 
 ## Interface
 
-The job workspace renders the persisted plan horizon, timezone, campaign sequence, cadence, items, windows, deadlines, lineage, dependencies, statuses, priority, confidence, selected item, and selection rationale. Display data comes from Firestore, never ephemeral ADK session state.
+The job workspace renders the persisted plan horizon, timezone, campaign sequence, cadence, items, windows, deadlines, lineage, dependencies, statuses, priority, confidence, selected item, and selection rationale. Display data comes from DynamoDB, never ephemeral Strands session state.
 
 ## Verification
 
-Tests cover coherent plans, missing/invented references, unsupported channels/formats, invalid horizons/windows, collisions, dependency cycles, incomplete items, authority overreach, deterministic selection, Firestore round-trips, exact Noni handoff, non-selected items remaining undrafted, strategy mismatch, failure before Noni, and UI rendering.
+Tests cover coherent plans, missing/invented references, unsupported channels/formats, invalid horizons/windows, collisions, dependency cycles, incomplete items, authority overreach, deterministic selection, DynamoDB round-trips, exact Noni handoff, non-selected items remaining undrafted, strategy mismatch, failure before Noni, and UI rendering.
 
 No paid model invocation, deployment, publication, external scheduling, or authenticated evidence capture is part of implementation verification.

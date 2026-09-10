@@ -1,4 +1,4 @@
-import { listAllAssets } from "@/lib/firestore";
+import { listAllAssets } from "@/lib/repository";
 import { tenantHandler } from "@/lib/auth";
 
 /** Asset gallery: every generated image / rendered clip across all jobs. */

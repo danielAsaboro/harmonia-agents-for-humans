@@ -6,7 +6,7 @@
 
 ## Summary
 
-Harmonia will make its working canvas a genuine agent-composed interface. A dedicated Google ADK presentation agent will choose a layout from a trusted Harmonia A2UI catalog based on the operator's request and current campaign state. The model will reference persisted entities rather than author their trusted contents. A server-side hydrator will resolve those references, enforce authorization and lifecycle rules, and emit validated A2UI operations through the existing durable chat-run event stream.
+Harmonia will make its working canvas a genuine agent-composed interface. A dedicated Strands Agents SDK presentation agent will choose a layout from a trusted Harmonia A2UI catalog based on the operator's request and current campaign state. The model will reference persisted entities rather than author their trusted contents. A server-side hydrator will resolve those references, enforce authorization and lifecycle rules, and emit validated A2UI operations through the existing durable chat-run event stream.
 
 The stable product shell remains human-designed: navigation, conversation history, composer, canvas boundary, and approval boundary. Inside that shell, the active work surface changes shape around the operator's task. A request to find moments produces a media-analysis surface; a drafting request produces an editorial comparison surface; an approval request produces a decision surface; a completed action produces verification evidence.
 
@@ -23,13 +23,13 @@ The current implementation has useful protocol foundations:
 - attachment and asset routes bound to persisted records; and
 - visible failure states for malformed protocol data.
 
-However, it is not yet generative UI in the product sense. `buildResponseSurface()` deterministically maps a fixed `ChatResponse` into a `Column` containing generic elements such as `MessageContent`, `TaskView`, `PlanView`, and `QueueView`. The ADK agent does not select the interface. `partitionStudioOperations()` then discards the generated hierarchy by flattening components into fixed conversation, canvas, and approval groups. Finally, `WorkingCanvas` treats the result as supplemental diagnostics.
+However, it is not yet generative UI in the product sense. `buildResponseSurface()` deterministically maps a fixed `ChatResponse` into a `Column` containing generic elements such as `MessageContent`, `TaskView`, `PlanView`, and `QueueView`. The Strands agent does not select the interface. `partitionStudioOperations()` then discards the generated hierarchy by flattening components into fixed conversation, canvas, and approval groups. Finally, `WorkingCanvas` treats the result as supplemental diagnostics.
 
 The result communicates agent telemetry, but it does not let the interface become the natural answer to the operator's request.
 
 ## Goals
 
-- Let an ADK agent select and compose the most useful interface for the current operator intent and campaign state.
+- Let an Strands agent select and compose the most useful interface for the current operator intent and campaign state.
 - Make generated surfaces feel native to Harmonia's editorial and multimodal design language.
 - Bind every displayed draft, moment, source, asset, action, and receipt to authorized persisted state.
 - Preserve durable streaming, replay, error visibility, approval receipts, idempotency, and existing backend contracts.
@@ -43,7 +43,7 @@ The result communicates agent telemetry, but it does not let the interface becom
 - MCP Apps support.
 - Replacing the normal conversation interface or the stable studio shell.
 - Allowing A2UI actions to bypass existing server authorization, approval, or idempotency checks.
-- Changing Firestore job shapes, Pub/Sub stage contracts, publishing behavior, or verification semantics solely to simplify rendering.
+- Changing DynamoDB job shapes, SQS stage contracts, publishing behavior, or verification semantics solely to simplify rendering.
 - Fabricating media, sources, receipts, model success, or external execution state when persisted evidence is absent.
 - Migrating the A2UI protocol version during the first slice. The existing v0.9 protocol surface remains in place until the product behavior is verified.
 
@@ -55,7 +55,7 @@ The server could choose among hand-authored templates based on `ChatResponse.int
 
 ### Agent-generated component data
 
-The agent could emit complete A2UI component trees including all visible content. This is expressive, but it allows model output to duplicate or contradict Firestore state. It also makes approval, cost, provenance, and receipt data harder to trust.
+The agent could emit complete A2UI component trees including all visible content. This is expressive, but it allows model output to duplicate or contradict DynamoDB state. It also makes approval, cost, provenance, and receipt data harder to trust.
 
 ### Agent-generated plan with trusted hydration
 
@@ -73,7 +73,7 @@ The shell owns global navigation, campaign identity, long conversation history, 
 
 The web service constructs a bounded `UiContext` from the authenticated operator request and persisted application state. It includes identifiers and concise presentation-safe summaries for the active job, drafts, moments, sources, assets, actions, receipts, failures, and current selection. It never includes credentials, unrestricted URLs, private reasoning, or raw records the presentation agent does not need.
 
-### ADK presentation agent
+### Strands presentation agent
 
 A dedicated presentation specialist receives the `UiContext`, the supported Harmonia catalog, and a description of available surface slots. It returns a strict `SurfacePlan`. The agent decides what to emphasize, how to group related information, and which supported interaction should be offered. It cannot introduce unknown component types or arbitrary executable behavior.
 
@@ -145,7 +145,7 @@ Basic A2UI layout primitives remain available where they map directly to Harmoni
 2. The chat run is created and `run_started` is persisted.
 3. Existing intent and application logic performs the requested read or creates the authorized asynchronous job.
 4. The presentation context builder reads the resulting persisted snapshot and constructs `UiContext`.
-5. The ADK presentation agent emits a validated `SurfacePlan` for one or more slots.
+5. The Strands presentation agent emits a validated `SurfacePlan` for one or more slots.
 6. The hydrator resolves entity references and emits `createSurface` plus incremental component and data updates.
 7. Each A2UI operation is persisted before it is streamed to the browser.
 8. The client progressively renders or updates the surface.

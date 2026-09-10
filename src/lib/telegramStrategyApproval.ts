@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 
-import { createTelegramDecisionNonce, getTelegramConnection, saveTelegramStrategyPrompt } from "./firestore";
+import { createTelegramDecisionNonce, getTelegramConnection, saveTelegramStrategyPrompt } from "./repository";
 import { currentTenant } from "./tenancy";
 
 const TELEGRAM_API = "https://api.telegram.org";

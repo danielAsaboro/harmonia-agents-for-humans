@@ -1,547 +1,203 @@
-"""Execution boundary for managed Vertex AI Agent Engine teams."""
-
+"""Native Strands execution locally and through Amazon Bedrock AgentCore Runtime."""
 from __future__ import annotations
-
 import asyncio
-import inspect
-import json
-import logging
-import os
-import traceback
-from collections.abc import AsyncIterator
+from copy import deepcopy
+from dataclasses import replace
 from hashlib import sha256
+import json
+import os
+from types import SimpleNamespace
 from typing import Any, Protocol
+from strands import Agent
+from strands.models import BedrockModel
+from strands.hooks import HookProvider, HookRegistry, BeforeModelCallEvent, BeforeToolCallEvent, AfterToolCallEvent
+from .aws_authority import require_paid_aws
+from .runtime_instructions import project_runtime_instructions
+from .tenant_context import current_tenant
 
-from pydantic import ValidationError
+class AgentCoreProtocolError(RuntimeError):
+    """Runtime returned no valid typed handoff."""
 
-from .telemetry import safe_attributes, tracer
-
-logger = logging.getLogger("harmonia.team_runtime")
-
-_SPECIALIST_OUTPUT_KEYS = {
-    "harmonia_intent_router": "intent_classification",
-    "harmonia_context_assembler": "intent_strategy_context",
-    "ryan_strategist": "strategist_result",
-    "nimi_analyst": "source_analysis",
-    "nimi_research_analyst": "source_analysis",
-    "maya_presenter": "surface_plan",
-    "noni_copywriter": "copywriter_draft",
-    "dara_editor": "editorial_assessment",
-    "noni_artifact_producer": "semantic_artifact_draft",
-    "dara_artifact_editor": "semantic_artifact_review",
-    "temi_editorial_planner": "editorial_plan",
-}
-
-class AgentEngineProtocolError(RuntimeError):
-    """Managed runtime completed without a valid state handoff."""
-
-
-class AgentEngineProviderError(RuntimeError):
-    """Managed runtime transport or provider execution failed."""
-
-    def __init__(self, message: str, *, status: int | None = None) -> None:
+class AgentCoreProviderError(RuntimeError):
+    def __init__(self, message: str, *, status: int | None = None):
         super().__init__(message)
         self.status = status
 
-
-def _provider_status(exc: BaseException) -> int | None:
-    """Recover a safe HTTP-like status from a wrapped provider exception."""
-    current: BaseException | None = exc
-    while current is not None:
-        for attribute in ("status_code", "status", "code"):
-            value = getattr(current, attribute, None)
-            if isinstance(value, int) and 100 <= value <= 599:
-                return value
-        current = current.__cause__ or current.__context__
-    return None
-
+class RejectedStructuredOutput(Exception):
+    """Return exact provider object to the host bounded repair controller."""
 
 class TeamRuntime(Protocol):
-    async def invoke(
-        self,
-        *,
-        specialist: str,
-        payload: dict[str, Any],
-        user_id: str,
-        session_key: str,
-    ) -> dict[str, Any]: ...
+    async def invoke(self, *, specialist: str, payload: dict, user_id: str, session_key: str) -> dict: ...
 
+def _specialist_prompt_payload(payload: dict) -> dict:
+    return {key: value for key, value in payload.items() if not key.startswith('_')}
 
-def _specialist_prompt_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Remove runtime envelopes that are not part of a specialist's strict input."""
-    return {key: value for key, value in payload.items() if not key.startswith("_")}
+class AuthorityHooks(HookProvider):
+    """Observe actual requests and reserve one-shot tool authority before dispatch."""
+    def __init__(self, definition, state: dict):
+        self.definition, self.state = definition, state
+        self.allowed = {item.tool_name for item in definition.tools}
+        self.research_dispatched = False
+        self.liaison_inflight = None
+        self.liaison_attempts = 0
+        self.liaison_request = None
+        self.liaison_retryable = False
+        self.calls = 0
+        self.max_calls = 3 if definition.tools else 1
 
+    def register_hooks(self, registry: HookRegistry, **kwargs):
+        registry.add_callback(BeforeModelCallEvent, self.before_model)
+        registry.add_callback(BeforeToolCallEvent, self.before_tool)
+        registry.add_callback(AfterToolCallEvent, self.after_tool)
 
-def _specialist_session_state(payload: dict[str, Any]) -> dict[str, Any]:
-    """Keep audit envelopes outside the model-visible ADK session."""
-    state = _specialist_prompt_payload(payload)
-    for key in ("_harmonia_repair", "_harmonia_output_contract"):
-        if payload.get(key):
-            state[key] = payload[key]
-    return state
+    def before_model(self, event: BeforeModelCallEvent):
+        require_paid_aws('Bedrock inference')
+        self.calls += 1
+        if self.calls > self.max_calls:
+            raise AgentCoreProtocolError('specialist exceeded its bounded model turns')
+        # Digests describe the actual model-visible native request; private prose is not logged.
+        request = {'system': event.agent.system_prompt, 'messages': event.agent.messages,
+                   'tools': sorted(event.agent.tool_registry.registry)}
+        self.state.setdefault('_model_request_evidence', []).append({
+            'requestSha256': sha256(json.dumps(request, sort_keys=True, default=str).encode()).hexdigest(),
+            'tools': sorted(self.allowed), 'model': event.agent.model.get_config().get('model_id'),
+        })
 
+    def before_tool(self, event: BeforeToolCallEvent):
+        name, args = event.tool_use['name'], event.tool_use.get('input', {})
+        # The native structured-output tool is cognition, not external authority.
+        if name == self.definition.output_schema.__name__:
+            return
+        if name not in self.allowed:
+            event.cancel_tool = 'tool is outside host-selected capability set'
+            raise PermissionError(str(event.cancel_tool))
+        if 'search' in name and name not in {'search_trend_signals', 'search_verified_publications'}:
+            request = args.get('request')
+            if isinstance(request, str):
+                request = json.loads(request)
+            if not self.state.get('researchRequest') or request != self.state['researchRequest']:
+                raise PermissionError('research must match the exact host-authorized request')
+            if self.research_dispatched:
+                raise PermissionError('research authority already consumed')
+            self.research_dispatched = True
+        if name == 'search_verified_publications':
+            from .noni_skills import _research_terms
+            if args.get('brief_id') != self.state.get('briefId'):
+                raise PermissionError('publication search must bind the exact brief')
+            if not (_research_terms(str(args.get('query', ''))) & _research_terms(json.dumps(self.state.get('brief', {})))):
+                raise PermissionError('publication search query is outside the approved brief')
+            if self.research_dispatched:
+                raise PermissionError('publication search authority already consumed')
+            self.research_dispatched = True
+        if self.definition.name == 'nova_liaison':
+            request = (name, json.dumps(args, sort_keys=True))
+            if self.liaison_inflight is not None or self.liaison_attempts >= 2 or (
+                    self.liaison_attempts and (request != self.liaison_request or not self.liaison_retryable)):
+                raise PermissionError('liaison permits one read and one completed transient retry')
+            # Synchronous reservation precedes any parallel tool dispatch.
+            self.liaison_inflight = event.tool_use.get('toolUseId', name)
+            self.liaison_request = request
+            self.liaison_attempts += 1
+            self.liaison_retryable = False
+        callback = self.definition.before_tool_callback
+        if callback:
+            callback(SimpleNamespace(name=name), args, SimpleNamespace(state=self.state))
 
-def _invalid_adk_output(exc: ValidationError) -> dict[str, Any] | None:
-    """Recover only the model object rejected by ADK's output-schema hook.
+    def after_tool(self, event: AfterToolCallEvent):
+        name = event.tool_use['name']
+        if name == self.definition.output_schema.__name__:
+            if event.result.get('status') == 'error':
+                self.state[self.definition.output_key] = deepcopy(event.tool_use.get('input', {}))
+                raise RejectedStructuredOutput()
+            return
+        response = event.result
+        content = response.get('content') or []
+        value = next((item['json'] for item in content if 'json' in item), None)
+        if value is None:
+            text = next((item['text'] for item in content if 'text' in item), '{}')
+            try: value = json.loads(text)
+            except ValueError: value = {'status': 'error', 'message': text}
+        if self.definition.name == 'nova_liaison' and self.liaison_inflight == event.tool_use.get('toolUseId', name):
+            self.liaison_inflight = None
+            self.liaison_retryable = isinstance(value, dict) and value.get('status') == 'error' and ((value.get('error') or {}).get('retryable') is True)
+        if isinstance(value, dict) and '_providerEvidence' in value:
+            self.state['_research_evidence'] = value.pop('_providerEvidence')
+        callback = self.definition.after_tool_callback
+        if callback:
+            callback(SimpleNamespace(name=name), event.tool_use.get('input', {}), SimpleNamespace(state=self.state), value)
 
-    Harmonia owns the richer typed handoff validator and bounded repair loop.
-    Letting ADK turn this specific validation failure into a provider error
-    bypasses that course-correction path entirely.
-    """
-    frames = traceback.extract_tb(exc.__traceback__)
-    if not any(frame.name in {"validate_schema", "__maybe_save_output_to_state"} for frame in frames):
-        return None
-    candidates = [
-        item.get("input") for item in exc.errors(
-            include_url=False, include_context=False, include_input=True,
-        )
-        if isinstance(item.get("input"), dict)
-    ]
-    return max(candidates, key=len) if candidates else None
+class LocalStrandsTeamRuntime:
+    def __init__(self, coordinator):
+        self.coordinator = coordinator
 
-
-def _request_scoped_tools(specialist: str, payload: dict[str, Any], tools: list[Any]) -> list[Any]:
-    if specialist == "nimi_analyst" and payload.get("researchRequest") is None:
-        return []
-    if specialist == "ryan_strategist" and payload.get("researchRequest") is None:
-        return [tool for tool in tools if getattr(tool, "name", "") != "ryan_google_search_agent"]
-    return tools
-
-
-class LocalAdkTeamRuntime:
-    """Run the real ADK hierarchy in-process for local browser verification."""
-
-    def __init__(self, agent: Any) -> None:
-        self.agent = agent
-
-    async def invoke(self, *, specialist: str, payload: dict[str, Any], user_id: str, session_key: str) -> dict[str, Any]:
-        from google.adk.runners import InMemoryRunner
-        from google.genai import types
-        from .coordinator import authorized_specialist_name
-
-        specialist_agent = self.agent.find_sub_agent(
-            authorized_specialist_name(specialist, payload),
-        )
-        if specialist_agent is None:
-            raise AgentEngineProtocolError(f"unknown local ADK specialist: {specialist}")
-        runtime_tools = _request_scoped_tools(
-            specialist, payload, list(specialist_agent.tools),
-        )
-        specialist_agent.tools = runtime_tools
-        runner = InMemoryRunner(agent=self.agent, app_name="harmonia-local")
-        session_id = f"harmonia-{sha256(f'{user_id}|{session_key}'.encode()).hexdigest()[:40]}"
-        state: dict[str, Any] = {}
-        response_texts: list[str] = []
-        prompt = json.dumps(_specialist_prompt_payload(payload), separators=(",", ":"), ensure_ascii=False)
+    async def invoke(self, *, specialist: str, payload: dict, user_id: str, session_key: str) -> dict:
+        require_paid_aws('Strands specialist invocation')
+        state = deepcopy(payload)
+        definition = self.coordinator.select(specialist, state)
+        request = state.get('researchRequest')
+        if definition.name == 'nimi_research_analyst':
+            expected = 'nimi_gateway_search' if request.get('mode') == 'public_web' else 'nimi_agent_search_agent'
+            definition = replace(definition, tools=[item for item in definition.tools if item.tool_name == expected])
+            if len(definition.tools) != 1:
+                raise PermissionError('host-authorized research provider is not configured')
+        if definition.input_schema:
+            definition.input_schema.model_validate(_specialist_prompt_payload(payload))
+        if definition.before_agent_callback:
+            definition.before_agent_callback(SimpleNamespace(state=state))
+        # A new Agent owns all mutable model messages, hooks and tool reservations.
+        model = definition.model
+        if isinstance(model, str):
+            model = BedrockModel(model_id=model, region_name=os.environ.get('AWS_REGION', 'us-east-1'), **definition.generation)
+        hooks = AuthorityHooks(definition, state)
+        agent = Agent(model=model, name=definition.name, system_prompt=project_runtime_instructions(definition.instruction, state),
+                      tools=definition.tools, hooks=[hooks], callback_handler=None,
+                      structured_output_model=definition.output_schema, retry_strategy=None)
         try:
-            await runner.session_service.create_session(
-                app_name="harmonia-local",
-                user_id=user_id,
-                session_id=session_id,
-                state={**_specialist_session_state(payload), "requested_specialist": specialist},
-            )
-            async for event in runner.run_async(
-                user_id=user_id,
-                session_id=session_id,
-                new_message=types.Content(role="user", parts=[types.Part(text=prompt)]),
-            ):
-                state.update(_state_delta(event))
-                content = getattr(event, "content", None)
-                for part in getattr(content, "parts", []) or []:
-                    if isinstance(getattr(part, "text", None), str):
-                        response_texts.append(part.text)
-                if metadata := _grounding_metadata(event):
-                    state["_adk_grounding_metadata"] = metadata
-            completed_session = await runner.session_service.get_session(
-                app_name="harmonia-local", user_id=user_id, session_id=session_id,
-            )
-            if completed_session is not None:
-                state.update(dict(completed_session.state))
-            if specialist_agent.output_key and isinstance(state.get(specialist_agent.output_key), str):
-                candidate = state[specialist_agent.output_key].strip()
-                if candidate.startswith("```"):
-                    candidate = candidate.removeprefix("```json").removeprefix("```")
-                    candidate = candidate.removesuffix("```").strip()
-                start, end = candidate.find("{"), candidate.rfind("}")
-                if start >= 0 and end > start:
-                    try:
-                        state[specialist_agent.output_key] = json.loads(candidate[start:end + 1])
-                    except json.JSONDecodeError:
-                        pass
-            if specialist_agent.output_key and specialist_agent.output_key not in state:
-                for candidate in reversed(response_texts):
-                    candidate = candidate.strip()
-                    if candidate.startswith("```"):
-                        candidate = candidate.removeprefix("```json").removeprefix("```")
-                        candidate = candidate.removesuffix("```").strip()
-                    start, end = candidate.find("{"), candidate.rfind("}")
-                    if start >= 0 and end > start:
-                        try:
-                            state[specialist_agent.output_key] = json.loads(candidate[start:end + 1])
-                            break
-                        except json.JSONDecodeError:
-                            continue
-        except ValidationError as exc:
-            invalid_output = _invalid_adk_output(exc)
-            if invalid_output is None or not specialist_agent.output_key:
-                raise AgentEngineProviderError(
-                    f"local ADK invocation failed: {exc}", status=_provider_status(exc),
-                ) from exc
-            logger.warning(
-                "local ADK output contract rejected for %s; forwarding to Harmonia repair validation",
-                specialist,
-            )
-            state[specialist_agent.output_key] = invalid_output
-        except Exception as exc:  # noqa: BLE001 - normalized runtime boundary
-            chain: list[str] = []
-            current: BaseException | None = exc
-            while current is not None and len(chain) < 6:
-                code = getattr(current, "status_code", None) or getattr(current, "code", None)
-                chain.append(f"{type(current).__name__}:{code}" if code is not None else type(current).__name__)
-                current = current.__cause__ or current.__context__
-            logger.warning(
-                "local ADK invocation failed for %s; exception chain=%s; stack=%s",
-                specialist,
-                " -> ".join(chain),
-                " -> ".join(
-                    f"{frame.name}:{frame.lineno}"
-                    for frame in traceback.extract_tb(exc.__traceback__)[-6:]
-                ),
-            )
-            raise AgentEngineProviderError(
-                f"local ADK invocation failed: {exc}", status=_provider_status(exc),
-            ) from exc
-        if not state:
-            raise AgentEngineProtocolError("local ADK returned no state delta")
-        return state
-
-
-def _session_id(session: Any) -> str:
-    value = session.get("id") if isinstance(session, dict) else getattr(session, "id", None)
-    if not value and isinstance(session, dict):
-        name = session.get("name")
-        value = str(name).rsplit("/", 1)[-1] if name else None
-    if not value:
-        raise AgentEngineProtocolError("Agent Engine did not return a managed session id")
-    return str(value)
-
-
-def _session_state(session: Any) -> dict[str, Any]:
-    value = session.get("state") if isinstance(session, dict) else getattr(session, "state", None)
-    return dict(value) if isinstance(value, dict) else {}
-
-
-def _persisted_delta(session: Any, seeded_state: dict[str, Any]) -> dict[str, Any]:
-    state = _session_state(session)
-    return {
-        key: value for key, value in state.items()
-        if key not in seeded_state or value != seeded_state[key]
-    }
-
-
-async def _managed_session_call(remote: Any, operation: str, **kwargs: Any) -> Any:
-    """Use Agent Engine's async session surface when it is available.
-
-    Recent Agent Engine remotes expose ``async_get_session`` and
-    ``async_create_session`` without their synchronous counterparts. Older
-    deployed engines expose the synchronous methods. Support exactly either
-    documented surface; a missing operation remains a protocol failure.
-    """
-    async_method = getattr(remote, f"async_{operation}", None)
-    if callable(async_method):
-        result = async_method(**kwargs)
-        return await result if inspect.isawaitable(result) else result
-    method = getattr(remote, operation, None)
-    if not callable(method):
-        raise AgentEngineProtocolError(
-            f"Agent Engine does not expose {operation} or async_{operation}"
-        )
-    result = await asyncio.to_thread(method, **kwargs)
-    return await result if inspect.isawaitable(result) else result
-
-
-def _is_missing_session_error(exc: Exception) -> bool:
-    message = str(exc).lower()
-    return "session not found" in message and (
-        isinstance(exc, RuntimeError) or "create_session" in message
-    )
-
-
-def _state_delta(event: Any) -> dict[str, Any]:
-    if not isinstance(event, dict):
-        event = event.model_dump(mode="json") if hasattr(event, "model_dump") else {}
-    actions = event.get("actions") or {}
-    delta = actions.get("state_delta") or actions.get("stateDelta") or {}
-    return dict(delta) if isinstance(delta, dict) else {}
-
-
-def _structured_content(event: Any) -> dict[str, Any] | None:
-    """Read only a JSON object actually emitted in an ADK response event."""
-    if not isinstance(event, dict):
-        event = event.model_dump(mode="json", by_alias=True) if hasattr(event, "model_dump") else {}
-    content = event.get("content") or {}
-    for part in reversed(content.get("parts") or []):
-        text = part.get("text") if isinstance(part, dict) else None
-        if not isinstance(text, str):
-            continue
-        candidate = text.strip()
-        if candidate.startswith("```"):
-            candidate = candidate.removeprefix("```json").removeprefix("```")
-            candidate = candidate.removesuffix("```").strip()
-        start, end = candidate.find("{"), candidate.rfind("}")
-        if start < 0 or end <= start:
-            continue
-        try:
-            value = json.loads(candidate[start:end + 1])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict):
-            return value
-    return None
-
-
-def _grounding_metadata(event: Any) -> dict[str, Any] | None:
-    if not isinstance(event, dict):
-        event = event.model_dump(mode="json", by_alias=True) if hasattr(event, "model_dump") else {}
-    metadata = event.get("grounding_metadata") or event.get("groundingMetadata")
-    if hasattr(metadata, "model_dump"):
-        metadata = metadata.model_dump(mode="json", by_alias=True)
-    return dict(metadata) if isinstance(metadata, dict) else None
-
-
-def _raise_for_event_error(event: Any) -> None:
-    """Turn ADK terminal error events into provider failures before state recovery."""
-    if not isinstance(event, dict):
-        event = event.model_dump(mode="json", by_alias=True) if hasattr(event, "model_dump") else {}
-    code = event.get("error_code") or event.get("errorCode")
-    message = event.get("error_message") or event.get("errorMessage")
-    if not code and not message:
-        return
-    normalized = str(code or "").upper()
-    status = {
-        "RESOURCE_EXHAUSTED": 429,
-        "DEADLINE_EXCEEDED": 504,
-        "UNAVAILABLE": 503,
-        "UNAUTHENTICATED": 401,
-        "PERMISSION_DENIED": 403,
-        "INVALID_ARGUMENT": 400,
-    }.get(normalized)
-    raise AgentEngineProviderError(
-        f"managed ADK event failed: {normalized or 'UNKNOWN'}", status=status,
-    )
-
-
-def _invoke_sync_remote(
-    remote: Any, *, user_id: str, session_id: str,
-    seeded_state: dict[str, Any], prompt: str,
-) -> dict[str, Any]:
-    try:
-        session = remote.create_session(
-            user_id=user_id, session_id=session_id, state=seeded_state,
-        )
-    except Exception as create_exc:
-        try:
-            session = remote.get_session(user_id=user_id, session_id=session_id)
-        except Exception:
-            raise create_exc
-        if session is None:
-            raise create_exc
-    if _session_id(session) != session_id:
-        raise AgentEngineProtocolError("Agent Engine returned the wrong managed session")
-    state: dict[str, Any] = {}
-    try:
-        for event in remote.stream_query(
-            user_id=user_id, session_id=session_id, message=prompt,
-        ):
-            _raise_for_event_error(event)
-            state.update(_state_delta(event))
-            if metadata := _grounding_metadata(event):
-                state["_adk_grounding_metadata"] = metadata
-    except Exception:
-        # Agent Engine may durably commit the specialist handoff before its SSE
-        # transport terminates. Recover only state that differs from our seed;
-        # downstream specialist validators still fail closed on partial output.
-        recovered = _persisted_delta(
-            remote.get_session(user_id=user_id, session_id=session_id), seeded_state,
-        )
-        if not recovered:
-            raise
-        state.update(recovered)
-    else:
-        # Agent Engine can commit output_key directly to durable session state
-        # while emitting only text/status stream events. Merge that authoritative
-        # delta after a successful stream as well as after transport recovery.
-        try:
-            state.update(_persisted_delta(
-                remote.get_session(user_id=user_id, session_id=session_id), seeded_state,
-            ))
-        except Exception:
-            if not state:
-                raise
-    return state
-
-
-class AgentEngineTeamRuntime:
-    """Managed runtime adapter with deterministic, restart-resumable sessions."""
-
-    def __init__(self, *, resource_name: str, client: Any | None = None) -> None:
-        if not resource_name.startswith("projects/") or "/reasoningEngines/" not in resource_name:
-            raise ValueError("AGENT_ENGINE_RESOURCE must be a full reasoning engine resource name")
-        self.resource_name = resource_name
-        self._client = client
-
-    def _remote(self) -> Any:
-        client = self._client
-        if client is None:
-            try:
-                import vertexai
-            except ImportError as exc:  # pragma: no cover - deployment dependency
-                raise AgentEngineProviderError(
-                    "google-cloud-aiplatform agent_engines support is not installed"
-                ) from exc
-            project = os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
-            location = os.environ.get("GOOGLE_CLOUD_LOCATION", "").strip()
-            if not project or not location:
-                raise AgentEngineProviderError(
-                    "GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION are required "
-                    "for the managed Agent Engine client"
-                )
-            client = vertexai.Client(
-                project=project,
-                location=location,
-                http_options={"timeout": 300_000},
-            )
-            # Engine handles share the parent's BaseApiClient. Retain the
-            # parent for this runtime's lifetime or its async transport may be
-            # finalized before async_get_session/async_stream_query executes.
-            self._client = client
-        try:
-            return client.agent_engines.get(name=self.resource_name)
-        except Exception as exc:  # noqa: BLE001 - normalized at provider boundary
-            raise AgentEngineProviderError(
-                f"failed to resolve Agent Engine: {exc}", status=_provider_status(exc),
-            ) from exc
-
-    async def invoke(
-        self,
-        *,
-        specialist: str,
-        payload: dict[str, Any],
-        user_id: str,
-        session_key: str,
-    ) -> dict[str, Any]:
-        remote = self._remote()
-        seeded_state = _specialist_session_state(payload)
-        seeded_state["requested_specialist"] = specialist
-        session_id = f"harmonia-{sha256(f'{user_id}|{session_key}'.encode()).hexdigest()[:40]}"
-        state: dict[str, Any] = {}
-        with tracer().start_as_current_span("harmonia.agent_runtime.invoke") as span:
-            span.set_attributes(safe_attributes({
-                "runtime": "agent_engine",
-                "agent": specialist,
-                "resource": self.resource_name,
-            }))
-            try:
-                if not callable(getattr(remote, "async_stream_query", None)) or not any(
-                    callable(getattr(remote, name, None))
-                    for name in ("get_session", "async_get_session")
-                ) or not any(
-                    callable(getattr(remote, name, None))
-                    for name in ("create_session", "async_create_session")
-                ):
-                    raise AgentEngineProtocolError(
-                        "Agent Engine does not expose Harmonia's required async ADK interface"
-                    )
-                try:
-                    session = await _managed_session_call(
-                        remote, "get_session", user_id=user_id, session_id=session_id,
-                    )
-                except Exception as exc:  # provider SDK wraps this in multiple exception types
-                    if not _is_missing_session_error(exc):
-                        raise
-                    session = None
-                if session is None:
-                    try:
-                        session = await _managed_session_call(
-                            remote, "create_session",
-                            user_id=user_id, session_id=session_id, state=seeded_state,
-                        )
-                    except Exception:  # a concurrent creator may have won
-                        session = await _managed_session_call(
-                            remote, "get_session", user_id=user_id, session_id=session_id,
-                        )
-                        if session is None:
-                            raise
-                if _session_id(session) != session_id:
-                    raise AgentEngineProtocolError("Agent Engine returned the wrong managed session")
-                prompt = json.dumps(
-                    _specialist_prompt_payload(payload),
-                    separators=(",", ":"), ensure_ascii=False,
-                )
-                emitted_output: dict[str, Any] | None = None
-                try:
-                    events: AsyncIterator[Any] = remote.async_stream_query(
-                        user_id=user_id,
-                        session_id=session_id,
-                        message=prompt,
-                    )
-                    async for event in events:
-                        _raise_for_event_error(event)
-                        state.update(_state_delta(event))
-                        if candidate := _structured_content(event):
-                            emitted_output = candidate
-                        if metadata := _grounding_metadata(event):
-                            state["_adk_grounding_metadata"] = metadata
-                except Exception:
-                    recovered = _persisted_delta(
-                        await _managed_session_call(
-                            remote, "get_session", user_id=user_id, session_id=session_id,
-                        ),
-                        seeded_state,
-                    )
-                    if not recovered:
-                        raise
-                    state.update(recovered)
-                else:
-                    # See the synchronous adapter: a completed managed stream
-                    # is not guaranteed to carry the output_key state delta.
-                    try:
-                        state.update(_persisted_delta(
-                            await _managed_session_call(
-                                remote, "get_session", user_id=user_id, session_id=session_id,
-                            ),
-                            seeded_state,
-                        ))
-                    except Exception:
-                        if not state:
-                            raise
-                output_key = _SPECIALIST_OUTPUT_KEYS.get(specialist)
-                if output_key and output_key not in state and emitted_output is not None:
-                    # Managed Agent Engine can return a provider-authored structured
-                    # response without mirroring ADK's output_key into session state.
-                    # Preserve that exact object; the caller's specialist validator
-                    # remains the sole authority on whether it is acceptable.
-                    state[output_key] = emitted_output
-            except (AgentEngineProtocolError, AgentEngineProviderError):
-                raise
-            except Exception as exc:  # noqa: BLE001 - normalized at provider boundary
-                chain: list[str] = []
-                current: BaseException | None = exc
-                while current is not None and len(chain) < 6:
-                    chain.append(type(current).__name__)
-                    current = current.__cause__ or current.__context__
-                logger.warning(
-                    "managed Agent Engine invocation failed status=%s chain=%s stack=%s",
-                    _provider_status(exc), " -> ".join(chain),
-                    " -> ".join(
-                        f"{frame.name}:{frame.lineno}"
-                        for frame in traceback.extract_tb(exc.__traceback__)[-8:]
-                    ),
-                )
-                raise AgentEngineProviderError(
-                    f"Agent Engine invocation failed: {exc}", status=_provider_status(exc),
-                ) from exc
-            if not state:
-                raise AgentEngineProtocolError("Agent Engine returned no state delta")
-            span.set_attribute("state.key_count", len(state))
+            result = await agent.invoke_async(json.dumps(_specialist_prompt_payload(payload), separators=(',', ':'), ensure_ascii=False))
+            if result.structured_output is None:
+                raise AgentCoreProtocolError('Strands returned no structured output')
+            state[definition.output_key] = result.structured_output.model_dump(mode='json')
+            state['_strands_usage'] = result.metrics.accumulated_usage
             return state
+        except RejectedStructuredOutput:
+            return state
+        except (AgentCoreProtocolError, PermissionError):
+            raise
+        except Exception as exc:
+            cause = exc
+            while cause is not None:
+                if isinstance(cause, RejectedStructuredOutput):
+                    return state
+                cause = cause.__cause__
+            status = getattr(exc, 'response', {}).get('ResponseMetadata', {}).get('HTTPStatusCode')
+            raise AgentCoreProviderError(f'Strands specialist failed: {type(exc).__name__}', status=status) from exc
+
+class AgentCoreTeamRuntime:
+    def __init__(self, *, runtime_arn: str, client: Any = None):
+        if ':bedrock-agentcore:' not in runtime_arn or ':runtime/' not in runtime_arn:
+            raise ValueError('AGENTCORE_RUNTIME_ARN must be a full AgentCore runtime ARN')
+        self.runtime_arn, self.client = runtime_arn, client
+
+    async def invoke(self, *, specialist: str, payload: dict, user_id: str, session_key: str) -> dict:
+        require_paid_aws('AgentCore Runtime invocation')
+        import boto3
+        tenant = current_tenant()
+        client = self.client or boto3.client('bedrock-agentcore', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
+        envelope = {'specialist': specialist, 'payload': payload, 'userId': user_id,
+                    'sessionKey': session_key, 'workspaceId': tenant.workspace_id, 'brandId': tenant.brand_id}
+        session_id = sha256(f'{user_id}|{session_key}'.encode()).hexdigest()
+        try:
+            response = await asyncio.to_thread(client.invoke_agent_runtime, agentRuntimeArn=self.runtime_arn,
+                runtimeSessionId=session_id, contentType='application/json', accept='application/json',
+                payload=json.dumps(envelope).encode())
+            raw = await asyncio.to_thread(response['response'].read)
+            state = json.loads(raw)
+            if not isinstance(state, dict) or 'state' not in state:
+                raise AgentCoreProtocolError('AgentCore returned no state handoff')
+            return state['state']
+        except (PermissionError, AgentCoreProtocolError):
+            raise
+        except Exception as exc:
+            status = getattr(exc, 'response', {}).get('ResponseMetadata', {}).get('HTTPStatusCode')
+            # Do not automatically replay an unknown managed outcome.
+            raise AgentCoreProviderError(f'AgentCore outcome unresolved: {type(exc).__name__}', status=status) from exc

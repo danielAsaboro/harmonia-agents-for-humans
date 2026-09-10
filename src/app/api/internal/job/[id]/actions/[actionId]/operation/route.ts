@@ -1,5 +1,5 @@
 import { mediaOperationSchema } from "@/lib/contracts";
-import { getMediaOperation, saveMediaOperation } from "@/lib/firestore";
+import { getMediaOperation, saveMediaOperation } from "@/lib/repository";
 import { internalTenantHandler } from "@/lib/internalAuth";
 
 interface Params {

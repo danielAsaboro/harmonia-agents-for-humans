@@ -14,7 +14,7 @@ description: "OAuth scope, API routes, event projection, persisted states, idemp
 | Connection ID | `google-calendar` |
 | OAuth flow | Authorization Code with PKCE |
 | Scope | `https://www.googleapis.com/auth/calendar.app.created` |
-| Token storage | Workspace-scoped Firestore connection document; server-side only |
+| Token storage | Workspace-scoped DynamoDB connection document; server-side only |
 | Mutation authority | Browser session authenticated by Google sign-in; internal bearer tokens are rejected |
 | Manual token setup | Rejected; scoped OAuth consent is required |
 
@@ -69,7 +69,7 @@ Responses use `400` for malformed requests, `401` or `403` for missing or invali
 
 ## App-created calendar
 
-The first sync provisions a secondary calendar named `Harmonia Content Calendar`. Firestore records a provisioning claim before calling Google.
+The first sync provisions a secondary calendar named `Harmonia Content Calendar`. DynamoDB records a provisioning claim before calling Google.
 
 | Provisioning state | Behavior |
 |---|---|

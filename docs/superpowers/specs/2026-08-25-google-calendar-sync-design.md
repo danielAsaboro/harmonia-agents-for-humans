@@ -8,7 +8,7 @@ Harmonia’s internal content calendar synchronizes scheduled content items into
 
 Harmonia requests only `https://www.googleapis.com/auth/calendar.app.created`. On first sync after OAuth, Harmonia creates a secondary calendar named `Harmonia Content Calendar`. This scope limits the app to calendars it created; it does not expose the operator’s unrelated calendars or events.
 
-The existing Google OAuth application credentials (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) are deployment-wide. Access and refresh tokens remain in the workspace-scoped Firestore connection document. The browser never receives either token.
+The existing Google OAuth application credentials (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) are deployment-wide. Access and refresh tokens remain in the workspace-scoped DynamoDB connection document. The browser never receives either token.
 
 ## Operator experience
 
@@ -56,7 +56,7 @@ Disconnecting Google Calendar deletes only Harmonia’s stored connection creden
 - `src/lib/calendarSyncState.ts`: pure sync-state transitions used by content-item updates and UI responses.
 - `src/app/api/calendar/google/route.ts`: tenant-authenticated status and mutation endpoint.
 - Existing OAuth/platform registry: adds `google-calendar` with the narrow app-created scope.
-- Existing Firestore types and connection/content-item documents: persist calendar metadata and verification state.
+- Existing DynamoDB types and connection/content-item documents: persist calendar metadata and verification state.
 - Calendar page and item drawer: connection banner, explicit mutation buttons, status, link, and errors.
 
 ## Test strategy

@@ -16,7 +16,7 @@ describe("studio workspace model", () => {
       ],
     }, []);
     expect(model.visual.map((asset) => asset.actionId)).toEqual(["img"]);
-    expect(model.audio.map((asset) => [asset.actionId, asset.provider])).toEqual([["sound", "lyria"]]);
+    expect(model.audio.map((asset) => [asset.actionId, asset.provider])).toEqual([["sound", "elevenlabs"]]);
     expect(model.motion).toEqual([]);
   });
 

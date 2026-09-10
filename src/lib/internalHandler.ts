@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TransitionError } from "./stages";
 import { withInternalTenant } from "./internalAuth";
 import { withTraceContext } from "./telemetry";
-import { assertDurableOperationFence } from "./firestore";
+import { assertDurableOperationFence } from "./repository";
 import { currentTenant } from "./tenancy";
 
 class OperationFenceHeaderError extends Error {}

@@ -40,4 +40,4 @@ RUN useradd -m worker
 USER worker
 
 EXPOSE 8080
-CMD node /opt/bgutil-ytdlp-pot-provider/server/build/main.js & exec uvicorn harmonia_agent.main:app --host 0.0.0.0 --port ${PORT:-8080} --loop asyncio
+CMD node /opt/bgutil-ytdlp-pot-provider/server/build/main.js & exec python -m harmonia_agent.worker_entrypoint

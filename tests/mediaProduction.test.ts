@@ -14,12 +14,12 @@ import {
 } from "@/lib/mediaProduction";
 
 const videoSpec = generatedVideoSpecSchema.parse({
-  modelCapability: "veo-3.1-fast", mode: "text_to_video", prompt: "Abstract data streams forming a calm blue network", durationSec: 4,
-  aspectRatio: "9:16", resolution: "1080p", generateAudio: false, enhancePrompt: true, outputCount: 1,
+  modelCapability: "nova-reel", mode: "text_to_video", prompt: "Abstract data streams forming a calm blue network", durationSec: 6,
+  aspectRatio: "16:9", resolution: "720p", outputCount: 1,
 });
 const musicSpec = generatedMusicSpecSchema.parse({
-  modelCapability: "lyria-3-clip", prompt: "Warm minimal electronic soundtrack, 100 BPM", instrumental: true,
-  lyricsMode: "none", language: "en", targetDurationSec: 30, outputCount: 1,
+  modelCapability: "elevenlabs-music", prompt: "Warm minimal electronic soundtrack, 100 BPM", instrumental: true,
+  targetDurationSec: 30, outputCount: 1,
 });
 const sourceRef = {
   artifactId: "018f47a2-4f40-7b1f-b19f-8f6b916b7d11",
@@ -42,13 +42,6 @@ const firstFrameRef = {
   sizeBytes: 2048,
   rightsAuthorizationId: "license-frame-first-1",
 } as const;
-const lastFrameRef = {
-  artifactId: "018f47a2-4f40-7b1f-b19f-8f6b916b7d14",
-  digest: "4".repeat(64),
-  mime: "image/jpeg",
-  sizeBytes: 4096,
-  rightsAuthorizationId: "license-frame-last-1",
-} as const;
 const sourceEdit = {
   sourceWindow: { startSec: 120.5, durationSec: 12 },
   sourceSegmentRefs: ["segment-wozniak-1"],
@@ -69,9 +62,9 @@ const basePlan = {
   goal: "Create a product launch reel",
   audience: "technical startup founders",
   tone: ["confident", "clear"],
-  target: { platform: "linkedin", durationSec: 30, aspectRatio: "9:16", resolution: "1080p", frameRate: 30, format: "mp4" },
+  target: { platform: "linkedin", durationSec: 30, aspectRatio: "16:9", resolution: "720p", frameRate: 30, format: "mp4" },
   scenes: [{
-    id: "scene-1", order: 1, startSec: 0, durationSec: 4,
+    id: "scene-1", order: 1, startSec: 0, durationSec: 6,
     purpose: "establish the product",
     video: videoSpec,
     overlays: [], captions: [], transitions: [],
@@ -89,31 +82,29 @@ const basePlan = {
 } as const;
 
 describe("media production contracts", () => {
-  it("requires Lyria 3 Clip plans to quote its fixed 30-second provider output", () => {
+  it("validates instrumental music duration and its 30-second default", () => {
     const soundtrack = {
-      modelCapability: "lyria-3-clip" as const,
-      prompt: "Minimal instrumental pulse", instrumental: true, lyricsMode: "none" as const,
-      language: "en", targetDurationSec: 4, outputCount: 1 as const,
+      modelCapability: "elevenlabs-music" as const,
+      prompt: "Minimal instrumental pulse", instrumental: true, targetDurationSec: 2, outputCount: 1 as const,
     };
 
     expect(generatedMusicSpecSchema.safeParse(soundtrack).success).toBe(false);
     expect(generatedMusicSpecSchema.safeParse({ ...soundtrack, targetDurationSec: 30 }).success).toBe(true);
   });
-  it("rejects a Veo capability combination the selected model cannot execute", () => {
+  it("rejects a Nova Reel capability combination the selected model cannot execute", () => {
     expect(() => generatedVideoSpecSchema.parse({
-      modelCapability: "veo-3.1-fast", mode: "extend_video", prompt: "continue",
-      durationSec: 4, aspectRatio: "9:16",
-      resolution: "4k", generateAudio: false, enhancePrompt: true, outputCount: 1,
+      modelCapability: "nova-reel", mode: "extend_video", prompt: "continue",
+      durationSec: 6, aspectRatio: "16:9",
+      resolution: "4k", outputCount: 1,
     })).toThrow(/resolution/i);
   });
 
-  it("seals supported Veo image conditioning and blocks modes without a selected-model path", () => {
+  it("seals supported Nova Reel image conditioning and blocks modes without a selected-model path", () => {
     expect(generatedVideoSpecSchema.parse({
       ...basePlan.scenes[0].video,
-      mode: "first_last_frame",
+      mode: "image_to_video",
       sourceImageArtifact: firstFrameRef,
-      lastFrameArtifact: lastFrameRef,
-    })).toMatchObject({ sourceImageArtifact: firstFrameRef, lastFrameArtifact: lastFrameRef });
+    })).toMatchObject({ sourceImageArtifact: firstFrameRef });
     expect(() => generatedVideoSpecSchema.parse({
       ...basePlan.scenes[0].video,
       mode: "image_to_video",
@@ -142,23 +133,22 @@ describe("media production contracts", () => {
     })).toThrow(/conditioning|control/i);
   });
 
-  it("runs verified conditioning resolvers before the exact paid Veo operation", () => {
+  it("runs verified conditioning resolvers before the exact paid Nova Reel operation", () => {
     const conditioned = videoProductionPlanSchema.parse({
       ...basePlan,
       scenes: [{
         ...basePlan.scenes[0],
         video: {
           ...basePlan.scenes[0].video,
-          mode: "first_last_frame",
+          mode: "image_to_video",
           sourceImageArtifact: firstFrameRef,
-          lastFrameArtifact: lastFrameRef,
-        },
+            },
       }],
     });
 
     const operations = compileProductionOperations(conditioned);
     const resolved = operations.filter((operation) => operation.type === "resolve_media");
-    expect(resolved.map((operation) => operation.payload)).toEqual([firstFrameRef, lastFrameRef]);
+    expect(resolved.map((operation) => operation.payload)).toEqual([firstFrameRef]);
     expect(operations.find((operation) => operation.id === "plan-1:generate_video:scene-1")?.dependsOn)
       .toEqual(resolved.map((operation) => operation.id));
     expect(operations.find((operation) => operation.type === "build_composition")?.dependsOn)
@@ -292,11 +282,11 @@ describe("media production contracts", () => {
     })).toThrow(/narration.*target|timeline/i);
   });
 
-  it("rejects Lyria lyrics when instrumental mode is selected", () => {
+  it("rejects ElevenLabs lyrics when instrumental mode is selected", () => {
     expect(() => generatedMusicSpecSchema.parse({
-      modelCapability: "lyria-3-clip", prompt: "bright pop",
+      modelCapability: "elevenlabs-music", prompt: "bright pop",
       instrumental: true, lyricsMode: "provided", providedLyrics: "hello",
-      language: "en", targetDurationSec: 30, outputCount: 1,
+      targetDurationSec: 30, outputCount: 1,
     })).toThrow(/lyrics/i);
   });
 
@@ -400,11 +390,11 @@ describe("media production contracts", () => {
     })).toThrow(/not active/i);
   });
 
-  it("prices Veo from duration and rejects unpriced preview Lyria without an override", () => {
+  it("prices Nova Reel from duration and rejects unpriced preview ElevenLabs without an override", () => {
     const plan = videoProductionPlanSchema.parse(basePlan);
-    expect(estimateGeneratedMediaCost(plan.scenes[0].video!)).toBe("0.320000");
+    expect(estimateGeneratedMediaCost(plan.scenes[0].video!, { "nova-reel": "0.080000" })).toBe("0.480000");
     expect(() => estimateGeneratedMediaCost(plan.soundtrack!)).toThrow(/pricing unavailable/i);
-    expect(estimateGeneratedMediaCost(plan.soundtrack!, { "lyria-3-clip": "0.120000" })).toBe("0.120000");
+    expect(estimateGeneratedMediaCost(plan.soundtrack!, { "elevenlabs-music": "0.120000" })).toBe("3.600000");
   });
 
   it("rejects a plan whose signed operation quotes do not exactly fund its paid graph", () => {
@@ -450,7 +440,7 @@ describe("media production contracts", () => {
 
   it("models provider pending as a durable nonterminal state", () => {
     const operation = mediaOperationSchema.parse({
-      id: "media-1", jobId: "job-1", actionId: "action-1", provider: "veo",
+      id: "media-1", jobId: "job-1", actionId: "action-1", provider: "nova_reel",
       state: "provider_pending", providerOperationId: "operations/123", attempt: 1,
       requestDigest: "a".repeat(64), estimatedCostUsd: "0.320000",
       createdAt: "2026-08-31T00:00:00.000Z", updatedAt: "2026-08-31T00:00:10.000Z",

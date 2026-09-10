@@ -10,8 +10,8 @@ from .activity_models import AgentActivityRecord
 from .usage import InvocationContext
 
 
-def _backend() -> Literal["google_cloud", "local"]:
-    return "google_cloud" if os.environ.get("K_SERVICE") else "local"
+def _backend() -> Literal["aws", "local"]:
+    return "aws" if (os.environ.get("AWS_EXECUTION_ENV") or os.environ.get("AGENTCORE_RUNTIME_ARN")) else "local"
 
 
 def _error_metadata(error: Exception | None) -> tuple[str | None, str | None]:

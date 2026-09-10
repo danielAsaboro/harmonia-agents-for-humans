@@ -16,7 +16,7 @@ const job = {
 } satisfies Job;
 const approval = {
   id: action.id, jobId: job.id, actionId: action.id, decision: "approved",
-  payloadDigest: actionPayloadDigest(action), actorType: "firebase_operator",
+  payloadDigest: actionPayloadDigest(action), actorType: "cognito_operator",
   actorSubjectId: "user-1", authenticationId: "session-1", channel: "dashboard",
   operationId: "job-1:approval:action-1", traceId: "a".repeat(32), decidedAt: "2026-08-26T01:00:00.000Z",
 } satisfies ApprovalDecision;

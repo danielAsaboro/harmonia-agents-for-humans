@@ -2,7 +2,7 @@ import type { Stage } from "./types";
 
 /**
  * Linear stage pipeline for the first vertical slice. Each entry maps a stage
- * to the stage that Pub/Sub should trigger once the current stage completes.
+ * to the stage that SQS should trigger once the current stage completes.
  */
 const NEXT_STAGE: Partial<Record<Stage, Stage>> = {
   queued: "collect_sources",

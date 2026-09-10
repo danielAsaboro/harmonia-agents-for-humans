@@ -45,9 +45,9 @@ def extract_media(
         title=title,
         mimeType=mime_type,
         contentDigest=sha256(body).hexdigest(),
-        extractorVersion=f"gemini-{content.model_used()}",
+        extractorVersion=content.model_used(),
         extractedAt=datetime.now(timezone.utc),
         segments=segments,
-        metadata={"durationSec": duration, "language": str(transcript.get("language") or "und")},
+        metadata={"durationSec": duration, "language": str(transcript.get("language") or "und"), "providerOperationId": str(transcript.get("providerOperationId") or "")},
         extractionReceiptId=receipt_id,
     )

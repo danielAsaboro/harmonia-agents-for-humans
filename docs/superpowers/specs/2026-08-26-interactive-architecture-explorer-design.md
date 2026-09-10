@@ -48,14 +48,14 @@ Validation runs at module initialization and in tests. It rejects:
 - external-effect nodes without an inbound approval relationship;
 - executed effects without a verification path;
 - agent nodes that claim approval, publishing, credential mutation, destructive, or effect-execution authority;
-- Agent Engine marked as durable workflow state;
-- Firestore omitted as the durable workflow owner;
+- AgentCore Runtime marked as durable workflow state;
+- DynamoDB omitted as the durable workflow owner;
 - pending-live integrations marked live or fully verified;
 - private absolute paths in public references.
 
 ## Required Architecture Content
 
-The initial overview contains meaningful summary nodes for operator surfaces, the Next.js control plane, APIs, durable workflow, ADK worker, Agent Engine, agent team, state, effects and verification, external services, and observability.
+The initial overview contains meaningful summary nodes for operator surfaces, the Next.js control plane, APIs, durable workflow, Strands worker, AgentCore Runtime, agent team, state, effects and verification, external services, and observability.
 
 Expansion reveals:
 
@@ -66,7 +66,7 @@ Expansion reveals:
 - Flo: the exact sequential Nimi → Dara → Temi flow;
 - Nova: five runtime skills and six read-only tools with public or workspace data scope;
 - effect safety: approval receipt → idempotency key → effect claim → provider/artifact execution → execution receipt → independent read-back → verification record, plus the uncertain-claim reconciliation branch;
-- state: Firestore collections, Pub/Sub delivery, exact-scope Memory Bank eligibility, asset storage, reservations, usage, claims, receipts, and verification records;
+- state: DynamoDB collections, SQS delivery, exact-scope AgentCore Memory eligibility, asset storage, reservations, usage, claims, receipts, and verification records;
 - APIs: authenticated route families and representative existing endpoints, plus the service-authenticated internal worker boundary;
 - observability: W3C propagation, metadata-only traces, usage normalization, reservations, and budget controls.
 
@@ -75,14 +75,14 @@ Agent and model allocation is exact:
 - Harmonia coordinator — Gemini 3.5 Flash-Lite;
 - Ryan strategist — Gemini 3.5 Flash;
 - Sophia multimodal analyst — Gemini 3.5 Flash;
-- Flo — ADK `SequentialAgent` exposed through `AgentTool`;
+- Flo — Strands `SequentialAgent` exposed through `AgentTool`;
 - Nimi copywriter — Gemma 3 12B IT;
 - Dara editor — Gemini 3.5 Flash;
 - Temi planner — Gemini 3.5 Flash-Lite;
 - Maya A2UI presenter — Gemini 3.5 Flash;
 - Nova insight liaison — Gemini 3.5 Flash.
 
-Authority labels state that the coordinator delegates only, cognitive agents cannot approve or execute effects, Temi proposes but does not execute, Nova is read-only, Agent Engine is ephemeral cognition, and Firestore is durable truth.
+Authority labels state that the coordinator delegates only, cognitive agents cannot approve or execute effects, Temi proposes but does not execute, Nova is read-only, AgentCore Runtime is ephemeral cognition, and DynamoDB is durable truth.
 
 ## Projection, Expansion, and Layout
 
@@ -119,7 +119,7 @@ Edges use color plus a textual label, marker shape, dash pattern, and legend ico
 - external effect — green solid effect marker after approval;
 - independent verification read-back — green double/dashed return arrow;
 - read-only retrieval — gray dashed arrow;
-- Memory Bank retrieval — violet dotted database arrow;
+- AgentCore Memory retrieval — violet dotted database arrow;
 - telemetry propagation — cyan dotted trace arrow;
 - failure, uncertainty, or blocked authority — red dashed stop marker.
 
@@ -145,7 +145,7 @@ Tests cover:
 
 - valid dataset parsing and all required node content;
 - duplicate IDs, dangling edges, parent cycles, private paths, and enum rejection;
-- approval, verification, agent-authority, Firestore ownership, and Agent Engine lifetime invariants;
+- approval, verification, agent-authority, DynamoDB ownership, and AgentCore Runtime lifetime invariants;
 - group projection, lifted edges, collapse/expand, search, filters, and presets;
 - URL parse/serialize and invalid deep-link restoration;
 - node selection and detail view-model content;

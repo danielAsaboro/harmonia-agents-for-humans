@@ -15,7 +15,7 @@ describe("agent documentation reference", () => {
       "noni-writing-skills", "dara-editing-skills",
       "Skill guidance is method, never evidence",
       "Search is a tool, not a skill",
-      "Memory Bank is advisory context, never authority",
+      "AgentCore Memory is advisory context, never authority",
     ]) expect(inventory).toContain(value);
   });
 
@@ -30,12 +30,12 @@ describe("agent documentation reference", () => {
     }
   });
 
-  it("keeps current runtime labels free of superseded role names and Temi tool-free claims", () => {
+  it("keeps current runtime labels free of superseded role names and obsolete provider registrations", () => {
     const current = [
       "README.md", "docs/agents/overview.mdx", "docs/agent-platform.mdx",
       "docs/pipeline.mdx", "docs/reference/agent-contracts.mdx",
       "docs/reference/agent-runtime-inventory.mdx",
     ].map((path) => readFileSync(path, "utf8")).join("\n");
-    expect(current).not.toMatch(/Sophia|Nimi copywriter|Temi[^\n]{0,120}(?:tool-free|has no tools)/i);
+    expect(current).not.toMatch(/Sophia|Nimi copywriter|google_search_agent|GoogleSearchTool/i);
   });
 });

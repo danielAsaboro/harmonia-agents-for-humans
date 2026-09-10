@@ -12,7 +12,7 @@ describe("Noni read-only research surface", () => {
   });
 
   it("requires applied receipts, successful verification, and canonical URLs", () => {
-    const source = readFileSync("src/lib/firestore.ts", "utf8");
+    const source = readFileSync("src/lib/repository.ts", "utf8");
     expect(source).toContain("export async function listVerifiedPublications");
     expect(source).toContain('receipt.outcome !== "applied"');
     expect(source).toContain("verification.verified");

@@ -2,18 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add explicit per-role generation/safety policy plus ADK-compatible evaluation, trajectory validation, and quality/cost comparison foundations for Harmonia.
+**Goal:** Add explicit per-role generation/safety policy plus Strands-compatible evaluation, trajectory validation, and quality/cost comparison foundations for Harmonia.
 
-**Architecture:** Extend the existing immutable `RoleModelCatalog` with provider-safe generation and safety policy, then pass that policy into every ADK `Agent`. Add a public, source-neutral evaluation contract and runner compatible with installed ADK 2.7.1; keep authorized demo inputs and real-model result files in the private parent workspace. Deterministic contract evaluators gate authority, grounding, and reference preservation before any rubric-based model comparison.
+**Architecture:** Extend the existing immutable `RoleModelCatalog` with provider-safe generation and safety policy, then pass that policy into every Strands `Agent`. Add a public, source-neutral evaluation contract and runner compatible with installed Strands 2.7.1; keep authorized demo inputs and real-model result files in the private parent workspace. Deterministic contract evaluators gate authority, grounding, and reference preservation before any rubric-based model comparison.
 
-**Tech Stack:** Python 3.12+, Pydantic 2, Google ADK 2.7.1, Google Gen AI `GenerateContentConfig`, pytest, existing pricing/usage catalog.
+**Tech Stack:** Python 3.12+, Pydantic 2, Strands Agents SDK 2.7.1, Google Gen AI `GenerateContentConfig`, pytest, existing pricing/usage catalog.
 
 **Spec:** `docs/superpowers/specs/2026-08-24-gear-prioritized-hardening-design.md`
 
 ## Global Constraints
 
 - Gemini 3.5 or newer is mandatory for the required Gemini roles.
-- Firestore remains operational truth; evaluation session state cannot authorize or execute external effects.
+- DynamoDB remains operational truth; evaluation session state cannot authorize or execute external effects.
 - Raw transcripts, private prompts, credentials, and real evaluation outputs stay outside the public repository.
 - `HARMONIA_MOCK_AI=1` and scripted models never count as real-model evaluation evidence.
 - Raw hidden chain-of-thought is never requested, stored, traced, or evaluated.
@@ -104,7 +104,7 @@ git add agent/harmonia_agent/role_models.py agent/tests/test_role_models.py
 git commit -m "feat: add versioned role generation policies"
 ```
 
-### Task 2: Wire generation and safety configuration into ADK agents
+### Task 2: Wire generation and safety configuration into Strands agents
 
 **Files:**
 - Create: `agent/harmonia_agent/generation_policy.py`
@@ -222,7 +222,7 @@ git add agent/harmonia_agent/evaluation_contracts.py agent/tests/test_evaluation
 git commit -m "feat: add Harmonia evaluation contracts"
 ```
 
-### Task 4: ADK 2.7 evalset loader and private-result boundary
+### Task 4: Strands 2.7 evalset loader and private-result boundary
 
 **Files:**
 - Create: `agent/harmonia_agent/evaluation_runner.py`
@@ -233,7 +233,7 @@ git commit -m "feat: add Harmonia evaluation contracts"
 
 **Interfaces:**
 - Produces: `load_eval_set(path: Path) -> google.adk.evaluation.eval_set.EvalSet`, `validate_eval_set_privacy(eval_set: EvalSet) -> None`, and CLI `python -m harmonia_agent.evaluation_runner --evalset PATH --output PATH`.
-- Consumes: installed ADK 2.7.1 `EvalSet`, `EvalCase`, and `AgentEvaluator.evaluate_eval_set`.
+- Consumes: installed Strands 2.7.1 `EvalSet`, `EvalCase`, and `AgentEvaluator.evaluate_eval_set`.
 
 - [ ] **Step 1: Write failing loader/privacy tests**
 
@@ -264,11 +264,11 @@ Run: `cd agent && ./.venv/bin/python -m pytest tests/test_evaluation_runner.py -
 
 Expected: loader and public evalset do not exist.
 
-- [ ] **Step 3: Implement the ADK-native loader and CLI**
+- [ ] **Step 3: Implement the Strands-native loader and CLI**
 
 Parse with `EvalSet.model_validate_json`. Enforce an allow-list of public fixture labels and reject transcript/media URI/credential markers. The CLI requires `HARMONIA_REAL_EVAL=1` for any live model run, refuses `HARMONIA_MOCK_AI=1`, accepts a private input path, and writes results only to the explicit output path. It calls `AgentEvaluator.evaluate_eval_set` with an explicit `EvalConfig`; it never embeds private results in the package.
 
-Pin the supported range already used by the application (`google-adk>=2.7,<3`) and document that ADK conformance recording is conditional on the installed release exposing the command; evalset execution is mandatory.
+Pin the supported range already used by the application (`google-adk>=2.7,<3`) and document that Strands conformance recording is conditional on the installed release exposing the command; evalset execution is mandatory.
 
 - [ ] **Step 4: Verify GREEN and CLI refusal behavior**
 
@@ -286,7 +286,7 @@ Expected: tests pass; CLI exits non-zero with an explicit refusal to run real ev
 
 ```bash
 git add agent/harmonia_agent/evaluation_runner.py agent/evals agent/tests/test_evaluation_runner.py agent/requirements.txt
-git commit -m "feat: add ADK-native evaluation runner"
+git commit -m "feat: add Strands-native evaluation runner"
 ```
 
 ### Task 5: Evaluation-backed model and cost comparison report
@@ -376,7 +376,7 @@ Expected: 0 test failures, 0 scoped lint errors, successful production build, an
 
 - [ ] **Step 3: Verify the requirement slice**
 
-Confirm from current files that every role has policy, every ADK agent receives it, deterministic contract evaluators cover all listed authority/grounding rules, the public evalset parses with ADK 2.7.1, mock mode cannot run the real-eval CLI, and model comparison refuses unknown pricing.
+Confirm from current files that every role has policy, every Strands agent receives it, deterministic contract evaluators cover all listed authority/grounding rules, the public evalset parses with Strands 2.7.1, mock mode cannot run the real-eval CLI, and model comparison refuses unknown pricing.
 
 - [ ] **Step 4: Commit**
 

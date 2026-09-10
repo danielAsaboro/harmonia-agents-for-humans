@@ -1,7 +1,8 @@
 import { contentArtifactSchema } from "@/lib/contentArtifacts/contracts";
-import { db, getJob } from "@/lib/firestore";
 import { internalTenantHandler } from "@/lib/internalAuth";
+import { getJob } from "@/lib/repository";
 import { currentTenant } from "@/lib/tenancy";
+import { awsRepository,recordKey } from "../../../../../lib/dynamo";
 
 async function get(
   req: Request,
@@ -20,11 +21,9 @@ async function get(
   );
   if (!summary) return Response.json({ error: "content artifact not found" }, { status: 404 });
   const tenant = currentTenant();
-  const revision = await db().doc(
-    `workspaces/${tenant.workspaceId}/jobs/${jobId}/content_artifacts/${id}/revisions/${summary.revision}`,
-  ).get();
-  if (!revision.exists) return Response.json({ error: "content artifact revision is missing" }, { status: 409 });
-  const artifact = contentArtifactSchema.parse(revision.data());
+  const revision = await awsRepository().read(recordKey(`workspaces/${tenant.workspaceId}/jobs/${jobId}/content_artifacts/${id}/revisions/${summary.revision}`));
+  if (!revision.present) return Response.json({ error: "content artifact revision is missing" }, { status: 409 });
+  const artifact = contentArtifactSchema.parse(revision.value);
   if (artifact.contentDigest !== digest || artifact.jobId !== jobId) {
     return Response.json({ error: "content artifact revision identity mismatch" }, { status: 409 });
   }

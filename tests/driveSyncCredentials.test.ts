@@ -1,6 +1,7 @@
+vi.mock("@/lib/dynamo", async importOriginal => { const original = await importOriginal<typeof import("@/lib/dynamo")>(); return {...original, awsRepository: () => ({patch: async () => undefined})}; });
 import { expect, it, vi } from "vitest";
 
-vi.mock("@/lib/firestore", () => ({
+vi.mock("@/lib/repository", () => ({
   getConnection: async () => ({ accessToken: "expired" }),
   db: () => ({ doc: () => ({ collection: () => ({ doc: () => ({ update: async () => undefined }) }) }), collection: () => ({}) }),
 }));

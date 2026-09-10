@@ -17,7 +17,7 @@ def envelope(*, status="success", retryable=False):
 
 def trace(response=None):
     return [
-        {"sequence": 1, "name": "load_skill", "args": {"skill_name": "job-status"}, "response": {"loaded": "job-status"}},
+        _native_activation(),
         {"sequence": 2, "name": "get_job_status", "args": {"job_id": "job-1"}, "response": response or envelope()},
     ]
 
@@ -41,7 +41,7 @@ def test_answer_requires_complete_strict_contract(field):
 
 @pytest.mark.parametrize(("mutation", "message"), [
     (lambda value, calls: value["claims"][0].update(evidenceIds=["invented"]), "unknown evidence"),
-    (lambda value, calls: calls.pop(0), "load exactly one skill first"),
+    (lambda value, calls: calls.pop(0), "preloaded skill activation"),
     (lambda value, calls: calls[1].update(name="fetch_trend_signals"), "not allowed by skill"),
     (lambda value, calls: value.update(answer="I approved and published it [ev-aaaaaaaaaaaaaaaa]."), "authority"),
 ])
@@ -76,9 +76,17 @@ def test_rejects_out_of_order_trace_and_false_no_data_answer():
 def test_rejects_multiple_data_tool_choices_for_one_answer():
     value = answer(); value["skillName"] = "posting-schedule"
     calls = [
-        {"sequence": 1, "name": "load_skill", "args": {"skill_name": "posting-schedule"}, "response": {}},
+        _native_activation(),
         {"sequence": 2, "name": "get_engagement_insights", "args": {}, "response": envelope()},
         {"sequence": 3, "name": "suggest_posting_windows", "args": {}, "response": envelope()},
     ]
     with pytest.raises(ValueError, match="one data-tool attempt"):
         validate_liaison_answer(LiaisonAnswer.model_validate(value), calls)
+
+
+def _native_activation():
+    from types import SimpleNamespace
+    from harmonia_agent.nova_liaison import reset_liaison_trace
+    context = SimpleNamespace(state={})
+    reset_liaison_trace(context)
+    return context.state["liaison_tool_trace"][0]

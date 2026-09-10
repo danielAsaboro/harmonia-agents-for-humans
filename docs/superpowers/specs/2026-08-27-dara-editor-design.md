@@ -10,7 +10,7 @@ The current boundary is strong on tool denial, evidence-ID allow-listing, and re
 
 ## Recommended architecture
 
-Dara's ADK output becomes `EditorialAssessment`, an agentic judgment with:
+Dara's Strands output becomes `EditorialAssessment`, an agentic judgment with:
 
 - exactly one check for each required dimension: `grounding`, `brief_alignment`, `brand_voice`, `platform_constraints`, `cta`, `safety`, and `clarity`;
 - each check containing `status` (`pass` or `fail`), a concise rationale, and supplied evidence/constraint references;
@@ -40,7 +40,7 @@ The ASCII-only safety boundary remains explicit until every semantic guard is Un
 
 ## Runtime and persistence
 
-The worker invokes Dara with `EditorialReviewInput`. ADK returns only `EditorialAssessment`. The deterministic wrapper validates it, builds `EditorialReview`, and continues the existing one-revision maximum. Firestore persists the complete original/revision drafts and rubric-bearing reviews under the canonical production-trace digest. UI surfaces show every rubric check, failed issue, resolution status, and deterministic review timestamp.
+The worker invokes Dara with `EditorialReviewInput`. Strands returns only `EditorialAssessment`. The deterministic wrapper validates it, builds `EditorialReview`, and continues the existing one-revision maximum. DynamoDB persists the complete original/revision drafts and rubric-bearing reviews under the canonical production-trace digest. UI surfaces show every rubric check, failed issue, resolution status, and deterministic review timestamp.
 
 ## Evaluation and verification
 

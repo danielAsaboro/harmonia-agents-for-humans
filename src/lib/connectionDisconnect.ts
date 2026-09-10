@@ -1,4 +1,4 @@
-import type { ConnectionDoc } from "./firestore";
+import type { ConnectionDoc } from "./repository";
 
 interface DisconnectDependencies {
   get(platform: string): Promise<ConnectionDoc | null>;

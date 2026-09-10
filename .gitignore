@@ -46,6 +46,7 @@ next-env.d.ts
 # python agent
 agent/.venv
 __pycache__/
+dynamodb-local-metadata.json
 *.pyc
 .pytest_cache/
 

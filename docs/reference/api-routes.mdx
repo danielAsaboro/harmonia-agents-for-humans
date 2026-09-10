@@ -19,9 +19,9 @@ Route handlers live under `src/app/api/`. Exact request schemas are enforced in 
 
 Internal routes cover stage claims and finalization, outbox delivery, job context, analysis, strategy, editorial plans, actions, receipts, verification, usage, budgets, assets, notifications, retention, and proactive cycles. An `internal` URL is not a security boundary by itself; deployment identity and server-side authentication are required.
 
-Production-plan routes create immutable revisions, expose the current plan, seal the exact revision, record the approval decision, and request cost-free rerenders. Internal production routes claim mandate-bound operations, persist source and provider submissions, attach generated artifacts, and finalize explicit failures. `POST /api/internal/production-outbox` publishes eligible production work; Pub/Sub delivery does not grant provider authority.
+Production-plan routes create immutable revisions, expose the current plan, seal the exact revision, record the approval decision, and request cost-free rerenders. Internal production routes claim mandate-bound operations, persist source and provider submissions, attach generated artifacts, and finalize explicit failures. `POST /api/internal/production-outbox` publishes eligible production work; SQS delivery does not grant provider authority.
 
-Large-batch workers use `/api/internal/data-plane/batches`, the batch dispatch and outcome routes, and per-item claim/finalize routes. Pub/Sub delivery never grants write authority by itself; the internal identity, tenant scope, lease token digest, and epoch fence do.
+Large-batch workers use `/api/internal/data-plane/batches`, the batch dispatch and outcome routes, and per-item claim/finalize routes. SQS delivery never grants write authority by itself; the internal identity, tenant scope, lease token digest, and epoch fence do.
 
 ## Operational control endpoints
 
@@ -71,4 +71,4 @@ All data-plane routes require the internal service boundary and tenant headers e
 | `POST /api/internal/data-plane/batches/{batchId}/items/{itemId}/claim` | Acquire or inspect a lease-fenced work claim. |
 | `POST /api/internal/data-plane/batches/{batchId}/items/{itemId}/finalize` | Finalize a claim using its epoch and original claim token. |
 
-Batch manifests permit 1 to 1,000,000 items. Firestore initialization writes at most 400 work items per commit. Dispatch concurrency is 1 to 100; claim attempt budgets are 1 to 20. Successful finalization requires at least one persisted artifact ID.
+Batch manifests permit 1 to 1,000,000 items. DynamoDB initialization writes at most 400 work items per commit. Dispatch concurrency is 1 to 100; claim attempt budgets are 1 to 20. Successful finalization requires at least one persisted artifact ID.

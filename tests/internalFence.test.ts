@@ -4,7 +4,7 @@ import { z } from "zod";
 const { assertDurableOperationFence } = vi.hoisted(() => ({
   assertDurableOperationFence: vi.fn(),
 }));
-vi.mock("@/lib/firestore", () => ({ assertDurableOperationFence }));
+vi.mock("@/lib/repository", () => ({ assertDurableOperationFence }));
 
 import { internalRoute, readOperationFenceHeaders } from "@/lib/internalHandler";
 

@@ -1,22 +1,22 @@
-import { FieldValue, type Firestore } from "@google-cloud/firestore";
+import { awsRepository,partition,recordKey,REMOVE_FIELD,type DynamoRepository } from "../dynamo";
 
-import { assertResourceWorkspace, currentTenant, tenantDocumentPath } from "../tenancy";
-import { dataBatchSchema, dataWorkItemSchema, type DataBatch, type DataWorkItem } from "./contracts";
-import { reduceBatchOutcome, type BatchOutcome } from "./fanIn";
+import { assertResourceWorkspace,currentTenant,tenantDocumentPath } from "../tenancy";
+import { dataBatchSchema,dataWorkItemSchema,type DataBatch,type DataWorkItem } from "./contracts";
+import { reduceBatchOutcome,type BatchOutcome } from "./fanIn";
 import {
-  claimWorkItem,
-  finalizeWorkItem,
-  type WorkItemClaimInput,
-  type WorkItemClaimResult,
-  type WorkItemFinalizeInput,
-  selectDispatchableItems,
+claimWorkItem,
+finalizeWorkItem,
+selectDispatchableItems,
+type WorkItemClaimInput,
+type WorkItemClaimResult,
+type WorkItemFinalizeInput,
 } from "./workItems";
 
 export class DataPlaneRepository {
-  constructor(private readonly firestore: Firestore) {}
+  constructor(private readonly repository: DynamoRepository) {}
 
   private batchRef(batchId: string) {
-    return this.firestore.doc(tenantDocumentPath(currentTenant(), "data_batches", batchId));
+    return recordKey(tenantDocumentPath(currentTenant(), "data_batches", batchId));
   }
 
   async create(batchInput: DataBatch, workInput: DataWorkItem[]): Promise<void> {
@@ -35,102 +35,110 @@ export class DataPlaneRepository {
       ids.add(item.id);
     }
     const batchRef = this.batchRef(batch.id);
-    await this.firestore.runTransaction(async (transaction) => {
-      const existing = await transaction.get(batchRef);
-      if (existing.exists) {
-        const stored = dataBatchSchema.parse(existing.data());
+    await this.repository.atomic(async (transaction) => {
+      const existing = await transaction.read(batchRef);
+      if (existing.present) {
+        const stored = dataBatchSchema.parse(existing.value);
         if (stored.state !== "initializing" && !(stored.state === "failed" && stored.failureCode === "initialization_incomplete")) {
           throw new Error("data batch already exists");
         }
         if (stored.manifest.sha256 !== batch.manifest.sha256 || stored.processorVersion !== batch.processorVersion) {
           throw new Error("data batch initialization identity mismatch");
         }
-        transaction.set(batchRef, { ...batch, state: "initializing", failureCode: FieldValue.delete() });
+        transaction.put(batchRef, { ...batch, state: "initializing", failureCode: REMOVE_FIELD });
       } else {
-        transaction.create(batchRef, { ...batch, state: "initializing" });
+        transaction.insert(batchRef, { ...batch, state: "initializing" });
       }
     });
     try {
-      for (let offset = 0; offset < work.length; offset += 400) {
-        const writer = this.firestore.batch();
-        for (const item of work.slice(offset, offset + 400)) writer.set(batchRef.collection("work_items").doc(item.id), item);
+      for (let offset = 0; offset < work.length; offset += 25) {
+        const writer = this.repository.writeGroup();
+        for (const item of work.slice(offset, offset + 25)) writer.put(recordKey(partition(batchRef.path + "/" + "work_items").partition + "/" + item.id), item);
         await writer.commit();
       }
-      await batchRef.update({ state: "pending", updatedAt: new Date().toISOString() });
+      await awsRepository().patch(batchRef, { state: "pending", updatedAt: new Date().toISOString() });
     } catch (error) {
-      await batchRef.update({ state: "failed", failureCode: "initialization_incomplete", updatedAt: new Date().toISOString() });
+      await awsRepository().patch(batchRef, { state: "failed", failureCode: "initialization_incomplete", updatedAt: new Date().toISOString() });
       throw error;
     }
   }
 
   async claim(batchId: string, itemId: string, input: WorkItemClaimInput): Promise<WorkItemClaimResult> {
     const batchRef = this.batchRef(batchId);
-    const itemRef = batchRef.collection("work_items").doc(itemId);
-    return this.firestore.runTransaction(async (transaction) => {
-      const [batchSnap, itemSnap] = await Promise.all([transaction.get(batchRef), transaction.get(itemRef)]);
-      if (!batchSnap.exists || !itemSnap.exists) throw new Error("data-plane aggregate not found");
-      const batch = dataBatchSchema.parse(batchSnap.data());
-      const item = dataWorkItemSchema.parse(itemSnap.data());
+    const itemRef = recordKey(partition(batchRef.path + "/" + "work_items").partition + "/" + itemId);
+    return this.repository.atomic(async (transaction) => {
+      const [batchSnap, itemSnap] = await Promise.all([transaction.read(batchRef), transaction.read(itemRef)]);
+      if (!batchSnap.present || !itemSnap.present) throw new Error("data-plane aggregate not found");
+      const batch = dataBatchSchema.parse(batchSnap.value);
+      const item = dataWorkItemSchema.parse(itemSnap.value);
       assertResourceWorkspace(currentTenant(), batch);
       assertResourceWorkspace(currentTenant(), item);
       if (batch.state === "cancelled") return { outcome: "cancelled", item: { ...item, state: "cancelled" } };
       const result = claimWorkItem(item, input);
-      if (result.item !== item) transaction.set(itemRef, result.item);
-      if (result.outcome === "execute" && batch.state === "pending") transaction.update(batchRef, { state: "running", updatedAt: input.now });
+      if (result.item !== item) transaction.put(itemRef, result.item);
+      if (result.outcome === "execute" && batch.state === "pending") transaction.patch(batchRef, { state: "running", updatedAt: input.now });
       return result;
     });
   }
 
   async finalize(batchId: string, itemId: string, input: WorkItemFinalizeInput): Promise<DataWorkItem> {
     const batchRef = this.batchRef(batchId);
-    const itemRef = batchRef.collection("work_items").doc(itemId);
-    return this.firestore.runTransaction(async (transaction) => {
+    const itemRef = recordKey(partition(batchRef.path + "/" + "work_items").partition + "/" + itemId);
+    return this.repository.atomic(async (transaction) => {
       const [batchSnapshot, snapshot, itemSnapshots] = await Promise.all([
-        transaction.get(batchRef), transaction.get(itemRef), transaction.get(batchRef.collection("work_items")),
+        transaction.read(batchRef), transaction.read(itemRef), transaction.read(partition(batchRef.path + "/" + "work_items")),
       ]);
-      if (!batchSnapshot.exists || !snapshot.exists) throw new Error("data work item not found");
-      const batch = dataBatchSchema.parse(batchSnapshot.data());
-      const current = dataWorkItemSchema.parse(snapshot.data());
+      if (!batchSnapshot.present || !snapshot.present) throw new Error("data work item not found");
+      const batch = dataBatchSchema.parse(batchSnapshot.value);
+      const current = dataWorkItemSchema.parse(snapshot.value);
       assertResourceWorkspace(currentTenant(), current);
       const finalized = finalizeWorkItem(current, input);
-      transaction.set(itemRef, finalized);
-      const items = itemSnapshots.docs.map((doc) => doc.id === itemId ? finalized : dataWorkItemSchema.parse(doc.data()));
+      transaction.put(itemRef, finalized);
+      const items = itemSnapshots.rows.map((doc) => doc.id === itemId ? finalized : dataWorkItemSchema.parse(doc.value));
       const result = reduceBatchOutcome(items, batch);
-      transaction.update(batchRef, { state: result.outcome, updatedAt: input.now });
+      transaction.patch(batchRef, { state: result.outcome, updatedAt: input.now });
       return finalized;
     });
   }
 
+  async getBatch(batchId: string): Promise<DataBatch> {
+    const snapshot=await this.repository.read(this.batchRef(batchId));
+    if(!snapshot.present)throw new Error("data batch not found");
+    const batch=dataBatchSchema.parse(snapshot.value);
+    assertResourceWorkspace(currentTenant(),batch);
+    return batch;
+  }
+
   async outcome(batchId: string): Promise<BatchOutcome> {
     const batchRef = this.batchRef(batchId);
-    const [batchSnapshot, itemSnapshots] = await Promise.all([batchRef.get(), batchRef.collection("work_items").get()]);
-    if (!batchSnapshot.exists) throw new Error("data batch not found");
-    const batch = dataBatchSchema.parse(batchSnapshot.data());
+    const [batchSnapshot, itemSnapshots] = await Promise.all([awsRepository().read(batchRef), awsRepository().query(partition(batchRef.path + "/" + "work_items"))]);
+    if (!batchSnapshot.present) throw new Error("data batch not found");
+    const batch = dataBatchSchema.parse(batchSnapshot.value);
     assertResourceWorkspace(currentTenant(), batch);
-    return reduceBatchOutcome(itemSnapshots.docs.map((doc) => dataWorkItemSchema.parse(doc.data())), batch);
+    return reduceBatchOutcome(itemSnapshots.rows.map((doc) => dataWorkItemSchema.parse(doc.value)), batch);
   }
 
   async dispatchable(batchId: string, now: string): Promise<{ batch: DataBatch; items: DataWorkItem[] }> {
     const batchRef = this.batchRef(batchId);
-    const [batchSnapshot, itemSnapshots] = await Promise.all([batchRef.get(), batchRef.collection("work_items").get()]);
-    if (!batchSnapshot.exists) throw new Error("data batch not found");
-    const batch = dataBatchSchema.parse(batchSnapshot.data());
+    const [batchSnapshot, itemSnapshots] = await Promise.all([awsRepository().read(batchRef), awsRepository().query(partition(batchRef.path + "/" + "work_items"))]);
+    if (!batchSnapshot.present) throw new Error("data batch not found");
+    const batch = dataBatchSchema.parse(batchSnapshot.value);
     assertResourceWorkspace(currentTenant(), batch);
     if (!["pending", "running"].includes(batch.state)) return { batch, items: [] };
-    const items = itemSnapshots.docs.map((doc) => dataWorkItemSchema.parse(doc.data()));
+    const items = itemSnapshots.rows.map((doc) => dataWorkItemSchema.parse(doc.value));
     return { batch, items: selectDispatchableItems(items, { now, maxInFlight: batch.maxInFlight }) };
   }
 
   async markDispatched(batchId: string, itemId: string, dispatchedAt: string): Promise<void> {
     if (!Number.isFinite(Date.parse(dispatchedAt))) throw new Error("invalid data work dispatch time");
-    const itemRef = this.batchRef(batchId).collection("work_items").doc(itemId);
-    await this.firestore.runTransaction(async (transaction) => {
-      const snapshot = await transaction.get(itemRef);
-      if (!snapshot.exists) throw new Error("data work item not found");
-      const item = dataWorkItemSchema.parse(snapshot.data());
+    const itemRef = recordKey(partition(this.batchRef(batchId).path + "/" + "work_items").partition + "/" + itemId);
+    await this.repository.atomic(async (transaction) => {
+      const snapshot = await transaction.read(itemRef);
+      if (!snapshot.present) throw new Error("data work item not found");
+      const item = dataWorkItemSchema.parse(snapshot.value);
       assertResourceWorkspace(currentTenant(), item);
       if (item.state !== "pending" && item.state !== "failed") return;
-      transaction.update(itemRef, { lastDispatchedAt: dispatchedAt, dispatchCount: (item.dispatchCount ?? 0) + 1, updatedAt: dispatchedAt });
+      transaction.patch(itemRef, { lastDispatchedAt: dispatchedAt, dispatchCount: (item.dispatchCount ?? 0) + 1, updatedAt: dispatchedAt });
     });
   }
 }

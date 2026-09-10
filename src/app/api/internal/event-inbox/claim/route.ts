@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { durableEventClaimSchema } from "@/lib/contracts";
-import { claimDurableEvent } from "@/lib/firestore";
+import { claimDurableEvent } from "@/lib/repository";
 import { eventPayloadDigest } from "@/lib/eventInbox";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { internalRoute } from "@/lib/internalHandler";
@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     const now = new Date();
     const result = await claimDurableEvent({
       envelope: body.envelope,
-      pubsubMessageId: body.pubsubMessageId,
+      transportMessageId: body.transportMessageId,
       ownerTokenDigest: digest(body.claimToken),
       now: now.toISOString(),
       claimUntil: new Date(now.getTime() + 5 * 60 * 1000).toISOString(),

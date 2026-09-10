@@ -1,4 +1,4 @@
-import { listVerifiedPublications } from "@/lib/firestore";
+import { listVerifiedPublications } from "@/lib/repository";
 import { internalTenantHandler } from "@/lib/internalAuth";
 
 async function get(req: Request) {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { appendEvent, getJob, saveCampaignOutputPlan } from "@/lib/firestore";
+import { appendEvent, getJob, saveCampaignOutputPlan } from "@/lib/repository";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { planOutputProjection } from "@/lib/outputPlanning";

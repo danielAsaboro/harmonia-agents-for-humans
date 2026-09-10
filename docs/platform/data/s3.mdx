@@ -1,0 +1,17 @@
+---
+title: "S3 assets"
+description: "Quarantine, immutable assets, and digest verification."
+---
+
+## How Harmonia uses it
+
+
+Uploads enter tenant-scoped quarantine, pass authenticated malware scanning, then promote to sealed source objects. Generated media, exports, and large records use immutable keys. Verification reads the stored bytes and recomputes SHA-256. Retained external GCS libraries are source connectors, not internal storage.
+
+## Implementation
+
+`src/lib/storage.ts`
+
+## Evidence status
+
+This AWS edition has no authenticated deployment or provider rehearsal yet. Paid validation remains disabled. Local checks are reported separately from live proof.

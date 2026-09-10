@@ -13,7 +13,7 @@ DARA_ARTIFACT_INSTRUCTION += "\n\n" + _OPERATOR_BRIEF_METHOD
 
 
 def compiled_artifact_context_ready() -> dict[str, str]:
-    """Authority-free ADK marker for the already compiled static skill context."""
+    """Authority-free Strands marker for the already compiled static skill context."""
     return {"status": "ready"}
 
 

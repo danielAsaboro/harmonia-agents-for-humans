@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { trace } from "@opentelemetry/api";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
-import { buildStageMessage } from "@/lib/pubsub";
+import { buildStageMessage } from "@/lib/queue";
 
 describe("trace propagation", () => {
   it("adds W3C trace context without placing content in attributes", async () => {

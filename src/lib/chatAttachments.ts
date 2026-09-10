@@ -1,15 +1,17 @@
+import { DeleteObjectCommand,GetObjectCommand,PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { createHash } from "node:crypto";
 import path from "node:path";
-import { Storage } from "@google-cloud/storage";
-import { db } from "./firestore";
+import { awsRepository,partition,recordKey } from "./dynamo";
 import { newId } from "./idempotency";
-import { getArtifact, putArtifact } from "./storage";
-import { scanAttachmentBytes, type MalwareScanResult } from "./malwareScan";
+import { scanAttachmentBytes,type MalwareScanResult } from "./malwareScan";
+import { artifactBucket,getArtifact,putArtifact,s3Client } from "./storage";
 import {
-  assertResourceWorkspace,
-  currentTenant,
-  tenantCollectionPath,
-  tenantSubjectId,
-  type TenantScope,
+assertResourceWorkspace,
+currentTenant,
+tenantCollectionPath,
+tenantSubjectId,
+type TenantScope,
 } from "./tenancy";
 
 export type AttachmentCategory = "image" | "video" | "audio" | "document";
@@ -38,7 +40,7 @@ const CATEGORY_LIMITS: Record<AttachmentCategory, number> = {
   document: 50 * 1024 * 1024,
   // Product limits bound upload, scan, storage, ffmpeg, and transcription
   // work. The worker routes media above its conservative inline threshold
-  // through Gemini's Files API instead of base64-encoding it in the request.
+  // through scoped S3 assets instead of base64-encoding it in the request.
   audio: 24 * 1024 * 1024,
   video: 24 * 1024 * 1024,
 };
@@ -64,6 +66,7 @@ export interface ChatAttachment extends ValidAttachmentInput {
   createdAt: string;
   updatedAt: string;
   error?: string;
+  sha256?: string;
   malwareScan?: MalwareScanResult & { scannedAt: string };
 }
 
@@ -122,17 +125,17 @@ function assertAttachmentContent(bytes: Uint8Array, declaredMime: string): void 
 }
 
 function collection() {
-  return db().collection(tenantCollectionPath(currentTenant(), "chat_attachments"));
+  return partition(tenantCollectionPath(currentTenant(), "chat_attachments"));
 }
 
 export async function saveChatAttachment(attachment: ChatAttachment): Promise<void> {
-  await collection().doc(attachment.id).set(attachment);
+  await awsRepository().put(recordKey(collection().partition + "/" + attachment.id), attachment);
 }
 
 export async function getChatAttachment(id: string): Promise<ChatAttachment | null> {
-  const snap = await collection().doc(id).get();
-  if (!snap.exists) return null;
-  const attachment = snap.data() as ChatAttachment;
+  const snap = await awsRepository().read(recordKey(collection().partition + "/" + id));
+  if (!snap.present) return null;
+  const attachment = snap.value as unknown as ChatAttachment;
   assertResourceWorkspace(currentTenant(), attachment);
   return attachment;
 }
@@ -162,7 +165,7 @@ export async function createAttachmentUploadSession(
   const tenant = currentTenant();
   const id = newId();
   const objectName = attachmentObjectName(tenant, id, valid.filename);
-  const bucketName = process.env.GCS_BUCKET;
+  const bucketName = artifactBucket();
   const now = new Date().toISOString();
   const attachment: ChatAttachment = {
     ...valid,
@@ -171,59 +174,41 @@ export async function createAttachmentUploadSession(
     brandId: tenant.brandId,
     createdByUserId: tenantSubjectId(tenant),
     objectName,
-    storageUri: bucketName ? `gs://${bucketName}/${objectName}` : `file://chat-attachments/${id}`,
+    storageUri: `s3://${bucketName}/${objectName}`,
     state: "pending",
     createdAt: now,
     updatedAt: now,
   };
   await saveChatAttachment(attachment);
 
-  if (!bucketName) {
-    return {
-      attachment,
-      uploadUrl: `/api/chat/attachments/${id}`,
-      method: "PUT",
-      headers: { "content-type": valid.mime },
-    };
-  }
-
-  const file = new Storage().bucket(bucketName).file(objectName);
-  const [uploadUrl] = await file.createResumableUpload({
-    origin,
-    metadata: {
-      contentType: valid.mime,
-      metadata: {
-        attachmentId: id,
-        workspaceId: tenant.workspaceId,
-        brandId: tenant.brandId,
-      },
-    },
-  });
-  await collection().doc(id).set({ state: "uploading", updatedAt: new Date().toISOString() }, { merge: true });
+  void origin;
+  const uploadUrl = await getSignedUrl(s3Client(), new PutObjectCommand({
+    Bucket: bucketName, Key: objectName, ContentType: valid.mime, ContentLength: valid.sizeBytes,
+  }), { expiresIn: 600 });
+  await awsRepository().put(recordKey(collection().partition + "/" + id), { state: "uploading", updatedAt: new Date().toISOString() }, { merge: true });
   return { attachment: { ...attachment, state: "uploading" }, uploadUrl, method: "PUT", headers: { "content-type": valid.mime } };
 }
 
-export async function storeLocalAttachment(id: string, bytes: Uint8Array, mime: string): Promise<ChatAttachment> {
+export async function storeAttachmentBytes(id: string, bytes: Uint8Array, mime: string): Promise<ChatAttachment> {
   const attachment = await getChatAttachment(id);
   if (!attachment) throw new Error("attachment not found");
-  if (process.env.GCS_BUCKET) throw new Error("local attachment upload is disabled");
   if (mime !== attachment.mime || bytes.byteLength !== attachment.sizeBytes) {
     throw new Error("uploaded bytes do not match attachment metadata");
   }
   assertAttachmentContent(bytes, attachment.mime);
-  await collection().doc(id).set({ state: "scanning", updatedAt: new Date().toISOString() }, { merge: true });
+  await awsRepository().put(recordKey(collection().partition + "/" + id), { state: "scanning", updatedAt: new Date().toISOString() }, { merge: true });
   try {
     const scan = await scanAttachmentBytes(bytes, mime);
     if (scan.verdict === "infected") {
-      await collection().doc(id).set({
+      await awsRepository().put(recordKey(collection().partition + "/" + id), {
         state: "rejected", error: "malware detected", malwareScan: { ...scan, scannedAt: new Date().toISOString() },
         updatedAt: new Date().toISOString(),
       }, { merge: true });
       throw new Error("attachment rejected by malware scanner");
     }
-    await putArtifact(`chat_attachment_${id}`, bytes, mime);
+    const storageUri = await putArtifact(`chat_attachment_${id}`, bytes, mime);
     const ready = {
-      ...attachment, state: "ready" as const,
+      ...attachment, state: "ready" as const, storageUri, sha256: createHash("sha256").update(bytes).digest("hex"),
       malwareScan: { ...scan, scannedAt: new Date().toISOString() },
       updatedAt: new Date().toISOString(),
     };
@@ -231,7 +216,7 @@ export async function storeLocalAttachment(id: string, bytes: Uint8Array, mime: 
     return ready;
   } catch (error) {
     if ((await getChatAttachment(id))?.state !== "rejected") {
-      await collection().doc(id).set({
+      await awsRepository().put(recordKey(collection().partition + "/" + id), {
         state: "quarantined", error: "malware scan unavailable", updatedAt: new Date().toISOString(),
       }, { merge: true });
     }
@@ -243,36 +228,36 @@ export async function completeAttachmentUpload(id: string): Promise<ChatAttachme
   const attachment = await getChatAttachment(id);
   if (!attachment) throw new Error("attachment not found");
   if (attachment.state === "ready") return attachment;
-  const bucketName = process.env.GCS_BUCKET;
-  if (!bucketName) throw new Error("local upload has not completed");
-  const file = new Storage().bucket(bucketName).file(attachment.objectName);
-  const [metadata] = await file.getMetadata();
-  if (!metadataMatchesAttachment(attachment, metadata)) {
-    await collection().doc(id).set({ state: "failed", error: "cloud object metadata mismatch", updatedAt: new Date().toISOString() }, { merge: true });
-    await file.delete({ ignoreNotFound: true });
+  const bucketName = artifactBucket();
+  const object = await s3Client().send(new GetObjectCommand({ Bucket: bucketName, Key: attachment.objectName }));
+  const bytes = Buffer.from(await object.Body!.transformToByteArray());
+  const removeUpload = () => s3Client().send(new DeleteObjectCommand({Bucket: bucketName, Key: attachment.objectName}));
+  if (!metadataMatchesAttachment(attachment, { contentType: object.ContentType, size: bytes.byteLength })) {
+    await awsRepository().put(recordKey(collection().partition + "/" + id), {state:"failed",error:"cloud object metadata mismatch",updatedAt:new Date().toISOString()},{merge:true});
+    await removeUpload();
     throw new Error("cloud object metadata mismatch");
   }
-  const [bytes] = await file.download();
   try {
     assertAttachmentContent(bytes, attachment.mime);
   } catch (error) {
-    await collection().doc(id).set({ state: "failed", error: "cloud object content mismatch", updatedAt: new Date().toISOString() }, { merge: true });
-    await file.delete({ ignoreNotFound: true });
+    await awsRepository().put(recordKey(collection().partition + "/" + id), { state: "failed", error: "cloud object content mismatch", updatedAt: new Date().toISOString() }, { merge: true });
+    await removeUpload();
     throw error;
   }
-  await collection().doc(id).set({ state: "scanning", updatedAt: new Date().toISOString() }, { merge: true });
+  await awsRepository().put(recordKey(collection().partition + "/" + id), { state: "scanning", updatedAt: new Date().toISOString() }, { merge: true });
   try {
     const scan = await scanAttachmentBytes(bytes, attachment.mime);
     if (scan.verdict === "infected") {
-      await file.delete({ ignoreNotFound: true });
-      await collection().doc(id).set({
+      await removeUpload();
+      await awsRepository().put(recordKey(collection().partition + "/" + id), {
         state: "rejected", error: "malware detected", malwareScan: { ...scan, scannedAt: new Date().toISOString() },
         updatedAt: new Date().toISOString(),
       }, { merge: true });
       throw new Error("attachment rejected by malware scanner");
     }
+    const storageUri = await putArtifact(`chat_attachment_${id}`, bytes, attachment.mime);
     const ready = {
-      ...attachment, state: "ready" as const,
+      ...attachment, state: "ready" as const, storageUri, sha256: createHash("sha256").update(bytes).digest("hex"),
       malwareScan: { ...scan, scannedAt: new Date().toISOString() },
       updatedAt: new Date().toISOString(),
     };
@@ -280,7 +265,7 @@ export async function completeAttachmentUpload(id: string): Promise<ChatAttachme
     return ready;
   } catch (error) {
     if ((await getChatAttachment(id))?.state !== "rejected") {
-      await collection().doc(id).set({
+      await awsRepository().put(recordKey(collection().partition + "/" + id), {
         state: "quarantined", error: "malware scan unavailable", updatedAt: new Date().toISOString(),
       }, { merge: true });
     }
@@ -289,27 +274,13 @@ export async function completeAttachmentUpload(id: string): Promise<ChatAttachme
 }
 
 export async function getAttachmentDelivery(id: string): Promise<{ redirect?: string; bytes?: Buffer; mime: string }> {
-  const attachment = await getChatAttachment(id);
-  if (!attachment || attachment.state !== "ready") throw new Error("attachment not ready");
-  const bucketName = process.env.GCS_BUCKET;
-  if (bucketName) {
-    const [redirect] = await new Storage().bucket(bucketName).file(attachment.objectName).getSignedUrl({ action: "read", expires: Date.now() + 5 * 60 * 1000, responseType: attachment.mime });
-    return { redirect, mime: attachment.mime };
-  }
-  const bytes = await getArtifact(`chat_attachment_${id}`);
-  if (!bytes) throw new Error("attachment bytes not found");
+  const { bytes, attachment } = await getAttachmentBytesForInternal(id);
   return { bytes, mime: attachment.mime };
 }
-
 export async function getAttachmentBytesForInternal(id: string): Promise<{ bytes: Buffer; attachment: ChatAttachment }> {
   const attachment = await getChatAttachment(id);
-  if (!attachment || attachment.state !== "ready") throw new Error("attachment not ready");
-  const bucketName = process.env.GCS_BUCKET;
-  if (bucketName) {
-    const [bytes] = await new Storage().bucket(bucketName).file(attachment.objectName).download();
-    return { bytes, attachment };
-  }
+  if (!attachment || attachment.state !== "ready" || !attachment.sha256) throw new Error("attachment not ready");
   const bytes = await getArtifact(`chat_attachment_${id}`);
-  if (!bytes) throw new Error("attachment bytes not found");
+  if (!bytes || createHash("sha256").update(bytes).digest("hex") !== attachment.sha256) throw new Error("attachment bytes missing or digest mismatch");
   return { bytes, attachment };
 }

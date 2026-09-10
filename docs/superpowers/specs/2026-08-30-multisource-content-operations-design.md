@@ -83,7 +83,7 @@ collect_sources
 
 The existing `ingest` and `transcribe` stages are removed. Media transcription is an extraction operation within `extract_sources`.
 
-Every transition remains Firestore-authoritative and Pub/Sub-triggered. A transition and its outbox record are committed atomically. Workers acquire a stage lease before processing. Duplicate delivery must not duplicate extraction, rendering, publication, or verification.
+Every transition remains DynamoDB-authoritative and SQS-triggered. A transition and its outbox record are committed atomically. Workers acquire a stage lease before processing. Duplicate delivery must not duplicate extraction, rendering, publication, or verification.
 
 ## Source Registry
 
@@ -157,7 +157,7 @@ interface SourceRecord {
 }
 ```
 
-State changes use optimistic revision checks or Firestore transactions. A completed extraction with the same source version and extractor version is reused by digest rather than repeated.
+State changes use optimistic revision checks or DynamoDB transactions. A completed extraction with the same source version and extractor version is reused by digest rather than repeated.
 
 ## Normalized Evidence
 
@@ -196,7 +196,7 @@ interface ContentSegment {
 
 Every moment, angle, strategy claim, content claim, and review finding references `sourceId`, `segmentId`, and the segment locator. Timestamp-only assumptions and transcript-only source packages are removed.
 
-Large normalized payloads and media bytes live in the artifact store. Firestore retains bounded metadata, digests, locators, and artifact references.
+Large normalized payloads and media bytes live in the artifact store. DynamoDB retains bounded metadata, digests, locators, and artifact references.
 
 ## Extraction Adapters
 
@@ -242,7 +242,7 @@ Credentials are stored in Secret Manager or the existing encrypted connection bo
 
 Supported cadences are hourly, every six hours, daily, and paused. Every six hours is the default. `Sync now` remains available.
 
-Cloud Scheduler triggers a workspace-scoped sync operation. The sync enumerates authorized files incrementally using Drive change tokens or GCS generations, validates policy, extracts changed files, and constructs a new immutable manifest. A new snapshot becomes current only after the sync reaches a healthy terminal state.
+EventBridge Scheduler triggers a workspace-scoped sync operation. The sync enumerates authorized files incrementally using Drive change tokens or GCS generations, validates policy, extracts changed files, and constructs a new immutable manifest. A new snapshot becomes current only after the sync reaches a healthy terminal state.
 
 A failed sync preserves the previous healthy snapshot. Deleted, moved, or access-revoked provider files disappear from future snapshots but remain referenced by historical manifests according to retention policy.
 
@@ -352,7 +352,7 @@ Neither chat nor Telegram text directly authorizes destructive steering or publi
 
 Monitoring includes library syncs, snapshot IDs, source states, extractor operations, manifest revisions, nudges, invalidations, approval revocations, and recovery operations. Telemetry remains metadata-only.
 
-The evidence collector must correlate the demonstrated job with its source manifest, library snapshot, extraction receipts, Gemini/ADK calls, output plan, approvals, effects, verifications, and trace ID.
+The evidence collector must correlate the demonstrated job with its source manifest, library snapshot, extraction receipts, Gemini/Strands calls, output plan, approvals, effects, verifications, and trace ID.
 
 ## Security and Policy
 
@@ -386,7 +386,7 @@ Implementation follows test-driven development. Required automated coverage incl
 14. Studio, Settings, chat, Telegram, A2UI, monitoring, and evidence contracts; and
 15. one full mixed-source local integration workflow.
 
-Offline and emulator tests prove contracts only. Production claims require authenticated evidence for Drive, GCS, public web, documents, media, Gemini, Agent Engine, Firestore, Pub/Sub, Cloud Scheduler, rendering, external effects, and verification.
+Offline and emulator tests prove contracts only. Production claims require authenticated evidence for Drive, GCS, public web, documents, media, Gemini, AgentCore Runtime, DynamoDB, SQS, EventBridge Scheduler, rendering, external effects, and verification.
 
 ## Acceptance Criteria
 

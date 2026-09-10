@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const syncCadenceSchema = z.enum(["hourly", "six_hours", "daily", "paused"]);
 export const librarySelectorSchema = z.discriminatedUnion("provider", [
+  z.object({ provider: z.literal("s3"), bucket: z.string().min(3).max(63), prefix: z.string().max(1024).refine(value => !value.split("/").includes("..")) }).strict(),
   z.object({ provider: z.literal("google_drive"), driveId: z.string().min(1), folderId: z.string().min(1) }).strict(),
   z.object({ provider: z.literal("gcs"), projectId: z.string().min(1), bucket: z.string().regex(/^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/), prefix: z.string().max(1024).refine((value) => !value.split("/").includes(".."), "prefix traversal is forbidden") }).strict(),
 ]);

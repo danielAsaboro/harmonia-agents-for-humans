@@ -1,4 +1,4 @@
-import { getTelegramConnection } from "@/lib/firestore";
+import { getTelegramConnection } from "@/lib/repository";
 import { internalTenantHandler } from "@/lib/internalAuth";
 
 async function get(_req: Request) {

@@ -6,18 +6,11 @@ import json
 import re
 from typing import Any
 
-from google.adk.agents import Agent
-from google.adk.agents.context import Context
-from google.adk.models.base_llm import BaseLlm
-from google.adk.tools import VertexAiSearchTool, google_search
-from google.adk.tools.agent_tool import AgentTool
-from google.adk.tools.base_tool import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .provider_schema import vertex_output_schema
 
 NIMI_RESEARCH_TRACE_KEY = "nimi_analysis_research_trace"
-PUBLIC_SEARCH_TOOL = "nimi_google_search_agent"
+PUBLIC_SEARCH_TOOL = "nimi_gateway_search"
 PRIVATE_SEARCH_TOOL = "nimi_agent_search_agent"
 
 
@@ -31,8 +24,8 @@ class GroundedAnalysisSource(BaseModel):
     @field_validator("url")
     @classmethod
     def require_source_uri(cls, value: str) -> str:
-        if not value.startswith(("https://", "http://", "gs://")):
-            raise ValueError("grounded source requires an HTTP(S) or GCS URI")
+        if not value.startswith(("https://", "http://", "s3://")):
+            raise ValueError("grounded source requires an HTTP(S) or S3 URI")
         return value
 
 
@@ -44,49 +37,38 @@ class GroundedAnalysisResearch(BaseModel):
     sources: list[GroundedAnalysisSource] = Field(min_length=1, max_length=8)
 
 
-def _research_agent(*, name: str, model: str | BaseLlm, mode: str, search_tool: BaseTool) -> AgentTool:
-    agent = Agent(
-        name=name, model=model,
-        description=f"Request-bound {mode} grounding for Nimi source analysis.",
-        instruction=(
-            "Use the supplied search tool only for the exact typed request. Return strict "
-            "GroundedAnalysisResearch JSON with unchanged requestId and mode, actual query, "
-            "stable analysis-search-* evidence IDs, titles, source URIs, and directly supported "
-            "text. Do not analyze source media, invent research, define strategy, or authorize actions."
-        ),
-        tools=[search_tool], output_schema=vertex_output_schema(GroundedAnalysisResearch),
-        output_key="grounded_analysis_research", mode="single_turn",
-    )
-    return AgentTool(agent=agent, propagate_grounding_metadata=True)
 
 
-def build_nimi_google_search_tool(model: str | BaseLlm) -> AgentTool:
-    return _research_agent(name=PUBLIC_SEARCH_TOOL, model=model, mode="public_web", search_tool=google_search)
 
 
-def build_nimi_agent_search_tool(model: str | BaseLlm, data_store_id: str) -> AgentTool:
-    if not data_store_id or not data_store_id.startswith("projects/") or "/dataStores/" not in data_store_id:
-        raise ValueError("Nimi Agent Search requires a real configured datastore resource")
-    return _research_agent(
-        name=PRIVATE_SEARCH_TOOL, model=model, mode="private_index",
-        search_tool=VertexAiSearchTool(data_store_id=data_store_id),
-    )
+def build_nimi_search_tool(model: Any) -> Any:
+    from .research import research_tool
+    return research_tool(PUBLIC_SEARCH_TOOL, "analysis")
 
 
-def reset_nimi_research_trace(callback_context: Context) -> None:
+
+def build_nimi_agent_search_tool(model: Any, data_store_id: str) -> Any:
+    from .research import research_tool
+    if not data_store_id:
+        raise ValueError("Knowledge base ID is required")
+    return research_tool(PRIVATE_SEARCH_TOOL, "analysis", knowledge_base_id=data_store_id)
+
+
+
+def reset_nimi_research_trace(callback_context: Any) -> None:
     callback_context.state[NIMI_RESEARCH_TRACE_KEY] = []
 
 
-def is_nimi_research_tool(tool: BaseTool) -> bool:
+def is_nimi_research_tool(tool: Any) -> bool:
     return tool.name in {PUBLIC_SEARCH_TOOL, PRIVATE_SEARCH_TOOL}
 
 
-def guard_nimi_research_tool(tool: BaseTool) -> None:
+def guard_nimi_research_tool(tool: Any) -> None:
     if not is_nimi_research_tool(tool):
         raise ValueError(f"Nimi used a prohibited research tool: {tool.name}")
 
 
-def record_nimi_research_tool(tool: BaseTool, args: dict[str, Any], tool_context: Context, tool_response: dict[str, Any]) -> None:
+def record_nimi_research_tool(tool: Any, args: dict[str, Any], tool_context: Any, tool_response: dict[str, Any]) -> None:
     trace = list(tool_context.state.get(NIMI_RESEARCH_TRACE_KEY) or [])
     trace.append({"sequence": len(trace) + 1, "name": tool.name, "args": dict(args), "response": tool_response})
     tool_context.state[NIMI_RESEARCH_TRACE_KEY] = trace
@@ -134,40 +116,11 @@ def validate_nimi_research_trace(
     query_terms = set(re.findall(r"[a-z0-9]+", result.query.lower()))
     if not {term for term in request_terms if len(term) > 3}.intersection(query_terms):
         raise ValueError("Nimi search query is outside the analysis research request")
-    metadata = _typed(grounding_metadata)
-    if not isinstance(metadata, dict):
-        raise ValueError("Nimi grounded search requires native grounding metadata")
-    chunks = metadata.get("groundingChunks") or metadata.get("grounding_chunks") or []
-    supports = metadata.get("groundingSupports") or metadata.get("grounding_supports") or []
-    if request.get("mode") == "public_web":
-        queries = metadata.get("webSearchQueries") or metadata.get("web_search_queries") or []
-        entry_point = metadata.get("searchEntryPoint") or metadata.get("search_entry_point")
-        if not queries or not entry_point:
-            raise ValueError("Nimi public search requires queries and search entry-point metadata")
-        context_key, evidence_kind = "web", "public_context"
-    else:
-        queries = metadata.get("retrievalQueries") or metadata.get("retrieval_queries") or []
-        if not queries:
-            raise ValueError("Nimi private search requires retrieval queries")
-        context_key, evidence_kind = "retrievedContext", "private_context"
-    evidence: dict[str, tuple[str, ...]] = {}
+    from .research import validate_provider_sources
+    validate_provider_sources(grounding_metadata, result.sources, mode=request.get("mode", "public_web"))
+    evidence = {}
     for source in result.sources:
-        indices = {
-            index for index, chunk in enumerate(chunks)
-            if isinstance(chunk, dict)
-            and isinstance(chunk.get(context_key), dict)
-            and chunk[context_key].get("title") == source.title
-            and chunk[context_key].get("uri") == source.url
-        }
-        supported = any(
-            isinstance(support, dict)
-            and indices.intersection(support.get("groundingChunkIndices") or support.get("grounding_chunk_indices") or [])
-            and source.supportedText in str((support.get("segment") or {}).get("text") or "")
-            for support in supports
-        )
-        if not indices or not supported:
-            raise ValueError("Nimi source is absent from native grounding metadata")
         if source.evidenceId in evidence:
-            raise ValueError("Nimi search returned duplicate evidence")
-        evidence[source.evidenceId] = (evidence_kind, source.supportedText, source.title, source.url)
+            raise ValueError("Research returned duplicate evidence")
+        evidence[source.evidenceId] = ( "private_context" if result.mode == "private_index" else "public_context", source.supportedText, source.title, source.url)
     return evidence

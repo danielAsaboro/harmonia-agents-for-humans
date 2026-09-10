@@ -1,4 +1,4 @@
-import { getGoals, listRecentEngagement } from "@/lib/firestore";
+import { getGoals, listRecentEngagement } from "@/lib/repository";
 import { internalTenantHandler } from "@/lib/internalAuth";
 
 /** Cross-job reaction insights + operator goals the agent injects into ideation. */

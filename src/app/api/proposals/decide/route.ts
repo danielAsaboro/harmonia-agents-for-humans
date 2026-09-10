@@ -3,12 +3,12 @@ import {
   appendEvent,
   decideProposal,
   getProposal,
-} from "@/lib/firestore";
+} from "@/lib/repository";
 import { operatorTenantHandler } from "@/lib/auth";
 import { queueStageTrigger } from "@/lib/stageTrigger";
 import { createSourceJob } from "@/lib/sourceManifest";
 import { currentTenant } from "@/lib/tenancy";
-import { sourceRightsAuthorization, sourceRightsAuthorizationId } from "@/lib/sourceRights";
+import { sourceRightsAuthorization, persistSourceRightsAuthorization } from "@/lib/sourceRights";
 
 /**
  * Operator decision on a proactive proposal. Approval composes the proposal's
@@ -41,7 +41,7 @@ async function post(req: Request) {
   const brief = briefParts.join("\n");
 
   const authorization = sourceRightsAuthorization(currentTenant(), "pasted_text");
-  const job = await createSourceJob({ directSources: [{ kind: "pasted_text", title: proposal.topic.slice(0, 300), text: brief, rightsAuthorizationId: sourceRightsAuthorizationId(authorization) }], desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] });
+  const job = await createSourceJob({ directSources: [{ kind: "pasted_text", title: proposal.topic.slice(0, 300), text: brief, rightsAuthorizationId: await persistSourceRightsAuthorization(authorization) }], desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] });
   await appendEvent(job.id, "collect_sources", `source job created from approved ${proposal.source} proposal ${proposal.id}`, "operator");
   await decideProposal(id, "approved", { jobId: job.id });
   await queueStageTrigger(job.id, "collect_sources");

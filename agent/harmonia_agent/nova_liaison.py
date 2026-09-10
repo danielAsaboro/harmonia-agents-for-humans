@@ -5,8 +5,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from google.adk.agents.context import Context
-from google.adk.tools.base_tool import BaseTool
 
 from .agent_models import LiaisonAnswer
 from .skills_runtime import _TOOL_CONTRACTS
@@ -22,12 +20,16 @@ _AUTHORITY = re.compile(
 _META_TOOLS = frozenset({"load_skill", "load_skill_resource"})
 
 
-def reset_liaison_trace(callback_context: Context) -> None:
-    callback_context.state[TRACE_KEY] = []
+def reset_liaison_trace(callback_context: Any) -> None:
+    from .skills_runtime import _SKILL_NAMES, SKILLS_DIR
+    from hashlib import sha256
+    callback_context.state[TRACE_KEY] = [{"sequence": 1, "kind": "skill_activation", "skills": {
+        name: sha256((SKILLS_DIR / name / "SKILL.md").read_bytes()).hexdigest() for name in _SKILL_NAMES
+    }}]
 
 
 def record_liaison_tool(
-    tool: BaseTool, args: dict[str, Any], tool_context: Context, tool_response: dict[str, Any],
+    tool: Any, args: dict[str, Any], tool_context: Any, tool_response: dict[str, Any],
 ) -> None:
     trace = list(tool_context.state.get(TRACE_KEY) or [])
     trace.append({
@@ -42,7 +44,7 @@ def record_liaison_tool(
 
 
 def record_liaison_tool_error(
-    tool: BaseTool, args: dict[str, Any], tool_context: Context, error: Exception,
+    tool: Any, args: dict[str, Any], tool_context: Any, error: Exception,
 ) -> dict[str, Any]:
     response = tool_error(
         "tool_execution_failed",
@@ -62,14 +64,15 @@ def _loaded_skill(entry: dict[str, Any]) -> str | None:
 
 def validate_liaison_answer(answer: LiaisonAnswer, trace: list[dict[str, Any]]) -> LiaisonAnswer:
     """Bind Nova's typed answer to the actual skill/tool sequence and envelopes."""
-    if not trace or trace[0].get("name") != "load_skill" or sum(item.get("name") == "load_skill" for item in trace) != 1:
-        raise ValueError("Nova must load exactly one skill first")
+    from .skills_runtime import SKILLS_DIR, _SKILL_NAMES
+    from hashlib import sha256
+    if not trace or trace[0].get("kind") != "skill_activation":
+        raise ValueError("Nova requires a preloaded skill activation")
+    if answer.skillName not in _SKILL_NAMES or trace[0].get("skills", {}).get(answer.skillName) != sha256((SKILLS_DIR / answer.skillName / "SKILL.md").read_bytes()).hexdigest():
+        raise ValueError("Nova answer skill does not match its preloaded activation")
     if [item.get("sequence") for item in trace] != list(range(1, len(trace) + 1)):
         raise ValueError("Nova tool trace sequence is invalid")
-    loaded = _loaded_skill(trace[0])
-    if loaded != answer.skillName:
-        raise ValueError("Nova answer skill does not match the actually loaded skill")
-    data_calls = [item for item in trace if item.get("name") not in _META_TOOLS]
+    data_calls = trace[1:]
     if not data_calls:
         raise ValueError("Nova must call at least one read tool after loading a skill")
     for item in trace[1:]:

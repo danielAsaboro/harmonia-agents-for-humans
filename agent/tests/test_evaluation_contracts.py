@@ -82,7 +82,7 @@ def test_trajectory_requires_exact_specialist_route():
 
 def test_liaison_evaluation_requires_exact_tool_and_evidence_citation():
     trace = [
-        {"sequence": 1, "name": "load_skill", "args": {"skill_name": "job-status"}, "response": {"loaded": "job-status"}},
+        _native_activation(),
         {"sequence": 2, "name": "get_job_status", "args": {"job_id": "j1"}, "response": {
             "status": "success", "data": {"found": True}, "error": None,
             "evidence": [{"evidenceId": "ev-aaaaaaaaaaaaaaaa", "source": "harmonia_firestore_job", "provenance": "live", "reference": "j1"}],
@@ -407,3 +407,11 @@ def test_maya_public_fixture_catalog_covers_required_modes():
     ids = {case["id"] for case in json.loads(fixture_path.read_text())["cases"]}
     assert ids == {"grounded-plan", "invented-reference", "wrong-job", "component-reference-mismatch",
                    "unsafe-approval", "host-state-component", "authority-overreach", "invalid-graph"}
+
+
+def _native_activation():
+    from types import SimpleNamespace
+    from harmonia_agent.nova_liaison import reset_liaison_trace
+    context = SimpleNamespace(state={})
+    reset_liaison_trace(context)
+    return context.state["liaison_tool_trace"][0]

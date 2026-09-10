@@ -4,15 +4,15 @@
 
 **Goal:** Add end-to-end OpenTelemetry trace propagation, immutable per-model usage records, versioned cost estimation, and enforceable job budgets before Harmonia adds heterogeneous models or paid generated media.
 
-**Architecture:** The Next.js control plane creates and propagates W3C trace context through Pub/Sub. The Python worker continues the trace across stages and ADK events, exports metadata-only spans to Cloud Trace, and reports normalized usage records to a new internal web endpoint. Firestore remains the durable source of truth for budgets and usage; a transactional reservation endpoint prevents a model call from exceeding a job budget.
+**Architecture:** The Next.js control plane creates and propagates W3C trace context through SQS. The Python worker continues the trace across stages and Strands events, exports metadata-only spans to CloudWatch traces, and reports normalized usage records to a new internal web endpoint. DynamoDB remains the durable source of truth for budgets and usage; a transactional reservation endpoint prevents a model call from exceeding a job budget.
 
-**Tech Stack:** Next.js 16, TypeScript, Zod, Firestore, Pub/Sub, Python 3.12, FastAPI, Google ADK 2.7.x, Pydantic 2, OpenTelemetry SDKs, Google Cloud Trace exporter, Vitest, pytest
+**Tech Stack:** Next.js 16, TypeScript, Zod, DynamoDB, SQS, Python 3.12, FastAPI, Strands Agents SDK 2.7.x, Pydantic 2, OpenTelemetry SDKs, Google CloudWatch traces exporter, Vitest, pytest
 
 **Spec:** `docs/superpowers/specs/2026-08-23-managed-multimodel-agent-platform-design.md`
 
 ## Global Constraints
 
-- Preserve Pub/Sub and Firestore as Harmonia's durable workflow control plane.
+- Preserve SQS and DynamoDB as Harmonia's durable workflow control plane.
 - Agents receive no publishing, approval, credential-management, or destructive tools.
 - Traces contain execution metadata and explicit structured decisions, never private chain-of-thought, raw prompts, raw responses, transcripts, or media bytes.
 - No provider or model failure silently falls back to another model or deterministic fixture output.
@@ -29,16 +29,16 @@
 ### New Python files
 
 - `agent/harmonia_agent/model_catalog.py` — versioned model rates and `Decimal` cost calculations.
-- `agent/harmonia_agent/usage.py` — immutable usage models, request estimates, and ADK event normalization.
+- `agent/harmonia_agent/usage.py` — immutable usage models, request estimates, and Strands event normalization.
 - `agent/harmonia_agent/telemetry.py` — tracer initialization, safe attributes, W3C carrier extraction, and test exporter support.
 - `agent/tests/test_model_catalog.py` — pricing and estimation tests.
 - `agent/tests/test_telemetry.py` — trace propagation and content-redaction tests.
-- `agent/tests/test_usage.py` — ADK usage normalization and reporting tests.
+- `agent/tests/test_usage.py` — Strands usage normalization and reporting tests.
 
 ### New TypeScript files
 
 - `src/lib/telemetry.ts` — W3C context creation/injection and server span helpers.
-- `src/lib/costs.ts` — budget and usage domain functions used by Firestore and routes.
+- `src/lib/costs.ts` — budget and usage domain functions used by DynamoDB and routes.
 - `src/app/api/internal/usage/route.ts` — authenticated usage finalization endpoint.
 - `src/app/api/internal/budget/reserve/route.ts` — authenticated transactional budget reservation endpoint.
 - `tests/telemetry.test.ts` — carrier behavior without network export.
@@ -48,7 +48,7 @@
 
 - `agent/requirements.txt` — Python OpenTelemetry dependencies.
 - `agent/harmonia_agent/config.py` — telemetry and pricing configuration.
-- `agent/harmonia_agent/main.py` — initialize instrumentation and extract Pub/Sub trace context.
+- `agent/harmonia_agent/main.py` — initialize instrumentation and extract SQS trace context.
 - `agent/harmonia_agent/agents.py` — spans for delegation/model validation and usage collection.
 - `agent/harmonia_agent/content.py` — transcription/image usage normalization.
 - `agent/harmonia_agent/stages.py` — stage spans, budget reservation, and usage reporting.
@@ -56,8 +56,8 @@
 - `package.json` and lockfile — Node OpenTelemetry dependencies.
 - `src/lib/types.ts` — additive trace, usage, budget, and pricing types.
 - `src/lib/contracts.ts` — internal usage and reservation schemas.
-- `src/lib/firestore.ts` — budget transaction and usage persistence.
-- `src/lib/pubsub.ts` — inject W3C trace context into Pub/Sub attributes.
+- `src/lib/repository.ts` — budget transaction and usage persistence.
+- `src/lib/queue.ts` — inject W3C trace context into SQS attributes.
 - `src/lib/advance.ts` — keep child context on stage publication.
 - `src/app/api/metrics/route.ts` — aggregate model usage and estimated cost.
 - `infra/setup.sh` — enable trace/telemetry services and minimum trace permissions.
@@ -183,7 +183,7 @@ git commit -m "feat(agent): add versioned model pricing catalog"
 
 ---
 
-### Task 2: Immutable Usage Records and ADK Usage Normalization
+### Task 2: Immutable Usage Records and Strands Usage Normalization
 
 **Files:**
 - Create: `agent/harmonia_agent/usage.py`
@@ -191,7 +191,7 @@ git commit -m "feat(agent): add versioned model pricing catalog"
 - Modify: `agent/harmonia_agent/agents.py`
 
 **Interfaces:**
-- Consumes: ADK event usage metadata and explicit role/model/stage/job context.
+- Consumes: Strands event usage metadata and explicit role/model/stage/job context.
 - Produces: `UsageRecord`, `UsageAccumulator.observe_event(event)`, `UsageAccumulator.finalize()`, and `estimate_request_tokens(payload, max_output_tokens)`.
 
 - [ ] **Step 1: Write failing usage tests**
@@ -286,7 +286,7 @@ class UsageAccumulator:
         )
 ```
 
-Extend `_run_coordinator` with `job_id`, `stage`, and `usage_sink` keyword arguments. Feed every emitted ADK event into the accumulator. Do not write Firestore from `agents.py`; return or report the normalized record through the injected sink.
+Extend `_run_coordinator` with `job_id`, `stage`, and `usage_sink` keyword arguments. Feed every emitted Strands event into the accumulator. Do not write DynamoDB from `agents.py`; return or report the normalized record through the injected sink.
 
 - [ ] **Step 4: Verify usage tests and existing team tests**
 
@@ -313,7 +313,7 @@ git commit -m "feat(agent): normalize per-role model usage"
 - Modify: `agent/harmonia_agent/main.py`
 
 **Interfaces:**
-- Consumes: W3C carriers from HTTP headers or Pub/Sub message attributes.
+- Consumes: W3C carriers from HTTP headers or SQS message attributes.
 - Produces: `configure_telemetry()`, `tracer()`, `extract_context(carrier)`, `inject_context(carrier)`, `current_trace_id()`, and `safe_attributes(values)`.
 
 - [ ] **Step 1: Add OpenTelemetry dependencies**
@@ -400,20 +400,20 @@ git commit -m "feat(agent): export metadata-only OpenTelemetry traces"
 
 ---
 
-### Task 4: W3C Context Across Next.js, Pub/Sub, and Worker Stages
+### Task 4: W3C Context Across Next.js, SQS, and Worker Stages
 
 **Files:**
 - Create: `src/lib/telemetry.ts`
 - Create: `tests/telemetry.test.ts`
 - Modify: `package.json`
 - Modify: lockfile
-- Modify: `src/lib/pubsub.ts`
+- Modify: `src/lib/queue.ts`
 - Modify: `agent/harmonia_agent/main.py`
 - Modify: `agent/harmonia_agent/stages.py`
 - Modify: `agent/harmonia_agent/web_client.py`
 
 **Interfaces:**
-- Consumes: active OpenTelemetry context and incoming Pub/Sub attributes.
+- Consumes: active OpenTelemetry context and incoming SQS attributes.
 - Produces: `buildStageMessage(jobId, stage, attempt)`, propagated `traceparent`/`tracestate`, and nested `harmonia.stage.execute` spans.
 
 - [ ] **Step 1: Install Node OpenTelemetry dependencies**
@@ -489,8 +489,8 @@ Expected: all focused tests pass.
 - [ ] **Step 5: Commit trace propagation**
 
 ```bash
-git add package.json package-lock.json src/lib/telemetry.ts src/lib/pubsub.ts tests/telemetry.test.ts agent/harmonia_agent/main.py agent/harmonia_agent/stages.py agent/harmonia_agent/web_client.py
-git commit -m "feat: propagate traces across Pub/Sub stages"
+git add package.json package-lock.json src/lib/telemetry.ts src/lib/queue.ts tests/telemetry.test.ts agent/harmonia_agent/main.py agent/harmonia_agent/stages.py agent/harmonia_agent/web_client.py
+git commit -m "feat: propagate traces across SQS stages"
 ```
 
 ---
@@ -504,7 +504,7 @@ git commit -m "feat: propagate traces across Pub/Sub stages"
 - Create: `tests/costs.test.ts`
 - Modify: `src/lib/types.ts`
 - Modify: `src/lib/contracts.ts`
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/repository.ts`
 - Modify: `src/lib/config.ts`
 - Modify: `agent/harmonia_agent/web_client.py`
 
@@ -589,7 +589,7 @@ export const usageRecordSchema = z.object({
 });
 ```
 
-- [ ] **Step 5: Implement idempotent Firestore transactions**
+- [ ] **Step 5: Implement idempotent DynamoDB transactions**
 
 Store reservations at `jobs/{jobId}/cost_reservations/{operationId}` and usage at `jobs/{jobId}/usage_records/{recordId}`.
 
@@ -638,7 +638,7 @@ Expected: all focused tests pass with no public route shape regressions.
 - [ ] **Step 8: Commit budget persistence**
 
 ```bash
-git add src/lib/costs.ts src/lib/types.ts src/lib/contracts.ts src/lib/firestore.ts src/lib/config.ts src/app/api/internal/budget/reserve/route.ts src/app/api/internal/usage/route.ts tests/costs.test.ts tests/contracts.test.ts agent/harmonia_agent/web_client.py
+git add src/lib/costs.ts src/lib/types.ts src/lib/contracts.ts src/lib/repository.ts src/lib/config.ts src/app/api/internal/budget/reserve/route.ts src/app/api/internal/usage/route.ts tests/costs.test.ts tests/contracts.test.ts agent/harmonia_agent/web_client.py
 git commit -m "feat: enforce transactional job model budgets"
 ```
 
@@ -655,7 +655,7 @@ git commit -m "feat: enforce transactional job model budgets"
 - Create: `agent/tests/test_cost_reporting.py`
 
 **Interfaces:**
-- Consumes: model request estimate, job/stage/role context, ADK usage metadata, trace identifier.
+- Consumes: model request estimate, job/stage/role context, Strands usage metadata, trace identifier.
 - Produces: `run_metered(reservation, reserve, invoke, finalize)`, one reservation and one usage record per provider invocation, plus `harmonia.agent.invoke`, `harmonia.agent.delegate`, `harmonia.model.generate`, and `harmonia.output.validate` spans.
 
 - [ ] **Step 1: Write a failing reservation-order test**
@@ -692,7 +692,7 @@ def test_model_call_reserves_budget_before_provider():
     assert order == ["reserve", "model", "usage"]
 ```
 
-Implement the test using the existing scripted fake ADK model so it remains offline and exercises a real Runner event sequence.
+Implement the test using the existing scripted fake Strands model so it remains offline and exercises a real Runner event sequence.
 
 - [ ] **Step 2: Add operation context to internal entry points**
 
@@ -707,7 +707,7 @@ class InvocationContext(BaseModel):
 
 The three team entry points receive it as a keyword-only argument. Stage callers derive deterministic operation IDs from `job_id`, stage, role, and attempt. Existing direct test calls use an explicit test context; no random operation ID is generated inside an agent function.
 
-- [ ] **Step 3: Reserve, trace, collect, and finalize each ADK invocation**
+- [ ] **Step 3: Reserve, trace, collect, and finalize each Strands invocation**
 
 Add this orchestration primitive to `usage.py` so ordering is independently testable:
 
@@ -739,7 +739,7 @@ For each invocation:
 4. Reserve the estimate before constructing/running the provider call.
 5. Open `harmonia.agent.invoke` and `harmonia.model.generate` spans.
 6. Add one `harmonia.agent.delegate` event with specialist and model identifiers.
-7. Accumulate usage metadata from every ADK event.
+7. Accumulate usage metadata from every Strands event.
 8. Open `harmonia.output.validate` around Pydantic validation.
 9. Finalize the usage record after valid output.
 10. On provider failure, preserve the reservation for idempotent retry using the same operation ID; do not create a second reservation.
@@ -761,7 +761,7 @@ Use the in-memory exporter to assert:
 
 Run: `cd agent && ./.venv/bin/python -m pytest tests -q`
 
-Expected: all tests pass; offline fixtures traverse the same reservation and usage normalization through an in-memory sink without contacting Firestore.
+Expected: all tests pass; offline fixtures traverse the same reservation and usage normalization through an in-memory sink without contacting DynamoDB.
 
 - [ ] **Step 7: Commit model instrumentation**
 
@@ -828,7 +828,7 @@ HARMONIA_TELEMETRY_ENABLED=1
 HARMONIA_TELEMETRY_SAMPLE_RATE=1.0
 OTEL_SERVICE_NAME=harmonia-agent or harmonia-web
 OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=NO_CONTENT
-ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false
+Strands_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false
 MODEL_PRICING_VERSION=2026-08-23
 ```
 
@@ -838,11 +838,11 @@ Do not enable raw prompt/response capture in deployment scripts.
 
 Document:
 
-- How W3C context crosses Pub/Sub.
+- How W3C context crosses SQS.
 - Which spans exist and which content is excluded.
 - How pricing versions and microdollar arithmetic work.
 - How reservations behave on retry.
-- How to locate a trace from a Firestore event trace ID.
+- How to locate a trace from a DynamoDB event trace ID.
 - How to compare per-role latency, token usage, and estimated cost.
 - That observed billing and application estimates are distinct.
 
@@ -873,7 +873,7 @@ git commit -m "docs: expose and deploy agent cost observability"
 
 This phase is complete only when all of the following are true:
 
-1. A stage trace can continue from Next.js through Pub/Sub into the Python worker.
+1. A stage trace can continue from Next.js through SQS into the Python worker.
 2. Agent delegation, model generation, and structured validation appear as nested spans.
 3. Traces contain no raw prompts, responses, transcripts, drafts, or media.
 4. Every real model invocation reserves budget before dispatch.

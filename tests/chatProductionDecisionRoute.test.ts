@@ -9,7 +9,7 @@ vi.mock("@/lib/pendingOperations", () => pending);
 vi.mock("@/lib/productionPlanStore", () => production);
 vi.mock("@/lib/auth", () => ({ operatorTenantHandler: (handler: unknown) => handler }));
 vi.mock("@/lib/decisions", () => ({ resolveDecision: vi.fn() }));
-vi.mock("@/lib/firestore", () => ({ decideStrategy: vi.fn() }));
+vi.mock("@/lib/repository", () => ({ decideStrategy: vi.fn() }));
 vi.mock("@/lib/stageOutboxDispatcher", () => ({ dispatchStageOutboxRecord: vi.fn() }));
 
 import { POST } from "@/app/api/chat/operations/[id]/decision/route";

@@ -1,4 +1,4 @@
-import { getAsset } from "@/lib/firestore";
+import { getAsset } from "@/lib/repository";
 import { createHash } from "node:crypto";
 import { getArtifact } from "@/lib/storage";
 import { internalTenantHandler } from "@/lib/internalAuth";

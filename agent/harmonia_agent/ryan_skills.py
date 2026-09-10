@@ -1,4 +1,4 @@
-"""Project-owned ADK strategy skill and fail-closed resource trace for Ryan."""
+"""Project-owned Strands strategy skill and fail-closed resource trace for Ryan."""
 
 from __future__ import annotations
 
@@ -7,17 +7,9 @@ import json
 import re
 from typing import Any
 
-from google.adk.agents import Agent
-from google.adk.models.base_llm import BaseLlm
-from google.adk.agents.context import Context
-from google.adk.skills import load_skill_from_dir
-from google.adk.tools import google_search, skill_toolset
-from google.adk.tools.agent_tool import AgentTool
-from google.adk.tools.base_tool import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .authority_records import skill_activation_records, validate_skill_activation
-from .provider_schema import vertex_output_schema
 
 RYAN_SKILL_NAME = "ryan-strategy-skills"
 RYAN_SKILL_TRACE_KEY = "ryan_strategy_skill_trace"
@@ -33,18 +25,11 @@ RYAN_SKILL_REFERENCES = (
     "references/evidence-learning-and-revision.md",
 )
 _LOAD_TOOLS = frozenset({"load_skill", "load_skill_resource"})
-_SEARCH_TOOL = "ryan_google_search_agent"
+_SEARCH_TOOL = "ryan_gateway_search"
 
 
-def build_ryan_strategy_skillset() -> skill_toolset.SkillToolset:
-    """Expose one filesystem skill and only its bounded resource loaders."""
-    skill = load_skill_from_dir(RYAN_SKILL_ROOT)
-    if skill.frontmatter.name != RYAN_SKILL_NAME:
-        raise RuntimeError("Ryan strategy skill name does not match its runtime contract")
-    return skill_toolset.SkillToolset(
-        skills=[skill],
-        tool_filter=sorted(_LOAD_TOOLS),
-    )
+
+
 
 
 def compiled_ryan_strategy_skill_context() -> str:
@@ -56,7 +41,7 @@ def compiled_ryan_strategy_skill_context() -> str:
     )
 
 
-def bootstrap_ryan_skill_trace(callback_context: Context) -> None:
+def bootstrap_ryan_skill_trace(callback_context: Any) -> None:
     callback_context.state[RYAN_RESEARCH_DISPATCH_KEY] = False
     callback_context.state[RYAN_SKILL_TRACE_KEY] = skill_activation_records(
         skill_name=RYAN_SKILL_NAME,
@@ -87,28 +72,13 @@ class GroundedStrategyResearch(BaseModel):
     sources: list[GroundedStrategySource] = Field(min_length=1, max_length=8)
 
 
-def build_ryan_google_search_tool(model: str | BaseLlm) -> AgentTool:
-    """Isolate native Google Search from Ryan's filesystem and function tools."""
-    agent = Agent(
-        name=_SEARCH_TOOL,
-        model=model,
-        description="Native Google Search grounding for one exact Ryan strategy research request.",
-        instruction=(
-            "Use google_search only for the exact request ID, question, and justification supplied. "
-            "Prefer primary sources and current information. Return strict GroundedStrategyResearch "
-            "JSON with the unchanged requestId, actual query, stable search-* evidence IDs, titles, "
-            "URLs, and only directly supported text. Never analyze Harmonia's private source, invent "
-            "customer research, change strategy, authorize an action, or access private data."
-        ),
-        tools=[google_search],
-        output_schema=vertex_output_schema(GroundedStrategyResearch),
-        output_key="grounded_strategy_research",
-        mode="single_turn",
-    )
-    return AgentTool(agent=agent, propagate_grounding_metadata=True)
+def build_ryan_search_tool(model: Any) -> Any:
+    from .research import research_tool
+    return research_tool(_SEARCH_TOOL, "strategy")
 
 
-def reset_ryan_skill_trace(callback_context: Context) -> None:
+
+def reset_ryan_skill_trace(callback_context: Any) -> None:
     callback_context.state[RYAN_SKILL_TRACE_KEY] = []
 
 
@@ -123,9 +93,9 @@ def _resource_path(args: dict[str, Any]) -> str | None:
 
 
 def guard_ryan_skill_tool(
-    tool: BaseTool, args: dict[str, Any], tool_context: Context,
+    tool: Any, args: dict[str, Any], tool_context: Any,
 ) -> None:
-    """Reject disallowed loaders and paths before ADK reads the resource."""
+    """Reject disallowed loaders and paths before Strands reads the resource."""
     if tool.name == "set_model_response":
         return
     if tool.name not in {*_LOAD_TOOLS, _SEARCH_TOOL}:
@@ -144,7 +114,7 @@ def guard_ryan_skill_tool(
             raise ValueError("Ryan search must use the exact research request")
         if tool_context.state.get(RYAN_RESEARCH_DISPATCH_KEY) or any(item.get("name") == _SEARCH_TOOL for item in tool_context.state.get(RYAN_SKILL_TRACE_KEY, [])):
             raise ValueError("Ryan may search only once per authorized request")
-        # ADK can dispatch parallel function calls. Reserve synchronously before
+        # Strands can dispatch parallel function calls. Reserve synchronously before
         # either call can await the provider, not after its result is recorded.
         tool_context.state[RYAN_RESEARCH_DISPATCH_KEY] = True
         return
@@ -155,9 +125,9 @@ def guard_ryan_skill_tool(
 
 
 def record_ryan_skill_tool(
-    tool: BaseTool,
+    tool: Any,
     args: dict[str, Any],
-    tool_context: Context,
+    tool_context: Any,
     tool_response: dict[str, Any],
 ) -> None:
     """Record only loader identity and arguments; skill prose is not evidence."""
@@ -273,35 +243,11 @@ def validate_ryan_skill_trace(
     query_terms = set(re.findall(r"[a-z0-9]+", result.query.lower()))
     if not {term for term in request_terms if len(term) > 3}.intersection(query_terms):
         raise ValueError("Ryan search query is outside the strategy research request")
-    metadata = (
-        grounding_metadata.model_dump(mode="json", by_alias=True)
-        if hasattr(grounding_metadata, "model_dump") else grounding_metadata
-    )
-    if not isinstance(metadata, dict):
-        raise ValueError("Ryan native search requires native grounding metadata")
-    chunks = metadata.get("groundingChunks") or metadata.get("grounding_chunks") or []
-    supports = metadata.get("groundingSupports") or metadata.get("grounding_supports") or []
-    queries = metadata.get("webSearchQueries") or metadata.get("web_search_queries") or []
-    entry_point = metadata.get("searchEntryPoint") or metadata.get("search_entry_point")
-    if not queries or not entry_point:
-        raise ValueError("Ryan native search requires queries and search entry-point metadata")
-    evidence: dict[str, tuple[str, ...]] = {}
+    from .research import validate_provider_sources
+    validate_provider_sources(grounding_metadata, result.sources, mode="public_web")
+    evidence = {}
     for source in result.sources:
-        indices = {
-            index for index, chunk in enumerate(chunks)
-            if isinstance(chunk, dict) and isinstance(chunk.get("web"), dict)
-            and chunk["web"].get("uri") == source.url
-            and chunk["web"].get("title") == source.title
-        }
-        supported = any(
-            isinstance(support, dict)
-            and indices.intersection(support.get("groundingChunkIndices") or support.get("grounding_chunk_indices") or [])
-            and source.supportedText in str((support.get("segment") or {}).get("text") or "")
-            for support in supports
-        )
-        if not indices or not supported:
-            raise ValueError("Ryan source is absent from native grounding metadata")
         if source.evidenceId in evidence:
-            raise ValueError("Ryan search returned duplicate evidence")
+            raise ValueError("Research returned duplicate evidence")
         evidence[source.evidenceId] = (source.supportedText, source.title, source.url)
     return evidence

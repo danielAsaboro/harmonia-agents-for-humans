@@ -24,7 +24,7 @@ export function attachmentOriginPolicy(environment: AttachmentOriginEnvironment,
     },
     uploadOrigin(origin: string | null): string {
       if (origin && allowed.has(origin)) return origin;
-      return allowed.values().next().value as string;
+      return allowed.values().next().value as unknown as string;
     },
   };
 }

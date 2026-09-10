@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { createTelegramDecisionNonce, type TelegramDecisionNonceDoc } from "@/lib/firestore";
+import { createTelegramDecisionNonce, type TelegramDecisionNonceDoc } from "@/lib/repository";
 import { sendTelegramMessage } from "@/lib/telegramApi";
 
 export async function sendTelegramProductionApproval(input: {

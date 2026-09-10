@@ -7,7 +7,7 @@ import {
 } from "@/lib/operations/commands";
 
 const actor = {
-  actorType: "firebase_operator" as const,
+  actorType: "cognito_operator" as const,
   subjectId: "user-1",
   authenticationId: "firebase-session-1",
 };

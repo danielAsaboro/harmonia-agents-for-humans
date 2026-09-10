@@ -1,63 +1,53 @@
 ---
 title: "Maya — A2UI presenter"
-description: "Maya's reference-only interface composition and hydration boundary."
+description: "Current Strands registration, model, inputs, tools and authority."
 ---
 
 ## Role
 
-Maya selects the smallest useful A2UI component graph for an operator intent. Maya returns layout
-and entity references only; deterministic server hydration supplies authoritative content from the
-active persisted job.
+Composes a SurfacePlan from the exact supplied UiContext entity catalog. Produces presentation structure rather than application truth.
 
 ## Contract
 
 | Property | Value |
 |---|---|
-| ADK name | `maya_presenter` |
-| Default model | `gemini-3.5-flash` |
-| Input | `UiContext` |
-| Output | `SurfacePlan` |
-| Runtime skills | None |
-| Tools | None |
+| Registered specialist | `maya_presenter` |
+| Default Bedrock model ID | `us.anthropic.claude-haiku-4-5-20251001-v1:0` |
+| Typed boundary | `UiContext → SurfacePlan` |
+| Returned state key | `surface_plan` |
 
 ## Skills
 
-None. Maya's bounded presentation problem does not require a reusable reasoning skill.
+Maya has no role-specific method skill. The shared Harmonia handoff and recovery instructions are preloaded. Skill guidance is method, never evidence.
 
 ## Tools and research
 
-None. The deterministic host hydrates referenced entities from the active persisted job.
+The registration has no tools. It cannot fetch job state or call UI actions. The host hydrates approved entity references and registered components after validation.
 
 ## Prompt method
 
-Maya treats `UiContext` as a closed entity catalog, copies job and entity IDs exactly, selects only
-supported domain components, keeps hierarchy shallow, and reserves the approval slot for exactly one
-supplied pending action. Titles provide navigation only and cannot make lifecycle claims.
+Choose components, hierarchy and reference graphs using the current entity catalog. Do not invent inline job facts, identifiers, lifecycle state, callbacks or executable JavaScript.
 
 ## Evidence and provenance
 
-The supplied `UiContext` is a closed entity catalog. Maya copies job and entity IDs exactly; titles,
-model memory, and unresolved references cannot become authoritative state.
+Only the supplied typed input and authorized returned tool evidence can support factual claims. Preloaded skills, model memory and generated prose do not establish facts. The host retains request hashes and validated references without logging private prompts or chain-of-thought.
 
 ## Authority boundary
 
-Maya cannot invent IDs or state, emit inline domain content, lifecycle placeholders, executable UI,
-callbacks, effect payloads, approval decisions, schedules, publishing actions, receipts, verification,
-or workflow mutations.
+The specialist cannot approve, grant permissions, publish, schedule an external effect, access credentials, mutate workflow state or create verification receipts. Those operations belong to deterministic host code and persisted authorization.
 
 ## Handoff
 
-Maya returns a reference-only `SurfacePlan`. The deterministic host validates it and hydrates visible
-content, loading states, failures, and approval controls from persisted truth.
+Deterministic validators bind every reference and hydrate the surface from persisted host context. An A2UI approval control still invokes the normal authorization route.
 
 ## Runtime enforcement
 
-Matching Python and TypeScript validators reject unknown components, wrong-job or duplicate
-references, invalid component/reference combinations, authoritative titles, and invalid approval-slot
-usage. The host owns loading, empty, unresolved, and failure surfaces.
+`LocalStrandsTeamRuntime` creates a fresh Strands `Agent` per invocation with `structured_output_model`, `AuthorityHooks` and automatic model retries disabled. The host selects the registration, projects bounded input and validates output before a stage mutation. Provider repair follows the bounded host policy. Authenticated AWS execution remains pending live verification.
 
 ## Implementation references
 
+- Registration: `agent/harmonia_agent/agents.py`
 - Prompt: `agent/harmonia_agent/maya_prompt.py`
-- Contracts: `UiContext` and `SurfacePlan` in `a2ui_models.py`
-- Tests: `agent/tests/test_a2ui_models.py`, `test_a2ui_presenter.py`, and web A2UI tests
+- Method/tool implementation: `agent/harmonia_agent/a2ui_presenter.py`
+- Runtime: `agent/harmonia_agent/team_runtime.py`
+- Model assignment: `agent/harmonia_agent/role_models.py`

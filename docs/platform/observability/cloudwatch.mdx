@@ -1,0 +1,17 @@
+---
+title: "CloudWatch traces"
+description: "Metadata-only distributed execution evidence."
+---
+
+## How Harmonia uses it
+
+
+OpenTelemetry correlates request, job, operation, and provider execution metadata. Container logs are sent to CloudWatch. Prompt bodies, transcripts, drafts, credentials, and chain-of-thought must not enter telemetry. A successful local test does not constitute a deployed trace.
+
+## Implementation
+
+`agent/harmonia_agent/telemetry.py`
+
+## Evidence status
+
+This AWS edition has no authenticated deployment or provider rehearsal yet. Paid validation remains disabled. Local checks are reported separately from live proof.

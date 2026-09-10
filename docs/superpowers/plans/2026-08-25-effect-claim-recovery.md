@@ -4,9 +4,9 @@
 
 **Goal:** Prevent concurrent or recovered workers from duplicating external effects and produce a real operator-triggered replay proof.
 
-**Architecture:** A Firestore transaction claims the stable idempotency key before execution. Receipt finalization atomically closes the claim, action, and receipt; unresolved expired claims fail closed for operator reconciliation. A tenant-authenticated replay-proof route calls the same claim boundary but is prohibited from executing.
+**Architecture:** A DynamoDB transaction claims the stable idempotency key before execution. Receipt finalization atomically closes the claim, action, and receipt; unresolved expired claims fail closed for operator reconciliation. A tenant-authenticated replay-proof route calls the same claim boundary but is prohibited from executing.
 
-**Tech Stack:** TypeScript, Next.js route handlers, Firestore transactions, Python stage worker, Vitest, pytest.
+**Tech Stack:** TypeScript, Next.js route handlers, DynamoDB transactions, Python stage worker, Vitest, pytest.
 
 **Spec:** `docs/superpowers/specs/2026-08-25-effect-claim-recovery-design.md`
 
@@ -23,7 +23,7 @@
 
 **Files:**
 - Modify: `src/lib/types.ts`
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/repository.ts`
 - Test: `tests/effectClaims.test.ts`
 
 **Interfaces:**
@@ -40,7 +40,7 @@
 - Create: `src/app/api/internal/effect-claim/route.ts`
 - Modify: `src/app/api/internal/receipt/route.ts`
 - Modify: `src/lib/contracts.ts`
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/repository.ts`
 - Test: `tests/effectClaimContracts.test.ts`
 
 **Interfaces:**

@@ -1,7 +1,8 @@
-import { db } from "./firestore";
+import { parseChatStreamEvent,type ChatStreamEvent } from "./a2ui/contracts";
+import { awsRepository,limited,ordered,partition,recordKey,where } from "./dynamo";
 import { newId } from "./idempotency";
-import { parseChatStreamEvent, type ChatStreamEvent } from "./a2ui/contracts";
-import { assertResourceWorkspace, currentTenant, tenantCollectionPath, tenantSubjectId } from "./tenancy";
+import { db } from "./repository";
+import { assertResourceWorkspace,currentTenant,tenantCollectionPath,tenantSubjectId } from "./tenancy";
 
 export type UnsequencedChatStreamEvent = ChatStreamEvent extends infer Event
   ? Event extends { runId: string; sequence: number }
@@ -23,7 +24,7 @@ export interface ChatRunDoc {
 }
 
 function collection() {
-  return db().collection(tenantCollectionPath(currentTenant(), "chat_runs"));
+  return partition(tenantCollectionPath(currentTenant(), "chat_runs"));
 }
 
 export async function createChatRun(message: string, attachmentIds: string[]): Promise<ChatRunDoc> {
@@ -41,32 +42,32 @@ export async function createChatRun(message: string, attachmentIds: string[]): P
     createdAt: now,
     updatedAt: now,
   };
-  await collection().doc(run.id).set(run);
+  await awsRepository().put(recordKey(collection().partition + "/" + run.id), run);
   return run;
 }
 
 export async function getChatRun(id: string): Promise<ChatRunDoc | null> {
-  const snap = await collection().doc(id).get();
-  if (!snap.exists) return null;
-  const run = snap.data() as ChatRunDoc;
+  const snap = await awsRepository().read(recordKey(collection().partition + "/" + id));
+  if (!snap.present) return null;
+  const run = snap.value as unknown as ChatRunDoc;
   assertResourceWorkspace(currentTenant(), run);
   return run;
 }
 
 export async function appendChatRunEvent(runId: string, input: UnsequencedChatStreamEvent): Promise<ChatStreamEvent> {
-  const runRef = collection().doc(runId);
-  return db().runTransaction(async (transaction) => {
-    const runSnap = await transaction.get(runRef);
-    if (!runSnap.exists) throw new Error("chat run not found");
-    const run = runSnap.data() as ChatRunDoc;
+  const runRef = recordKey(collection().partition + "/" + runId);
+  return db().atomic(async (transaction) => {
+    const runSnap = await transaction.read(runRef);
+    if (!runSnap.present) throw new Error("chat run not found");
+    const run = runSnap.value as unknown as ChatRunDoc;
     assertResourceWorkspace(currentTenant(), run);
     if (run.status !== "running" && input.type !== "run_failed") throw new Error("chat run is terminal");
     const sequence = run.lastSequence + 1;
     const event = parseChatStreamEvent({ ...input, runId, sequence });
     const terminal = event.type === "run_completed" ? "complete" : event.type === "run_failed" ? "failed" : run.status;
     const updatedAt = new Date().toISOString();
-    transaction.set(runRef.collection("events").doc(String(sequence).padStart(12, "0")), event);
-    transaction.update(runRef, { lastSequence: sequence, status: terminal, updatedAt });
+    transaction.put(recordKey(partition(runRef.path + "/" + "events").partition + "/" + String(sequence).padStart(12, "0")), event);
+    transaction.patch(runRef, { lastSequence: sequence, status: terminal, updatedAt });
     return event;
   });
 }
@@ -74,10 +75,6 @@ export async function appendChatRunEvent(runId: string, input: UnsequencedChatSt
 export async function listChatRunEvents(runId: string, afterSequence = -1): Promise<ChatStreamEvent[]> {
   const run = await getChatRun(runId);
   if (!run) throw new Error("chat run not found");
-  const snaps = await collection().doc(runId).collection("events")
-    .where("sequence", ">", afterSequence)
-    .orderBy("sequence", "asc")
-    .limit(500)
-    .get();
-  return snaps.docs.map((doc) => parseChatStreamEvent(doc.data()));
+  const snaps = await awsRepository().query(limited(ordered(where(partition(recordKey(collection().partition + "/" + runId).path + "/" + "events"), "sequence", ">", afterSequence), "sequence", "asc"), 500));
+  return snaps.rows.map((doc) => parseChatStreamEvent(doc.value));
 }

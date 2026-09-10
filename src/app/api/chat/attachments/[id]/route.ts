@@ -1,5 +1,5 @@
 import { operatorTenantHandler } from "@/lib/auth";
-import { getAttachmentDelivery, storeLocalAttachment } from "@/lib/chatAttachments";
+import { getAttachmentDelivery, storeAttachmentBytes } from "@/lib/chatAttachments";
 
 async function get(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -20,10 +20,9 @@ async function get(_req: Request, { params }: { params: Promise<{ id: string }> 
 
 async function put(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  if (process.env.GCS_BUCKET) return Response.json({ error: "direct Cloud Storage upload required" }, { status: 409 });
   try {
     const bytes = new Uint8Array(await req.arrayBuffer());
-    const attachment = await storeLocalAttachment(id, bytes, req.headers.get("content-type") ?? "");
+    const attachment = await storeAttachmentBytes(id, bytes, req.headers.get("content-type") ?? "");
     return Response.json({ attachment: { ...attachment, previewUrl: `/api/chat/attachments/${id}` } });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

@@ -6,7 +6,7 @@
 
 ## Objective
 
-Make Harmonia truthful and complete as a product implementation before external deployment work begins. Every selectable output must have an implemented producer, strict review, durable representation, executable effect or export, and independent verifier. Every operator control must resume through the durable runtime rather than mutate Firestore into an inert state. Scheduled source libraries must enforce policy before avoidable provider spend and recover without corrupting healthy snapshots. UI, chat, Telegram, contracts, runtime behavior, observability, tests, and documentation must describe the same system.
+Make Harmonia truthful and complete as a product implementation before external deployment work begins. Every selectable output must have an implemented producer, strict review, durable representation, executable effect or export, and independent verifier. Every operator control must resume through the durable runtime rather than mutate DynamoDB into an inert state. Scheduled source libraries must enforce policy before avoidable provider spend and recover without corrupting healthy snapshots. UI, chat, Telegram, contracts, runtime behavior, observability, tests, and documentation must describe the same system.
 
 No backward compatibility is preserved. Replaced X-only or video-first contracts, aliases, routes, and fallbacks are deleted in the same change that replaces them.
 
@@ -100,9 +100,9 @@ Video-only outputs remain conditional on real timed video evidence. Quote cards 
 
 Pause and resume continue to use an optimistic `controlEpoch`. Cancel must be exposed in the Studio with the exact typed confirmation and must preserve executed receipts while skipping only pending actions.
 
-Redo becomes a durable rewind operation. One Firestore transaction increments the control epoch, records the rewind decision, invalidates only dependent unexecuted artifacts and approvals, sets the target stage, and creates a new attempt-scoped stage-outbox record. The route dispatches that record after commit; the durable tick recovers it after a crash. Previously published or otherwise executed effects are never erased or automatically repeated. Redo to a stage whose downstream effects already executed requires reconciliation and is rejected unless the target is demonstrably safe.
+Redo becomes a durable rewind operation. One DynamoDB transaction increments the control epoch, records the rewind decision, invalidates only dependent unexecuted artifacts and approvals, sets the target stage, and creates a new attempt-scoped stage-outbox record. The route dispatches that record after commit; the durable tick recovers it after a crash. Previously published or otherwise executed effects are never erased or automatically repeated. Redo to a stage whose downstream effects already executed requires reconciliation and is rejected unless the target is demonstrably safe.
 
-Nudge application records exact invalidation lineage, revokes affected approvals, preserves receipts, and creates the next durable outbox trigger whenever work must resume. A Firestore state mutation without recoverable delivery is forbidden.
+Nudge application records exact invalidation lineage, revokes affected approvals, preserves receipts, and creates the next durable outbox trigger whenever work must resume. A DynamoDB state mutation without recoverable delivery is forbidden.
 
 ## Brand-Library Policy and Recovery
 
@@ -151,10 +151,10 @@ Implementation follows red-green-refactor. Required automated coverage includes:
 - chat, Telegram, Studio, monitoring, architecture, and documentation consistency;
 - absence of replaced X-only, video-first, ingest, transcribe, alias, and fallback contracts.
 
-The completion gate is the full TypeScript suite, Python suite, Firestore integration suite, ESLint, TypeScript check, production build, `git diff --check`, and targeted legacy/capability scans. Live provider tests remain external evidence work and are not represented by offline success.
+The completion gate is the full TypeScript suite, Python suite, DynamoDB integration suite, ESLint, TypeScript check, production build, `git diff --check`, and targeted legacy/capability scans. Live provider tests remain external evidence work and are not represented by offline success.
 
 ## Completion Boundary
 
 This design is complete when every repository-local capability exposed to an operator is implemented and testable under the rules above, all durable controls have recoverable delivery, all scheduled-library policy checks are enforced at the earliest reliable boundary, and all code/docs surfaces agree.
 
-The following remain explicitly outside completion: acquiring credentials, creating cloud resources, deploying revisions, configuring real provider accounts, running authenticated Gemini/Agent Engine/Memory Bank/Drive/GCS/X/LinkedIn/Telegram calls, capturing evidence, producing the demo, writing the final submission, and freezing judged artifacts.
+The following remain explicitly outside completion: acquiring credentials, creating cloud resources, deploying revisions, configuring real provider accounts, running authenticated Gemini/AgentCore Runtime/AgentCore Memory/Drive/GCS/X/LinkedIn/Telegram calls, capturing evidence, producing the demo, writing the final submission, and freezing judged artifacts.

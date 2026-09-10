@@ -9,7 +9,7 @@ import {
   listChatMessages,
   listJobs,
   saveChatMessage,
-} from "@/lib/firestore";
+} from "@/lib/repository";
 import { currentTenant } from "@/lib/tenancy";
 import { parseIntent } from "@/lib/chatIntent";
 import { queueStageTrigger } from "@/lib/stageTrigger";
@@ -18,7 +18,7 @@ import type { ContentArtifact } from "@/lib/contentArtifacts/contracts";
 import { requireReadyAttachments, type ChatAttachment } from "@/lib/chatAttachments";
 import { actionPayloadDigest } from "@/lib/idempotency";
 import { createPendingOperation, type PendingOperation } from "@/lib/pendingOperations";
-import { hasRightsAttestation, RIGHTS_ATTESTATION_PHRASE, sourceRightsAuthorization, sourceRightsAuthorizationId } from "@/lib/sourceRights";
+import { hasRightsAttestation, RIGHTS_ATTESTATION_PHRASE, sourceRightsAuthorization, persistSourceRightsAuthorization } from "@/lib/sourceRights";
 import { createSourceJob } from "@/lib/sourceManifest";
 import { latestHealthySnapshot, listLibraryConnections } from "@/lib/brandLibraries/repository";
 import { outputKindSchema } from "@/lib/contracts";
@@ -343,7 +343,7 @@ export async function handleChat(req: Request, options: { chatRunId?: string } =
 
   // Persist the exchange so past conversations render in the console.
   // JSON round-trip drops undefined fields (e.g. titles not yet ingested),
-  // which Firestore rejects.
+  // which DynamoRepository rejects.
   try {
     await saveChatMessage({
       surface,
@@ -481,11 +481,11 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
       const directSources: SourceInput[] = [];
       for (const attachment of effectiveAttachments) {
         const authorization = sourceRightsAuthorization(currentTenant(), "upload");
-        directSources.push({ kind: "upload", attachmentId: attachment.id, rightsAuthorizationId: sourceRightsAuthorizationId(authorization) });
+        directSources.push({ kind: "upload", attachmentId: attachment.id, rightsAuthorizationId: await persistSourceRightsAuthorization(authorization) });
       }
       for (const source of descriptors) {
         const authorization = sourceRightsAuthorization(currentTenant(), source.kind);
-        const rightsAuthorizationId = sourceRightsAuthorizationId(authorization);
+        const rightsAuthorizationId = await persistSourceRightsAuthorization(authorization);
         if (source.kind === "pasted_text") directSources.push({ ...source, rightsAuthorizationId });
         else directSources.push({ ...source, rightsAuthorizationId });
       }

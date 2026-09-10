@@ -5,7 +5,7 @@ description: "Strict inputs, outputs, evidence requirements, and authority limit
 
 Python contracts live in `agent/harmonia_agent/agent_models.py`; shared application representations live in `src/lib/types.ts`. Pydantic models forbid unknown fields and deterministic validators reject ungrounded or authority-expanding output.
 
-The ADK root is `HarmoniaCoordinator`, a deterministic `BaseAgent`. Specialist selection comes from host-owned session state. Models cannot choose arbitrary recipients or establish workflow authority through prose.
+The Strands root is `HarmoniaCoordinator`, a deterministic `BaseAgent`. Specialist selection comes from host-owned session state. Models cannot choose arbitrary recipients or establish workflow authority through prose.
 
 | Agent | Input | Output | Boundary |
 |---|---|---|---|
@@ -17,7 +17,7 @@ The ADK root is `HarmoniaCoordinator`, a deterministic `BaseAgent`. Specialist s
 | Maya | Typed surface context | `SurfacePlan` | Presentation plan, no durable mutation |
 | Nova | `LiaisonInput` plus read tools | `LiaisonAnswer` | Read-only explanation and navigation |
 
-Evidence identifiers form a closed world per invocation: references not supplied in the input are invalid. Memory facts retain Firestore provenance and remain advisory. See the [agent team](/agents/overview) for role-by-role detail.
+Evidence identifiers form a closed world per invocation: references not supplied in the input are invalid. Memory facts retain DynamoDB provenance and remain advisory. See the [agent team](/agents/overview) for role-by-role detail.
 
 ## Durable handoffs
 
@@ -49,7 +49,7 @@ Every cognitive delegation includes a host-created `harmonia.handoff/v1` envelop
 | Operator context | IDs in typed company, product, audience, objective, and campaign input | Supplied business assertions |
 | Source analysis | Nimi moment and angle IDs | Source-derived claims and Ryan briefs |
 | Performance | Verified performance observation IDs | Performance-derived recommendations |
-| Memory Bank | Eligible fact IDs with Firestore provenance | Advisory cross-job learning only |
+| AgentCore Memory | Eligible fact IDs with DynamoDB provenance | Advisory cross-job learning only |
 | Public research | Request-bound search evidence IDs with validated native grounding metadata | Current external claims within the exact research request |
 | Internal reads | Tenant-scoped tool evidence IDs or planning snapshot identity/digest | Prior publication, job, engagement, capacity, dependency, and calendar-projection facts |
 

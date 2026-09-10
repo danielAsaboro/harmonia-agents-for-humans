@@ -41,7 +41,7 @@ describe("evaluateActionPolicy", () => {
     expect(evaluateActionPolicy("export_content_artifact", { outputType: "linkedin_post" }).requiresApproval).toBe(false);
   });
 
-  it("always gates Veo and Lyria generation behind operator approval", () => {
+  it("always gates Nova Reel and ElevenLabs generation behind operator approval", () => {
     for (const type of ["generate_video", "generate_music"] as const) {
       const decision = evaluateActionPolicy(type, { prompt: "launch energy" });
       expect(decision.risk).toBe("medium");
@@ -50,12 +50,12 @@ describe("evaluateActionPolicy", () => {
     }
   });
 
-  it("gates Gemini image generation because it consumes paid model capacity", () => {
+  it("gates Bedrock image generation because it consumes paid model capacity", () => {
     const decision = evaluateActionPolicy("generate_image", { prompt: "launch energy" });
     expect(decision).toEqual({
       risk: "medium",
       requiresApproval: true,
-      reason: "incurs paid Gemini image generation; output remains internal until separately published",
+      reason: "incurs paid Bedrock image generation; output remains internal until separately published",
     });
   });
 });

@@ -9,7 +9,7 @@ const LABELS: Record<OutputKind, string> = {
   generated_video: "Generated video", generated_music: "Generated music",
   editorial_calendar: "Editorial calendar", content_pack: "Content pack",
 };
-const STATE_LABEL = { verified_export: "Verified export", publish_when_connected: "Publish when connected", unavailable: "Unavailable" } as const;
+const STATE_LABEL = { export_available: "Export available", publish_when_connected: "Publish when connected", unavailable: "Unavailable" } as const;
 
 export function outputLabel(kind: OutputKind): string {
   return LABELS[kind];

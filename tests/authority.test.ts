@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AuthorityError,
-  firebasePrincipal,
+  cognitoPrincipal,
   oauthCallbackPrincipal,
   requireContentOperator,
   requireOAuthCallback,
@@ -32,11 +32,11 @@ describe("authenticated principal capabilities", () => {
   });
 
   it("allows Firebase members and verified Telegram users to decide content", () => {
-    expect(requireContentOperator(context(firebasePrincipal({
+    expect(requireContentOperator(context(cognitoPrincipal({
       subjectId: "user-1",
       workspaceRole: "member",
       authenticationId: "session-1",
-    }))).kind).toBe("firebase_user");
+    }))).kind).toBe("cognito_user");
     expect(requireContentOperator(context(telegramPrincipal({
       subjectId: "telegram_42",
       authenticationId: "update-1",
@@ -46,7 +46,7 @@ describe("authenticated principal capabilities", () => {
   });
 
   it("requires a Firebase owner or admin for credential mutation", () => {
-    expect(() => requireWorkspaceAdministrator(context(firebasePrincipal({
+    expect(() => requireWorkspaceAdministrator(context(cognitoPrincipal({
       subjectId: "user-1",
       workspaceRole: "member",
       authenticationId: "session-1",
@@ -55,7 +55,7 @@ describe("authenticated principal capabilities", () => {
       403,
       "workspace_administrator_required",
     ));
-    expect(requireWorkspaceAdministrator(context(firebasePrincipal({
+    expect(requireWorkspaceAdministrator(context(cognitoPrincipal({
       subjectId: "user-2",
       workspaceRole: "admin",
       authenticationId: "session-2",
@@ -65,7 +65,7 @@ describe("authenticated principal capabilities", () => {
   it("allows only the internal worker through the service capability", () => {
     expect(requireService(context(servicePrincipal("request-1"))).subjectId)
       .toBe("harmonia-worker");
-    expect(() => requireService(context(firebasePrincipal({
+    expect(() => requireService(context(cognitoPrincipal({
       subjectId: "user-1",
       workspaceRole: "owner",
       authenticationId: "session-1",

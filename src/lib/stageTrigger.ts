@@ -1,4 +1,4 @@
-import { enqueueStageTrigger } from "./firestore";
+import { enqueueStageTrigger } from "./repository";
 import { dispatchStageOutboxRecord } from "./stageOutboxDispatcher";
 import type { Stage } from "./types";
 

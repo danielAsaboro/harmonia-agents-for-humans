@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { dataBatchSchema, dataWorkItemSchema } from "@/lib/dataPlane/contracts";
 import { DataPlaneRepository } from "@/lib/dataPlane/repository";
-import { db } from "@/lib/firestore";
+import { db } from "@/lib/repository";
 import { internalTenantHandler } from "@/lib/internalAuth";
 
 const bodySchema = z.object({ batch: dataBatchSchema, workItems: z.array(dataWorkItemSchema).min(1).max(1_000_000) }).strict();

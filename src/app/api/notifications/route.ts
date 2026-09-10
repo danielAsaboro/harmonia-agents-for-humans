@@ -1,4 +1,4 @@
-import { listNotifications, markAllNotificationsRead, markNotificationRead } from "@/lib/firestore";
+import { listNotifications, markAllNotificationsRead, markNotificationRead } from "@/lib/repository";
 import { operatorTenantHandler } from "@/lib/auth";
 
 async function get(_req: Request) {

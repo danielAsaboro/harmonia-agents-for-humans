@@ -1,43 +1,18 @@
 ---
 title: "Noni writing runtime"
-description: "How Harmonia runs skill-backed, provenance-bound copywriting."
+description: "Exact draft and artifact registrations, preloaded method and evidence boundary."
 ---
-
-Noni uses Gemini 3.5 Flash through Google ADK because writing-skill and bounded
-research tools are part of the copywriting contract.
 
 ## How Harmonia uses it
 
-Noni receives one selected Temi item, its exact Ryan brief, referenced Nimi
-evidence, brand constraints, and—on the second pass—Dara's issue-bound revision
-instructions. Noni first loads `noni-writing-skills` and a relevant local
-writing reference. It may then read independently verified prior publications
-or brief-scoped public sources.
+The host supplies one selected editorial item, its brief, referenced source evidence and brand constraints. `noni_copywriter` returns `ContentDraft`; `noni_artifact_producer` returns `SemanticArtifactWireDraft`. Both use `us.anthropic.claude-sonnet-4-6` by default.
 
-Every research-derived claim or URL must cite a live evidence ID returned by
-the actual tool trace. Noni cannot access Memory Bank, redefine strategy,
-approve, schedule, publish, or mutate workflow state.
+`noni-writing-skills` is compiled into the system prompt before inference. The host records activation provenance; the model does not call a skill loader. The draft variant exposes only `search_verified_publications`. That read must bind the current brief and returns records supported by persisted receipts and verification. The artifact variant has no tools. Neither variant exposes public-web search.
 
-## Configuration and failure behavior
+## Handoff and revision
 
-`COPYWRITER_MODEL_ID` defaults to `gemini-3.5-flash`. Public web research uses
-native ADK Google Search in a dedicated research agent because Gemini built-in
-tools cannot share one model request with Noni's skill and function tools. The
-managed runtime retains grounding chunks and supports. Cross-brief queries,
-invented references, malformed results, unsupported excerpts, and unknown URLs
-fail closed.
+The host assigns authoritative artifact identity and evidence lineage, then invokes the matching Dara reviewer. At most one editorial revision is authorized, using the same source input and validated issues. Model output cannot grant publication permission, change strategy or write a receipt.
 
 ## Evidence status
 
-The skill loader, research-tool contracts, trace validation, verified-publication
-query, grounding checks, and authority boundaries have automated offline
-coverage. Authenticated Agent Engine and native Google Search grounding execution
-remain unverified until a separately captured live run supplies correlated
-provider and usage evidence.
-
-## Relevant files
-
-- `agent/harmonia_agent/noni_skills.py`
-- `agent/harmonia_agent/noni_prompt.py`
-- `agent/harmonia_agent/skills/noni-writing-skills/SKILL.md`
-- `agent/tests/test_noni_skills.py`
+Registration lives in `agent/harmonia_agent/agents.py`; method and read validation live in `noni_skills.py`; prompt text lives in `noni_prompt.py`. Native Strands contract tests are local evidence only. Authenticated Bedrock writing and live internal reads through AgentCore remain pending verification.

@@ -47,7 +47,7 @@ def test_event_driven_model_call_persists_projection_before_fresh_managed_sessio
             asyncio.run(_run_coordinator(
                 "nimi_analyst",
                 _analyst_input(),
-                model="gemini-3.5-flash",
+                model="us.anthropic.claude-sonnet-4-6",
                 invocation=invocation,
                 team_runtime=runtime,
                 budget_reserver=lambda _record: None,

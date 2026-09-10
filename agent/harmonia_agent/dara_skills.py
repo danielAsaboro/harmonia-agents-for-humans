@@ -1,14 +1,10 @@
-"""Project-owned ADK editing skill and fail-closed resource trace for Dara."""
+"""Project-owned Strands editing skill and fail-closed resource trace for Dara."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-from google.adk.agents.context import Context
-from google.adk.skills import load_skill_from_dir
-from google.adk.tools import skill_toolset
-from google.adk.tools.base_tool import BaseTool
 
 from .authority_records import skill_activation_records, validate_skill_activation
 
@@ -31,27 +27,24 @@ DARA_ARTIFACT_REFERENCES = (
 )
 
 
-def build_dara_editing_skillset() -> skill_toolset.SkillToolset:
-    skill = load_skill_from_dir(DARA_SKILL_ROOT)
-    if skill.frontmatter.name != DARA_SKILL_NAME:
-        raise RuntimeError("Dara editing skill name does not match its runtime contract")
-    return skill_toolset.SkillToolset(skills=[skill], tool_filter=sorted(_LOAD_TOOLS))
+
+
 
 
 def compiled_dara_artifact_skill_context() -> str:
     """Compile the approved static editing method without spending model turns."""
-    skill = load_skill_from_dir(DARA_SKILL_ROOT)
+    instructions = (DARA_SKILL_ROOT / "SKILL.md").read_text()
     references = []
     for path in DARA_ARTIFACT_REFERENCES:
         name = path.removeprefix("references/")
-        content = skill.resources.references.get(name)
+        content = (DARA_SKILL_ROOT / path).read_text()
         if not content:
             raise RuntimeError(f"Dara compiled reference is missing: {path}")
         references.append(f"APPROVED REFERENCE {path}:\n{content}")
-    return f"APPROVED SKILL {DARA_SKILL_NAME}:\n{skill.instructions}\n\n" + "\n\n".join(references)
+    return f"APPROVED SKILL {DARA_SKILL_NAME}:\n{instructions}\n\n" + "\n\n".join(references)
 
 
-def activate_dara_artifact_skill(callback_context: Context) -> None:
+def activate_dara_artifact_skill(callback_context: Any) -> None:
     """Record the coordinator-side activation of the compiled, immutable skill."""
     callback_context.state[DARA_SKILL_TRACE_KEY] = skill_activation_records(
         skill_name=DARA_SKILL_NAME,
@@ -60,7 +53,7 @@ def activate_dara_artifact_skill(callback_context: Context) -> None:
     )
 
 
-def reset_dara_skill_trace(callback_context: Context) -> None:
+def reset_dara_skill_trace(callback_context: Any) -> None:
     callback_context.state[DARA_SKILL_TRACE_KEY] = []
 
 
@@ -74,7 +67,7 @@ def _resource_path(args: dict[str, Any]) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def guard_dara_skill_tool(tool: BaseTool, args: dict[str, Any], tool_context: Context) -> None:
+def guard_dara_skill_tool(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
     if tool.name == "set_model_response":
         return
     del tool_context
@@ -87,7 +80,7 @@ def guard_dara_skill_tool(tool: BaseTool, args: dict[str, Any], tool_context: Co
 
 
 def record_dara_skill_tool(
-    tool: BaseTool, args: dict[str, Any], tool_context: Context,
+    tool: Any, args: dict[str, Any], tool_context: Any,
     tool_response: dict[str, Any],
 ) -> None:
     if tool.name == "set_model_response":
@@ -130,3 +123,11 @@ def validate_dara_skill_trace(trace: list[dict[str, Any]]) -> dict[str, tuple[st
     if len(resources) != len(set(resources)):
         raise ValueError("Dara loaded a duplicate editing reference")
     return {}
+
+
+def compiled_dara_skill_context() -> str:
+    return "PRELOADED dara skill and references. Do not call loaders.\n" + "\n\n".join(((DARA_SKILL_ROOT / "SKILL.md").read_text(), *((DARA_SKILL_ROOT / path).read_text() for path in DARA_SKILL_REFERENCES)))
+
+
+def activate_dara_skill(callback_context: Any) -> None:
+    callback_context.state[DARA_SKILL_TRACE_KEY] = skill_activation_records(skill_name=DARA_SKILL_NAME, skill_root=DARA_SKILL_ROOT, references=DARA_SKILL_REFERENCES)

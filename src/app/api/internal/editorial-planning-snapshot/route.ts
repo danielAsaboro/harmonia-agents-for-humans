@@ -1,4 +1,4 @@
-import { getOrCreateEditorialPlanningSnapshot } from "@/lib/firestore";
+import { getOrCreateEditorialPlanningSnapshot } from "@/lib/repository";
 import { isInternalAuthorized, unauthorized, withInternalTenant } from "@/lib/internalAuth";
 
 export async function GET(req: Request) {

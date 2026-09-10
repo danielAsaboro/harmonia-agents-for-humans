@@ -4,9 +4,9 @@
 
 **Goal:** Build and run an idempotent operator utility that creates an isolated, non-executable copy of Harmonia job history whose earliest timestamp is August 27, 2026.
 
-**Architecture:** Pure transformation code discovers timestamps, computes one offset, rewrites copied values, and generates deterministic demo identities. A Firestore adapter discovers job descendants and job-bound brand records, stores display-safe copies plus a manifest, and refuses collisions; worker-watched execution records are archived beneath the manifest rather than recreated in live collections.
+**Architecture:** Pure transformation code discovers timestamps, computes one offset, rewrites copied values, and generates deterministic demo identities. A DynamoDB adapter discovers job descendants and job-bound brand records, stores display-safe copies plus a manifest, and refuses collisions; worker-watched execution records are archived beneath the manifest rather than recreated in live collections.
 
-**Tech Stack:** TypeScript, Node.js, Firebase Admin Firestore, Vitest, Firestore emulator, `tsx`.
+**Tech Stack:** TypeScript, Node.js, Cognito Admin DynamoDB, Vitest, DynamoDB emulator, `tsx`.
 
 **Spec:** `docs/superpowers/specs/2026-09-01-demo-history-origin-design.md`
 
@@ -14,7 +14,7 @@
 
 - Anchor the earliest copied timestamp at exactly `2026-08-27T00:00:00.000Z`.
 - Preserve every relative interval by applying one millisecond offset.
-- Never modify a source Firestore document or Cloud Storage object.
+- Never modify a source DynamoDB document or Cloud Storage object.
 - Never create demo records in worker-watched outbox, command, claim, lease, recovery, scheduler, or effect collections.
 - Mark every copied document with `teaching_demo` provenance.
 - Refuse an existing destination rather than overwrite it.
@@ -42,7 +42,7 @@
 import { Timestamp } from "firebase-admin/firestore";
 import { collectInstants, demoDocumentId, shiftDemoValue } from "../src/lib/demoHistory";
 
-test("shifts nested ISO instants and Firestore timestamps by one offset", () => {
+test("shifts nested ISO instants and DynamoDB timestamps by one offset", () => {
   const input = { createdAt: "2026-08-30T12:00:00.000Z", nested: [Timestamp.fromDate(new Date("2026-08-31T12:00:00.000Z"))] };
   expect(shiftDemoValue(input, -3 * 86_400_000)).toEqual({
     createdAt: "2026-08-27T12:00:00.000Z",
@@ -89,11 +89,11 @@ git add src/lib/demoHistory.ts tests/demoHistory.test.ts
 git commit -m "feat: add demo history transformations"
 ```
 
-### Task 2: Firestore discovery and quarantined copy plan
+### Task 2: DynamoDB discovery and quarantined copy plan
 
 **Files:**
 - Create: `src/lib/demoHistoryStore.ts`
-- Test: `tests/demoHistoryFirestore.integration.test.ts`
+- Test: `tests/demoHistoryDynamoDB.integration.test.ts`
 
 **Interfaces:**
 - Consumes: Task 1 transformation functions.
@@ -119,7 +119,7 @@ it("copies job history to demo paths and quarantines executable records", async 
 
 - [ ] **Step 2: Run emulator test and verify RED**
 
-Run: `npm run test:integration -- --run tests/demoHistoryFirestore.integration.test.ts`
+Run: `npm run test:integration -- --run tests/demoHistoryDynamoDB.integration.test.ts`
 Expected: FAIL because `demoHistoryStore` does not exist.
 
 - [ ] **Step 3: Implement recursive discovery, path mapping, quarantine, digest, and batched creates**
@@ -145,12 +145,12 @@ Add literal expectations that a second apply rejects with `demo dataset already 
 - [ ] **Step 5: Run integration suite and verify GREEN**
 
 Run: `npm run test:integration`
-Expected: every Firestore integration test passes.
+Expected: every DynamoDB integration test passes.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lib/demoHistoryStore.ts tests/demoHistoryFirestore.integration.test.ts
+git add src/lib/demoHistoryStore.ts tests/demoHistoryDynamoDB.integration.test.ts
 git commit -m "feat: copy isolated demo job history"
 ```
 

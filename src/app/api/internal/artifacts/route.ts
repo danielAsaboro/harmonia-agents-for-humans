@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { createArtifactStore } from "@/lib/artifactStore";
-import { db } from "@/lib/firestore";
+import { db } from "@/lib/repository";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { internalRoute } from "@/lib/internalHandler";
 

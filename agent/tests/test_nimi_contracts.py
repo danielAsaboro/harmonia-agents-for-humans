@@ -27,11 +27,11 @@ def analyst_input() -> dict:
         ],
         "performanceObservations": [{
             "id": "performance-1", "summary": "Verified proof posts earned qualified replies.",
-            "firestoreEvidenceRef": "engagement/post-1",
+            "durableEvidenceRef": "engagement/post-1",
         }],
         "memoryFacts": [{
             "id": "memory-1", "kind": "preference", "content": "Operators prefer concise proof.",
-            "firestoreEvidenceRef": "jobs/job-0/learnings/memory-1",
+            "durableEvidenceRef": "jobs/job-0/learnings/memory-1",
         }],
         "researchRequest": None,
     }

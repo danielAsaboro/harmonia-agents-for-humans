@@ -25,7 +25,7 @@
 
 ### Task 2: Reference coverage
 
-- [ ] Add API, workflow state, agent contract, effect, error, Firestore, authority, configuration, upload, pricing, and receipt references.
+- [ ] Add API, workflow state, agent contract, effect, error, DynamoDB, authority, configuration, upload, pricing, and receipt references.
 - [ ] Use exact repository contracts and source files.
 
 ### Task 3: Consistency and de-duplication

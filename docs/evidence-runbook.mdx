@@ -3,26 +3,18 @@ title: "Authenticated vertical-slice evidence"
 description: "Fail-closed protocol for proving one real Harmonia run without exposing private content."
 ---
 
-This protocol preserves the private/public boundary: raw provider responses, authorized source material, cookies, transcripts, drafts, and command exports remain in the parent-private `submission/evidence/` workspace. Only the verifier, redacted schema, and this procedure belong in the public repository. Passing the verifier proves consistency; retained cloud exports prove provenance.
+This protocol preserves the private/public boundary: raw provider responses, authorized source material, cookies, transcripts, drafts, and command exports remain in the parent-private `agents-for-humans/evidence/` workspace. Only the verifier, redacted schema, and this procedure belong in the public repository. Passing the verifier proves consistency; retained cloud exports prove provenance.
 
 ## Phase 1: preflight
 
-Before creating or changing application state, confirm an active gcloud identity and matching project. Record the deployed Cloud Run revision for both services, the exact Agent Engine resource, Firestore database, Pub/Sub topic/subscription, secret metadata (never values), and deployed health response. Every emulator setting must be unset. Any missing or unauthorized prerequisite stops the run.
+Before creating or changing application state, confirm an active AWS identity and matching account. Record the deployed ECS task revision for both services, the exact AgentCore Runtime resource, DynamoDB table, SQS queues and dead-letter queues, secret metadata (never values), and deployed health response. Every emulator setting must be unset. Any missing or unauthorized prerequisite stops the run.
 
-Also record the ready `operations` composite index, the subscription retry/dead-letter policy, and
-both scheduler jobs (`harmonia-durable-autonomy` and `harmonia-durable-recovery`). Confirm the worker
+Also record the native table key schema and conditional transaction access, queue retry/dead-letter policies, and
+the durable tick and recovery EventBridge schedules. Confirm the worker
 health response exposes the expected protocol/compiler and bounded recovery settings without any
 credential, tenant content, prompt, or artifact body.
 
-```bash
-gcloud auth list --filter=status:ACTIVE
-gcloud config get-value project
-gcloud run services describe harmonia-web --project "$PROJECT_ID" --region "$REGION"
-gcloud run services describe harmonia-agent --project "$PROJECT_ID" --region "$REGION"
-python3 submission/evidence-runner/collect_vertical_slice.py /absolute/private/config.json
-```
-
-The evidence runner path above is relative to the private parent workspace, not this public repository.
+Use read-only AWS CLI inspection (`aws sts get-caller-identity`, `aws cloudformation describe-stacks`, `aws ecs describe-services`, and `aws ecs describe-task-definition`) with the exact deployed identifiers. Retain sanitized output privately. Capture job, operation, approval, receipt, and trace exports from authenticated read surfaces. The old Google edition's private collector must not be reused as AWS proof.
 
 ## Phase 2: capture-awaiting-approval
 
@@ -31,9 +23,8 @@ deterministic demo fixture is a short H.264/AAC file below the 24 MiB upload lim
 records a complete clean verdict before submitting the natural-language job. YouTube remains a
 supported network-dependent source and its unresolved-source recovery is useful secondary evidence,
 but it is not the primary recorded-demo path. Do not call an internal stage or decision endpoint by
-hand. Wait until the persisted job reaches `awaiting_approval`, then run the read-only collector without
-`--require-complete`. Preserve each W3C `traceId` and its lineage across web ingress, Pub/Sub stage
-events, ADK cognition, usage, and the pending action. A later operator decision is a separate inbound
+hand. Wait until the persisted job reaches `awaiting_approval`, then capture read-only persisted records. Preserve each W3C `traceId` and its lineage across web ingress, SQS stage
+events, Strands cognition, usage, and the pending action. A later operator decision is a separate inbound
 request and may correctly begin a new trace.
 
 At this checkpoint, the collector must not approve, publish, retry, or manufacture a receipt. An incomplete run is expected and must not be presented as a completed vertical slice.
@@ -44,11 +35,9 @@ The signed-in operator reviews the real drafts and clip candidates in the normal
 
 ## Phase 3: capture-complete
 
-After the normal workflow persists a human approval, a finalized pre-effect claim, effect receipt, and independent verification, capture again:
+After the normal workflow persists a human approval, a finalized pre-effect claim, effect receipt, and independent verification, capture the current authoritative records, prepare a redacted bundle, and validate it:
 
 ```bash
-python3 submission/evidence-runner/collect_vertical_slice.py /absolute/private/config.json --require-complete
-cd harmonia
 npm run verify:evidence -- /absolute/private/run/bundle.json
 ```
 

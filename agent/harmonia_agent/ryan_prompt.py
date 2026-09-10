@@ -50,7 +50,7 @@ No skill-loading tool call is needed or available. The complete typed
 StrategistInput is already present in session state. Skill guidance is methodology,
 never evidence.
 
-Use ryan_google_search_agent exactly once only when researchRequest is present.
+Use ryan_gateway_search exactly once only when researchRequest is present.
 Pass that typed request as unchanged JSON in the agent's request argument. Do not
 search when it is absent. Search may fill
 the named current-information gap, but cannot replace Nimi analysis or create

@@ -1,17 +1,17 @@
-# ADK observability and agent activity design
+# Strands observability and agent activity design
 
 ## Goal
 
-Harmonia will export Google ADK logs, metrics, and traces through standard
+Harmonia will export Strands Agents SDK logs, metrics, and traces through standard
 OpenTelemetry while presenting a safe, tenant-scoped, paginated agent-activity
-view inside the dashboard. Firestore remains workflow truth; telemetry remains
+view inside the dashboard. DynamoDB remains workflow truth; telemetry remains
 diagnostic evidence and cannot authorize or advance work.
 
-## Official ADK signal contract
+## Official Strands signal contract
 
-The Python worker uses ADK's programmatic telemetry setup and Google Cloud
-exporters for Cloud Logging, Cloud Monitoring, and Cloud Trace. The exported
-signals follow ADK's OpenTelemetry GenAI semantic conventions:
+The Python worker uses Strands's programmatic telemetry setup and Google Cloud
+exporters for CloudWatch Logs, CloudWatch Metrics, and CloudWatch traces. The exported
+signals follow Strands's OpenTelemetry GenAI semantic conventions:
 
 - agent, workflow, tool, and model spans;
 - agent, workflow, tool, and model duration histograms;
@@ -21,7 +21,7 @@ signals follow ADK's OpenTelemetry GenAI semantic conventions:
 
 `OTEL_SERVICE_NAME` identifies the worker. Resource attributes include the
 Google Cloud project, service version, and deployment environment. W3C trace
-context continues across the Next.js control plane, Pub/Sub, worker, Agent
+context continues across the Next.js control plane, SQS, worker, Agent
 Engine, and internal HTTP calls.
 
 ## Privacy and cardinality
@@ -40,9 +40,9 @@ job, invocation, trace, and span IDs never become metric dimensions.
 
 The worker sends one metadata-only `AgentActivityRecord` to an authenticated
 internal web route when a Harmonia-managed agent invocation completes or
-fails. Tool activity is projected from observed ADK tool callbacks. The web
+fails. Tool activity is projected from observed Strands tool callbacks. The web
 route validates the strict payload and writes it under the active tenant's
-Firestore `agentActivity` collection.
+DynamoDB `agentActivity` collection.
 
 Each record contains:
 
@@ -71,14 +71,14 @@ convert successful workflow work into failure or advance workflow state.
 - `limit` from 10 through 100;
 - an opaque cursor created by the server.
 
-Firestore performs the primary ordered query by `occurredAt desc` and document
+DynamoDB performs the primary ordered query by `occurredAt desc` and document
 ID. The cursor encodes only the final timestamp and document ID and is signed
 or structurally validated before use. Filters are applied server-side. The
 response contains `items`, `nextCursor`, `hasMore`, and filter facets. No API
 returns a cross-tenant count or accepts workspace identity from query params.
 
 The initial implementation uses forward cursor pagination. The client keeps a
-cursor history to implement Previous without reverse Firestore queries.
+cursor history to implement Previous without reverse DynamoDB queries.
 
 ## Dashboard
 
@@ -99,11 +99,11 @@ changes reset pagination.
 
 ## State ownership and retention
 
-Cloud Logging, Monitoring, and Trace own exported telemetry. Firestore owns the
+CloudWatch Logs, Monitoring, and Trace own exported telemetry. DynamoDB owns the
 tenant-facing activity projection and applies the existing retention policy.
 Job events, approvals, commands, receipts, and verification records remain the
 authoritative audit trail. Activity records cannot be used as approvals,
-receipts, verification, Memory Bank evidence, or replay authority.
+receipts, verification, AgentCore Memory evidence, or replay authority.
 
 ## Failure behavior
 
@@ -119,7 +119,7 @@ receipts, verification, Memory Bank evidence, or replay authority.
 
 ## Testing and verification
 
-- Python tests cover ADK exporter configuration, content capture disabled,
+- Python tests cover Strands exporter configuration, content capture disabled,
   resource attributes, safe projection construction, success/failure records,
   tool hierarchy, and redaction.
 - TypeScript tests cover strict schema parity, tenant-scoped persistence,

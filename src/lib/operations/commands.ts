@@ -9,7 +9,7 @@ export const jobControlActionSchema = z.enum(["pause", "resume", "cancel"]);
 export type JobControlAction = z.infer<typeof jobControlActionSchema>;
 
 export const commandActorSchema = z.object({
-  actorType: z.enum(["firebase_operator", "telegram_operator"]),
+  actorType: z.enum(["cognito_operator", "telegram_operator"]),
   subjectId: z.string().min(1).max(128),
   authenticationId: z.string().min(1).max(300),
 }).strict();

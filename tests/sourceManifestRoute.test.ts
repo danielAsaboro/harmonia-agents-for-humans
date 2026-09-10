@@ -8,7 +8,7 @@ vi.mock("@/lib/internalAuth", () => ({
   unauthorized: () => Response.json({ error: "unauthorized" }, { status: 401 }),
   withInternalTenant: (_request: Request, work: () => unknown) => work(),
 }));
-vi.mock("@/lib/firestore", () => ({ db: vi.fn(), getJob: vi.fn(), setStage: vi.fn() }));
+vi.mock("@/lib/repository", () => ({ db: vi.fn(), getJob: vi.fn(), setStage: vi.fn() }));
 vi.mock("@/lib/storage", () => ({ getArtifact: vi.fn() }));
 vi.mock("@/lib/tenancy", () => ({ currentTenant: vi.fn() }));
 

@@ -1,5 +1,5 @@
 import { operatorTenantHandler } from "@/lib/auth";
-import { db, listConnectionMetadata, listJobs } from "@/lib/firestore";
+import { db, listConnectionMetadata, listJobs } from "@/lib/repository";
 import { getDurableRuntimeSnapshot } from "@/lib/observability/repository";
 import { projectAttentionItems } from "@/lib/operations/attention";
 import { buildAttentionSources } from "@/lib/operations/attentionSources";

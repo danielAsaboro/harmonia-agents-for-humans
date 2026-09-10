@@ -6,14 +6,14 @@ description: "Visual guide to authoritative, transport, advisory, asset, and obs
 ```mermaid
 flowchart LR
   UI[Dashboard, chat, Telegram] --> APP[Application transactions]
-  APP <--> FS[(Firestore: durable truth)]
+  APP <--> FS[(DynamoDB: durable truth)]
   FS --> OUT[Stage outbox]
-  OUT --> PS[Pub/Sub: delivery]
+  OUT --> PS[SQS: delivery]
   PS --> W[Worker]
   W --> APP
-  W <--> CS[(Cloud Storage: bytes)]
-  W -. context .-> MB[(Memory Bank)]
+  W <--> CS[(Amazon S3: immutable bytes)]
+  W -. context .-> MB[(AgentCore Memory)]
   APP -. events .-> TEL[Logs, traces, metrics]
 ```
 
-When systems disagree, Firestore determines workflow state; Cloud Storage determines asset bytes and its digest; an official provider read-back determines external state. See [State ownership](/state-ownership).
+When systems disagree, DynamoDB determines workflow state; Amazon S3 determines asset bytes and its digest; an official provider read-back determines external state. See [State ownership](/state-ownership).

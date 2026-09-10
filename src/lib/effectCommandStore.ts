@@ -1,24 +1,25 @@
 import { createHash } from "node:crypto";
+import { awsRepository,partition,recordKey,where } from "./dynamo";
 
-import { db } from "./firestore";
 import {
-  decideEffectClaim, decideEffectFinalization, markEffectClaimDispatched,
-  markEffectClaimObserved, markEffectClaimUnknown, restoreEffectClaimForRetry,
+decideEffectClaim,decideEffectFinalization,markEffectClaimDispatched,
+markEffectClaimObserved,markEffectClaimUnknown,restoreEffectClaimForRetry,
 } from "./effectClaims";
 import {
-  effectCommandDigest, markEffectDispatched, markEffectObserved, markEffectProgress,
-  markEffectUnknown, markEffectWaitingProvider, restoreEffectPrepared, type EffectCommand,
-  type EffectObservedOutcome,
+effectCommandDigest,markEffectDispatched,markEffectObserved,markEffectProgress,
+markEffectUnknown,markEffectWaitingProvider,restoreEffectPrepared,type EffectCommand,
+type EffectObservedOutcome,
 } from "./effectCommands";
+import { actionPayloadDigest } from "./idempotency";
 import {
-  assertOperationFence, claimOperation, createOperation, finalizeOperation,
-  operationIdForEffect, type OperationFence, type OperationRecord,
+assertOperationFence,claimOperation,createOperation,finalizeOperation,
+operationIdForEffect,type OperationFence,type OperationRecord,
 } from "./operations";
 import { decideWorkAdmission } from "./operations/workAdmission";
-import { actionPayloadDigest } from "./idempotency";
 import { canonicalJson } from "./recordReplay/integrity";
-import { currentTenant, tenantCollectionPath } from "./tenancy";
-import type { ApprovalDecision, EffectClaim, EffectClaimInput, EffectClaimOutcome, Job, PlannedAction, Receipt } from "./types";
+import { db } from "./repository";
+import { currentTenant,tenantCollectionPath } from "./tenancy";
+import type { ApprovalDecision,EffectClaim,EffectClaimInput,EffectClaimOutcome,Job,PlannedAction,Receipt } from "./types";
 
 const COMMANDS = "effect_commands";
 const CLAIMS = "claims";
@@ -29,7 +30,7 @@ const OPERATIONS = "operations";
 const APPROVAL_DECISIONS = "approval_decisions";
 
 function commands() {
-  return db().collection(tenantCollectionPath(currentTenant(), COMMANDS));
+  return partition(tenantCollectionPath(currentTenant(), COMMANDS));
 }
 
 function assertStoredCommand(command: EffectCommand): void {
@@ -81,66 +82,66 @@ export function assertCommandReceipt(command: EffectCommand, receipt: Receipt): 
 export async function createCommand(command: EffectCommand): Promise<void> {
   assertStoredCommand(command);
   assertCommandTenant(command);
-  await commands().doc(command.id).create(command);
+  await awsRepository().insert(recordKey(commands().partition + "/" + command.id), command);
 }
 
 export async function getCommand(commandId: string): Promise<EffectCommand | null> {
-  const snap = await commands().doc(commandId).get();
-  if (!snap.exists) return null;
-  const command = snap.data() as EffectCommand;
+  const snap = await awsRepository().read(recordKey(commands().partition + "/" + commandId));
+  if (!snap.present) return null;
+  const command = snap.value as unknown as EffectCommand;
   assertStoredCommand(command);
   assertCommandTenant(command);
   return command;
 }
 
 export async function listDueCommands(now = new Date()): Promise<EffectCommand[]> {
-  const snaps = await commands().where("state", "in", ["prepared", "waiting_provider", "pending"]).get();
-  return snaps.docs
-    .map((doc) => doc.data() as EffectCommand)
+  const snaps = await awsRepository().query(where(commands(), "state", "in", ["prepared", "waiting_provider", "pending"]));
+  return snaps.rows
+    .map((doc) => doc.value as unknown as EffectCommand)
     .filter((command) => (!command.executeAfter || Date.parse(command.executeAfter) <= now.getTime()) && (!command.nextPollAt || Date.parse(command.nextPollAt) <= now.getTime()))
     .sort((a, b) => Date.parse(a.executeAfter ?? a.createdAt) - Date.parse(b.executeAfter ?? b.createdAt));
 }
 
 export async function listCommandsForJob(jobId: string): Promise<EffectCommand[]> {
-  const snaps = await commands().where("jobId", "==", jobId).get();
-  return snaps.docs.map((doc) => doc.data() as EffectCommand).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const snaps = await awsRepository().query(where(commands(), "jobId", "==", jobId));
+  return snaps.rows.map((doc) => doc.value as unknown as EffectCommand).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 export async function listCommandEffectClaimsForJob(jobId: string): Promise<EffectClaim[]> {
   const jobCommands = await listCommandsForJob(jobId);
   const snapshots = await Promise.all(
-    jobCommands.map((command) => commands().doc(command.id).collection(CLAIMS).doc("effect").get()),
+    jobCommands.map((command) => awsRepository().read(recordKey(partition(recordKey(commands().partition + "/" + command.id).path + "/" + CLAIMS).partition + "/" + "effect"))),
   );
   return snapshots
-    .filter((snapshot) => snapshot.exists)
-    .map((snapshot) => snapshot.data() as EffectClaim);
+    .filter((snapshot) => snapshot.present)
+    .map((snapshot) => snapshot.value as unknown as EffectClaim);
 }
 
 export async function claimCommandEffect(
   commandId: string,
   owner: Pick<EffectClaimInput, "claimToken" | "operationId" | "traceId">,
 ): Promise<EffectClaimOutcome> {
-  const commandRef = commands().doc(commandId);
-  const claimRef = commandRef.collection(CLAIMS).doc("effect");
+  const commandRef = recordKey(commands().partition + "/" + commandId);
+  const claimRef = recordKey(partition(commandRef.path + "/" + CLAIMS).partition + "/" + "effect");
   const tenant = currentTenant();
-  return db().runTransaction(async (tx) => {
-    const commandSnap = await tx.get(commandRef);
-    if (!commandSnap.exists) throw new Error("effect command not found");
-    const command = commandSnap.data() as EffectCommand;
+  return db().atomic(async (tx) => {
+    const commandSnap = await tx.read(commandRef);
+    if (!commandSnap.present) throw new Error("effect command not found");
+    const command = commandSnap.value as unknown as EffectCommand;
     const operationId = operationIdForEffect(command.jobId, commandId);
-    const operationRef = db().collection(tenantCollectionPath(tenant, OPERATIONS)).doc(operationId);
-    const jobRef = db().collection(tenantCollectionPath(tenant, JOBS)).doc(command.jobId);
-    const approvalRef = jobRef.collection(APPROVAL_DECISIONS).doc(command.actionId);
-    const dependencyRefs = (command.dependsOnCommandIds ?? []).map((id) => commands().doc(id));
+    const operationRef = recordKey(partition(tenantCollectionPath(tenant, OPERATIONS)).partition + "/" + operationId);
+    const jobRef = recordKey(partition(tenantCollectionPath(tenant, JOBS)).partition + "/" + command.jobId);
+    const approvalRef = recordKey(partition(jobRef.path + "/" + APPROVAL_DECISIONS).partition + "/" + command.actionId);
+    const dependencyRefs = (command.dependsOnCommandIds ?? []).map((id) => recordKey(commands().partition + "/" + id));
     const [claimSnap, operationSnap, jobSnap, approvalSnap] = await Promise.all([
-      tx.get(claimRef), tx.get(operationRef), tx.get(jobRef), tx.get(approvalRef),
+      tx.read(claimRef), tx.read(operationRef), tx.read(jobRef), tx.read(approvalRef),
     ]);
-    const dependencySnaps = await Promise.all(dependencyRefs.map((ref) => tx.get(ref)));
+    const dependencySnaps = await Promise.all(dependencyRefs.map((ref) => tx.read(ref)));
     assertStoredCommand(command);
     assertCommandTenant(command);
     dependencySnaps.forEach((snapshot, index) => {
-      if (!snapshot.exists) throw new Error(`effect command dependency ${command.dependsOnCommandIds![index]} is missing`);
-      const dependency = snapshot.data() as EffectCommand;
+      if (!snapshot.present) throw new Error(`effect command dependency ${command.dependsOnCommandIds![index]} is missing`);
+      const dependency = snapshot.value as unknown as EffectCommand;
       assertStoredCommand(dependency);
       assertCommandTenant(dependency);
       if (dependency.jobId !== command.jobId || dependency.state !== "applied") {
@@ -150,7 +151,7 @@ export async function claimCommandEffect(
     if (["cancelled", "failed", "unknown"].includes(command.state)) throw new Error(`effect command is ${command.state}`);
     if (command.executeAfter && Date.parse(command.executeAfter) > Date.now()) throw new Error("effect command is not due");
     const input = commandClaimInput(command, owner);
-    let existingClaim = claimSnap.exists ? claimSnap.data() as EffectClaim : null;
+    let existingClaim = claimSnap.present ? claimSnap.value as unknown as EffectClaim : null;
     let safeExpiredBeforeDispatch = false;
     if (
       existingClaim
@@ -166,8 +167,8 @@ export async function claimCommandEffect(
       throw new Error("effect command operation id mismatch");
     }
     if (result.outcome === "execute") {
-      if (!jobSnap.exists) throw new Error("effect command job not found");
-      const job = jobSnap.data() as Job & { actions: PlannedAction[] };
+      if (!jobSnap.present) throw new Error("effect command job not found");
+      const job = jobSnap.value as unknown as Job & { actions: PlannedAction[] };
       if (job.workspaceId !== tenant.workspaceId || job.brandId !== tenant.brandId) throw new Error("effect command job tenant mismatch");
       const admission = decideWorkAdmission(job.controlState);
       if (admission.outcome !== "execute") return admission;
@@ -180,18 +181,18 @@ export async function claimCommandEffect(
           throw new Error("effect command approval has been revoked");
         }
         if (command.authorization.kind === "approval") {
-          if (!approvalSnap.exists) throw new Error("effect command approval decision is missing");
-          const approval = approvalSnap.data() as ApprovalDecision;
+          if (!approvalSnap.present) throw new Error("effect command approval decision is missing");
+          const approval = approvalSnap.value as unknown as ApprovalDecision;
           if (
             approval.id !== command.authorization.approvalId
             || approval.jobId !== command.jobId
             || approval.actionId !== command.actionId
             || approval.decision !== "approved"
             || approval.payloadDigest !== actionPayloadDigest(action)
-            || !["firebase_operator", "telegram_operator"].includes(approval.actorType)
+            || !["cognito_operator", "telegram_operator"].includes(approval.actorType)
             || !approval.actorSubjectId
             || !approval.authenticationId
-            || approval.channel !== (approval.actorType === "firebase_operator" ? "dashboard" : "telegram")
+            || approval.channel !== (approval.actorType === "cognito_operator" ? "dashboard" : "telegram")
             || approval.operationId !== `${command.jobId}:approval:${command.actionId}`
             || !/^[a-f0-9]{32}$/.test(approval.traceId)
             || approval.traceId === "0".repeat(32)
@@ -203,8 +204,8 @@ export async function claimCommandEffect(
         }
       }
       const now = result.claim.claimedAt;
-      let operation = operationSnap.exists
-        ? operationSnap.data() as OperationRecord
+      let operation = operationSnap.present
+        ? operationSnap.value as unknown as OperationRecord
         : createOperation({
             id: operationId, workspaceId: command.workspaceId, brandId: command.brandId,
             jobId: command.jobId, kind: "effect",
@@ -234,9 +235,9 @@ export async function claimCommandEffect(
           goalDigest: operationClaim.operation.goal.digest,
         },
       };
-      tx.set(claimRef, result.claim);
-      if (operationSnap.exists) tx.set(operationRef, operationClaim.operation);
-      else tx.create(operationRef, operationClaim.operation);
+      tx.put(claimRef, result.claim);
+      if (operationSnap.present) tx.put(operationRef, operationClaim.operation);
+      else tx.insert(operationRef, operationClaim.operation);
     }
     return result;
   });
@@ -256,19 +257,19 @@ export async function transitionCommandEffect(
   fence: OperationFence,
 ): Promise<EffectCommand> {
   const tenant = currentTenant();
-  const commandRef = commands().doc(commandId);
-  const claimRef = commandRef.collection(CLAIMS).doc("effect");
-  const operationRef = db().collection(tenantCollectionPath(tenant, OPERATIONS)).doc(fence.operationId);
-  return db().runTransaction(async (tx) => {
+  const commandRef = recordKey(commands().partition + "/" + commandId);
+  const claimRef = recordKey(partition(commandRef.path + "/" + CLAIMS).partition + "/" + "effect");
+  const operationRef = recordKey(partition(tenantCollectionPath(tenant, OPERATIONS)).partition + "/" + fence.operationId);
+  return db().atomic(async (tx) => {
     const [commandSnap, claimSnap, operationSnap] = await Promise.all([
-      tx.get(commandRef), tx.get(claimRef), tx.get(operationRef),
+      tx.read(commandRef), tx.read(claimRef), tx.read(operationRef),
     ]);
-    if (!commandSnap.exists || !claimSnap.exists || !operationSnap.exists) {
+    if (!commandSnap.present || !claimSnap.present || !operationSnap.present) {
       throw new Error("effect command aggregate not found");
     }
-    const command = commandSnap.data() as EffectCommand;
-    const claim = claimSnap.data() as EffectClaim;
-    const operation = operationSnap.data() as OperationRecord;
+    const command = commandSnap.value as unknown as EffectCommand;
+    const claim = claimSnap.value as unknown as EffectClaim;
+    const operation = operationSnap.value as unknown as OperationRecord;
     assertStoredCommand(command);
     assertCommandTenant(command);
     assertOperationFence(operation, fence);
@@ -305,7 +306,7 @@ export async function transitionCommandEffect(
         providerOperationId: input.providerOperationId, nextPollAt: input.nextPollAt, now: fence.now,
       });
       nextClaim = restoreEffectClaimForRetry(claim, input.claimToken, fence.now);
-      tx.set(operationRef, finalizeOperation(operation, {
+      tx.put(operationRef, finalizeOperation(operation, {
         epoch: fence.epoch, state: "waiting", now: fence.now,
       }));
     } else if (input.phase === "unknown") {
@@ -314,7 +315,7 @@ export async function transitionCommandEffect(
         reason: input.reason, now: fence.now,
       });
       nextClaim = markEffectClaimUnknown(claim, input.claimToken, input.reason);
-      tx.set(operationRef, finalizeOperation(operation, {
+      tx.put(operationRef, finalizeOperation(operation, {
         epoch: fence.epoch, state: "unknown", unresolvedReason: input.reason, now: fence.now,
       }));
     } else {
@@ -323,12 +324,12 @@ export async function transitionCommandEffect(
         proof: "provider_not_started", now: fence.now,
       });
       nextClaim = restoreEffectClaimForRetry(claim, input.claimToken, fence.now);
-      tx.set(operationRef, finalizeOperation(operation, {
+      tx.put(operationRef, finalizeOperation(operation, {
         epoch: fence.epoch, state: "waiting", now: fence.now,
       }));
     }
-    tx.set(commandRef, nextCommand);
-    tx.set(claimRef, nextClaim);
+    tx.put(commandRef, nextCommand);
+    tx.put(claimRef, nextClaim);
     return nextCommand;
   });
 }
@@ -340,21 +341,21 @@ export async function finalizeCommandReceipt(
   fence: OperationFence,
 ): Promise<{ duplicate: boolean; receipt: Receipt }> {
   const tenant = currentTenant();
-  const commandRef = commands().doc(commandId);
-  const claimRef = commandRef.collection(CLAIMS).doc("effect");
-  const jobRef = db().collection(tenantCollectionPath(tenant, JOBS)).doc(receipt.jobId);
-  const receiptRef = jobRef.collection(RECEIPTS).doc(receipt.id);
-  const operationRef = db().collection(tenantCollectionPath(tenant, OPERATIONS)).doc(fence.operationId);
-  return db().runTransaction(async (tx) => {
+  const commandRef = recordKey(commands().partition + "/" + commandId);
+  const claimRef = recordKey(partition(commandRef.path + "/" + CLAIMS).partition + "/" + "effect");
+  const jobRef = recordKey(partition(tenantCollectionPath(tenant, JOBS)).partition + "/" + receipt.jobId);
+  const receiptRef = recordKey(partition(jobRef.path + "/" + RECEIPTS).partition + "/" + receipt.id);
+  const operationRef = recordKey(partition(tenantCollectionPath(tenant, OPERATIONS)).partition + "/" + fence.operationId);
+  return db().atomic(async (tx) => {
     const [commandSnap, claimSnap, jobSnap, operationSnap] = await Promise.all([
-      tx.get(commandRef), tx.get(claimRef), tx.get(jobRef), tx.get(operationRef),
+      tx.read(commandRef), tx.read(claimRef), tx.read(jobRef), tx.read(operationRef),
     ]);
-    if (!commandSnap.exists || !claimSnap.exists || !operationSnap.exists) throw new Error("effect command claim not found");
-    const command = commandSnap.data() as EffectCommand;
+    if (!commandSnap.present || !claimSnap.present || !operationSnap.present) throw new Error("effect command claim not found");
+    const command = commandSnap.value as unknown as EffectCommand;
     assertCommandReceipt(command, receipt);
     assertCommandTenant(command);
-    const claim = claimSnap.data() as EffectClaim;
-    const operation = operationSnap.data() as OperationRecord;
+    const claim = claimSnap.value as unknown as EffectClaim;
+    const operation = operationSnap.value as unknown as OperationRecord;
     assertOperationFence(operation, fence);
     if (command.state !== "observed" || !command.observation) throw new Error("effect command has no durable provider observation");
     if (
@@ -364,31 +365,31 @@ export async function finalizeCommandReceipt(
     ) throw new Error("receipt differs from durable provider observation");
     const finalized = decideEffectFinalization(claim, claimToken, receipt.id, receipt.outcome);
     if (finalized.duplicate) {
-      const original = await tx.get(jobRef.collection(RECEIPTS).doc(finalized.receiptId));
-      if (!original.exists) throw new Error("finalized command receipt is missing");
-      return { duplicate: true, receipt: original.data() as Receipt };
+      const original = await tx.read(recordKey(partition(jobRef.path + "/" + RECEIPTS).partition + "/" + finalized.receiptId));
+      if (!original.present) throw new Error("finalized command receipt is missing");
+      return { duplicate: true, receipt: original.value as unknown as Receipt };
     }
     const commandState = receipt.outcome === "applied" || receipt.outcome === "already_applied" ? "applied" : "failed";
     if (command.sourceKind === "job_action") {
-      if (!jobSnap.exists) throw new Error("effect command job not found");
-      const job = jobSnap.data() as Job & { actions?: PlannedAction[] };
+      if (!jobSnap.present) throw new Error("effect command job not found");
+      const job = jobSnap.value as unknown as Job & { actions?: PlannedAction[] };
       const actions = [...(job.actions ?? [])];
       const index = actions.findIndex((action) => action.id === command.actionId);
       if (index < 0) throw new Error("effect command action not found");
       actions[index] = { ...actions[index], state: commandState === "applied" ? "executed" : "failed" };
-      tx.update(jobRef, { actions, updatedAt: receipt.performedAt });
+      tx.patch(jobRef, { actions, updatedAt: receipt.performedAt });
     } else {
-      const itemRef = db().collection(tenantCollectionPath(tenant, CONTENT_ITEMS)).doc(command.sourceId);
-      const itemSnap = await tx.get(itemRef);
-      if (!itemSnap.exists) throw new Error("scheduled content source not found");
-      tx.update(itemRef, commandState === "applied"
+      const itemRef = recordKey(partition(tenantCollectionPath(tenant, CONTENT_ITEMS)).partition + "/" + command.sourceId);
+      const itemSnap = await tx.read(itemRef);
+      if (!itemSnap.present) throw new Error("scheduled content source not found");
+      tx.patch(itemRef, commandState === "applied"
         ? { status: "published", publishedAt: receipt.performedAt, updatedAt: receipt.performedAt }
         : { status: "failed", failureReason: String(receipt.detail.error ?? receipt.outcome), updatedAt: receipt.performedAt });
     }
-    tx.create(receiptRef, receipt);
-    tx.set(claimRef, finalized.claim);
-    tx.update(commandRef, { state: commandState, updatedAt: receipt.performedAt });
-    tx.set(operationRef, finalizeOperation(operation, {
+    tx.insert(receiptRef, receipt);
+    tx.put(claimRef, finalized.claim);
+    tx.patch(commandRef, { state: commandState, updatedAt: receipt.performedAt });
+    tx.put(operationRef, finalizeOperation(operation, {
       epoch: fence.epoch,
       state: commandState === "applied" ? "succeeded" : "failed",
       now: receipt.performedAt,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { firebasePrincipal } from "@/lib/authority";
+import { cognitoPrincipal } from "@/lib/authority";
 import { buildScheduledEffectCommand, planScheduledMutation } from "@/lib/scheduledEffects";
 import type { ContentItem } from "@/lib/types";
 import { readFileSync } from "node:fs";
@@ -13,7 +13,7 @@ const item: ContentItem = {
 };
 const context = {
   workspaceId: "workspace-1", brandId: "brand-1",
-  principal: firebasePrincipal({ subjectId: "user-1", workspaceRole: "member", authenticationId: "session-1" }),
+  principal: cognitoPrincipal({ subjectId: "user-1", workspaceRole: "member", authenticationId: "session-1" }),
 };
 
 describe("scheduled effect authorization", () => {

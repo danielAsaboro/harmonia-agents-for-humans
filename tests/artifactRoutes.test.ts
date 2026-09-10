@@ -8,7 +8,7 @@ const { create, read, assertDurableOperationFence } = vi.hoisted(() => ({
 vi.mock("@/lib/artifactStore", () => ({
   createArtifactStore: () => ({ create, read }),
 }));
-vi.mock("@/lib/firestore", () => ({
+vi.mock("@/lib/repository", () => ({
   db: vi.fn(),
   assertDurableOperationFence,
 }));

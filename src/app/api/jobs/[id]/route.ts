@@ -1,37 +1,33 @@
-import { db, eraseJobData, getJob, listApprovalDecisions, listAssets, listEffectClaims, listEvents, listReceipts, listReplayObservations, listUsageRecords } from "@/lib/firestore";
-import { administratorTenantHandler, tenantHandler } from "@/lib/auth";
+import { administratorTenantHandler,tenantHandler } from "@/lib/auth";
+import { normalizedSourceSchema } from "@/lib/contracts";
 import { redactEffectClaim } from "@/lib/effectClaims";
+import { listCommandEffectClaimsForJob } from "@/lib/effectCommandStore";
 import { actionPayloadDigest } from "@/lib/idempotency";
 import { planJobDeletion } from "@/lib/lifecycle";
-import { currentTenant } from "@/lib/tenancy";
-import { getArtifact } from "@/lib/storage";
-import { normalizedSourceSchema } from "@/lib/contracts";
 import { getProductionPlanWorkspaceForJob } from "@/lib/productionPlanStore";
+import { eraseJobData,getJob,listApprovalDecisions,listAssets,listEffectClaims,listEvents,listReceipts,listReplayObservations,listUsageRecords } from "@/lib/repository";
+import { artifactBucket,getArtifact,readS3Object } from "@/lib/storage";
+import { currentTenant } from "@/lib/tenancy";
 import { z } from "zod";
-import { listCommandEffectClaimsForJob } from "@/lib/effectCommandStore";
+import { awsRepository,field,partition,recordKey,StoredRecord,where } from "../../../../lib/dynamo";
 
 function timestampValue(value: unknown): string | null {
-  if (value && typeof value === "object" && "toDate" in value && typeof value.toDate === "function") {
-    return value.toDate().toISOString();
-  }
   return typeof value === "string" ? value : null;
 }
 
 async function retainedArtifactBytes(uri: unknown): Promise<Buffer | null> {
   if (typeof uri !== "string") return null;
-  const match = /^gs:\/\/([^/]+)\/(.+)$/.exec(uri);
-  if (!match) return null;
-  const { Storage } = await import("@google-cloud/storage");
-  const [bytes] = await new Storage().bucket(match[1]).file(match[2]).download().catch(() => [null]);
-  return bytes;
+  const parsed = new URL(uri);
+  if (parsed.protocol !== "s3:" || parsed.hostname !== artifactBucket()) throw new Error("retained artifact outside configured bucket");
+  return readS3Object(parsed.pathname.slice(1));
 }
 
-async function historicalArchiveResponse(jobId: string, tenant: ReturnType<typeof currentTenant>, tombstone: FirebaseFirestore.DocumentSnapshot) {
-  const artifacts = await db().collection(`workspaces/${tenant.workspaceId}/artifacts`).where("jobId", "==", jobId).get();
-  const contentArtifacts = (await Promise.all(artifacts.docs
-    .filter((artifact) => artifact.get("contentType") === "application/json" && (artifact.get("producer") as { kind?: string } | undefined)?.kind === "content_artifact_export")
+async function historicalArchiveResponse(jobId: string, tenant: ReturnType<typeof currentTenant>, tombstone: StoredRecord) {
+  const artifacts = await awsRepository().query(where(partition(`workspaces/${tenant.workspaceId}/artifacts`), "jobId", "==", jobId));
+  const contentArtifacts = (await Promise.all(artifacts.rows
+    .filter((artifact) => field(artifact.value, "contentType") === "application/json" && (field(artifact.value, "producer") as { kind?: string } | undefined)?.kind === "content_artifact_export")
     .map(async (artifact) => {
-      const bytes = await retainedArtifactBytes(artifact.get("uri"));
+      const bytes = await retainedArtifactBytes(field(artifact.value, "uri"));
       if (!bytes) return null;
       try {
         const parsed = JSON.parse(bytes.toString("utf8")) as Record<string, unknown>;
@@ -47,8 +43,8 @@ async function historicalArchiveResponse(jobId: string, tenant: ReturnType<typeo
       : [];
   }))];
   const sourceRecords = (await Promise.all(sourceIds.map(async (sourceId) => {
-    const source = await db().doc(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/sources/${sourceId}`).get();
-    return source.exists ? source.data() : null;
+    const source = await awsRepository().read(recordKey(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/sources/${sourceId}`));
+    return source.present ? source.value : null;
   }))).filter(Boolean);
   const normalizedSources = (await Promise.all(sourceRecords.map(async (record) => {
     const artifactId = (record as { normalizedArtifactId?: string }).normalizedArtifactId;
@@ -76,13 +72,13 @@ async function historicalArchiveResponse(jobId: string, tenant: ReturnType<typeo
   );
   const firstArtifact = contentArtifacts[0] as Record<string, unknown> | undefined;
   const hasRecoveredOutput = contentArtifacts.length > 0;
-  const archivedAt = timestampValue(tombstone.get("deletedAt")) ?? events[events.length - 1]?.at ?? "2026-08-30T11:50:37.000Z";
+  const archivedAt = timestampValue(field(tombstone.value, "deletedAt")) ?? events[events.length - 1]?.at ?? "2026-08-30T11:50:37.000Z";
   return Response.json({
     job: {
       id: jobId,
       workspaceId: tenant.workspaceId,
       brandId: tenant.brandId,
-      createdByUserId: tombstone.get("deletedBySubjectId") ?? "retention-service",
+      createdByUserId: field(tombstone.value, "deletedBySubjectId") ?? "retention-service",
       config: {
         sourceManifestId: `retention-archive-${jobId}`,
         desiredOutputs: [],
@@ -143,29 +139,29 @@ async function get(
   try {
     job = await getJob(id);
   } catch (error) {
-    const tombstone = await db().doc(`workspaces/${tenant.workspaceId}/deletion_tombstones/${id}`).get();
-    if (tombstone.exists && tombstone.get("contentErased") === true) {
+    const tombstone = await awsRepository().read(recordKey(`workspaces/${tenant.workspaceId}/deletion_tombstones/${id}`));
+    if (tombstone.present && field(tombstone.value, "contentErased") === true) {
       return historicalArchiveResponse(id, tenant, tombstone);
     }
     throw error;
   }
-  const manifestSnapshot = await db().doc(`workspaces/${tenant.workspaceId}/jobs/${id}/source_manifests/${job.config.sourceManifestId}`).get();
-  const manifest = manifestSnapshot.data() as { directSourceIds?: string[]; librarySnapshotId?: string } | undefined;
+  const manifestSnapshot = await awsRepository().read(recordKey(`workspaces/${tenant.workspaceId}/jobs/${id}/source_manifests/${job.config.sourceManifestId}`));
+  const manifest = manifestSnapshot.value as unknown as { directSourceIds?: string[]; librarySnapshotId?: string } | undefined;
   let sourceIds = [...(manifest?.directSourceIds ?? [])];
   if (manifest?.librarySnapshotId) {
-    const libraries = await db().collection(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/brand_libraries`).get();
-    for (const library of libraries.docs) {
-      const snapshot = await library.ref.collection("snapshots").doc(manifest.librarySnapshotId).get();
-      if (snapshot.exists) {
-        sourceIds.push(...((snapshot.get("fileVersions") as Array<{ sourceId: string }> | undefined) ?? []).map((item) => item.sourceId));
+    const libraries = await awsRepository().query(partition(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/brand_libraries`));
+    for (const library of libraries.rows) {
+      const snapshot = await awsRepository().read(recordKey(partition(library.key.path + "/" + "snapshots").partition + "/" + manifest.librarySnapshotId));
+      if (snapshot.present) {
+        sourceIds.push(...((field(snapshot.value, "fileVersions") as Array<{ sourceId: string }> | undefined) ?? []).map((item) => item.sourceId));
         break;
       }
     }
   }
   sourceIds = [...new Set(sourceIds)];
   const sourceRecords = (await Promise.all(sourceIds.map(async (sourceId) => {
-    const snapshot = await db().doc(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/sources/${sourceId}`).get();
-    return snapshot.exists ? snapshot.data() : null;
+    const snapshot = await awsRepository().read(recordKey(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/sources/${sourceId}`));
+    return snapshot.present ? snapshot.value : null;
   }))).filter(Boolean);
   const normalizedSources = (await Promise.all(sourceRecords.map(async (record) => {
     const artifactId = (record as { normalizedArtifactId?: string }).normalizedArtifactId;

@@ -1,7 +1,7 @@
 # Nova liaison refinement plan
 
 1. Add failing schema and trace-validation tests.
-2. Implement strict output models, focused prompt, ADK trace callbacks, and
+2. Implement strict output models, focused prompt, Strands trace callbacks, and
    fail-closed grounding/authority validation.
 3. Correct read-tool projections and add record-level evidence plus bounded
    posting-window confidence.

@@ -102,6 +102,15 @@ def _client(*, tenant_required: bool = True) -> httpx.Client:
     )
 
 
+def recover_blob_erasures() -> dict[str, Any]:
+    path = "/api/internal/blob-erasure/recover"
+    with _client(tenant_required=False) as client:
+        response = client.post(path, json={})
+    if response.status_code != 200:
+        raise _response_error(path, response)
+    return response.json()
+
+
 def get_workspaces() -> list[dict[str, str]]:
     with _client(tenant_required=False) as c:
         res = c.get("/api/internal/workspaces")
@@ -166,7 +175,7 @@ def run_library_sync_tick() -> dict[str, Any]:
 
 
 def get_editorial_planning_snapshot(job_id: str) -> dict[str, Any]:
-    """Create or re-read the immutable Firestore planning snapshot for Temi."""
+    """Create or re-read the immutable DynamoDB planning snapshot for Temi."""
     with _client() as c:
         res = c.get("/api/internal/editorial-planning-snapshot", params={"jobId": job_id})
     if res.status_code != 200:

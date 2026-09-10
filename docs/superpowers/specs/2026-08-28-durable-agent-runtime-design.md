@@ -8,20 +8,20 @@
 
 Harmonia must continue an operation safely across process exits, retries, delayed external events, context compaction, worker replacement, and multi-day pauses. It must retain enough evidence to reconstruct every important decision while keeping each model invocation bounded. It must never infer external-effect success from missing data, let a stale worker commit after losing ownership, or let compacted conversation text become the only source of policy or approval authority.
 
-The implementation extends the existing Firestore, Pub/Sub, Cloud Run, Google ADK, Agent Engine, Memory Bank, GCS, approval, receipt, verification, replay, and observability architecture. It does not introduce a second workflow engine.
+The implementation extends the existing DynamoDB, SQS, ECS Fargate, Strands Agents SDK, AgentCore Runtime, AgentCore Memory, GCS, approval, receipt, verification, replay, and observability architecture. It does not introduce a second workflow engine.
 
 ## Existing foundations retained
 
 The repository already implements important parts of the target runtime:
 
-- Firestore is the authoritative workflow store and Pub/Sub is a trigger transport.
+- DynamoDB is the authoritative workflow store and SQS is a trigger transport.
 - Jobs carry versioned strategy, editorial-plan, analysis, draft, approval, and stage state.
 - Stage outbox records atomically accompany stage transitions.
 - Stage execution leases represent `claimed`, `applied`, `failed`, and `uncertain` states.
 - Effect commands bind immutable canonical payload digests to an approval or mandate.
 - Effect claims, receipts, verification, and replay observations preserve external-action evidence.
-- Google ADK agents use typed role contracts and source-bound evidence.
-- Memory Bank facts are tenant-scoped, provenance-bound, and non-authoritative.
+- Strands Agents SDK agents use typed role contracts and source-bound evidence.
+- AgentCore Memory facts are tenant-scoped, provenance-bound, and non-authoritative.
 - GCS-backed asset storage, OpenTelemetry traces, cost reservations, record/replay, retention, and operator monitoring already exist.
 
 The new runtime converges these mechanisms around a canonical operation ledger, durable event inbox, fencing epochs, explicit dispatch ambiguity, artifact-backed context projections, and recovery decisions.
@@ -30,7 +30,7 @@ The new runtime converges these mechanisms around a canonical operation ledger, 
 
 ### Replace the runtime with Temporal, Restate, or another workflow engine
 
-This would duplicate Firestore state, complicate the existing Cloud Run/ADK boundary, and weaken the required Google-native architecture. A durable workflow engine would still not solve model context construction or arbitrary third-party effect atomicity.
+This would duplicate DynamoDB state, complicate the existing ECS Fargate/Strands boundary, and weaken the required Google-native architecture. A durable workflow engine would still not solve model context construction or arbitrary third-party effect atomicity.
 
 ### Add only conversation summarization or vector memory
 
@@ -42,16 +42,16 @@ Owner tokens prevent one worker from releasing another worker's claim, but an ex
 
 ## System model
 
-The canonical unit of execution is an `OperationRecord`, not an ADK session or chat conversation. A job may create multiple operations for stages, effects, verifications, event wakes, or recovery. Chat, Telegram, Pub/Sub, timers, approvals, and provider callbacks are event sources that correlate to operations.
+The canonical unit of execution is an `OperationRecord`, not an Strands session or chat conversation. A job may create multiple operations for stages, effects, verifications, event wakes, or recovery. Chat, Telegram, SQS, timers, approvals, and provider callbacks are event sources that correlate to operations.
 
 The runtime maintains four separate history representations:
 
 1. Canonical events and evidence for audit.
 2. Typed mutable operation state for recovery.
 3. Versioned bounded context projections for model calls.
-4. GCS artifacts for large payloads with Firestore metadata.
+4. GCS artifacts for large payloads with DynamoDB metadata.
 
-## Firestore records
+## DynamoDB records
 
 All new record families live under `workspaces/{workspaceId}` and include `workspaceId` and `brandId`. Existing tenant helpers remain mandatory.
 
@@ -113,7 +113,7 @@ Operation IDs are stable domain identities, such as `job:{jobId}:stage:{stage}` 
 
 `eventKey` is the SHA-256 digest of canonical `(source, sourceEventId)`. The stored record includes source, source event ID, schema version, correlation and causation IDs, payload digest, artifact reference when the payload is large, trust classification, received/occurred timestamps, operation ID, delivery attempts, and state (`accepted`, `processing`, `completed`, `rejected`).
 
-The inbox answers whether a domain event has been accepted. Pub/Sub message IDs are retained as delivery evidence but do not replace the stable source event ID.
+The inbox answers whether a domain event has been accepted. SQS message IDs are retained as delivery evidence but do not replace the stable source event ID.
 
 ### Existing `stage_outbox/{id}`
 
@@ -125,7 +125,7 @@ Stage outbox records gain:
 - `operationId`;
 - `publishAttempt`.
 
-Republishing an ambiguous outbox record may produce multiple Pub/Sub messages, but all carry the same stable source event ID and collapse at the inbox.
+Republishing an ambiguous outbox record may produce multiple SQS messages, but all carry the same stable source event ID and collapse at the inbox.
 
 ### `artifacts/{artifactId}`
 
@@ -188,9 +188,9 @@ The rendered prompt is not required to remain inline. If it exceeds the configur
 ## Event acceptance and wake flow
 
 1. The outbox dispatcher publishes a versioned envelope containing stable `sourceEventId`, tenant scope, job/stage, operation ID, correlation/causation IDs, attempt, and trace context.
-2. The Cloud Run worker authenticates the push through IAM and validates data/attribute tenant equality.
+2. The ECS Fargate worker authenticates the push through IAM and validates data/attribute tenant equality.
 3. Before stage dispatch, the worker calls the internal event-inbox claim endpoint.
-4. A Firestore transaction creates the inbox record if absent and creates or validates the correlated operation. An already completed event returns `already_completed`; an active event returns `in_progress`; a retryable abandoned event can be reclaimed only under its replay policy.
+4. A DynamoDB transaction creates the inbox record if absent and creates or validates the correlated operation. An already completed event returns `already_completed`; an active event returns `in_progress`; a retryable abandoned event can be reclaimed only under its replay policy.
 5. The worker claims the operation, receiving a monotonically increasing epoch.
 6. The worker compiles and persists the model projection, executes the bounded transition, and sends the operation ID and epoch on every protected internal mutation.
 7. Finalization atomically records terminal stage/operation state and inbox completion. A transient failure leaves the event retryable; permanent or ambiguous outcomes are visible records rather than successful acknowledgements.
@@ -209,7 +209,7 @@ The worker sends `x-harmonia-operation-id` and `x-harmonia-operation-epoch` on p
 
 Stage mutation routes, effect-dispatch transitions, receipt finalization, verification writes, and context-projection writes require a fence. Control-plane claim/recovery endpoints do not require a pre-existing fence because they issue or replace one.
 
-Fencing protects Harmonia's Firestore authority. A provider that cannot validate epochs still requires the effect-command protocol below.
+Fencing protects Harmonia's DynamoDB authority. A provider that cannot validate epochs still requires the effect-command protocol below.
 
 ## External-effect protocol
 
@@ -239,7 +239,7 @@ An approval continues to bind the exact action payload digest. The effect operat
 
 ## Context compiler
 
-Google ADK session history and Memory Bank remain useful inputs, not authority. Before every model decision, a deterministic compiler builds a typed `DecisionContext` in this order:
+Strands Agents SDK session history and AgentCore Memory remain useful inputs, not authority. Before every model decision, a deterministic compiler builds a typed `DecisionContext` in this order:
 
 1. current goal contract and acceptance criteria;
 2. system-declared noncompactable policy constraints;
@@ -248,15 +248,15 @@ Google ADK session history and Memory Bank remain useful inputs, not authority. 
 5. unresolved external effects and required reconciliation;
 6. current strategy/editorial/draft revisions, excluding superseded revisions from the current-state section;
 7. selected evidence with trust and provenance labels;
-8. bounded Memory Bank facts with evidence references;
+8. bounded AgentCore Memory facts with evidence references;
 9. recent raw lifecycle events;
 10. artifact previews and opaque retrieval references.
 
 The compiler enforces per-section character budgets and a total budget. It never summarizes policy, approval, unresolved ambiguity, goal acceptance criteria, or current revision identity. Oversized evidence is spilled before prompt construction. A projection manifest records every selected input, compiler version, digests, and omissions.
 
-External content is delimited and labelled `external_untrusted`; model output and Memory Bank facts are labelled as inference/advisory. Neither can authorize a tool.
+External content is delimited and labelled `external_untrusted`; model output and AgentCore Memory facts are labelled as inference/advisory. Neither can authorize a tool.
 
-The initial integration covers every stage-level ADK invocation and chat agent run. Provider-specific prompt caching may optimize the rendered projection later, but cannot change its canonical manifest.
+The initial integration covers every stage-level Strands invocation and chat agent run. Provider-specific prompt caching may optimize the rendered projection later, but cannot change its canonical manifest.
 
 ## Artifact retrieval
 
@@ -312,7 +312,7 @@ No raw prompt, transcript, credential, or artifact body is placed in telemetry.
 
 ## Failure behavior
 
-- Database contention retries only pure Firestore transaction functions; no provider or model call occurs inside a Firestore transaction callback.
+- Database contention retries only pure DynamoDB transaction functions; no provider or model call occurs inside a DynamoDB transaction callback.
 - A crash before intent commit leaves no authorized attempt.
 - A crash after intent commit but before dispatch leaves `prepared` and is safely recoverable.
 - A crash after dispatch but before response leaves `dispatched` and is reconciled as unknown.
@@ -350,7 +350,7 @@ All production behavior is implemented test-first.
 - recovery classification and bounded keyset paging;
 - approval-bound ambiguity decisions.
 
-### Firestore emulator integration tests
+### DynamoDB emulator integration tests
 
 - concurrent event acceptance produces one inbox record and one operation;
 - concurrent operation claims produce one current epoch;
@@ -367,7 +367,7 @@ All production behavior is implemented test-first.
 - external content cannot enter the authority section;
 - effect executor records dispatch before provider entry and maps post-dispatch exceptions to unknown;
 - heartbeat recovery executes independent arms and never auto-replays unknown effects;
-- Pub/Sub push duplicates stop before stage/model/provider execution.
+- SQS push duplicates stop before stage/model/provider execution.
 
 ### Fault-injection scenarios
 
@@ -381,12 +381,12 @@ The implementation is not complete until all of these pass from the isolated wor
 
 1. `npm test`
 2. `npm run test:agent`
-3. Firestore and Pub/Sub emulator integration suites with no skipped runtime tests
+3. DynamoDB and SQS emulator integration suites with no skipped runtime tests
 4. `npm run lint`
 5. `npm run build`
 6. deterministic fault-injection benchmark
 7. local worker/web execution and health checks
-8. one real authenticated vertical slice using configured Gemini, Firestore, Pub/Sub, GCS, and an approved export or official publish effect
+8. one real authenticated vertical slice using configured Gemini, DynamoDB, SQS, GCS, and an approved export or official publish effect
 9. independent verification receipt and replay/idempotency evidence
 
 If credentials or cloud resources are unavailable, the code and local/emulator gates continue to completion, while the authenticated run remains explicitly unverified. No mock, fixture, or replay is presented as real provider evidence.

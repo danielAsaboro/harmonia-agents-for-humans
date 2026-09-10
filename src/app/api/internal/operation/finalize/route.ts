@@ -1,5 +1,5 @@
 import { durableOperationFinalizeSchema } from "@/lib/contracts";
-import { finalizeDurableOperation } from "@/lib/firestore";
+import { finalizeDurableOperation } from "@/lib/repository";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { internalRoute, readOperationFenceHeaders } from "@/lib/internalHandler";
 

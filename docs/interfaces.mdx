@@ -34,18 +34,18 @@ Natural-language control:
 
 Existing action confirmations call the same `/api/jobs/{jobId}/actions/{actionId}/decision` endpoint as the dashboard. A generic A2UI confirmation can reference only a server-created, tenant-scoped, expiring `pending_operation`; unknown handlers, stale decisions, and replays fail closed.
 
-Intent parsing uses Gemini structured output. Conversations persist per surface so history renders in the console.
+Intent parsing uses Strands structured output through Bedrock. Conversations persist per surface so history renders in the console.
 
 ### Agent-answered questions
 
 Anything outside the fixed intent grammar routes to **Nova**, the skill-enabled
-ADK liaison (`nova_liaison`). Nova loads exactly one of five filesystem skills
+Strands liaison (`nova_liaison`). Nova loads exactly one of five filesystem skills
 — `trend-scan`, `job-status`, `signal-watch`, `posting-schedule`, or
 `engagement-insights` — before using its read-only tools. Each typed answer is
 bound to the actual tool trace and displays the evidence ID for every factual
 claim. Typed absence and dependency errors remain visible; derived posting
 windows include confidence and limitations. Nova cannot approve, schedule,
-publish, retry jobs, create receipts, or mutate Firestore.
+publish, retry jobs, create receipts, or mutate DynamoDB.
 
 The floating Drawer deliberately stays smaller: it reuses the trusted message, attachment, and confirmation renderers while retaining the JSON chat contract.
 
@@ -65,4 +65,4 @@ POST /api/chat
 
 ## Telegram bot
 
-The same intents run over the official Bot API, using one workspace-owned bot connection and one allowed chat. Settings registers the webhook through `setWebhook`; ordinary allow-listed messages enter the canonical chat router; replies use `sendMessage`. Ryan proposals receive expiring, digest-bound inline controls. Approval is a one-tap authenticated callback; rejection opens a bounded ForceReply prompt and records the decision only after the operator supplies notes. Nonces and feedback prompts are single-consumption Firestore records. A plain "approve" message only lists pending actions. Automated tests cover this contract, but a real bot exchange is still an external evidence gate.
+The same intents run over the official Bot API, using one workspace-owned bot connection and one allowed chat. Settings registers the webhook through `setWebhook`; ordinary allow-listed messages enter the canonical chat router; replies use `sendMessage`. Ryan proposals receive expiring, digest-bound inline controls. Approval is a one-tap authenticated callback; rejection opens a bounded ForceReply prompt and records the decision only after the operator supplies notes. Nonces and feedback prompts are single-consumption DynamoDB records. A plain "approve" message only lists pending actions. Automated tests cover this contract, but a real bot exchange is still an external evidence gate.

@@ -6,8 +6,6 @@ import pathlib
 import re
 from typing import Literal
 
-from google.adk.skills import load_skill_from_dir
-from google.adk.tools import FunctionTool, skill_toolset
 from pydantic import ConfigDict, Field, StrictBool, StrictInt, StrictStr, model_validator
 
 from .agent_models import AudienceSegment, StrategyResearchRequest, StrictModel
@@ -228,12 +226,8 @@ class IntentRoute(StrictModel):
         return self
 
 
-def build_intent_routing_skillset() -> skill_toolset.SkillToolset:
-    """Load the policy skill owned by Harmonia; it exposes no effect tools."""
-    return skill_toolset.SkillToolset(
-        skills=[load_skill_from_dir(SKILL_DIR)],
-        additional_tools=[FunctionTool(get_social_platform_connections)],
-    )
+
+
 
 
 def compiled_intent_routing_skill_context() -> str:
@@ -256,12 +250,4 @@ def compiled_intent_routing_skill_context() -> str:
 
 def compiled_context_assembly_skill_context() -> str:
     """Compile Harmonia's narrow context-assembly skill for one typed response."""
-    skill = load_skill_from_dir(CONTEXT_SKILL_DIR)
-    if skill.frontmatter.name != "harmonia-context-assembly":
-        raise RuntimeError("Harmonia context assembly skill name does not match")
-    return (
-        "# Coordinator-compiled Harmonia context-assembly skill\n"
-        "Activation: coordinator_compiled\n"
-        "The immutable skill below is already loaded. Do not request or load it again.\n\n"
-        f"{skill.instructions.strip()}"
-    )
+    return "PRELOADED context assembly skill; do not call removed loaders.\n" + (CONTEXT_SKILL_DIR / "SKILL.md").read_text()

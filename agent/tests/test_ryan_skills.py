@@ -8,15 +8,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from google.adk.tools import skill_toolset
-from google.adk.tools.agent_tool import AgentTool
-from google.adk.tools.google_search_tool import GoogleSearchTool
 
 from harmonia_agent.ryan_skills import (
     RYAN_SKILL_NAME,
     RYAN_SKILL_REFERENCES,
-    build_ryan_strategy_skillset,
-    build_ryan_google_search_tool,
+    build_ryan_search_tool,
     bootstrap_ryan_skill_trace,
     guard_ryan_skill_tool,
     reset_ryan_skill_trace,
@@ -43,13 +39,13 @@ def _trace(*resources: str) -> list[dict]:
 
 
 def test_ryan_skillset_exposes_only_skill_and_resource_loaders():
-    toolset = build_ryan_strategy_skillset()
+    from harmonia_agent.agents import build_agent_team
+    from harmonia_agent.ryan_skills import RYAN_SKILL_ROOT
+    specialist = build_agent_team().find_sub_agent("ryan_strategist")
+    assert RYAN_SKILL_NAME in specialist.instruction
+    assert all((RYAN_SKILL_ROOT / path).read_text().strip() for path in RYAN_SKILL_REFERENCES)
+    assert not any(tool.tool_name in {"load_skill", "load_skill_resource"} for tool in specialist.tools)
 
-    assert isinstance(toolset, skill_toolset.SkillToolset)
-    assert [skill.frontmatter.name for skill in toolset.skills] == [RYAN_SKILL_NAME]
-    assert {tool.name for tool in asyncio.run(toolset.get_tools())} == {
-        "load_skill", "load_skill_resource",
-    }
 
 
 def test_ryan_reference_allow_list_is_small_complete_and_loadable():
@@ -118,7 +114,7 @@ def test_source_coverage_ledger_accounts_for_every_supplied_source():
     ]
     assert all(ledger.count(f"https://www.animalz.co/blog/{slug}") == 1 for slug in urls)
     assert ledger.count("| Partial |") == len(urls)
-    assert ledger.count("https://adk.dev/grounding/google_search_grounding/") == 1
+    assert ledger.count("https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway-target-connector-web-search-tool.html") == 1
     assert ledger.count("https://adk.dev/grounding/grounding_with_search/") == 1
 
 
@@ -128,15 +124,14 @@ def test_ryan_runtime_is_wired_to_bounded_skill_callbacks():
     assert ryan.tools == []
     research = next(agent for agent in team.sub_agents if agent.name == "ryan_research_strategist")
     assert len(research.tools) == 1
-    assert isinstance(research.tools[0], AgentTool)
-    assert not any(isinstance(tool, GoogleSearchTool) for tool in ryan.tools)
+    assert research.tools[0].tool_name == "ryan_gateway_search"
     assert ryan.before_agent_callback is bootstrap_ryan_skill_trace
     assert ryan.before_tool_callback is guard_ryan_skill_tool
     assert ryan.after_tool_callback.__name__ == "record_ryan_skill_tool"
 
 
 def test_search_guard_requires_exact_host_authority_before_execution():
-    tool = SimpleNamespace(name="ryan_google_search_agent")
+    tool = SimpleNamespace(name="ryan_gateway_search")
     request = {"id": "research-1", "question": "What current primary evidence is available?", "justification": "Current external evidence is required."}
     with pytest.raises(ValueError, match="authorized research request"):
         guard_ryan_skill_tool(tool, {"request": json.dumps(request)}, SimpleNamespace(state={}))
@@ -183,11 +178,10 @@ def test_ryan_runtime_rejects_missing_trace_and_accepts_valid_actual_trace():
 
 
 def test_ryan_native_search_is_isolated_in_a_dedicated_agent():
-    tool = build_ryan_google_search_tool("gemini-test")
-    assert isinstance(tool, AgentTool)
-    assert tool.name == "ryan_google_search_agent"
-    assert len(tool.agent.tools) == 1
-    assert isinstance(tool.agent.tools[0], GoogleSearchTool)
+    capability = build_ryan_search_tool("test-model")
+    assert capability.tool_name == "ryan_gateway_search"
+    assert capability.tool_spec["inputSchema"]["json"]["required"] == ["request"]
+
 
 
 def test_ryan_search_trace_requires_exact_request_and_native_grounding_metadata():
@@ -196,13 +190,8 @@ def test_ryan_search_trace_requires_exact_request_and_native_grounding_metadata(
         "evidenceId": "search-1", "title": "Google Search Grounding", "url": "https://adk.dev/grounding/google_search_grounding/", "supportedText": "Grounding connects model output to verifiable sources."
     }]}
     calls = _trace(RYAN_SKILL_REFERENCES[0])
-    calls.append({"sequence": 3, "name": "ryan_google_search_agent", "args": {"request": json.dumps(request, sort_keys=True)}, "response": response})
-    metadata = {
-        "webSearchQueries": [request["question"]],
-        "searchEntryPoint": {"renderedContent": "<div>Search</div>"},
-        "groundingChunks": [{"web": {"title": response["sources"][0]["title"], "uri": response["sources"][0]["url"]}}],
-        "groundingSupports": [{"groundingChunkIndices": [0], "segment": {"text": response["sources"][0]["supportedText"]}}],
-    }
+    calls.append({"sequence": 3, "name": "ryan_gateway_search", "args": {"request": json.dumps(request, sort_keys=True)}, "response": response})
+    metadata = {"provider": "agentcore_gateway", "responseSha256": "a" * 64, "sources": response["sources"]}
     evidence = validate_ryan_skill_trace(calls, research_request=request, grounding_metadata=metadata)
     assert evidence["search-1"][2] == response["sources"][0]["url"]
 

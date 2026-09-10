@@ -4,9 +4,9 @@
 
 **Goal:** Remove repository-local blockers to a truthful, testable Harmonia vertical slice without deploying, publishing, or changing credentials.
 
-**Architecture:** Preserve Firestore as durable workflow truth and the existing effect-command/claim/fence boundary. Normalize all action execution against canonical `sourceAnalysis`, bind verification to immutable approved payloads, keep no-approval internal artifacts distinct from approval-required external effects, and make runtime configuration fail closed before external calls.
+**Architecture:** Preserve DynamoDB as durable workflow truth and the existing effect-command/claim/fence boundary. Normalize all action execution against canonical `sourceAnalysis`, bind verification to immutable approved payloads, keep no-approval internal artifacts distinct from approval-required external effects, and make runtime configuration fail closed before external calls.
 
-**Tech Stack:** Python 3.14, Google ADK 2.7.1, Next.js/TypeScript, Vitest, pytest, Firestore emulator, ffmpeg.
+**Tech Stack:** Python 3.14, Strands Agents SDK 2.7.1, Next.js/TypeScript, Vitest, pytest, DynamoDB emulator, ffmpeg.
 
 **Spec:** `../../../../audits/harmonia-whole-project/15-remediation-roadmap.md` (private parent-workspace audit; do not copy it into public docs)
 
@@ -148,7 +148,7 @@
 - Test: documentation, dependency, and clean-build verification commands
 
 **Interfaces:**
-- Produces: required Firestore emulator gate, locked worker build inputs, Node/Python/OS/image inventory, accurate current agent/interface/pipeline documentation, and supersession banners for historical plans.
+- Produces: required DynamoDB emulator gate, locked worker build inputs, Node/Python/OS/image inventory, accurate current agent/interface/pipeline documentation, and supersession banners for historical plans.
 
 - [ ] Make emulator transaction suites mandatory in the checked-in gate and fail clearly when prerequisites are missing.
 - [ ] Generate reproducible Python locks and release/SBOM metadata using repository-approved tooling.

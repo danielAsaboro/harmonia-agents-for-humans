@@ -16,7 +16,7 @@
 - The verifier proves internal consistency of captured evidence; it cannot convert self-asserted JSON into authenticated cloud proof.
 - Raw transcripts, drafts, credentials, session cookies, tokens, private logs, and screenshots stay outside the public repository.
 - The collector never approves, publishes, changes credentials, purchases, or sends an external message. It observes an approval already persisted through Harmonia's normal decision engine.
-- Trace lineage must correlate web request, Pub/Sub progression, agent invocation, approval/claim/effect, receipt, and verification. Separate operator requests may start distinct traces; replay proof must be a distinct traced attempt.
+- Trace lineage must correlate web request, SQS progression, agent invocation, approval/claim/effect, receipt, and verification. Separate operator requests may start distinct traces; replay proof must be a distinct traced attempt.
 - Evidence timestamps use timezone-aware ISO 8601 UTC strings; digests are lowercase SHA-256.
 - The first real effect may be an exported content pack only when it contains Gemini-derived artifacts and independent digest verification; no fake/social mock receipt is accepted.
 
@@ -34,7 +34,7 @@
 
 - [ ] **Step 1: Write failing schema and invariant tests**
 
-Create tests with a single `validBundle()` fixture and mutations proving rejection of mock/emulator provenance, non-Gemini-3.5 cognition, missing Agent Engine resource, missing stage, out-of-order timestamps, broken trace lineage, approval after effect, missing or late effect claim, missing idempotency key, duplicate operation IDs, unverified effect, verification before receipt, unknown cost, sum mismatch, and raw/private fields.
+Create tests with a single `validBundle()` fixture and mutations proving rejection of mock/emulator provenance, non-Gemini-3.5 cognition, missing AgentCore Runtime resource, missing stage, out-of-order timestamps, broken trace lineage, approval after effect, missing or late effect claim, missing idempotency key, duplicate operation IDs, unverified effect, verification before receipt, unknown cost, sum mismatch, and raw/private fields.
 
 ```ts
 it("accepts a complete authenticated redacted bundle", () => {
@@ -175,7 +175,7 @@ Expected: import failure because collector does not exist.
 
 - [ ] **Step 3: Implement collection without mutation**
 
-The collector may call only GET/read commands: Cloud Run service/revision describe, Pub/Sub topic/subscription describe, Firestore export/query helper, Harmonia job/events/receipts/usage/verification endpoints, and trace lookup. It must not call decision, publish, retry, credential, deployment, or POST endpoints. Normalize command outputs into the public schema, hash every raw export, run the public verifier, and retain verifier stdout/exit status.
+The collector may call only GET/read commands: ECS Fargate service/revision describe, SQS topic/subscription describe, DynamoDB export/query helper, Harmonia job/events/receipts/usage/verification endpoints, and trace lookup. It must not call decision, publish, retry, credential, deployment, or POST endpoints. Normalize command outputs into the public schema, hash every raw export, run the public verifier, and retain verifier stdout/exit status.
 
 - [ ] **Step 4: Verify GREEN**
 
@@ -201,7 +201,7 @@ Update `../submission/evidence/README.md` with the collector command and state t
 
 - [ ] **Step 1: Add documentation assertions**
 
-Add a small Vitest source contract asserting the runbook contains `HARMONIA_MOCK_AI`, `HARMONIA_MOCK_X`, `awaiting_approval`, `already_applied`, `Agent Engine`, `Cloud Run revision`, `traceId`, and the private/public boundary.
+Add a small Vitest source contract asserting the runbook contains `HARMONIA_MOCK_AI`, `HARMONIA_MOCK_X`, `awaiting_approval`, `already_applied`, `AgentCore Runtime`, `ECS Fargate revision`, `traceId`, and the private/public boundary.
 
 - [ ] **Step 2: Verify RED**
 
@@ -242,12 +242,12 @@ git commit -m "docs: add authenticated evidence runbook"
 - Create on a real attempt: `../submission/evidence/vertical-slice-<run-id>/...`
 
 **Interfaces:**
-- Consumes: active gcloud identity/project, deployed services, Agent Engine resource, configured provider credentials, authorized YouTube URL, and an operator-created job/approval.
+- Consumes: active gcloud identity/project, deployed services, AgentCore Runtime resource, configured provider credentials, authorized YouTube URL, and an operator-created job/approval.
 - Produces: a factual readiness matrix and, only when prerequisites exist, a verifier-passing evidence bundle.
 
 - [ ] **Step 1: Run read-only preflight**
 
-Capture active account, project, region, Cloud Run services/revisions, Agent Engine resource, Firestore database, Pub/Sub topic/subscription, Secret Manager secret metadata, and configured application health. Store redacted command results privately.
+Capture active account, project, region, ECS Fargate services/revisions, AgentCore Runtime resource, DynamoDB database, SQS topic/subscription, Secret Manager secret metadata, and configured application health. Store redacted command results privately.
 
 - [ ] **Step 2: Classify every prerequisite**
 

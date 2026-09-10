@@ -6,7 +6,7 @@
 
 **Architecture:** Extend the TypeScript and Python `SurfacePlan` contracts with matching enum-only art-direction metadata. A trusted presentation-policy layer validates or overrides lifecycle-sensitive choices during hydration, and the native React catalog maps accepted tokens to fixed Harmonia variants, bounded grids, and reduced-motion-safe transitions. Existing entity references, durable A2UI operations, approval actions, and verification truth remain authoritative.
 
-**Tech Stack:** Next.js, React, TypeScript, Zod, A2UI v0.9, CSS Modules, Vitest, Python 3.12, Pydantic v2, Google ADK, pytest
+**Tech Stack:** Next.js, React, TypeScript, Zod, A2UI v0.9, CSS Modules, Vitest, Python 3.12, Pydantic v2, Strands Agents SDK, pytest
 
 **Spec:** `docs/superpowers/specs/2026-08-24-a2ui-generative-art-direction-design.md`
 
@@ -610,7 +610,7 @@ Expected: all web tests and agent tests PASS, lint reports zero errors, producti
 
 Run: `HARMONIA_DEV_AUTH_BYPASS=1 pnpm dev`
 
-Expected: the web app starts. If the managed presenter requires unavailable `AGENT_ENGINE_RESOURCE`, record that exact blocker and use an already persisted real A2UI run for renderer verification; do not add a deterministic or mocked success fallback.
+Expected: the web app starts. If the managed presenter requires unavailable `AGENTCORE_RUNTIME_ARN`, record that exact blocker and use an already persisted real A2UI run for renderer verification; do not add a deterministic or mocked success fallback.
 
 - [ ] **Step 3: Verify representative surfaces in the browser**
 

@@ -2,11 +2,11 @@
 
 ## Problem
 
-Before this change, Harmonia derived stable idempotency keys and suppressed duplicate receipt writes, but the agent checked existing receipts before performing an external effect. Two concurrent Pub/Sub deliveries could both observe no receipt and both execute. Receipt deduplication after the calls could not prove duplicate-effect prevention.
+Before this change, Harmonia derived stable idempotency keys and suppressed duplicate receipt writes, but the agent checked existing receipts before performing an external effect. Two concurrent SQS deliveries could both observe no receipt and both execute. Receipt deduplication after the calls could not prove duplicate-effect prevention.
 
 ## Safety model
 
-Every side-effecting action must acquire a tenant-scoped Firestore claim keyed by the existing SHA-256 idempotency key before calling a provider or writing an artifact. The transaction has four outcomes:
+Every side-effecting action must acquire a tenant-scoped DynamoDB claim keyed by the existing SHA-256 idempotency key before calling a provider or writing an artifact. The transaction has four outcomes:
 
 - `execute`: this operation created the claim and exclusively owns the first attempt;
 - `in_progress`: another operation owns a live claim; the stage remains retryable and performs no effect;
@@ -17,7 +17,7 @@ Claims never grant approval. The claim endpoint verifies that the action is appr
 
 ## Persistence and finalization
 
-Claims live under the job so tenant isolation follows the existing Firestore boundary. A claim stores job/action identity, action type, idempotency key, owner operation and trace IDs, state, attempt count, claimed/expiry timestamps, and optional receipt/finalization identifiers. Receipt finalization runs in a Firestore transaction that validates claim ownership, creates the immutable receipt, marks the action executed or failed, and marks the claim `applied` or `failed` atomically.
+Claims live under the job so tenant isolation follows the existing DynamoDB boundary. A claim stores job/action identity, action type, idempotency key, owner operation and trace IDs, state, attempt count, claimed/expiry timestamps, and optional receipt/finalization identifiers. Receipt finalization runs in a DynamoDB transaction that validates claim ownership, creates the immutable receipt, marks the action executed or failed, and marks the claim `applied` or `failed` atomically.
 
 Only the authenticated operator replay-proof route writes a durable replay observation referencing the original receipt. Ordinary worker redelivery may receive `already_applied`, but it does not manufacture operator replay evidence. An `uncertain` response becomes a permanent visible failure requiring operator reconciliation; it never becomes simulated success and never automatically repeats a paid or public action.
 
@@ -25,7 +25,7 @@ Only the authenticated operator replay-proof route writes a durable replay obser
 
 `run_publish` claims each action before any provider call, content-pack write, render, or media generation. Only `execute` enters the existing effect adapter. `already_applied` skips the adapter and reports the observed original receipt. `in_progress` raises a retryable dependency failure. `uncertain` raises a permanent policy failure with a safe public message.
 
-The first hackathon slice uses `export_content_pack`, whose deterministic Firestore artifact and digest are independently verified. The same claim boundary protects X and paid media, while expired non-finalized claims deliberately require reconciliation instead of unsafe automatic replay.
+The first hackathon slice uses `export_content_pack`, whose deterministic DynamoDB artifact and digest are independently verified. The same claim boundary protects X and paid media, while expired non-finalized claims deliberately require reconciliation instead of unsafe automatic replay.
 
 ## Replay surface and evidence
 

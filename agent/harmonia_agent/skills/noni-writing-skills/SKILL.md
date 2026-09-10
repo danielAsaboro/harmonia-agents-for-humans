@@ -2,7 +2,7 @@
 name: noni-writing-skills
 description: Use when Noni must turn an approved Harmonia content brief and supplied evidence into credible platform-native writing or an issue-bound revision.
 metadata:
-  adk_additional_tools:
+  read_tools:
     - search_verified_publications
 ---
 
@@ -17,9 +17,7 @@ two years of content-marketing work for brands.
    CTA, platform, format, constraints, and supplied evidence.
 2. Decide the writing job: teach, reframe, persuade, narrate, demonstrate a
    result, or revise a specific defect.
-3. In host-activated artifact mode, apply the supplied references directly; no
-   loading or research tools are exposed. In interactive copywriter mode only,
-   load the relevant reference through the explicitly supplied tools.
+3. Apply the preloaded approved references directly. No resource loaders are exposed.
 4. Choose one controlling idea and one structure. Fit the structure to the
    platform instead of shrinking a blog post mechanically.
 5. Draft within the supplied factual boundary, then check clarity,
@@ -50,8 +48,7 @@ research tools. Never invent an
 experience, customer, quote, metric, trend, capability, result, urgency, or
 endorsement. Artifact mode uses only supplied evidence and never calls research
 tools. In interactive copywriter mode, use `search_verified_publications` only for verified prior Harmonia
-posts. Use the native `google_search_agent` only to execute the exact brief,
-prefer primary sources, and cite every grounded result's evidence ID. Never retrieve
+posts. Public research comes from the host-authorized analyst and strategist; cite supplied evidence IDs. Never retrieve
 Memory Bank, approve, schedule, publish,
 verify, create receipts, or mutate workflow state. When evidence cannot support
 the requested treatment, omit the claim or return the existing bounded

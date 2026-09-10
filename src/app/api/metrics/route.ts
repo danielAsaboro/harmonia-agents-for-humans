@@ -1,5 +1,5 @@
 import { aggregateModelUsage, microsToUsd, usdToMicros } from "@/lib/costs";
-import { listEvents, listJobs, listReceipts, listUsageRecords } from "@/lib/firestore";
+import { listEvents, listJobs, listReceipts, listUsageRecords } from "@/lib/repository";
 import { STAGES } from "@/lib/types";
 import { tenantHandler } from "@/lib/auth";
 

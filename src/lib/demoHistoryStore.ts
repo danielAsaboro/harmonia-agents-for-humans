@@ -1,16 +1,17 @@
 import { createHash } from "node:crypto";
+import { awsRepository,field,partition,recordKey,where } from "./dynamo";
 
-import type { DocumentData, DocumentReference } from "@google-cloud/firestore";
+import { RecordKey,RecordValue } from "./dynamo";
 
 import {
-  buildDemoProvenance,
-  collectInstants,
-  demoDocumentId,
-  isIsoInstant,
-  shiftDemoValue,
+buildDemoProvenance,
+collectInstants,
+demoDocumentId,
+isIsoInstant,
+shiftDemoValue,
 } from "./demoHistory";
-import { db } from "./firestore";
 import { canonicalJson } from "./recordReplay/integrity";
+import { db } from "./repository";
 
 const EXECUTABLE_COLLECTIONS = new Set([
   "commands",
@@ -38,7 +39,7 @@ export interface DemoHistoryInput {
 
 interface SourceDocument {
   sourcePath: string;
-  data: DocumentData;
+  data: RecordValue;
   jobRootId?: string;
   brandRoot?: boolean;
 }
@@ -52,7 +53,7 @@ export interface DemoHistoryRecordPlan {
   destinationDigest: string;
   sourceInstants: number[];
   demoInstants: number[];
-  data: DocumentData;
+  data: RecordValue;
 }
 
 export interface DemoHistoryPlan extends DemoHistoryInput {
@@ -126,17 +127,17 @@ function replaceExactIds(value: unknown, replacements: ReadonlyMap<string, strin
 }
 
 async function collectDocumentTree(
-  ref: DocumentReference,
+  ref: RecordKey,
   root: Pick<SourceDocument, "jobRootId" | "brandRoot">,
 ): Promise<SourceDocument[]> {
-  const snapshot = await ref.get();
-  if (!snapshot.exists) return [];
-  const records: SourceDocument[] = [{ sourcePath: ref.path, data: snapshot.data()!, ...root }];
-  const collections = await ref.listCollections();
+  const snapshot = await awsRepository().read(ref);
+  if (!snapshot.present) return [];
+  const records: SourceDocument[] = [{ sourcePath: ref.path, data: snapshot.value!, ...root }];
+  const collections = await awsRepository().childPartitions(ref);
   for (const collection of collections) {
-    const children = await collection.get();
-    for (const child of children.docs) {
-      records.push(...await collectDocumentTree(child.ref, root));
+    const children = await awsRepository().query(collection);
+    for (const child of children.rows) {
+      records.push(...await collectDocumentTree(child.key, root));
     }
   }
   return records;
@@ -150,14 +151,14 @@ function chunks<T>(values: readonly T[], size: number): T[][] {
 
 async function discoverBrandRecords(input: DemoHistoryInput, jobIds: readonly string[]): Promise<SourceDocument[]> {
   if (jobIds.length === 0) return [];
-  const brandRef = db().doc(`workspaces/${input.workspaceId}/brands/${input.brandId}`);
-  const collections = (await brandRef.listCollections()).filter((collection) => collection.id !== "demo_datasets");
+  const brandRef = recordKey(`workspaces/${input.workspaceId}/brands/${input.brandId}`);
+  const collections = (await awsRepository().childPartitions(brandRef)).filter((collection) => collection.id !== "demo_datasets");
   const records = new Map<string, SourceDocument>();
   for (const collection of collections) {
     for (const group of chunks(jobIds, 30)) {
-      const snapshots = await collection.where("jobId", "in", group).get();
-      for (const snapshot of snapshots.docs) {
-        for (const record of await collectDocumentTree(snapshot.ref, { brandRoot: true })) {
+      const snapshots = await awsRepository().query(where(collection, "jobId", "in", group));
+      for (const snapshot of snapshots.rows) {
+        for (const record of await collectDocumentTree(snapshot.key, { brandRoot: true })) {
           records.set(record.sourcePath, record);
         }
       }
@@ -236,14 +237,13 @@ export async function discoverDemoHistory(input: DemoHistoryInput): Promise<Demo
     anchor: new Date(input.anchor).toISOString(),
   };
 
-  const jobSnapshots = await db().collection(`workspaces/${input.workspaceId}/jobs`)
-    .where("brandId", "==", input.brandId).get();
-  const sourceJobs = jobSnapshots.docs.filter((snapshot) => !snapshot.get("demoProvenance"));
+  const jobSnapshots = await awsRepository().query(where(partition(`workspaces/${input.workspaceId}/jobs`), "brandId", "==", input.brandId));
+  const sourceJobs = jobSnapshots.rows.filter((snapshot) => !field(snapshot.value, "demoProvenance"));
   if (sourceJobs.length === 0) throw new Error("no source jobs found for demo history");
 
   const sources: SourceDocument[] = [];
   for (const job of sourceJobs) {
-    sources.push(...await collectDocumentTree(job.ref, { jobRootId: job.id }));
+    sources.push(...await collectDocumentTree(job.key, { jobRootId: job.id }));
   }
   sources.push(...await discoverBrandRecords(input, sourceJobs.map((snapshot) => snapshot.id)));
   const uniqueSources = [...new Map(sources.map((source) => [source.sourcePath, source])).values()]
@@ -257,7 +257,7 @@ export async function discoverDemoHistory(input: DemoHistoryInput): Promise<Demo
 
   const jobIds = new Map(sourceJobs.map((snapshot) => [
     snapshot.id,
-    demoDocumentId(input.datasetId, snapshot.ref.path),
+    demoDocumentId(input.datasetId, snapshot.key.path),
   ]));
   const intendedDestinations = new Map(uniqueSources.map((source) => [
     source.sourcePath,
@@ -269,7 +269,7 @@ export async function discoverDemoHistory(input: DemoHistoryInput): Promise<Demo
   const records = uniqueSources.map((source): DemoHistoryRecordPlan => {
     const intendedDestinationPath = intendedDestinations.get(source.sourcePath)!;
     const quarantined = isExecutablePath(intendedDestinationPath);
-    const shifted = replaceExactIds(shiftDemoValue(source.data, offsetMs), replacements) as DocumentData;
+    const shifted = replaceExactIds(shiftDemoValue(source.data, offsetMs), replacements) as RecordValue;
     const isJobRoot = Boolean(source.jobRootId) && source.sourcePath === `workspaces/${input.workspaceId}/jobs/${source.jobRootId}`;
     const destinationId = sourceDocumentId(intendedDestinationPath);
     const data = {
@@ -315,7 +315,7 @@ export async function discoverDemoHistory(input: DemoHistoryInput): Promise<Demo
   return { ...base, digest: planDigest(base, records), records };
 }
 
-function auditRecord(plan: DemoHistoryPlan, record: DemoHistoryRecordPlan): DocumentData {
+function auditRecord(plan: DemoHistoryPlan, record: DemoHistoryRecordPlan): RecordValue {
   return {
     sourcePath: record.sourcePath,
     intendedDestinationPath: record.intendedDestinationPath,
@@ -336,11 +336,11 @@ export async function applyDemoHistory(
 ): Promise<DemoHistoryManifest> {
   if (expectedDigest !== plan.digest) throw new Error("demo history plan digest mismatch");
   if (plan.unsafeLiveDestinationCount !== 0) throw new Error("demo history plan contains unsafe live destinations");
-  const manifestRef = db().doc(plan.manifestPath);
-  if ((await manifestRef.get()).exists) throw new Error("demo dataset already exists");
+  const manifestRef = recordKey(plan.manifestPath);
+  if ((await awsRepository().read(manifestRef)).present) throw new Error("demo dataset already exists");
   const liveDestinations = plan.records.filter((record) => !record.quarantined);
-  const existing = await db().getAll(...liveDestinations.map((record) => db().doc(record.actualDestinationPath)));
-  if (existing.some((snapshot) => snapshot.exists)) throw new Error("demo history destination already exists");
+  const existing = await db().readMany(...liveDestinations.map((record) => recordKey(record.actualDestinationPath)));
+  if (existing.some((snapshot) => snapshot.present)) throw new Error("demo history destination already exists");
 
   const cleanupCommand = `npx tsx scripts/create-demo-history.ts --cleanup --manifest ${plan.manifestPath}`;
   const manifest: DemoHistoryManifest = {
@@ -362,30 +362,27 @@ export async function applyDemoHistory(
     cleanupCommand,
   };
 
-  const writer = db().bulkWriter();
   for (const record of plan.records) {
-    if (!record.quarantined) writer.create(db().doc(record.actualDestinationPath), record.data);
-    writer.create(
-      manifestRef.collection("records").doc(demoDocumentId(plan.datasetId, record.sourcePath)),
-      auditRecord(plan, record),
-    );
+    await db().atomic(async writer => {
+      if (!record.quarantined) writer.insert(recordKey(record.actualDestinationPath), record.data);
+      writer.insert(recordKey(manifestRef.path + "/records/" + demoDocumentId(plan.datasetId, record.sourcePath)), auditRecord(plan, record));
+    });
   }
-  writer.create(manifestRef, manifest);
-  await writer.close();
+  await db().insert(manifestRef, manifest);
   return manifest;
 }
 
 export async function verifyDemoHistory(manifestPath: string): Promise<DemoHistoryVerification> {
-  const manifestSnapshot = await db().doc(manifestPath).get();
-  if (!manifestSnapshot.exists) throw new Error("demo history manifest not found");
-  const manifest = manifestSnapshot.data() as DemoHistoryManifest;
-  const audits = await manifestSnapshot.ref.collection("records").get();
+  const manifestSnapshot = await awsRepository().read(recordKey(manifestPath));
+  if (!manifestSnapshot.present) throw new Error("demo history manifest not found");
+  const manifest = manifestSnapshot.value as unknown as DemoHistoryManifest;
+  const audits = await awsRepository().query(partition(manifestSnapshot.key.path + "/" + "records"));
   let sourceUnchanged = true;
   let relativeIntervalsPreserved = true;
   let executableDestinationCount = 0;
   const demoInstants: number[] = [];
-  for (const auditSnapshot of audits.docs) {
-    const audit = auditSnapshot.data() as {
+  for (const auditSnapshot of audits.rows) {
+    const audit = auditSnapshot.value as unknown as {
       sourcePath: string;
       intendedDestinationPath: string;
       actualDestinationPath: string;
@@ -395,13 +392,13 @@ export async function verifyDemoHistory(manifestPath: string): Promise<DemoHisto
       sourceInstants: number[];
       demoInstants: number[];
       planDigest: string;
-      payload?: DocumentData;
+      payload?: RecordValue;
     };
-    const source = await db().doc(audit.sourcePath).get();
-    if (!source.exists || digest(source.data()) !== audit.sourceDigest) sourceUnchanged = false;
+    const source = await awsRepository().read(recordKey(audit.sourcePath));
+    if (!source.present || digest(source.value) !== audit.sourceDigest) sourceUnchanged = false;
     const destinationData = audit.quarantined
       ? audit.payload
-      : (await db().doc(audit.actualDestinationPath).get()).data();
+      : (await awsRepository().read(recordKey(audit.actualDestinationPath))).value;
     if (!destinationData || digest(destinationData) !== audit.destinationDigest) sourceUnchanged = false;
     if (!audit.quarantined && isExecutablePath(audit.intendedDestinationPath)) executableDestinationCount += 1;
     if (audit.sourceInstants.length !== audit.demoInstants.length
@@ -416,7 +413,7 @@ export async function verifyDemoHistory(manifestPath: string): Promise<DemoHisto
       && new Date(Math.min(...demoInstants)).toISOString() === manifest.anchor,
     relativeIntervalsPreserved,
     executableDestinationCount,
-    manifestDigestMatches: audits.docs.every((snapshot) => snapshot.get("planDigest") === manifest.planDigest),
+    manifestDigestMatches: audits.rows.every((snapshot) => field(snapshot.value, "planDigest") === manifest.planDigest),
     recordCountMatches: audits.size === manifest.sourceRecordCount,
   };
 }

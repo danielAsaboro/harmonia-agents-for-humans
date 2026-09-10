@@ -3,7 +3,7 @@ title: "Generative A2UI console"
 description: "Durable streamed chat runs, trusted presentation catalogs, hydration, uploads, and approval-safe operator UI."
 ---
 
-The Harmonia Console combines operator conversation with a living editorial canvas. Gemini may select and arrange a fixed vocabulary of trusted A2UI components; it cannot generate JavaScript, HTML, CSS, arbitrary React components, or executable callbacks.
+The Harmonia Console combines operator conversation with a living editorial canvas. Bedrock may select and arrange a fixed vocabulary of trusted A2UI components; it cannot generate JavaScript, HTML, CSS, arbitrary React components, or executable callbacks.
 
 <CardGroup cols={3}>
   <Card title="Conversation" icon="comments">Chaptered messages, safe activity summaries, tool state, and context.</Card>
@@ -18,7 +18,7 @@ flowchart LR
   CTX[Typed UI context] --> MAYA[Maya presenter]
   MAYA --> PLAN[Reference-only surface plan]
   PLAN --> VALIDATE[Schema + catalog validation]
-  VALIDATE --> HYDRATE[Server hydration from Firestore]
+  VALIDATE --> HYDRATE[Server hydration from DynamoDB]
   HYDRATE --> RENDER[Official A2UI React renderer]
   FIRE[(Authoritative records)] --> HYDRATE
 ```
@@ -27,17 +27,17 @@ Unknown components, wrong-job or invented entity references, duplicate reference
 
 ## Durable streaming
 
-`POST /api/chat/stream` creates a tenant-scoped Firestore run. Each schema-validated NDJSON record receives a monotonic sequence number and is persisted before delivery. A disconnected client resumes with:
+`POST /api/chat/stream` creates a tenant-scoped DynamoDB run. Each schema-validated NDJSON record receives a monotonic sequence number and is persisted before delivery. A disconnected client resumes with:
 
 ```text
 GET /api/chat/runs/{runId}/events?after={sequence}
 ```
 
-This is durable transport streaming. It does not claim direct provider-token streaming when the underlying compatibility handler returns a complete Gemini result.
+This is durable transport streaming. It does not claim direct provider-token streaming when the bounded provider invocation returns a complete result.
 
 ## Upload boundary
 
-Cloud uploads use a tenant-scoped resumable Cloud Storage URL. The server downloads the completed object, verifies size, declared type, and magic bytes, then keeps it quarantined until the configured private malware scanner returns a complete clean verdict for every byte. Infected objects and content mismatches are deleted; scanner outages remain quarantined and unavailable. Local development follows the same fail-closed scanner boundary with the local artifact store.
+Cloud uploads use a tenant-scoped presigned S3 request. The server verifies the completed object size, declared type, and magic bytes, then keeps it in the S3 quarantine prefix until the private malware scanner returns a complete clean verdict for every byte. Infected objects and content mismatches are deleted; scanner outages remain quarantined and unavailable. Local development follows the same fail-closed boundary with versioned MinIO.
 
 | Upload | Current behavior |
 |---|---|

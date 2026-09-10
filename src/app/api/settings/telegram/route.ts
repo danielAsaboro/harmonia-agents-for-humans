@@ -4,7 +4,7 @@ import {
   deleteTelegramConnection,
   getTelegramConnection,
   saveTelegramConnection,
-} from "@/lib/firestore";
+} from "@/lib/repository";
 import { administratorTenantHandler } from "@/lib/auth";
 import { telegramDigest } from "@/lib/telegramWebhook";
 import { configureTelegramWebhook } from "@/lib/telegramApi";

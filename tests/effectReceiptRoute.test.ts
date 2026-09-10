@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
   appendEvent: vi.fn(), finalizeEffectReceipt: vi.fn(), getJob: vi.fn(),
   transitionStageWithOutbox: vi.fn(), finalizeCommandReceipt: vi.fn(),
 }));
-vi.mock("@/lib/firestore", () => ({
+vi.mock("@/lib/repository", () => ({
   appendEvent: mocks.appendEvent,
   finalizeEffectReceipt: mocks.finalizeEffectReceipt,
   getJob: mocks.getJob,

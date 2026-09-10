@@ -5,12 +5,12 @@ description: "Durable state, asynchronous delivery, and binary asset storage in 
 
 ## How Harmonia uses it
 
-Firestore owns tenant-scoped workflow truth and atomically records stage outbox entries. Pub/Sub transports stage triggers but cannot advance state by itself. Cloud Storage holds uploaded and generated binary assets while Firestore retains identity, lineage, and digests.
+DynamoDB owns tenant-scoped workflow truth and atomically records stage outbox entries. SQS transports stage triggers but cannot advance state by itself. Versioned Amazon S3 holds uploaded and generated binary assets while DynamoDB retains identity, lineage, and digests.
 
 <CardGroup cols={2}>
-  <Card title="Firestore" href="/platform/data/firestore">Durable records and transactions.</Card>
-  <Card title="Pub/Sub" href="/platform/data/pubsub">At-least-once stage delivery.</Card>
-  <Card title="Cloud Storage" href="/platform/data/cloud-storage">Authorized source and output assets.</Card>
+  <Card title="DynamoDB" href="/platform/data/dynamodb">Durable records and transactions.</Card>
+  <Card title="SQS" href="/platform/data/sqs">At-least-once stage delivery.</Card>
+  <Card title="Amazon S3" href="/platform/data/s3">Authorized source and output assets.</Card>
 </CardGroup>
 
 ## Evidence status

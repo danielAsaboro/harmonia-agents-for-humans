@@ -1,5 +1,5 @@
 import { budgetReservationSchema } from "@/lib/contracts";
-import { reserveJobBudget } from "@/lib/firestore";
+import { reserveJobBudget } from "@/lib/repository";
 import { authorizeProductionBudgetReservation } from "@/lib/productionPlanStore";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { internalRoute } from "@/lib/internalHandler";

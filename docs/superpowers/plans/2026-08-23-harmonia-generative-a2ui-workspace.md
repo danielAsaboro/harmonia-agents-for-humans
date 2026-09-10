@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace Harmonia's deterministic generic A2UI appendix with an ADK-composed, server-hydrated, native campaign workspace for moments, drafts, approvals, and verification.
+**Goal:** Replace Harmonia's deterministic generic A2UI appendix with an Strands-composed, server-hydrated, native campaign workspace for moments, drafts, approvals, and verification.
 
-**Architecture:** A Python Google ADK presentation specialist returns a strict reference-only `SurfacePlan`. The authenticated Next.js service builds a bounded context, invokes the worker, resolves every entity reference from persisted state, and emits validated v0.9 A2UI operations through the existing durable chat-run stream. The React client renders separate canvas, conversation, and approval surfaces without flattening their generated hierarchy.
+**Architecture:** A Python Strands Agents SDK presentation specialist returns a strict reference-only `SurfacePlan`. The authenticated Next.js service builds a bounded context, invokes the worker, resolves every entity reference from persisted state, and emits validated v0.9 A2UI operations through the existing durable chat-run stream. The React client renders separate canvas, conversation, and approval surfaces without flattening their generated hierarchy.
 
-**Tech Stack:** Next.js 16, React 19, TypeScript, Zod, `@a2ui/react` and `@a2ui/web_core` v0.9 APIs, Python 3.12, FastAPI, Pydantic, Google ADK, Vertex AI Agent Engine, Firestore, Vitest, pytest, in-app browser inspection.
+**Tech Stack:** Next.js 16, React 19, TypeScript, Zod, `@a2ui/react` and `@a2ui/web_core` v0.9 APIs, Python 3.12, FastAPI, Pydantic, Strands Agents SDK, AgentCore Runtime, DynamoDB, Vitest, pytest, in-app browser inspection.
 
 **Spec:** `docs/superpowers/specs/2026-08-23-harmonia-generative-a2ui-workspace-design.md`
 
@@ -14,9 +14,9 @@
 
 - Build real functionality only; production behavior has no mock, placeholder, fabricated-success, or silent deterministic-template fallback.
 - Keep A2UI wire messages on protocol version `v0.9` for this slice.
-- Use Google ADK through the existing managed Vertex AI Agent Engine runtime for presentation decisions.
+- Use Strands Agents SDK through the existing managed AgentCore Runtime runtime for presentation decisions.
 - Model output may choose composition and generated framing copy, but persisted state is the sole authority for drafts, moments, assets, actions, cost, receipts, and verification.
-- Preserve existing Firestore job shapes, Pub/Sub stage contracts, approval receipts, publishing behavior, verification behavior, action IDs, and idempotency derivation.
+- Preserve existing DynamoDB job shapes, SQS stage contracts, approval receipts, publishing behavior, verification behavior, action IDs, and idempotency derivation.
 - Keep publishing and other material external effects behind the existing human approval boundary.
 - Keep the landing page out of scope.
 - Do not add MCP Apps, arbitrary HTML, model-generated JSX, or iframe applications.
@@ -29,7 +29,7 @@
 
 - `agent/harmonia_agent/a2ui_models.py` — strict Pydantic request and reference-only surface-plan contracts.
 - `agent/harmonia_agent/a2ui_presenter.py` — validates and invokes the managed presentation specialist.
-- `agent/harmonia_agent/agents.py` — registers the presentation specialist with the existing ADK coordinator.
+- `agent/harmonia_agent/agents.py` — registers the presentation specialist with the existing Strands coordinator.
 - `agent/harmonia_agent/role_models.py` — assigns the presentation role to Gemini 3.5 Flash.
 - `agent/harmonia_agent/main.py` — exposes the authenticated internal planning endpoint.
 
@@ -37,7 +37,7 @@
 
 - `src/lib/a2ui/presentationContracts.ts` — Zod mirror of the Python request and plan contracts.
 - `src/lib/a2ui/presentationContext.ts` — builds bounded, presentation-safe context from authenticated persisted state.
-- `src/lib/a2ui/agentPresentationClient.ts` — invokes the worker service with Cloud Run identity and the shared internal token.
+- `src/lib/a2ui/agentPresentationClient.ts` — invokes the worker service with ECS Fargate identity and the shared internal token.
 - `src/lib/a2ui/hydrateSurfacePlan.ts` — resolves references and produces trusted catalog component data.
 - `src/lib/a2ui/surfaceSlots.ts` — names and selects native canvas, conversation, and approval surfaces without flattening trees.
 
@@ -209,7 +209,7 @@ git add agent/harmonia_agent/a2ui_models.py agent/tests/test_a2ui_models.py src/
 git commit -m "feat: define generative A2UI presentation contracts"
 ```
 
-### Task 2: Add the Managed ADK Presentation Specialist
+### Task 2: Add the Managed Strands Presentation Specialist
 
 **Files:**
 - Create: `agent/harmonia_agent/a2ui_presenter.py`
@@ -221,7 +221,7 @@ git commit -m "feat: define generative A2UI presentation contracts"
 
 **Interfaces:**
 - Consumes: `UiContext`, `InvocationContext`, and `TeamRuntime`.
-- Produces: `async plan_surface(context: UiContext, *, invocation: InvocationContext, team_runtime: TeamRuntime | None = None) -> SurfacePlan` and ADK state key `surface_plan`.
+- Produces: `async plan_surface(context: UiContext, *, invocation: InvocationContext, team_runtime: TeamRuntime | None = None) -> SurfacePlan` and Strands state key `surface_plan`.
 
 - [ ] **Step 1: Write a failing managed-runtime test**
 
@@ -246,7 +246,7 @@ Run: `cd agent && ./.venv/bin/python -m pytest tests/test_a2ui_presenter.py test
 
 Expected: FAIL because the presentation specialist and model role are absent.
 
-- [ ] **Step 3: Register `maya_presenter` in the ADK team**
+- [ ] **Step 3: Register `maya_presenter` in the Strands team**
 
 Add a `presenter` field to `RoleModelInstances` and `RoleModelCatalog`, defaulting `PRESENTER_MODEL_ID` to `gemini-3.5-flash`. Register an `Agent` with `input_schema=UiContext`, `output_schema=SurfacePlan`, `output_key="surface_plan"`, `mode="single_turn"`, and these non-negotiable instructions:
 
@@ -287,7 +287,7 @@ Expected: PASS.
 
 ```bash
 git add agent/harmonia_agent/a2ui_presenter.py agent/harmonia_agent/agents.py agent/harmonia_agent/role_models.py agent/tests/test_a2ui_presenter.py agent/tests/test_agent_team.py agent/tests/test_role_models.py
-git commit -m "feat: add managed ADK interface presenter"
+git commit -m "feat: add managed Strands interface presenter"
 ```
 
 ### Task 3: Create the Authenticated Web-to-Agent Planning Boundary
@@ -330,7 +330,7 @@ def test_a2ui_plan_scopes_invocation_to_headers(client, monkeypatch):
 
 - [ ] **Step 2: Implement the FastAPI endpoint**
 
-Validate `x-harmonia-internal-token` with `hmac.compare_digest`, require workspace and brand headers, enter `tenant_scope`, create an `InvocationContext` whose stage is `presentation`, and call `plan_surface`. Return 422 for schema failures and 502 for normalized Agent Engine provider failures; do not call a local model fallback.
+Validate `x-harmonia-internal-token` with `hmac.compare_digest`, require workspace and brand headers, enter `tenant_scope`, create an `InvocationContext` whose stage is `presentation`, and call `plan_surface`. Return 422 for schema failures and 502 for normalized AgentCore Runtime provider failures; do not call a local model fallback.
 
 - [ ] **Step 3: Write failing web-client tests**
 
@@ -342,7 +342,7 @@ it("rejects an invalid plan returned by the agent service", async () => {
 });
 ```
 
-- [ ] **Step 4: Implement the web client and Cloud Run authentication**
+- [ ] **Step 4: Implement the web client and ECS Fargate authentication**
 
 `requestSurfacePlan` must obtain a Google ID-token client for `AGENT_SERVICE_URL` when not running against localhost, send the shared `x-harmonia-internal-token`, propagate tenant headers from server-side tenant context, apply a 25-second abort timeout, and parse with `surfacePlanSchema`. Localhost uses ordinary `fetch` plus the same shared internal token.
 
@@ -364,7 +364,7 @@ Expected: all PASS.
 
 ```bash
 git add agent/harmonia_agent/main.py agent/tests/test_a2ui_endpoint.py src/lib/a2ui/agentPresentationClient.ts tests/a2uiAgentPresentationClient.test.ts .env.example docs/configuration.mdx infra/deploy.sh infra/setup.sh
-git commit -m "feat: connect chat surfaces to the ADK presenter"
+git commit -m "feat: connect chat surfaces to the Strands presenter"
 ```
 
 ### Task 4: Build Presentation Context and Trusted Hydration
@@ -587,7 +587,7 @@ Expected: PASS.
 
 ```bash
 git add src/lib/a2ui/responseSurface.ts src/app/api/chat/stream/route.ts tests/a2uiSurface.test.ts tests/chatRunReplay.test.ts tests/a2uiStreamIntegration.test.ts
-git commit -m "feat: stream ADK-composed A2UI surfaces"
+git commit -m "feat: stream Strands-composed A2UI surfaces"
 ```
 
 ### Task 8: Complete Interaction, Responsive, and Visual Integration
@@ -691,7 +691,7 @@ Use a 390×844 viewport. Exercise conversation/canvas switching, open the approv
 
 - [ ] **Step 6: Exercise one configured real presentation invocation**
 
-With `AGENT_SERVICE_URL`, `AGENT_ENGINE_RESOURCE`, tenant context, and Google credentials configured, submit a real dashboard request against a persisted job. Capture the run ID, presenter activity, returned component family, durable A2UI events, and rendered surface. If credentials or deployment are unavailable, record that exact unresolved gap and do not describe the presentation agent as verified.
+With `AGENT_SERVICE_URL`, `AGENTCORE_RUNTIME_ARN`, tenant context, and Google credentials configured, submit a real dashboard request against a persisted job. Capture the run ID, presenter activity, returned component family, durable A2UI events, and rendered surface. If credentials or deployment are unavailable, record that exact unresolved gap and do not describe the presentation agent as verified.
 
 - [ ] **Step 7: Record private evidence and update public documentation**
 

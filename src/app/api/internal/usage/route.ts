@@ -1,5 +1,5 @@
 import { usageRecordSchema } from "@/lib/contracts";
-import { finalizeUsageRecord } from "@/lib/firestore";
+import { finalizeUsageRecord } from "@/lib/repository";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { internalRoute } from "@/lib/internalHandler";
 

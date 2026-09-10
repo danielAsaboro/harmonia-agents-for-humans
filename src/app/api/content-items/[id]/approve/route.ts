@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createNotification, getContentItem, updateContentItem } from "@/lib/firestore";
+import { createNotification, getContentItem, updateContentItem } from "@/lib/repository";
 import { operatorTenantHandler } from "@/lib/auth";
 import { approveScheduledContent } from "@/lib/scheduledEffects";
 import { currentTenant } from "@/lib/tenancy";

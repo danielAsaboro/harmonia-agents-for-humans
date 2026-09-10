@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { sanitizeSocialConnection, selectDefaultDestination } from "@/lib/publishing/connections";
-import type { ConnectionDoc } from "@/lib/firestore";
+import type { ConnectionDoc } from "@/lib/repository";
 
 const connection: ConnectionDoc = {
   platform: "linkedin",

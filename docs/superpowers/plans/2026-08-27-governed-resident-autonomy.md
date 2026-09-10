@@ -4,9 +4,9 @@
 
 **Goal:** Add a durable, tenant-scoped resident autonomy control plane with hourly Heartbeats, post-job Micro-reflections, nightly Dream Cycles, morning Wakeup Calls, bounded experiments, conservative automatic tuning, rollback, and a truthful operations view.
 
-**Architecture:** Firestore owns immutable cycle identities, leases, evidence, agendas, experiments, and configuration revisions. Cloud Scheduler only wakes a private Cloud Run boundary; deterministic TypeScript policy and Python orchestration decide which independent arms may run, while ADK/Gemini receive sanitized typed inputs and never obtain scheduling, approval, budget, effect, or configuration-write authority. Existing precise scheduled-effect wakes and idempotent effect commands remain unchanged.
+**Architecture:** DynamoDB owns immutable cycle identities, leases, evidence, agendas, experiments, and configuration revisions. EventBridge Scheduler only wakes a private ECS Fargate boundary; deterministic TypeScript policy and Python orchestration decide which independent arms may run, while Strands/Gemini receive sanitized typed inputs and never obtain scheduling, approval, budget, effect, or configuration-write authority. Existing precise scheduled-effect wakes and idempotent effect commands remain unchanged.
 
-**Tech Stack:** TypeScript 5, Zod 4, Firestore transactions, Next.js 16, React 19, Vitest 4, Python 3.14, Google ADK, pytest, Cloud Run, Pub/Sub, Cloud Scheduler.
+**Tech Stack:** TypeScript 5, Zod 4, DynamoDB transactions, Next.js 16, React 19, Vitest 4, Python 3.14, Strands Agents SDK, pytest, ECS Fargate, SQS, EventBridge Scheduler.
 
 **Spec:** `docs/superpowers/specs/2026-08-27-governed-resident-autonomy-design.md`
 
@@ -56,13 +56,13 @@
 - [ ] Implement SHA-256 identities, explicit transition table, lease-token digest comparison, and recovery usefulness windows without provider calls.
 - [ ] Run focused tests GREEN and commit `feat: add durable autonomy cycle state machine`.
 
-### Task 3: Firestore Repositories and Transactional Commands
+### Task 3: DynamoDB Repositories and Transactional Commands
 
 **Files:**
 - Create: `src/lib/residentAutonomy/repository.ts`
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/repository.ts`
 - Test: `tests/residentAutonomyRepository.test.ts`
-- Test: `tests/residentAutonomyFirestore.integration.test.ts`
+- Test: `tests/residentAutonomyDynamoDB.integration.test.ts`
 
 **Interfaces:**
 - Consumes: Tasks 1–2 contracts/state transitions and existing `currentTenant()` collection paths.
@@ -70,7 +70,7 @@
 
 - [ ] Write failing in-memory command tests and emulator-gated transaction tests for tenant paths, create-only immutable records, atomic lease claims, deduplication, agenda-arm isolation, and compare-and-set configuration revision promotion/rollback.
 - [ ] Run focused tests and observe RED or emulator skips only where the repository’s existing integration convention requires it.
-- [ ] Implement repositories using workspace/brand-scoped collections and Firestore transactions; never expose unrestricted collection handles.
+- [ ] Implement repositories using workspace/brand-scoped collections and DynamoDB transactions; never expose unrestricted collection handles.
 - [ ] Run tests GREEN and commit `feat: persist resident autonomy state`.
 
 ### Task 4: Explicit Hourly Heartbeat Controller
@@ -97,7 +97,7 @@
 **Files:**
 - Create: `src/lib/residentAutonomy/microReflection.ts`
 - Create: `src/app/api/internal/autonomy/observe/route.ts`
-- Modify: job completion/failure, verification, proposal-decision, and engagement persistence boundaries in `src/lib/firestore.ts`
+- Modify: job completion/failure, verification, proposal-decision, and engagement persistence boundaries in `src/lib/repository.ts`
 - Test: `tests/microReflection.test.ts`
 - Test: `tests/microReflectionTriggers.test.ts`
 
@@ -108,7 +108,7 @@
 - [ ] Observe RED, implement allowlisted fact projectors and transactionally append observations at existing durable boundaries.
 - [ ] Run GREEN and commit `feat: record governed micro reflections`.
 
-### Task 6: Nightly Dream Cycle with Bounded ADK Synthesis
+### Task 6: Nightly Dream Cycle with Bounded Strands Synthesis
 
 **Files:**
 - Create: `agent/harmonia_agent/dream_cycle.py`
@@ -123,7 +123,7 @@
 - Produces: typed reflection/hypothesis/experiment proposals with safe summaries and stable evidence references.
 
 - [ ] Write failing tests that skip with no new evidence, batch eligible observations, reserve before model invocation, reject malformed/unsupported outputs, persist no private reasoning, and isolate transient/permanent/budget failures.
-- [ ] Observe RED, implement strict Pydantic contracts and a bounded ADK specialist that receives no tools or write authority; deterministic server code persists validated outputs.
+- [ ] Observe RED, implement strict Pydantic contracts and a bounded Strands specialist that receives no tools or write authority; deterministic server code persists validated outputs.
 - [ ] Run GREEN and commit `feat: add governed nightly dream cycle`.
 
 ### Task 7: Morning Wakeup Call and Durable Agenda Dispatcher
@@ -171,7 +171,7 @@
 
 **Interfaces:**
 - Consumes: Heartbeat/Dream/Wakeup authenticated routes.
-- Produces: disabled-by-default schedule creation commands with OIDC service account, workspace timezone handling, and scale-to-zero Cloud Run configuration.
+- Produces: disabled-by-default schedule creation commands with OIDC service account, workspace timezone handling, and scale-to-zero ECS Fargate configuration.
 
 - [ ] Write failing source-contract tests for hourly Heartbeat, nightly Dream, morning Wakeup, OIDC audience/service account, Scheduler API, no public invoker, and an explicit `HARMONIA_ENABLE_RESIDENT_AUTONOMY=0` default.
 - [ ] Observe RED and implement idempotent schedule provisioning guarded by explicit enablement; preserve precise scheduled-effect wakes.

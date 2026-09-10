@@ -3,7 +3,7 @@ import {
   completeConnectionTokenRefresh,
   markConnectionTokenRefreshUncertain,
   type ConnectionDoc,
-} from "./firestore";
+} from "./repository";
 import { getValidConnection } from "./connectionRefresh";
 import { getPlatform, refreshAccessToken } from "./oauth";
 

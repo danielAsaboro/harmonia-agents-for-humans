@@ -12,7 +12,6 @@ from harmonia_agent.temi_skills import (
     TEMI_SKILL_NAME,
     TEMI_SKILL_REFERENCES,
     TEMI_TRACE_KEY,
-    build_temi_editorial_planning_skillset,
     bootstrap_temi_trace,
     guard_temi_tool,
     read_planning_authority,
@@ -33,31 +32,19 @@ def trace(resource: str = TEMI_SKILL_REFERENCES[0]) -> list[dict]:
 
 
 def test_temi_exposes_one_filesystem_skill_and_separate_read_only_tools():
-    toolset = build_temi_editorial_planning_skillset()
-    loader_names = {tool.name for tool in asyncio.run(toolset.get_tools())}
-    names = loader_names | set(toolset._provided_tools_by_name)
-    assert {"load_skill", "load_skill_resource"}.issubset(loader_names)
-    assert {
-        "read_planning_authority",
-        "read_editorial_commitments", "read_production_capacity",
-        "read_asset_readiness", "read_posting_window_observations",
-        "read_calendar_projection", "read_blocked_dependencies",
-    }.issubset(names)
-    assert not names.intersection({"google_search", "approve", "schedule", "publish"})
+    from harmonia_agent.agents import build_agent_team
+    specialist = build_agent_team().find_sub_agent("temi_editorial_planner")
+    assert specialist.tools == []
+    assert "skill" in specialist.instruction.lower()
+    assert specialist.input_schema is not None
+
 
 
 def test_temi_skill_activation_declares_every_request_bound_read_tool():
-    toolset = build_temi_editorial_planning_skillset()
-    skill = toolset._skills[TEMI_SKILL_NAME]
+    from harmonia_agent.temi_skills import _READ_FIELDS, TEMI_SKILL_ROOT
+    assert len(_READ_FIELDS) == 7
+    assert all((TEMI_SKILL_ROOT / path).read_text().strip() for path in TEMI_SKILL_REFERENCES)
 
-    assert set(skill.frontmatter.metadata["adk_additional_tools"]) == {
-        "read_editorial_commitments",
-        "read_production_capacity",
-        "read_asset_readiness",
-        "read_posting_window_observations",
-        "read_calendar_projection",
-        "read_blocked_dependencies",
-    }
 
 
 def test_temi_requires_exactly_one_skill_then_references_then_snapshot_reads():

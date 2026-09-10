@@ -6,10 +6,10 @@ import type { ProductionPlanWorkspaceView } from "@/lib/productionPlanStore";
 const plan = videoProductionPlanSchema.parse({
   id: "plan-chat", jobId: "job-chat", workspaceId: "workspace-1", brandId: "brand-1", revision: 1,
   goal: "Explain the launch", audience: "founders", tone: ["clear"],
-  target: { platform: "linkedin", durationSec: 4, aspectRatio: "9:16", resolution: "1080p", frameRate: 30, format: "mp4" },
+  target: { platform: "linkedin", durationSec: 6, aspectRatio: "16:9", resolution: "720p", frameRate: 30, format: "mp4" },
   scenes: [{
-    id: "scene-1", order: 1, startSec: 0, durationSec: 4, purpose: "Show the workflow",
-    video: { modelCapability: "veo-3.1-fast", mode: "text_to_video", prompt: "A measured product workflow", durationSec: 4, aspectRatio: "9:16", resolution: "1080p", generateAudio: false, enhancePrompt: true, outputCount: 1 },
+    id: "scene-1", order: 1, startSec: 0, durationSec: 6, purpose: "Show the workflow",
+    video: { modelCapability: "nova-reel", mode: "text_to_video", prompt: "A measured product workflow", durationSec: 6, aspectRatio: "16:9", resolution: "720p", outputCount: 1 },
     overlays: [], captions: [], transitions: [],
   }],
   narration: [],
@@ -21,21 +21,21 @@ const compiled = compileProductionOperations(plan);
 const workspace: ProductionPlanWorkspaceView = {
   aggregate: { id: plan.id, jobId: plan.jobId, workspaceId: plan.workspaceId, brandId: plan.brandId, state: "approved", currentRevision: 1, currentPlanDigest: digest, activeMandateId: "mandate-1", currentMandateReservedCostUsd: "0.320000", internalRun: 0, createdAt: "2026-08-31T00:00:00.000Z", updatedAt: "2026-08-31T00:00:00.000Z" },
   revision: { revision: 1, plan, planDigest: digest, operations: compiled, proposedAt: "2026-08-31T00:00:00.000Z" },
-  operations: compiled.map((operation, index) => ({ id: operation.id, type: operation.type, executionAuthority: operation.executionAuthority, dependsOn: operation.dependsOn, ...(operation.estimatedCostUsd ? { estimatedCostUsd: operation.estimatedCostUsd } : {}), state: index === 0 ? "waiting_provider" : "pending", attempt: index === 0 ? 1 : 0, ...(index === 0 ? { provider: "veo" as const } : {}) })),
+  operations: compiled.map((operation, index) => ({ id: operation.id, type: operation.type, executionAuthority: operation.executionAuthority, dependsOn: operation.dependsOn, ...(operation.estimatedCostUsd ? { estimatedCostUsd: operation.estimatedCostUsd } : {}), state: index === 0 ? "waiting_provider" : "pending", attempt: index === 0 ? 1 : 0, ...(index === 0 ? { provider: "nova_reel" as const } : {}) })),
 };
 
 describe("production chat projections", () => {
   it("reports only persisted operation state and preserves the publication boundary", () => {
     const reply = productionStatusReply(workspace);
     expect(reply).toContain("1 waiting_provider");
-    expect(reply).toContain("generate_video via veo");
+    expect(reply).toContain("generate_video via nova_reel");
     expect(reply).toContain("does not authorize publication");
   });
 
   it("explains the exact sealed controls and revision consequence", () => {
     const reply = productionModelExplanation(workspace);
-    expect(reply).toContain("veo-3.1-fast");
-    expect(reply).toContain("text_to_video at 1080p, 4s, 9:16");
+    expect(reply).toContain("nova-reel");
+    expect(reply).toContain("text_to_video at 720p, 6s, 16:9");
     expect(reply).toContain("No generated soundtrack");
     expect(reply).toContain("invalidates the current mandate");
   });

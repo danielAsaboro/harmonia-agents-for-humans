@@ -6,7 +6,7 @@ import {
   savePacket,
   saveVerifications,
   transitionStageWithOutbox,
-} from "@/lib/firestore";
+} from "@/lib/repository";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";

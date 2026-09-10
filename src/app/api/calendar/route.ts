@@ -1,4 +1,4 @@
-import { listContentItems, listJobs } from "@/lib/firestore";
+import { listContentItems, listJobs } from "@/lib/repository";
 import type { ContentItem } from "@/lib/types";
 import { tenantHandler } from "@/lib/auth";
 

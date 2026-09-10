@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { claimSelectedEditorialItem } from "@/lib/firestore";
+import { claimSelectedEditorialItem } from "@/lib/repository";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 

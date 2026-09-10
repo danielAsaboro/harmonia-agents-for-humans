@@ -1,174 +1,63 @@
-"""Approval-gated Veo and Lyria provider adapters with resumable operations."""
-
+"""Approval-gated native AWS Nova Reel and ElevenLabs transports."""
 from __future__ import annotations
-
 import base64
 import json
 import re
+from hashlib import sha256
 from dataclasses import dataclass, field
-from decimal import Decimal, InvalidOperation
-from typing import Any, Callable, Protocol
-
-import google.auth
-from google.auth.transport.requests import Request
+from decimal import Decimal
+from typing import Any, Callable
+import boto3
+from botocore.config import Config
+from botocore.exceptions import BotoCoreError, ClientError
 import httpx
-from google.cloud import storage
 
-from .telemetry import safe_attributes, tracer
-
-VEO_MODEL = "veo-3.1-fast-generate-001"
-LYRIA_MODEL = "lyria-3-clip-preview"
-
-VEO_CAPABILITIES: dict[str, dict[str, Any]] = {
-    "veo-3.1-fast": {"model": "veo-3.1-fast-generate-001", "durations": {4, 6, 8}, "resolutions": {"720p", "1080p"}, "modes": {"text_to_video", "image_to_video", "first_last_frame"}, "usdPerSecond": "0.080000"},
-    "veo-3.1": {"model": "veo-3.1-generate-001", "durations": {4, 6, 8}, "resolutions": {"720p", "1080p", "4k"}, "modes": {"text_to_video", "image_to_video", "first_last_frame"}, "usdPerSecond": None},
-}
-LYRIA_CAPABILITIES: dict[str, dict[str, Any]] = {
-    "lyria-3-clip": {"model": "lyria-3-clip-preview", "maximumDurationSec": 30, "imageConditioning": True, "vocals": True, "structure": True, "fixedCostUsd": None},
-    "lyria-3-pro": {"model": "lyria-3-pro-preview", "maximumDurationSec": 184, "imageConditioning": True, "vocals": True, "structure": True, "fixedCostUsd": None},
-    "lyria-2": {"model": "lyria-002", "maximumDurationSec": 30, "imageConditioning": False, "vocals": False, "structure": False, "fixedCostUsd": "0.060000"},
-}
-
-
-class MediaProtocolError(RuntimeError):
-    """A media provider returned a malformed or policy-filtered success."""
-
-
+class MediaProtocolError(RuntimeError): pass
 class MediaProviderError(RuntimeError):
-    """Transport/provider failure, with retry classification."""
-
-    def __init__(self, message: str, *, permanent: bool = False) -> None:
+    def __init__(self, message: str, *, permanent: bool = False):
         super().__init__(message)
         self.permanent = permanent
-
-
 class MediaOperationPending(MediaProviderError):
-    def __init__(self, operation_name: str) -> None:
-        super().__init__(f"media operation is still pending: {operation_name}")
+    def __init__(self, operation_name: str):
+        super().__init__(f"media operation pending: {operation_name}")
         self.operation_name = operation_name
 
+NOVA_REEL_CAPABILITIES = {"nova-reel": {"model": "amazon.nova-reel-v1:1", "durations": set(range(6, 121, 6)), "resolutions": {"720p"}, "modes": {"text_to_video", "image_to_video"}, "usdPerSecond": None}}
+ELEVENLABS_CAPABILITIES = {"elevenlabs-music": {"model": "music_v1", "maximumDurationSec": 600, "fixedCostUsd": None}}
 
-def validate_veo_request(request: dict[str, Any]) -> dict[str, Any]:
-    value = dict(request)
-    allowed_fields = {
-        "modelCapability", "mode", "prompt", "negativePrompt", "sourceImageArtifact",
-        "lastFrameArtifact", "durationSec", "aspectRatio", "resolution", "generateAudio",
-        "seed", "enhancePrompt", "outputCount", "providerModel", "mediaKind",
-    }
-    if set(value) - allowed_fields:
-        raise MediaProtocolError("Veo request contains unsupported fields")
-    capability_name = value.get("modelCapability")
-    capability = VEO_CAPABILITIES.get(str(capability_name))
-    if capability is None:
-        raise MediaProtocolError("unsupported Veo model capability")
-    if value.get("outputCount") != 1:
-        raise MediaProtocolError("Veo outputCount must be exactly one")
-    if value.get("durationSec") not in capability["durations"]:
-        raise MediaProtocolError("duration is unsupported by the selected Veo model")
-    if value.get("resolution") not in capability["resolutions"]:
-        raise MediaProtocolError("resolution is unsupported by the selected Veo model")
-    mode = value.get("mode")
-    if mode not in capability["modes"]:
-        raise MediaProtocolError("mode is unsupported by the selected Veo model")
-    required = {
-        "image_to_video": ("sourceImageArtifact",),
-        "first_last_frame": ("sourceImageArtifact", "lastFrameArtifact"),
-    }.get(str(mode), ())
-    for field in required:
-        if not value.get(field):
-            raise MediaProtocolError(f"{field} is required for {mode}")
-    source = value.get("sourceImageArtifact")
-    last = value.get("lastFrameArtifact")
-    if mode == "text_to_video" and (source or last):
-        raise MediaProtocolError("text-to-video cannot include conditioning images")
-    if mode != "first_last_frame" and last:
-        raise MediaProtocolError("last frame requires first-last-frame mode")
-    for reference in (source, last):
-        if reference is not None:
-            _validate_conditioning_reference(reference)
-    if value.get("negativePrompt"):
-        raise MediaProtocolError("negative prompt is unavailable")
-    if value.get("aspectRatio") not in {"16:9", "9:16"}:
-        raise MediaProtocolError("unsupported Veo aspect ratio")
-    value["providerModel"] = capability["model"]
-    value["mediaKind"] = "video"
-    return value
-
-
-def _validate_conditioning_reference(reference: Any) -> dict[str, Any]:
-    if not isinstance(reference, dict):
-        raise MediaProtocolError("Veo conditioning artifact reference is malformed")
-    if set(reference) != {"artifactId", "digest", "mime", "sizeBytes", "rightsAuthorizationId"}:
-        raise MediaProtocolError("Veo conditioning artifact reference is malformed")
-    if (
-        not isinstance(reference["artifactId"], str)
-        or not re.fullmatch(r"[0-9a-fA-F-]{36}", reference["artifactId"])
-        or not isinstance(reference["digest"], str)
-        or not re.fullmatch(r"[a-f0-9]{64}", reference["digest"])
-        or reference["mime"] not in {"image/jpeg", "image/png"}
-        or not isinstance(reference["sizeBytes"], int)
-        or not 1 <= reference["sizeBytes"] <= 20 * 1024 * 1024
-        or not isinstance(reference["rightsAuthorizationId"], str)
-        or not reference["rightsAuthorizationId"]
-    ):
-        raise MediaProtocolError("Veo conditioning artifact reference is malformed")
+def _validate_conditioning_reference(reference):
+    if not isinstance(reference, dict) or set(reference) != {"artifactId", "digest", "mime", "sizeBytes", "rightsAuthorizationId"}:
+        raise MediaProtocolError("conditioning artifact reference is malformed")
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", str(reference["artifactId"])) or not re.fullmatch(r"[a-f0-9]{64}", str(reference["digest"])) or reference["mime"] not in {"image/jpeg", "image/png"} or not isinstance(reference["sizeBytes"], int) or not 1 <= reference["sizeBytes"] <= 20 * 1024 * 1024 or not reference["rightsAuthorizationId"]:
+        raise MediaProtocolError("conditioning artifact reference is malformed")
     return reference
 
-
-def validate_lyria_request(request: dict[str, Any]) -> dict[str, Any]:
+def validate_nova_reel_request(request):
     value = dict(request)
-    capability_name = value.get("modelCapability")
-    capability = LYRIA_CAPABILITIES.get(str(capability_name))
-    if capability is None:
-        raise MediaProtocolError("unsupported Lyria model capability")
-    if value.get("outputCount") != 1:
-        raise MediaProtocolError("Lyria outputCount must be exactly one")
-    if int(value.get("targetDurationSec") or 0) > capability["maximumDurationSec"]:
-        raise MediaProtocolError("duration exceeds the selected Lyria model")
-    if capability_name == "lyria-3-clip" and value.get("targetDurationSec") != 30:
-        raise MediaProtocolError("Lyria 3 Clip always generates a 30-second provider output")
-    if value.get("instrumental") and value.get("lyricsMode") != "none":
-        raise MediaProtocolError("instrumental music cannot include lyrics")
-    if value.get("lyricsMode") == "provided" and not value.get("providedLyrics"):
-        raise MediaProtocolError("provided lyrics are required")
-    if value.get("conditioningImageArtifactId") and not capability["imageConditioning"]:
-        raise MediaProtocolError("image conditioning is unsupported")
-    if not value.get("instrumental") and not capability["vocals"]:
-        raise MediaProtocolError("vocals are unsupported")
-    if (
-        value.get("conditioningImageArtifactId")
-        or not value.get("instrumental")
-        or value.get("lyricsMode") != "none"
-        or any(value.get(field) is not None for field in (
-            "genre", "mood", "instrumentation", "bpm", "intensity", "structure", "seed",
-        ))
-    ):
-        raise MediaProtocolError("advanced Lyria conditioning and music controls are unavailable")
-    value["providerModel"] = capability["model"]
-    value["mediaKind"] = "music"
-    return value
+    allowed = {"modelCapability", "mode", "prompt", "sourceImageArtifact", "durationSec", "aspectRatio", "resolution", "seed", "outputCount", "providerModel", "mediaKind"}
+    if set(value) - allowed or value.get("modelCapability") != "nova-reel" or type(value.get("outputCount")) is not int or value.get("outputCount") != 1 or type(value.get("durationSec")) is not int or value.get("durationSec") not in range(6, 121, 6) or value.get("aspectRatio") != "16:9" or value.get("resolution") != "720p" or value.get("mode") not in {"text_to_video", "image_to_video"} or not isinstance(value.get("prompt"), str) or not 1 <= len(value["prompt"]) <= (512 if value["durationSec"] == 6 else 4000):
+        raise MediaProtocolError("unsupported Nova Reel request")
+    if (value["mode"] == "image_to_video") != bool(value.get("sourceImageArtifact")):
+        raise MediaProtocolError("image conditioning must match mode")
+    if value.get("sourceImageArtifact"):
+        _validate_conditioning_reference(value["sourceImageArtifact"])
+        if value["durationSec"] != 6: raise MediaProtocolError("multi-shot video cannot include an input image")
+    if "seed" in value and (type(value["seed"]) is not int or not 0 <= value["seed"] <= 2147483646): raise MediaProtocolError("invalid seed")
+    return {**value, "providerModel": "amazon.nova-reel-v1:1", "mediaKind": "video"}
 
+def validate_elevenlabs_request(request):
+    value = {"targetDurationSec": 30, **request}
+    allowed = {"modelCapability", "prompt", "instrumental", "targetDurationSec", "outputCount", "providerModel", "mediaKind"}
+    if set(value) - allowed or value.get("modelCapability") != "elevenlabs-music" or type(value.get("outputCount")) is not int or value.get("outputCount") != 1 or value.get("instrumental") is not True or type(value["targetDurationSec"]) is not int or not 3 <= value["targetDurationSec"] <= 600 or not isinstance(value.get("prompt"), str) or not 1 <= len(value["prompt"]) <= 4100:
+        raise MediaProtocolError("unsupported ElevenLabs instrumental request")
+    return {**value, "providerModel": "music_v1", "mediaKind": "music"}
 
-def estimate_media_cost(request: dict[str, Any], overrides: dict[str, str] | None = None) -> str:
-    capability_name = str(request.get("modelCapability") or "")
-    configured = (overrides or {}).get(capability_name)
-    if request.get("mediaKind") == "video":
-        capability = VEO_CAPABILITIES[capability_name]
-        configured = configured or capability["usdPerSecond"]
-        if configured is None:
-            raise MediaProtocolError(f"pricing unavailable for {capability_name}")
-        amount = Decimal(configured) * Decimal(int(request["durationSec"]))
-    else:
-        capability = LYRIA_CAPABILITIES[capability_name]
-        configured = configured or capability["fixedCostUsd"]
-        if configured is None:
-            raise MediaProtocolError(f"pricing unavailable for {capability_name}")
-        try:
-            amount = Decimal(configured)
-        except InvalidOperation as exc:
-            raise MediaProtocolError(f"invalid pricing for {capability_name}") from exc
-    return f"{amount:.6f}"
-
+def estimate_media_cost(request, overrides=None):
+    rate = (overrides or {}).get(request["modelCapability"])
+    if rate is None: raise MediaProtocolError("configured provider pricing is required")
+    amount = Decimal(rate)
+    if not amount.is_finite() or amount <= 0: raise MediaProtocolError("invalid provider pricing")
+    return f"{amount * Decimal(request.get('durationSec', request.get('targetDurationSec', 30))):.6f}"
 
 @dataclass(frozen=True)
 class GeneratedMedia:
@@ -180,104 +69,44 @@ class GeneratedMedia:
     estimated_cost_usd: str
     provider_metadata: dict[str, Any] = field(default_factory=dict)
 
+def _aws_call(call, **kwargs):
+    try:
+        return call(**kwargs)
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "Unknown")
+        transient = code in {"ThrottlingException", "TooManyRequestsException", "ServiceUnavailableException", "InternalServerException", "ModelNotReadyException", "RequestTimeout"}
+        raise MediaProviderError(f"AWS media provider: {code}", permanent=not transient) from exc
+    except BotoCoreError as exc:
+        raise MediaProviderError(f"AWS media transport: {type(exc).__name__}") from exc
 
-class MediaTransport(Protocol):
-    def start_veo(self, **kwargs: Any) -> dict[str, Any]: ...
-
-    def poll_veo(self, operation_name: str, model: str) -> dict[str, Any]: ...
-
-    def generate_lyria(self, **kwargs: Any) -> dict[str, Any]: ...
-
-    def download_gcs(self, uri: str, authorized_prefix: str) -> bytes: ...
-
-
-class GoogleMediaTransport:
-    """Small authenticated REST transport matching the published Vertex media APIs."""
-
-    def __init__(self, *, project: str, location: str = "us-central1") -> None:
-        self.project = project
-        self.location = location
-
-    def _headers(self) -> dict[str, str]:
-        credentials, _ = google.auth.default(
-            scopes=("https://www.googleapis.com/auth/cloud-platform",)
-        )
-        credentials.refresh(Request())
-        return {"Authorization": f"Bearer {credentials.token}"}
-
-    def _post(self, url: str, body: dict[str, Any], *, timeout: float) -> dict[str, Any]:
-        try:
-            response = httpx.post(url, json=body, headers=self._headers(), timeout=timeout)
-        except httpx.HTTPError as exc:
-            raise MediaProviderError(f"media transport failed: {exc}") from exc
-        if response.status_code >= 300:
-            permanent = response.status_code < 500 and response.status_code != 429
-            raise MediaProviderError(
-                f"media provider returned HTTP {response.status_code}", permanent=permanent,
-            )
-        try:
-            data = response.json()
-        except ValueError as exc:
-            raise MediaProtocolError("media provider returned malformed JSON") from exc
-        if not isinstance(data, dict):
-            raise MediaProtocolError("media provider returned a non-object response")
-        return data
-
-    def start_veo(self, **kwargs: Any) -> dict[str, Any]:
-        model = kwargs["model"]
-        url = (
-            f"https://{self.location}-aiplatform.googleapis.com/v1/projects/{self.project}"
-            f"/locations/{self.location}/publishers/google/models/{model}:predictLongRunning"
-        )
-        instance: dict[str, Any] = {"prompt": kwargs["prompt"]}
-        if kwargs.get("source_image"):
-            instance["image"] = kwargs["source_image"]
-        if kwargs.get("last_frame"):
-            instance["lastFrame"] = kwargs["last_frame"]
-        return self._post(url, {
-            "instances": [instance],
-            "parameters": {
-                "durationSeconds": kwargs["duration_sec"],
-                "aspectRatio": kwargs["aspect_ratio"],
-                "resolution": kwargs["resolution"],
-                "sampleCount": 1,
-                "generateAudio": kwargs["generate_audio"],
-                "enhancePrompt": kwargs["enhance_prompt"],
-                **({"seed": kwargs["seed"]} if kwargs.get("seed") is not None else {}),
-                "personGeneration": "disallow",
-                **({"storageUri": kwargs["storage_uri"]} if kwargs.get("storage_uri") else {}),
-            },
-        }, timeout=60)
-
-    def poll_veo(self, operation_name: str, model: str) -> dict[str, Any]:
-        url = (
-            f"https://{self.location}-aiplatform.googleapis.com/v1/projects/{self.project}"
-            f"/locations/{self.location}/publishers/google/models/{model}:fetchPredictOperation"
-        )
-        return self._post(url, {"operationName": operation_name}, timeout=60)
-
-    def generate_lyria(self, **kwargs: Any) -> dict[str, Any]:
-        url = (
-            "https://aiplatform.googleapis.com/v1beta1/projects/"
-            f"{self.project}/locations/global/interactions"
-        )
-        return self._post(url, {
-            "model": kwargs["model"],
-            "input": [{"type": "text", "text": kwargs["prompt"]}],
-        }, timeout=180)
-
-    def download_gcs(self, uri: str, authorized_prefix: str) -> bytes:
-        if not uri.startswith(authorized_prefix):
-            raise MediaProtocolError("Veo output is outside its authorized GCS prefix")
-        remainder = uri.removeprefix("gs://")
-        bucket, separator, object_name = remainder.partition("/")
-        if not separator or not bucket or not object_name or ".." in object_name.split("/"):
-            raise MediaProtocolError("Veo returned a malformed GCS output URI")
-        try:
-            return storage.Client(project=self.project).bucket(bucket).blob(object_name).download_as_bytes()
-        except Exception as exc:  # noqa: BLE001 - Cloud Storage client has several transport errors
-            raise MediaProviderError("Veo GCS output download failed") from exc
-
+class AwsMediaTransport:
+    def __init__(self, *, region="us-east-1", enabled=False, generative_enabled=False, elevenlabs_api_key=None):
+        self.region, self.enabled, self.elevenlabs_api_key = region, enabled and generative_enabled, elevenlabs_api_key
+    def _admit(self):
+        if not self.enabled: raise MediaProviderError("paid provider operations disabled", permanent=True)
+    def start_nova_reel(self, *, model, prompt, duration_sec, source_image, storage_uri, seed=None):
+        self._admit()
+        params = {"text": prompt}
+        if source_image: params["images"] = [source_image]
+        body = {**({"taskType": "TEXT_VIDEO", "textToVideoParams": params} if duration_sec == 6 else {"taskType": "MULTI_SHOT_AUTOMATED", "multiShotAutomatedParams": {"text": prompt}}), "videoGenerationConfig": {"durationSeconds": duration_sec, "fps": 24, "dimension": "1280x720", **({"seed": seed} if seed is not None else {})}}
+        return _aws_call(boto3.client("bedrock-runtime", region_name=self.region, config=Config(retries={"max_attempts": 0})).start_async_invoke, modelId=model, modelInput=body, clientRequestToken=sha256(storage_uri.encode()).hexdigest(), outputDataConfig={"s3OutputDataConfig": {"s3Uri": storage_uri}})
+    def poll_nova_reel(self, operation_name, model):
+        self._admit()
+        return _aws_call(boto3.client("bedrock-runtime", region_name=self.region).get_async_invoke, invocationArn=operation_name)
+    def download_s3(self, uri, authorized_prefix):
+        self._admit()
+        if not uri.startswith(authorized_prefix) or not authorized_prefix.startswith("s3://") or not authorized_prefix.endswith("/"): raise MediaProtocolError("output outside authorized S3 prefix")
+        bucket, key = uri[5:].split("/", 1)
+        if ".." in key.split("/"): raise MediaProtocolError("invalid S3 key")
+        return boto3.client("s3", region_name=self.region).get_object(Bucket=bucket, Key=key)["Body"].read()
+    def generate_elevenlabs(self, *, model, prompt, request):
+        self._admit()
+        if not self.elevenlabs_api_key: raise MediaProviderError("ELEVENLABS_API_KEY required", permanent=True)
+        response = httpx.post("https://api.elevenlabs.io/v1/music", params={"output_format": "mp3_44100_128"}, headers={"xi-api-key": self.elevenlabs_api_key}, json={"model_id": model, "prompt": prompt, "music_length_ms": request["targetDurationSec"] * 1000, "force_instrumental": True}, timeout=600)
+        if response.status_code >= 300: raise MediaProviderError(f"ElevenLabs HTTP {response.status_code}", permanent=400 <= response.status_code < 500 and response.status_code != 429)
+        identity = response.headers.get("song-id") or response.headers.get("request-id")
+        if not identity or not response.content: raise MediaProtocolError("missing music bytes or provider receipt identity")
+        return {"data": response.content, "id": identity}
 
 def _decode(value: Any, *, media: str) -> bytes:
     if not isinstance(value, str) or not value:
@@ -357,162 +186,37 @@ def _fit_provider_metadata(metadata: dict[str, Any], *, maximum_bytes: int = 307
     return result
 
 
-class VeoGenerator:
-    def __init__(self, *, transport: MediaTransport) -> None:
-        self.transport = transport
 
-    def generate(
-        self,
-        *,
-        request: dict[str, Any],
-        existing_operation: str | None,
-        persist_operation: Callable[[str], None],
-        authorized_output_prefix: str | None = None,
-        conditioning_media: dict[str, tuple[bytes, str, str]] | None = None,
-    ) -> GeneratedMedia:
-        request = validate_veo_request(request)
-        duration_sec = int(request["durationSec"])
-        with tracer().start_as_current_span("harmonia.media.generate") as span:
-            span.set_attributes(safe_attributes({
-                "provider": "vertex_ai", "model": request["providerModel"],
-                "media.kind": "video", "media.duration_sec": duration_sec,
-            }))
-            operation_name = existing_operation
-            if operation_name is None:
-                media = conditioning_media or {}
-                source_image = self._provider_image(request.get("sourceImageArtifact"), media)
-                last_frame = self._provider_image(request.get("lastFrameArtifact"), media)
-                started = self.transport.start_veo(
-                    model=request["providerModel"],
-                    mode=request["mode"],
-                    prompt=request["prompt"],
-                    duration_sec=duration_sec,
-                    aspect_ratio=request["aspectRatio"],
-                    resolution=request["resolution"],
-                    generate_audio=request["generateAudio"],
-                    seed=request.get("seed"),
-                    enhance_prompt=request["enhancePrompt"],
-                    source_image=source_image,
-                    last_frame=last_frame,
-                    storage_uri=authorized_output_prefix,
-                )
-                operation_name = started.get("name")
-                if not isinstance(operation_name, str) or not operation_name:
-                    raise MediaProtocolError("Veo did not return an operation name")
-                persist_operation(operation_name)
-            polled = self.transport.poll_veo(operation_name, str(request["providerModel"]))
-            if polled.get("done") is not True:
-                raise MediaOperationPending(operation_name)
-            if polled.get("error"):
-                raise MediaProtocolError("Veo operation completed with an error")
-            videos = (polled.get("response") or {}).get("videos") or []
-            if not videos:
-                raise MediaProtocolError("Veo completed without a video output")
-            video = videos[0]
-            gcs_uri = video.get("gcsUri") or video.get("gcs_uri")
-            if gcs_uri is not None:
-                if not isinstance(gcs_uri, str) or not authorized_output_prefix or not gcs_uri.startswith(authorized_output_prefix):
-                    raise MediaProtocolError("Veo output is outside its authorized GCS prefix")
-                data = self.transport.download_gcs(gcs_uri, authorized_output_prefix)
-            else:
-                if authorized_output_prefix:
-                    raise MediaProtocolError("Veo response is missing its required GCS output URI")
-                data = _decode(
-                    video.get("bytesBase64Encoded") or video.get("bytes_base64_encoded"),
-                    media="video",
-                )
-            response = polled.get("response") or {}
-            provider_metadata = {
-                **({"gcsUri": gcs_uri} if gcs_uri else {}),
-                **({"raiMediaFilteredCount": _bounded_provenance(response["raiMediaFilteredCount"])} if "raiMediaFilteredCount" in response else {}),
-                **({"raiMediaFilteredReasons": _bounded_provenance(response["raiMediaFilteredReasons"])} if "raiMediaFilteredReasons" in response else {}),
-                **_common_provider_provenance(response),
-                **({"watermark": _bounded_provenance(video["watermark"])} if "watermark" in video else {}),
-                **({"c2pa": _bounded_provenance(video["c2pa"])} if "c2pa" in video else {}),
-            }
-            return GeneratedMedia(
-                data=data,
-                mime=str(video.get("mimeType") or video.get("mime_type") or "video/mp4"),
-                model=request["providerModel"],
-                provider_id=operation_name,
-                duration_sec=duration_sec,
-                estimated_cost_usd=estimate_media_cost(request),
-                provider_metadata=_fit_provider_metadata(provider_metadata),
-            )
+class NovaReelGenerator:
+    def __init__(self, *, transport): self.transport = transport
+    def generate(self, *, request, existing_operation, persist_operation, authorized_output_prefix=None, conditioning_media=None, estimated_cost_usd):
+        request = validate_nova_reel_request(request)
+        if not authorized_output_prefix: raise MediaProtocolError("authorized S3 output prefix required")
+        operation = existing_operation
+        if not operation:
+            image = None
+            reference = request.get("sourceImageArtifact")
+            if reference:
+                data, mime, digest = (conditioning_media or {}).get(reference["artifactId"], (b"", "", ""))
+                if not data or mime != reference["mime"] or digest != reference["digest"] or sha256(data).hexdigest() != digest or len(data) != reference["sizeBytes"]: raise MediaProtocolError("conditioning bytes do not match sealed identity")
+                image = {"format": "jpeg" if mime == "image/jpeg" else "png", "source": {"bytes": base64.b64encode(data).decode()}}
+            result = self.transport.start_nova_reel(model=request["providerModel"], prompt=request["prompt"], duration_sec=request["durationSec"], source_image=image, storage_uri=authorized_output_prefix, seed=request.get("seed"))
+            operation = result.get("invocationArn")
+            if not operation: raise MediaProtocolError("missing async invocation ARN")
+            persist_operation(operation)
+        result = self.transport.poll_nova_reel(operation, request["providerModel"])
+        if result.get("status") == "InProgress": raise MediaOperationPending(operation)
+        if result.get("status") != "Completed": raise MediaProtocolError("Nova Reel operation failed or malformed")
+        prefix = result.get("outputDataConfig", {}).get("s3OutputDataConfig", {}).get("s3Uri", "")
+        if not prefix.startswith(authorized_output_prefix): raise MediaProtocolError("output outside authorized prefix")
+        uri = prefix.rstrip("/") + "/output.mp4"
+        data = self.transport.download_s3(uri, authorized_output_prefix)
+        if not data: raise MediaProtocolError("empty generated video")
+        return GeneratedMedia(data, "video/mp4", request["providerModel"], operation, request["durationSec"], estimated_cost_usd, {"s3Uri": uri})
 
-    @staticmethod
-    def _provider_image(
-        reference: Any,
-        conditioning_media: dict[str, tuple[bytes, str, str]],
-    ) -> dict[str, str] | None:
-        if reference is None:
-            return None
-        sealed = _validate_conditioning_reference(reference)
-        materialized = conditioning_media.get(sealed["artifactId"])
-        if materialized is None:
-            raise MediaProtocolError("Veo conditioning media is missing")
-        data, mime, digest = materialized
-        if (
-            not data
-            or mime != sealed["mime"]
-            or digest != sealed["digest"]
-            or len(data) != sealed["sizeBytes"]
-        ):
-            raise MediaProtocolError("Veo conditioning media does not match its sealed identity")
-        return {
-            "bytesBase64Encoded": base64.b64encode(data).decode("ascii"),
-            "mimeType": mime,
-        }
-
-
-class LyriaGenerator:
-    def __init__(self, *, transport: MediaTransport) -> None:
-        self.transport = transport
-
-    def generate(self, *, request: dict[str, Any], estimated_cost_usd: str) -> GeneratedMedia:
-        request = validate_lyria_request(request)
-        duration_sec = int(request["targetDurationSec"])
-        model = str(request["providerModel"])
-        with tracer().start_as_current_span("harmonia.media.generate") as span:
-            span.set_attributes(safe_attributes({
-                "provider": "vertex_ai", "model": model,
-                "media.kind": "audio", "media.duration_sec": duration_sec,
-            }))
-            response = self.transport.generate_lyria(model=model, prompt=request["prompt"], request=request)
-            if response.get("status") != "completed":
-                raise MediaProtocolError("Lyria interaction did not complete")
-            output = next(
-                (item for item in response.get("outputs", []) if item.get("type") == "audio"),
-                None,
-            )
-            if output is None:
-                raise MediaProtocolError("Lyria completed without an audio output")
-            provider_id = response.get("id")
-            if not isinstance(provider_id, str) or not provider_id:
-                raise MediaProtocolError("Lyria response is missing an interaction id")
-            text_outputs = [
-                str(item.get("text"))[:12000]
-                for item in response.get("outputs", [])
-                if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str)
-            ]
-            provider_metadata = {
-                **{
-                    key: _bounded_provenance(response[key])
-                    for key in ("object", "status", "role", "model", "created", "updated")
-                    if key in response
-                },
-                **({"lyrics": text_outputs[0]} if text_outputs else {}),
-                **({"description": text_outputs[1]} if len(text_outputs) > 1 else {}),
-                **({"watermark": _bounded_provenance(response["watermark"])} if "watermark" in response else {}),
-                **({"c2pa": _bounded_provenance(output["c2pa"])} if "c2pa" in output else {}),
-                **_common_provider_provenance(response),
-            }
-            return GeneratedMedia(
-                data=_decode(output.get("data"), media="audio"),
-                mime=str(output.get("mime_type") or "audio/mpeg"),
-                model=model,
-                provider_id=provider_id,
-                duration_sec=duration_sec,
-                estimated_cost_usd=estimated_cost_usd,
-                provider_metadata=_fit_provider_metadata(provider_metadata),
-            )
+class ElevenLabsGenerator:
+    def __init__(self, *, transport): self.transport = transport
+    def generate(self, *, request, estimated_cost_usd):
+        request = validate_elevenlabs_request(request)
+        result = self.transport.generate_elevenlabs(model=request["providerModel"], prompt=request["prompt"], request=request)
+        return GeneratedMedia(result["data"], "audio/mpeg", request["providerModel"], result["id"], request["targetDurationSec"], estimated_cost_usd)

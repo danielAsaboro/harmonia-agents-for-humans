@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import { DataPlaneRepository } from "@/lib/dataPlane/repository";
-import { db } from "@/lib/firestore";
+import { db } from "@/lib/repository";
 import { internalTenantHandler } from "@/lib/internalAuth";
 
 const bodySchema = z.object({

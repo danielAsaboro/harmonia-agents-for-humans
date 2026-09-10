@@ -1,73 +1,53 @@
 ---
 title: "Nimi — evidence analyst"
-description: "Nimi's source-analysis contract, evidence method, and authority boundary."
+description: "Current Strands registration, model, inputs, tools and authority."
 ---
 
 ## Role
 
-Nimi turns one typed source package into grounded moments and defensible angles for Ryan. Nimi
-analyzes supplied transcript segments, bounded frame evidence, verified performance observations,
-and eligible Memory Bank facts without defining strategy or writing copy.
+Analyzes the supplied source manifest into evidence-grounded insights and clip candidates. Timed speech comes from Amazon Transcribe; Nimi reasons over the resulting text and supplied visual evidence.
 
 ## Contract
 
 | Property | Value |
 |---|---|
-| ADK name | `nimi_analyst` |
-| Default model | `gemini-3.5-flash` |
-| Input | `AnalystInput` |
-| Output | `SourceAnalysis` |
-| Runtime skills | `nimi-analysis-skills` with seven allow-listed method references |
-| Skill interface | ADK filesystem `SkillToolset` exposing `load_skill` and `load_skill_resource` |
-| Research tools | Native `google_search` in an isolated public-search agent; optional `VertexAiSearchTool` in an isolated private-search agent |
+| Registered specialist | `nimi_analyst; nimi_research_analyst` |
+| Default Bedrock model ID | `us.amazon.nova-2-lite-v1:0` |
+| Typed boundary | `AnalystInput → SemanticSourceAnalysis → host-bound SourceAnalysis` |
+| Returned state key | `source_analysis` |
 
 ## Skills
 
-`nimi-analysis-skills` provides seven allow-listed analysis methods. Nimi loads it exactly once and
-only loads references relevant to the active evidence problem. Skill guidance is method, never evidence.
+The host preloads `nimi-analysis-skills` method guidance and approved references into the system prompt. No `load_skill` or `load_skill_resource` tool is registered. Host bootstrap records activation provenance. Skill guidance is method, never evidence.
 
 ## Tools and research
 
-Public research runs only through `nimi_google_search_agent`; configured private indexed retrieval
-runs through `nimi_agent_search_agent`. Both require an exact application-supplied `researchRequest`
-and remain isolated from the filesystem skill tools.
+`nimi_analyst` has no tools. The host selects `nimi_research_analyst` only for a typed research request. Before inference the runtime retains exactly one permitted tool: `nimi_gateway_search` for public web research or `nimi_agent_search_agent` for the configured Bedrock Knowledge Base.
 
 ## Prompt method
 
-The prompt requires the skill exactly once and only the references relevant to the analytical
-problem. The skill establishes an evidence hierarchy: transcript segments and supplied frames are
-primary source evidence; verified performance and eligible memory are advisory and retain distinct
-provenance. Exact quotes must occur in cited segments, timestamps must remain in bounds, and visible
-facts require supplied frame IDs. Evidence kinds cannot be mixed.
-
-Skill guidance shapes method but is never evidence. Weak evidence becomes an explicit assumption with lower confidence. Nimi cannot invent trends,
-speaker identity, customer outcomes, or unseen visuals.
+Keep transcript, frame, performance, memory and research evidence distinct. Quotes must occur in their cited source segments. The host binds complete segment references and checks time ranges, visual evidence, confidence and source lineage.
 
 ## Evidence and provenance
 
-Transcript segments and supplied frames are primary evidence. Verified performance, eligible memory,
-and validated research retain distinct IDs and provenance. Exact quotes must occur in cited segments;
-timestamps and frames remain in supplied bounds. Unknown or mixed-kind references fail closed.
+Only the supplied typed input and authorized returned tool evidence can support factual claims. Preloaded skills, model memory and generated prose do not establish facts. The host retains request hashes and validated references without logging private prompts or chain-of-thought.
 
 ## Authority boundary
 
-Nimi cannot define objectives, positioning, pillars, campaigns, channels, cadence, KPIs, briefs,
-final copy, CTAs, approvals, schedules, publishing actions, receipts, or verification claims.
+The specialist cannot approve, grant permissions, publish, schedule an external effect, access credentials, mutate workflow state or create verification receipts. Those operations belong to deterministic host code and persisted authorization.
 
 ## Handoff
 
-Deterministic code persists the complete `SourceAnalysis` and canonical digest. Ryan receives that
-exact typed object, not a prose summary or a new source-analysis opportunity.
+The host validates semantic output, attaches authoritative source identities, computes the canonical digest and persists SourceAnalysis before Ryan receives it.
 
 ## Runtime enforcement
 
-Deterministic validation checks the independent skill-loader and research-tool traces, the exact
-request binding, native grounding metadata, transcript support, media bounds, reference existence, evidence-kind compatibility,
-confidence, authority overreach, canonical digesting, persistence, and the exact Ryan handoff.
+`LocalStrandsTeamRuntime` creates a fresh Strands `Agent` per invocation with `structured_output_model`, `AuthorityHooks` and automatic model retries disabled. The host selects the registration, projects bounded input and validates output before a stage mutation. Provider repair follows the bounded host policy. Authenticated AWS execution remains pending live verification.
 
 ## Implementation references
 
+- Registration: `agent/harmonia_agent/agents.py`
 - Prompt: `agent/harmonia_agent/nimi_prompt.py`
-- Contracts: `AnalystInput` and `SourceAnalysis` in `agent_models.py`
-- Skill: `agent/harmonia_agent/skills/nimi-analysis-skills/SKILL.md`
-- Tests: `agent/tests/test_nimi_contracts.py`, `test_nimi_validation.py`, and `test_nimi_skills.py`
+- Method/tool implementation: `agent/harmonia_agent/nimi_research.py`
+- Runtime: `agent/harmonia_agent/team_runtime.py`
+- Model assignment: `agent/harmonia_agent/role_models.py`

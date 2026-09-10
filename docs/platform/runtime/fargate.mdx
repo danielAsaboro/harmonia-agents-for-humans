@@ -1,0 +1,17 @@
+---
+title: "ECS Fargate"
+description: "Web, worker, and scanner containers."
+---
+
+## How Harmonia uses it
+
+
+The web service serves the dashboard and APIs behind an HTTPS load balancer. Workers consume SQS and execute extraction, rendering, effects, and verification. The scanner is reachable only from the web service. Internal routes are blocked on the public listener and require service authentication. Cognition runs separately on AgentCore.
+
+## Implementation
+
+`infra/aws/stack.ts`
+
+## Evidence status
+
+This AWS edition has no authenticated deployment or provider rehearsal yet. Paid validation remains disabled. Local checks are reported separately from live proof.

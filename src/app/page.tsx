@@ -186,7 +186,7 @@ export default function LandingPage() {
             </div>
           </div>
           <footer>
-            <span>Gemini</span><span>Google ADK</span><span>Cloud Run</span><span>Firestore</span><span>Pub/Sub</span>
+            <span>Bedrock</span><span>Strands Agents SDK</span><span>ECS Fargate</span><span>DynamoDB</span><span>SQS</span>
           </footer>
         </div>
       </section>

@@ -36,3 +36,16 @@ export function sourceRightsAuthorization(
     attestedAt: now,
   };
 }
+
+export async function persistSourceRightsAuthorization(authorization: SourceRightsAuthorization): Promise<string> {
+  const { awsRepository, recordKey } = await import("./dynamo");
+  const { currentTenant } = await import("./tenancy");
+  const scope = currentTenant();
+  const id = sourceRightsAuthorizationId(authorization);
+  const key = recordKey(`workspaces/${scope.workspaceId}/brands/${scope.brandId}/source_rights/${id}`);
+  await awsRepository().atomic(async tx => {
+    const prior = await tx.read(key);
+    if (!prior.present) tx.insert(key, { ...authorization, id, workspaceId: scope.workspaceId, brandId: scope.brandId });
+  });
+  return id;
+}

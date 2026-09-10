@@ -5,8 +5,8 @@
  * the dashboard and asks a question; the answer is generated strictly from
  * that record.s data.
  */
-import { getConfig } from "./config";
-import { getContentItem, getJob, getProposal } from "./firestore";
+import { requestAgentAnswer } from "./agentAskClient";
+import { getContentItem, getJob, getProposal } from "./repository";
 
 export interface ChatContext {
   kind: "job" | "content_item" | "proposal";
@@ -36,46 +36,11 @@ export async function fetchContextRecord(
   }
 }
 
-const SYSTEM_PROMPT = `You answer an operator's question about ONE Harmonia record.
-You receive the record's full JSON plus the question. Answer ONLY with facts present
-in the record - never invent ids, numbers, dates, or states. Be concise (max ~120 words).
-If the record does not contain the answer, say exactly what is missing.`;
-
-interface GeminiCandidatePart {
-  text?: string;
-}
-
-export async function answerFromContext(
-  question: string,
-  record: Record<string, unknown>,
-): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not configured for contextual chat");
-  const model = getConfig().MODEL_ID;
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        contents: [{
-          role: "user",
-          parts: [{ text: `Record JSON:\n${JSON.stringify(record).slice(0, 60000)}\n\nQuestion: ${question}` }],
-        }],
-        generationConfig: { temperature: 0 },
-        signal: AbortSignal.timeout(20_000),
-      }),
-    },
-  );
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(`Gemini contextual answer failed (${res.status}): ${detail.slice(0, 300)}`);
+/** Context is server-fetched under the current tenant and supplied as data, never instructions. */
+export async function answerFromContext(question: string, record: Record<string, unknown>): Promise<string> {
+  if (Buffer.byteLength(JSON.stringify(record), "utf8") > 60_000) {
+    throw new Error("The record exceeds the bounded contextual-answer size; select a narrower item.");
   }
-  const data = (await res.json()) as {
-    candidates?: Array<{ content?: { parts?: GeminiCandidatePart[] } }>;
-  };
-  const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("");
-  if (!text) throw new Error("Gemini returned no contextual answer");
-  return text.trim();
+  const result = await requestAgentAnswer(question, { contextRecord: record });
+  return result.answer;
 }

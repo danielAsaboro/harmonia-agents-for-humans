@@ -10,7 +10,7 @@ const sourceManifest = vi.hoisted(() => ({ createSourceJob: vi.fn() }));
 const sourceRights = vi.hoisted(() => ({ hasRightsAttestation: vi.fn() }));
 const chatAttachments = vi.hoisted(() => ({ requireReadyAttachments: vi.fn() }));
 
-vi.mock("@/lib/firestore", () => ({
+vi.mock("@/lib/repository", () => ({
   appendEvent: vi.fn(),
   getJob: vi.fn(),
   listAssets: vi.fn(),
@@ -26,7 +26,7 @@ vi.mock("@/lib/sourceRights", () => ({
   hasRightsAttestation: sourceRights.hasRightsAttestation,
   RIGHTS_ATTESTATION_PHRASE: "I confirm I have the rights to process this media.",
   sourceRightsAuthorization: () => ({ id: "rights-web" }),
-  sourceRightsAuthorizationId: () => "rights-web",
+  persistSourceRightsAuthorization: async () => "rights-web",
 }));
 vi.mock("@/lib/chatAttachments", () => ({ requireReadyAttachments: chatAttachments.requireReadyAttachments }));
 vi.mock("@/lib/agentAskClient", () => ({ requestAgentAnswer: vi.fn().mockRejectedValue(new Error("agent unavailable")) }));

@@ -64,7 +64,7 @@ const DEFAULT_CONNECTORS: ConnectorDescriptor[] = [
     requiredScopes: [],
     providerIdempotency: true,
     independentVerification: true,
-    regionalConstraint: "selected_google_cloud_region",
+    regionalConstraint: "selected_aws_region",
   },
 ];
 

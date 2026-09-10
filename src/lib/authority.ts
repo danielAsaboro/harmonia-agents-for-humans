@@ -2,13 +2,13 @@ import { createHash } from "node:crypto";
 
 import type { TenantContext } from "./tenancy";
 
-export type FirebaseWorkspaceRole = "owner" | "admin" | "member";
+export type CognitoWorkspaceRole = "owner" | "admin" | "member";
 
 export type Principal =
   | {
-      kind: "firebase_user";
+      kind: "cognito_user";
       subjectId: string;
-      workspaceRole: FirebaseWorkspaceRole;
+      workspaceRole: CognitoWorkspaceRole;
       authenticationId: string;
     }
   | {
@@ -43,12 +43,12 @@ export class AuthorityError extends Error {
   }
 }
 
-export function firebasePrincipal(input: {
+export function cognitoPrincipal(input: {
   subjectId: string;
-  workspaceRole: FirebaseWorkspaceRole;
+  workspaceRole: CognitoWorkspaceRole;
   authenticationId: string;
-}): Extract<Principal, { kind: "firebase_user" }> {
-  return { kind: "firebase_user", ...input };
+}): Extract<Principal, { kind: "cognito_user" }> {
+  return { kind: "cognito_user", ...input };
 }
 
 export function telegramPrincipal(input: {
@@ -85,9 +85,9 @@ export function oauthCallbackPrincipal(input: {
 
 export function requireContentOperator(
   context: TenantContext,
-): Extract<Principal, { kind: "firebase_user" | "telegram_user" }> {
+): Extract<Principal, { kind: "cognito_user" | "telegram_user" }> {
   const { principal } = context;
-  if (principal.kind !== "firebase_user" && principal.kind !== "telegram_user") {
+  if (principal.kind !== "cognito_user" && principal.kind !== "telegram_user") {
     throw new AuthorityError(
       "human content operator required",
       403,
@@ -99,10 +99,10 @@ export function requireContentOperator(
 
 export function requireWorkspaceAdministrator(
   context: TenantContext,
-): Extract<Principal, { kind: "firebase_user" }> {
+): Extract<Principal, { kind: "cognito_user" }> {
   const { principal } = context;
   if (
-    principal.kind !== "firebase_user"
+    principal.kind !== "cognito_user"
     || (principal.workspaceRole !== "owner" && principal.workspaceRole !== "admin")
   ) {
     throw new AuthorityError(
@@ -116,11 +116,11 @@ export function requireWorkspaceAdministrator(
 
 export function requireProductionOperator(
   context: TenantContext,
-): Extract<Principal, { kind: "firebase_user" | "telegram_user" }> {
+): Extract<Principal, { kind: "cognito_user" | "telegram_user" }> {
   const { principal } = context;
   if (principal.kind === "telegram_user") return principal;
   if (
-    principal.kind === "firebase_user"
+    principal.kind === "cognito_user"
     && (principal.workspaceRole === "owner" || principal.workspaceRole === "admin")
   ) return principal;
   throw new AuthorityError(

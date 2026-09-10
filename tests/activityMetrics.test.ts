@@ -12,7 +12,7 @@ function record(overrides: Partial<AgentActivity> = {}): AgentActivity {
     model: "gemini-3.5-flash", tool: null, traceId: "a".repeat(32), spanId: "b".repeat(16),
     parentSpanId: null, durationMs: 100, inputTokens: 40, outputTokens: 10,
     inferenceCalls: 1, toolCalls: 0, errorCategory: null, errorType: null,
-    backend: "google_cloud", ...overrides,
+    backend: "aws", ...overrides,
   };
 }
 

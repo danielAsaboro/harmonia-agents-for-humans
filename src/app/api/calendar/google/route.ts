@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { operatorTenantHandler } from "@/lib/auth";
-import { claimCalendarProvisioning, completeCalendarProvisioning, getConnection, getContentItem, markCalendarProvisioningUncertain, saveCalendarSyncIfUnchanged, updateContentItem } from "@/lib/firestore";
+import { claimCalendarProvisioning, completeCalendarProvisioning, getConnection, getContentItem, markCalendarProvisioningUncertain, saveCalendarSyncIfUnchanged, updateContentItem } from "@/lib/repository";
 import { currentTenant } from "@/lib/tenancy";
 import { validPlatformConnection } from "@/lib/validConnection";
 import { calendarSyncFailure } from "@/lib/calendarSyncState";

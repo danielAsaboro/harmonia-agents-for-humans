@@ -1,0 +1,9 @@
+node_modules
+agent/node_modules
+agent/.venv
+.git
+.next
+.artifacts
+.data
+.env*
+__pycache__

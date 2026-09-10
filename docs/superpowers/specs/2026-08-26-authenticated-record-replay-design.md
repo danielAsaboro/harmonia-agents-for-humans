@@ -8,7 +8,7 @@
 
 Harmonia needs a trustworthy way to continue developing its dashboard, conversational console, A2UI surfaces, approvals, monitoring, recovery, and scheduled autonomy without repeatedly paying for authenticated Google Cloud execution. The record/replay subsystem captures a small number of real authenticated runs as sanitized, versioned bundles and replays their observable application events locally.
 
-Replay is a development aid, not a provider emulator, workflow authority, or evidence generator. Firestore remains the live workflow source of truth. A replay session is isolated, read-only, visibly disclosed, and incapable of invoking approval, publishing, credential, or other external-effect paths.
+Replay is a development aid, not a provider emulator, workflow authority, or evidence generator. DynamoDB remains the live workflow source of truth. A replay session is isolated, read-only, visibly disclosed, and incapable of invoking approval, publishing, credential, or other external-effect paths.
 
 ## Trust Model and Runtime Modes
 
@@ -18,7 +18,7 @@ Harmonia exposes exactly three execution modes:
 2. `recorded_replay`: sanitized observations captured from a prior authenticated run and replayed locally.
 3. `live`: authenticated execution against configured Google and external services.
 
-Every replay event carries `executionMode: "recorded_replay"`, its bundle identity, and its original capture timestamp. Replay endpoints and clients use a separate namespace from live mutation endpoints. A replay dispatcher never imports replayed state into production Firestore and never calls decision, retry, publish, receipt, credential, or internal effect routes.
+Every replay event carries `executionMode: "recorded_replay"`, its bundle identity, and its original capture timestamp. Replay endpoints and clients use a separate namespace from live mutation endpoints. A replay dispatcher never imports replayed state into production DynamoDB and never calls decision, retry, publish, receipt, credential, or internal effect routes.
 
 The application shell permanently displays a prominent banner while replay mode is active:
 
@@ -49,10 +49,10 @@ The bundle schema is strict and fail-closed. Unknown keys, unsupported versions,
 The first schema supports sanitized forms of:
 
 - job snapshots and stage transitions;
-- ADK specialist handoffs and safe activity summaries;
+- Strands specialist handoffs and safe activity summaries;
 - transcript segments authorized for capture;
 - moments, drafts, actions, approvals, effect claims, receipts, and independent verification records;
-- Pub/Sub delivery and Scheduler trigger metadata;
+- SQS delivery and Scheduler trigger metadata;
 - A2UI events and surface revisions;
 - timing, token usage, estimated cost, trace correlation, and typed failures.
 
@@ -137,7 +137,7 @@ The repository maintains a registry with these scenario identities:
 - permanent failure;
 - duplicate-effect suppression;
 - scheduled autonomy;
-- Memory Bank retrieval;
+- AgentCore Memory retrieval;
 - Telegram approval.
 
 Each entry records `not_captured`, `private_candidate`, or `approved_public_bundle`. No bundle is generated until its scenario has occurred during a real authenticated run. The first authenticated vertical slice should create only the scenarios genuinely observed in that run.

@@ -1,4 +1,4 @@
-import { getConnection } from "@/lib/firestore";
+import { getConnection } from "@/lib/repository";
 import { PLATFORMS, platformStatus } from "@/lib/platforms";
 import { tenantHandler } from "@/lib/auth";
 import { sanitizeSocialConnection } from "@/lib/publishing/connections";

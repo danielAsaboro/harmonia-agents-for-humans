@@ -1,4 +1,4 @@
-import { getJob, listReceipts, writeReplayObservation } from "./firestore";
+import { getJob, listReceipts, writeReplayObservation } from "./repository";
 import { claimCommandEffect, listCommandsForJob } from "./effectCommandStore";
 import { newId } from "./idempotency";
 import { currentTraceId } from "./telemetry";

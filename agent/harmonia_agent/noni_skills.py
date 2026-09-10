@@ -1,4 +1,4 @@
-"""Dedicated Google ADK writing skills and trace validation for Noni."""
+"""Dedicated Google Strands writing skills and trace validation for Noni."""
 
 from __future__ import annotations
 
@@ -7,18 +7,10 @@ import re
 from pathlib import Path
 from typing import Any
 
-from google.adk.agents import Agent
-from google.adk.agents.context import Context
-from google.adk.skills import load_skill_from_dir
-from google.adk.tools import FunctionTool, google_search, skill_toolset
-from google.adk.tools.agent_tool import AgentTool
-from google.adk.tools.base_tool import BaseTool
-from google.adk.models.base_llm import BaseLlm
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import web_client
 from .authority_records import skill_activation_records, validate_skill_activation
-from .provider_schema import vertex_output_schema
 from .tool_contracts import ToolContract, error, evidence, provider_error, success, validate_tool_envelope
 
 NONI_SKILL_NAME = "noni-writing-skills"
@@ -37,7 +29,7 @@ NONI_SKILL_REFERENCES = (
     "references/convincing-content.md",
     "references/short-form-video-scripts.md",
 )
-NONI_RESEARCH_TOOLS = ("search_verified_publications", "google_search_agent")
+NONI_RESEARCH_TOOLS = ("search_verified_publications", "gateway_search")
 NONI_ARTIFACT_REFERENCES = (
     "references/thought-leadership.md",
     "references/structure-and-mece.md",
@@ -99,32 +91,24 @@ def validate_noni_tool_contracts() -> dict[str, ToolContract]:
     return dict(_NONI_TOOL_CONTRACTS)
 
 
-def build_noni_writing_skillset() -> skill_toolset.SkillToolset:
-    """Expose one filesystem skill and only its two read-only loading tools."""
-    skill = load_skill_from_dir(NONI_SKILL_ROOT)
-    if skill.frontmatter.name != NONI_SKILL_NAME:
-        raise RuntimeError("Noni writing skill name does not match its runtime contract")
-    return skill_toolset.SkillToolset(
-        skills=[skill],
-        additional_tools=[FunctionTool(search_verified_publications)],
-        tool_filter=["load_skill", "load_skill_resource", "search_verified_publications"],
-    )
+
+
 
 
 def compiled_noni_artifact_skill_context() -> str:
     """Compile the approved static writing method without spending model turns."""
-    skill = load_skill_from_dir(NONI_SKILL_ROOT)
+    instructions = (NONI_SKILL_ROOT / "SKILL.md").read_text()
     references = []
     for path in NONI_ARTIFACT_REFERENCES:
         name = path.removeprefix("references/")
-        content = skill.resources.references.get(name)
+        content = (NONI_SKILL_ROOT / path).read_text()
         if not content:
             raise RuntimeError(f"Noni compiled reference is missing: {path}")
         references.append(f"APPROVED REFERENCE {path}:\n{content}")
-    return f"APPROVED SKILL {NONI_SKILL_NAME}:\n{skill.instructions}\n\n" + "\n\n".join(references)
+    return f"APPROVED SKILL {NONI_SKILL_NAME}:\n{instructions}\n\n" + "\n\n".join(references)
 
 
-def activate_noni_artifact_skill(callback_context: Context) -> None:
+def activate_noni_artifact_skill(callback_context: Any) -> None:
     """Record the coordinator-side activation of the compiled, immutable skill."""
     callback_context.state[NONI_SKILL_TRACE_KEY] = skill_activation_records(
         skill_name=NONI_SKILL_NAME,
@@ -155,34 +139,20 @@ class GroundedWebResearch(BaseModel):
     sources: list[GroundedWebSource] = Field(min_length=1, max_length=8)
 
 
-def build_noni_google_search_tool(model: str | BaseLlm) -> AgentTool:
-    """Use ADK's native Google Search in an isolated grounded research agent."""
-    research_agent = Agent(
-        name="google_search_agent",
-        model=model,
-        description="Native Google Search grounding for one exact Noni content brief.",
-        instruction=(
-            "Use google_search only for the exact brief ID and research question in the request. "
-            "Prefer primary sources. Return strict GroundedWebResearch JSON. Assign stable source "
-            "labels such as web-1, include the source URL, and quote only text directly supported "
-            "by that source. Never change strategy, authorize an action, or use private data."
-        ),
-        tools=[google_search],
-        output_schema=vertex_output_schema(GroundedWebResearch),
-        output_key="grounded_web_research",
-        mode="single_turn",
-    )
-    return AgentTool(agent=research_agent, propagate_grounding_metadata=True)
+def build_noni_search_tool(model: Any) -> Any:
+    from .research import research_tool
+    return research_tool("gateway_search", "writing")
 
 
-def reset_noni_skill_trace(callback_context: Context) -> None:
+
+def reset_noni_skill_trace(callback_context: Any) -> None:
     callback_context.state[NONI_SKILL_TRACE_KEY] = []
 
 
 def record_noni_skill_tool(
-    tool: BaseTool,
+    tool: Any,
     args: dict[str, Any],
-    tool_context: Context,
+    tool_context: Any,
     tool_response: dict[str, Any],
 ) -> None:
     if tool.name == "set_model_response":
@@ -275,7 +245,7 @@ def validate_noni_skill_trace(
             raise ValueError(f"Noni used a prohibited tool: {item.get('name')}")
         research_started = True
         args = item.get("args") or {}
-        if name == "google_search_agent":
+        if name == "gateway_search":
             raw_response = item.get("response")
             if isinstance(raw_response, str):
                 try:
@@ -291,32 +261,9 @@ def validate_noni_skill_trace(
             research_text = " ".join((str(args.get("request") or ""), result.query))
             if not brief_text or not (_research_terms(research_text) & _research_terms(brief_text)):
                 raise ValueError("Noni research query is outside the active brief")
-            metadata = (
-                grounding_metadata.model_dump(mode="json", by_alias=True)
-                if hasattr(grounding_metadata, "model_dump") else grounding_metadata
-            )
-            if not isinstance(metadata, dict):
-                raise ValueError("Noni native search requires native grounding metadata")
-            chunks = metadata.get("groundingChunks") or metadata.get("grounding_chunks") or []
-            supports = metadata.get("groundingSupports") or metadata.get("grounding_supports") or []
+            from .research import validate_provider_sources
+            validate_provider_sources(grounding_metadata, result.sources)
             for source in result.sources:
-                matching_indices = {
-                    index for index, chunk in enumerate(chunks)
-                    if isinstance(chunk, dict) and isinstance(chunk.get("web"), dict)
-                    and chunk["web"].get("uri") == source.url
-                    and chunk["web"].get("title") == source.title
-                }
-                supported = any(
-                    isinstance(support, dict)
-                    and matching_indices.intersection(
-                        support.get("groundingChunkIndices")
-                        or support.get("grounding_chunk_indices") or []
-                    )
-                    and source.supportedText in str((support.get("segment") or {}).get("text") or "")
-                    for support in supports
-                )
-                if not matching_indices or not supported:
-                    raise ValueError("Noni source is absent from native grounding metadata")
                 if source.evidenceId in research_evidence:
                     raise ValueError("Noni research returned duplicate evidence")
                 research_evidence[source.evidenceId] = (source.supportedText, source.title, source.url)
@@ -343,3 +290,11 @@ def validate_noni_skill_trace(
     if len(resource_paths) != len(set(resource_paths)):
         raise ValueError("Noni loaded a duplicate writing reference")
     return research_evidence
+
+
+def compiled_noni_skill_context() -> str:
+    return "PRELOADED noni skill and references. Do not call loaders.\n" + "\n\n".join(((NONI_SKILL_ROOT / "SKILL.md").read_text(), *((NONI_SKILL_ROOT / path).read_text() for path in NONI_SKILL_REFERENCES)))
+
+
+def activate_noni_skill(callback_context: Any) -> None:
+    callback_context.state[NONI_SKILL_TRACE_KEY] = skill_activation_records(skill_name=NONI_SKILL_NAME, skill_root=NONI_SKILL_ROOT, references=NONI_SKILL_REFERENCES)

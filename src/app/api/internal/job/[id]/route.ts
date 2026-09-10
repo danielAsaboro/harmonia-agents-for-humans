@@ -1,4 +1,4 @@
-import { getJob } from "@/lib/firestore";
+import { getJob } from "@/lib/repository";
 import { internalTenantHandler } from "@/lib/internalAuth";
 
 async function get(

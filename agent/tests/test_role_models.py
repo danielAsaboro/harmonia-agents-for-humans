@@ -10,31 +10,31 @@ from harmonia_agent.generation_policy import generation_config
 
 
 def test_roles_do_not_collapse_to_one_global_model(monkeypatch):
-    monkeypatch.setenv("COORDINATOR_MODEL_ID", "gemini-3.5-flash-lite")
-    monkeypatch.setenv("STRATEGIST_MODEL_ID", "gemini-3.5-flash")
-    monkeypatch.setenv("ANALYST_MODEL_ID", "gemini-3.5-flash")
-    monkeypatch.setenv("COPYWRITER_MODEL_ID", "gemini-3.5-flash")
-    monkeypatch.setenv("EDITOR_MODEL_ID", "gemini-3.5-flash")
-    monkeypatch.setenv("PLANNER_MODEL_ID", "gemini-3.5-flash-lite")
-    monkeypatch.setenv("PRESENTER_MODEL_ID", "gemini-3.5-flash")
+    monkeypatch.setenv("COORDINATOR_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+    monkeypatch.setenv("STRATEGIST_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
+    monkeypatch.setenv("ANALYST_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
+    monkeypatch.setenv("COPYWRITER_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
+    monkeypatch.setenv("EDITOR_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
+    monkeypatch.setenv("PLANNER_MODEL_ID", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+    monkeypatch.setenv("PRESENTER_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
 
     catalog = load_role_model_catalog()
 
-    assert catalog.coordinator.model_id == "gemini-3.5-flash-lite"
-    assert catalog.copywriter.provider == "gemini"
-    assert catalog.copywriter.model_id == "gemini-3.5-flash"
+    assert catalog.coordinator.model_id == "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    assert catalog.copywriter.provider == "bedrock"
+    assert catalog.copywriter.model_id == "us.anthropic.claude-sonnet-4-6"
     assert catalog.copywriter.endpoint is None
-    assert catalog.presenter.model_id == "gemini-3.5-flash"
+    assert catalog.presenter.model_id == "us.anthropic.claude-sonnet-4-6"
     assert len({item.model_id for item in catalog.roles()}) >= 2
 
 
 def test_copywriter_uses_skill_capable_gemini(monkeypatch):
-    monkeypatch.setenv("COPYWRITER_MODEL_ID", "gemini-3.5-flash")
+    monkeypatch.setenv("COPYWRITER_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
 
     catalog = load_role_model_catalog()
 
-    assert catalog.copywriter.provider == "gemini"
-    assert catalog.copywriter.model_id == "gemini-3.5-flash"
+    assert catalog.copywriter.provider == "bedrock"
+    assert catalog.copywriter.model_id == "us.anthropic.claude-sonnet-4-6"
     assert catalog.copywriter.endpoint is None
     assert catalog.copywriter.reservation_usd is None
 
@@ -53,7 +53,7 @@ def test_every_role_has_versioned_generation_and_safety_policy(monkeypatch):
 
     catalog = load_role_model_catalog()
 
-    assert all(role.policy_version == "gear-2026-08-24" for role in catalog.roles())
+    assert all(role.policy_version == "strands-2026-09-09" for role in catalog.roles())
     assert catalog.planner.generation.temperature == 0.1
     assert catalog.planner.max_output_tokens == 8192
     assert catalog.analyst.generation.temperature == 0.2
@@ -66,17 +66,15 @@ def test_every_role_has_versioned_generation_and_safety_policy(monkeypatch):
     assert all(role.eligible_tasks for role in catalog.roles())
     assert catalog.planner.eligible_tasks == ("propose_editorial_plan",)
     assert all(role.minimum_pass_rate == Decimal("0.95") for role in catalog.roles())
-    assert all(role.pricing_version == "2026-09-02" for role in catalog.roles())
+    assert all(role.pricing_version == "aws-configured-2026-09-10" for role in catalog.roles())
 
 
-def test_gemini_37_uses_provider_reasoning_defaults_without_deprecated_sampling():
+def test_native_bedrock_generation_uses_one_sampling_parameter():
     role = load_role_model_catalog().analyst
     config = generation_config(role)
+    assert role.model_id == "us.amazon.nova-2-lite-v1:0"
+    assert config == {"max_tokens": role.max_output_tokens, "temperature": role.generation.temperature}
 
-    assert role.model_id == "gemini-3.7-flash"
-    assert config.temperature is None
-    assert config.top_p is None
-    assert config.top_k is None
 
 
 def test_strategist_has_enough_time_to_complete_the_strategy_contract():
@@ -111,11 +109,8 @@ def test_generation_policy_rejects_unbounded_values(field, value):
         RoleGenerationPolicy(**values)
 
 
-def test_adk_transport_owns_bounded_http_retries_and_timeout():
-    role = load_role_model_catalog().copywriter
-
-    config = generation_config(role)
-
-    assert config.http_options.timeout == role.timeout_seconds * 1_000
-    assert config.http_options.retry_options.attempts == 2
-    assert config.http_options.retry_options.http_status_codes == [429, 500, 502, 503, 504]
+def test_native_runtime_has_no_hidden_agent_retry_policy():
+    from pathlib import Path
+    runtime = (Path(__file__).parents[1] / "harmonia_agent/team_runtime.py").read_text()
+    assert "retry_strategy=None" in runtime
+    assert "self.calls > self.max_calls" in runtime

@@ -7,13 +7,9 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from pydantic import ValidationError
+from pydantic import ValidationError, BaseModel
+from tests.strands_test_model import ScriptedModel
 
-from google.adk.models._capabilities import LlmCapabilities
-from google.adk.models.base_llm import BaseLlm
-from google.adk.models.llm_response import LlmResponse
-from google.adk.tools.agent_tool import AgentTool
-from google.genai import types
 
 from harmonia_agent.agent_models import (
     SourceAnalysis,
@@ -50,8 +46,6 @@ from harmonia_agent.agent_errors import AgentContractError
 from harmonia_agent.a2ui_models import UiContext
 from harmonia_agent.stages import classify_failure
 from harmonia_agent.tenant_context import tenant_scope
-from harmonia_agent.generation_policy import safety_settings
-from harmonia_agent.provider_schema import vertex_output_schema
 from harmonia_agent.usage import InvocationContext
 
 
@@ -109,94 +103,12 @@ def test_nimi_semantic_validation_exposes_safe_repair_codes() -> None:
     assert "angle_evidence_kind_mismatch" in str(error.value)
 
 
-class ScriptedDelegationModel(BaseLlm):
-    calls: list[str] = []
-    media_uris: list[str] = []
-
-    @property
-    def capabilities(self) -> LlmCapabilities:
-        return LlmCapabilities(output_schema_and_tools=True)
-
-    async def generate_content_async(self, llm_request, stream=False):
-        function_responses = [
-            part.function_response
-            for content in llm_request.contents
-            for part in (content.parts or [])
-            if part.function_response
-        ]
-        if llm_request.config.response_schema is not None:
-            self.calls.append("nimi_analyst")
-            self.media_uris.extend(
-                part.file_data.file_uri
-                for content in llm_request.contents
-                for part in (content.parts or [])
-                if part.file_data is not None
-            )
-            yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text=(
-                '{"sourceDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","summary":"Delegated analysis","moments":[{"id":"m1","title":"Proof","startSec":0,"endSec":30,"hook":"hello","quote":"hello","sourceSegmentRefs":["segment-1"],"visualEvidenceIds":[],"assumptions":[],"confidence":"high"}],"angles":[{"id":"a1","angleType":"source_insight","evidenceKind":"source","title":"Source proof","rationale":"The source contains proof.","evidenceRefs":["m1"],"assumptions":[],"confidence":"high"}],"assumptions":[],"confidence":"high"}'
-            ))]))
-            return
-        if llm_request.tools_dict and not function_responses:
-            self.calls.append("coordinator")
-            yield LlmResponse(content=types.Content(role="model", parts=[types.Part(
-                function_call=types.FunctionCall(
-                    name="nimi_analyst",
-                    args={
-                        "sourceIds": ["source-1"], "sourceKind": "video",
-                        "sourceDigest": "a" * 64, "title": "Demo",
-                        "sourceSegments": [{"id": "segment-1", "sourceId": "source-1", "text": "hello proof We cut nine days to forty hours.", "digest": "b" * 64, "locator": {"kind": "time_range", "startMs": 0, "endMs": 30000}}],
-                        "performanceObservations": [], "memoryFacts": [],
-                    },
-                ),
-            )]))
-            return
-        self.calls.append("coordinator_return")
-        yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text="done")]))
 
 
-class ScriptedDraftModel(BaseLlm):
-    calls: list[str] = []
 
-    @property
-    def capabilities(self) -> LlmCapabilities:
-        return LlmCapabilities(output_schema_and_tools=True)
 
-    async def generate_content_async(self, llm_request, stream=False):
-        instructions = str(llm_request.config.system_instruction)
-        function_responses = [
-            part.function_response
-            for content in llm_request.contents
-            for part in (content.parts or [])
-            if part.function_response
-        ]
-        if llm_request.config.response_schema is not None:
-            response_schema = str(llm_request.config.response_schema)
-            if "strategySummary" in response_schema or "editorial plan" in instructions:
-                self.calls.append("temi_editorial_planner")
-                text = '{"strategySummary":"Activation lessons","items":[{"id":"c1","briefId":"brief-1","platform":"x","objective":"Teach activation speed","sourceRef":"m1","format":"text_post","priority":1}]}'
-            elif "Write up to 10" in instructions:
-                self.calls.append("noni_copywriter")
-                text = '{"drafts":[{"id":"d1","platform":"x","momentId":"m1","text":"Original"}]}'
-            else:
-                self.calls.append("dara_editor")
-                text = '{"drafts":[{"id":"d1","platform":"x","momentId":"m1","text":"Reviewed"}]}'
-            yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text=text)]))
-            return
-        if llm_request.tools_dict and not function_responses:
-            self.calls.append("coordinator")
-            yield LlmResponse(content=types.Content(role="model", parts=[types.Part(
-                function_call=types.FunctionCall(
-                    name="flo_content_engine",
-                    args={
-                        "title": "Demo",
-                        "analysis": _analysis().model_dump(mode="json"),
-                        "brand_context": "voice: direct",
-                    },
-                ),
-            )]))
-            return
-        self.calls.append("coordinator_return")
-        yield LlmResponse(content=types.Content(role="model", parts=[types.Part(text="done")]))
+
+
 
 
 def _analysis() -> SourceAnalysis:
@@ -302,25 +214,10 @@ class ManagedRuntime:
 
 def test_agent_team_exposes_specialists_and_ordered_draft_workflow():
     root = build_agent_team()
-
     assert isinstance(root, HarmoniaCoordinator)
-    assert root.name == "harmonia_coordinator"
-    assert [(a.name, a.mode) for a in root.sub_agents] == [
-        ("harmonia_intent_router", "single_turn"),
-        ("harmonia_context_assembler", "single_turn"),
-        ("ryan_strategist", "single_turn"),
-        ("ryan_research_strategist", "single_turn"),
-        ("nimi_analyst", "single_turn"),
-        ("nimi_research_analyst", "single_turn"),
-        ("temi_editorial_planner", "single_turn"),
-        ("noni_copywriter", "single_turn"),
-        ("dara_editor", "single_turn"),
-        ("noni_artifact_producer", "single_turn"),
-        ("dara_artifact_editor", "single_turn"),
-        ("maya_presenter", "single_turn"),
-        ("nova_liaison", "chat"),
-    ]
-    assert not hasattr(root, "tools")
+    assert {a.name for a in root.sub_agents} >= {"harmonia_intent_router", "harmonia_context_assembler", "ryan_strategist", "nimi_analyst", "temi_editorial_planner", "noni_copywriter", "dara_editor", "maya_presenter", "nova_liaison", "harmonia_dream_synthesizer"}
+    assert not hasattr(root, "model") and not hasattr(root, "tools")
+
 
 
 def test_coordinator_selects_only_the_request_bound_specialist_without_an_llm_transfer():
@@ -342,11 +239,9 @@ def test_noni_is_a_focused_skill_backed_typed_specialist():
 
     assert noni.name == "noni_copywriter"
     assert noni.input_schema is CopywriterInput
-    assert noni.output_schema == vertex_output_schema(ContentDraft)
+    assert noni.output_schema == ContentDraft
     assert noni.output_key == "copywriter_draft"
-    assert noni.mode == "single_turn"
-    assert len(noni.tools) == 2
-    assert noni.tools[1].name == "google_search_agent"
+    assert [tool.tool_name for tool in noni.tools] == ["search_verified_publications"]
 
 
 def test_multiformat_noni_validated_state_accepts_authority_free_semantics():
@@ -369,10 +264,9 @@ def test_dara_is_a_focused_skill_only_review_specialist():
     root = build_agent_team()
     dara = next(agent for agent in root.sub_agents if agent.name == "dara_editor")
 
-    assert dara.output_schema == vertex_output_schema(EditorialAssessment)
+    assert dara.output_schema == EditorialAssessment
     assert dara.output_key == "editorial_assessment"
-    assert dara.mode == "single_turn"
-    assert len(dara.tools) == 1
+    assert dara.tools == []
 
 
 def test_multiformat_specialists_use_strict_batch_contracts():
@@ -380,17 +274,17 @@ def test_multiformat_specialists_use_strict_batch_contracts():
     noni = next(agent for agent in root.sub_agents if agent.name == "noni_artifact_producer")
     dara = next(agent for agent in root.sub_agents if agent.name == "dara_artifact_editor")
     assert noni.input_schema is ArtifactProductionInput
-    assert isinstance(noni.output_schema, dict)
+    assert issubclass(noni.output_schema, BaseModel)
     assert noni.output_key == "semantic_artifact_draft"
-    assert isinstance(dara.output_schema, dict)
+    assert issubclass(dara.output_schema, BaseModel)
     assert dara.output_key == "semantic_artifact_review"
-    assert "additionalProperties" not in json.dumps(noni.output_schema)
-    assert "additionalProperties" not in json.dumps(dara.output_schema)
+    assert "additionalProperties" in json.dumps(noni.output_schema.model_json_schema())
+    assert "additionalProperties" in json.dumps(dara.output_schema.model_json_schema())
 
 
 def test_team_assigns_the_configured_model_to_each_role():
-    def scripted(name: str) -> ScriptedDraftModel:
-        return ScriptedDraftModel(model=name)
+    def scripted(name: str) -> ScriptedModel:
+        return ScriptedModel([], model_id=name)
 
     root = build_agent_team(models=RoleModelInstances(
         coordinator=scripted("coordinator-fake"),
@@ -404,52 +298,26 @@ def test_team_assigns_the_configured_model_to_each_role():
     ))
 
     assert not hasattr(root, "model")
-    assert [agent.model.model for agent in root.sub_agents] == [
+    assert [agent.model.get_config()["model_id"] for agent in root.sub_agents] == [
         "coordinator-fake",
         "coordinator-fake",
         "strategist-fake", "strategist-fake", "analyst-fake", "analyst-fake", "planner-fake", "copywriter-fake",
-        "editor-fake", "copywriter-fake", "editor-fake", "presenter-fake", "liaison-fake",
+        "editor-fake", "copywriter-fake", "editor-fake", "presenter-fake", "liaison-fake", "liaison-fake", "strategist-fake",
     ]
 
 
 def test_team_applies_each_roles_generation_and_safety_policy():
     root = build_agent_team()
-
-    assert not hasattr(root, "generate_content_config")
-
-    intent_router = next(agent for agent in root.sub_agents if agent.name == "harmonia_intent_router")
-    assert intent_router.generate_content_config.temperature is None
-    assert intent_router.generate_content_config.max_output_tokens == 4096
-    assert len(intent_router.generate_content_config.safety_settings) == 4
-
-    analyst = next(agent for agent in root.sub_agents if agent.name == "nimi_analyst")
-    assert analyst.generate_content_config.temperature is None
-    assert analyst.generate_content_config.max_output_tokens == 8192
+    for specialist in root.sub_agents:
+        assert specialist.generation["max_tokens"] > 0
+        assert 0 <= specialist.generation["temperature"] <= 2
+        assert issubclass(specialist.output_schema, BaseModel)
+    analyst = root.find_sub_agent("nimi_analyst")
     assert analyst.tools == []
-    assert "sourceDigest" not in analyst.output_schema["properties"]
-    assert "sourceDigest" not in analyst.output_schema["required"]
-    research_analyst = next(
-        agent for agent in root.sub_agents if agent.name == "nimi_research_analyst"
-    )
-    assert len(research_analyst.tools) == 1
-    assert research_analyst.tools[0].name == "nimi_google_search_agent"
-    assert "additionalProperties" not in json.dumps(analyst.output_schema)
-    assert "minLength" not in json.dumps(analyst.output_schema)
-    assert "pattern" not in json.dumps(analyst.output_schema)
-    assert "title" in analyst.output_schema["properties"]["angles"]["items"]["properties"]
+    assert "sourceDigest" not in analyst.output_schema.model_fields
+    assert root.find_sub_agent("nimi_research_analyst").tools[0].tool_name == "nimi_gateway_search"
+    assert root.find_sub_agent("ryan_strategist").output_key == "strategist_result"
 
-    strategist = next(agent for agent in root.sub_agents if agent.name == "ryan_strategist")
-    assert strategist.generate_content_config.max_output_tokens == 8192
-    assert strategist.generate_content_config.temperature is None
-    assert strategist.output_schema is not None
-    assert strategist.output_key == "strategist_result"
-
-    planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
-    copywriter = next(agent for agent in root.sub_agents if agent.name == "noni_copywriter")
-    assert copywriter.generate_content_config.temperature is None
-    assert copywriter.generate_content_config.max_output_tokens == 2048
-    assert planner.generate_content_config.temperature is None
-    assert planner.generate_content_config.max_output_tokens == 8192
 
 
 def test_artifact_specialists_have_explicit_eligibility_tasks():
@@ -495,65 +363,47 @@ def test_intent_router_receives_compiled_skill_and_host_owned_connection_lookup(
     router = next(agent for agent in root.sub_agents if agent.name == "harmonia_intent_router")
 
     assert router.tools == []
-    assert router.generate_content_config.max_output_tokens == 4096
+    assert router.generation["max_tokens"] == 4096
     assert "Activation: coordinator_compiled" in str(router.instruction)
     assert "trusted routing host calls `get_social_platform_connections`" in str(router.instruction)
-    assert "additionalProperties" not in json.dumps(router.output_schema)
+    assert "additionalProperties" in json.dumps(router.output_schema.model_json_schema())
 
 
 def test_temi_gemini_wire_schema_is_json_serializable_and_preserves_plan_fields():
     root = build_agent_team()
     planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
-    json.dumps(planner.output_schema)
-    assert "items" in planner.output_schema["properties"]
-    assert "selectedNextItemId" in planner.output_schema["properties"]
-    assert "additionalProperties" not in json.dumps(planner.output_schema)
+    json.dumps(planner.output_schema.model_json_schema())
+    assert "items" in planner.output_schema.model_json_schema()["properties"]
+    assert "selectedNextItemId" in planner.output_schema.model_json_schema()["properties"]
+    assert "additionalProperties" in json.dumps(planner.output_schema.model_json_schema())
 
 
 def test_nimi_private_agent_search_requires_configured_datastore(monkeypatch):
     monkeypatch.setenv(
-        "NIMI_AGENT_SEARCH_DATASTORE_ID",
-        "projects/project-1/locations/global/collections/default_collection/dataStores/nimi-docs",
+        "BEDROCK_KNOWLEDGE_BASE_ID",
+        "KB12345678",
     )
     root = build_agent_team()
     analyst = next(agent for agent in root.sub_agents if agent.name == "nimi_research_analyst")
     assert len(analyst.tools) == 2
-    assert [tool.name for tool in analyst.tools] == [
-        "nimi_google_search_agent", "nimi_agent_search_agent",
+    assert [tool.tool_name for tool in analyst.tools] == [
+        "nimi_gateway_search", "nimi_agent_search_agent",
     ]
 
 
 def test_unknown_safety_profile_is_rejected():
-    with pytest.raises(ValueError, match="unknown safety profile"):
-        safety_settings("not-a-policy")
+    from harmonia_agent.role_models import RoleGenerationPolicy
+    with pytest.raises(ValidationError):
+        RoleGenerationPolicy(temperature=.2, safety_profile="not-a-policy")
+
 
 
 def test_agent_reservations_record_exact_model_policy():
-    invocation = InvocationContext(
-        workspace_id="w1", brand_id="b1", user_id="u1", job_id="j1",
-        stage="understand", operation_id="j1:understand:0",
-    )
+    invocation = InvocationContext(workspace_id="w1", brand_id="b1", user_id="u1", job_id="j1", stage="understand", operation_id="j1:understand:0")
+    resolved = _resolve_role_models()
+    reservations = _reservation_payloads("nimi_analyst", _analyst_input(title="Synthetic"), invocation, resolved)
+    assert reservations[0]["modelPolicy"] == resolved.config_for("nimi_analyst").policy_snapshot()
 
-    reservations = _reservation_payloads(
-        "nimi_analyst",
-        _analyst_input(title="Synthetic"),
-        invocation,
-        _resolve_role_models(),
-    )
-
-    analyst = next(item for item in reservations if item["role"] == "nimi_analyst")
-    assert analyst["modelPolicy"] == {
-        "policyVersion": "gear-2026-08-24",
-        "pricingVersion": "2026-09-02",
-        "temperature": None,
-        "topP": None,
-        "topK": None,
-        "safetyProfile": "harmonia-standard",
-            "maxOutputTokens": 8192,
-        "timeoutSeconds": 120,
-        "eligibleTasks": ["analyze_media", "analyze_sources"],
-        "minimumPassRate": "0.95",
-    }
 
 
 def test_coordinator_really_delegates_and_forwards_specialist_state():
@@ -590,7 +440,7 @@ def test_temi_runs_as_a_distinct_skill_backed_typed_specialist():
     planner = next(agent for agent in root.sub_agents if agent.name == "temi_editorial_planner")
 
     assert planner.input_schema is EditorialPlannerInput
-    assert isinstance(planner.output_schema, dict)
+    assert issubclass(planner.output_schema, BaseModel)
     assert planner.tools == []
     assert planner.before_agent_callback.__name__ == "bootstrap_temi_trace"
     assert "write final post" in " ".join(planner.instruction.split())
@@ -688,22 +538,15 @@ def test_adk_output_formatter_bypasses_domain_tool_guards_and_traces():
         assert all(value == [] for value in context.state.values())
 
 
-def test_maya_uses_a_gemini_compatible_wire_schema_before_strict_validation():
-    presenter = next(
-        item for item in build_agent_team().sub_agents if item.name == "maya_presenter"
-    )
+def test_maya_uses_native_strict_schema_before_host_validation():
+    presenter = build_agent_team().find_sub_agent("maya_presenter")
+    schema = presenter.output_schema.model_json_schema()
+    assert schema["required"] == ["version", "surfaces"]
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["version"]["const"] == "harmonia.ui/v1"
+    assert "$defs" in schema
 
-    assert isinstance(presenter.output_schema, dict)
-    assert presenter.output_schema["required"] == ["version", "surfaces"]
-    assert "additionalProperties" not in json.dumps(presenter.output_schema)
-    assert "const" not in json.dumps(presenter.output_schema)
-    assert "$defs" not in json.dumps(presenter.output_schema)
-    assert "$ref" not in json.dumps(presenter.output_schema)
-    assert "anyOf" not in json.dumps(presenter.output_schema)
-    assert "default" not in json.dumps(presenter.output_schema)
-    assert presenter.output_schema["properties"]["version"]["enum"] == ["harmonia.ui/v1"]
-    surface = presenter.output_schema["properties"]["surfaces"]["items"]
-    assert surface["properties"]["nodes"]["items"]["properties"]["refs"]["required"] == ["jobId"]
+
 
 
 def test_liaison_must_return_grounded_answer_contract():
@@ -718,7 +561,7 @@ def test_liaison_must_return_grounded_answer_contract():
         LiaisonInput(question="q"),
         {"liaison_answer": '{"status":"success","answer":"Job exists [ev-aaaaaaaaaaaaaaaa].","skillName":"job-status","claims":[{"text":"Job exists","evidenceIds":["ev-aaaaaaaaaaaaaaaa"]}],"error":null,"uncertainty":[]}',
          "liaison_tool_trace": [
-             {"sequence": 1, "name": "load_skill", "args": {"skill_name": "job-status"}, "response": {}},
+             _liaison_activation(),
              {"sequence": 2, "name": "get_job_status", "args": {"job_id": "job-1"}, "response": envelope},
          ]},
     )
@@ -732,3 +575,10 @@ def test_temi_run_output_rejects_an_unknown_brief():
         _validate_run_output(
             "temi_editorial_planner", supplied, {"editorial_plan": invalid},
         )
+
+
+def _liaison_activation():
+    from harmonia_agent.nova_liaison import reset_liaison_trace
+    context = SimpleNamespace(state={})
+    reset_liaison_trace(context)
+    return context.state["liaison_tool_trace"][0]

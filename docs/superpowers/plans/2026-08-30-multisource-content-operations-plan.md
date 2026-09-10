@@ -6,7 +6,7 @@
 
 **Architecture:** Execute four ordered plans. The source registry and generalized extraction contract land first; brand libraries build on that registry; durable steering builds on the new job lineage; Studio and multimodal output integration complete the operator experience and remove all remaining video-first presentation contracts.
 
-**Tech Stack:** Next.js 16, TypeScript 5, React 19, Zod 4, Firestore, Pub/Sub, Cloud Scheduler, Google Cloud Storage, Google Drive API/Picker, Python 3.12, FastAPI, Pydantic 2, Google ADK 2.7, Gemini 3.5 Flash, pytest, Vitest.
+**Tech Stack:** Next.js 16, TypeScript 5, React 19, Zod 4, DynamoDB, SQS, EventBridge Scheduler, Google Cloud Storage, Google Drive API/Picker, Python 3.12, FastAPI, Pydantic 2, Strands Agents SDK 2.7, Gemini 3.5 Flash, pytest, Vitest.
 
 **Spec:** `docs/superpowers/specs/2026-08-30-multisource-content-operations-design.md`
 

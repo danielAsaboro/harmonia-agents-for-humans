@@ -1,15 +1,14 @@
+import { currentTenant,tenantCollectionPath } from "@/lib/tenancy";
 import { createHash } from "node:crypto";
-import { FieldPath, Timestamp, type QueryDocumentSnapshot } from "@google-cloud/firestore";
-import { db } from "@/lib/firestore";
-import { currentTenant, tenantCollectionPath } from "@/lib/tenancy";
+import { after,awsRepository,field,limited,ordered,partition,recordKey,where,type StoredRecord } from "../dynamo";
 import {
-  agentActivitySchema,
-  type AgentActivity,
-  type AgentActivityData,
-  type ObservabilityPage,
-  type ObservabilityQuery,
-  durableRuntimeSnapshotSchema,
-  type DurableRuntimeSnapshot,
+agentActivitySchema,
+durableRuntimeSnapshotSchema,
+type AgentActivity,
+type AgentActivityData,
+type DurableRuntimeSnapshot,
+type ObservabilityPage,
+type ObservabilityQuery,
 } from "./schema";
 
 const COLLECTION = "agent_activity";
@@ -23,7 +22,7 @@ interface ActivityCursor {
 }
 
 function collection() {
-  return db().collection(tenantCollectionPath(currentTenant(), COLLECTION));
+  return partition(tenantCollectionPath(currentTenant(), COLLECTION));
 }
 
 export function encodeActivityCursor(cursor: ActivityCursor): string {
@@ -73,23 +72,21 @@ export async function writeAgentActivity(input: AgentActivityData): Promise<{ id
     parsed.invocationId, parsed.signalType, parsed.eventName, parsed.traceId,
     parsed.spanId, parsed.occurredAt,
   ].join("|")).digest("hex").slice(0, 32)}`;
-  const ref = collection().doc(id);
-  const snapshot = await ref.get();
-  if (snapshot.exists) return { id, duplicate: true };
-  await ref.create({
+  const ref = recordKey(collection().partition + "/" + id);
+  const snapshot = await awsRepository().read(ref);
+  if (snapshot.present) return { id, duplicate: true };
+  await awsRepository().insert(ref, {
     ...parsed,
-    occurredAt: Timestamp.fromDate(new Date(parsed.occurredAt)),
-    retentionDeleteAfter: Timestamp.fromMillis(Date.now() + RETENTION_MS),
+    occurredAt: new Date(parsed.occurredAt).toISOString(),
+    retentionDeleteAfter: new Date(Date.now() + RETENTION_MS).toISOString(),
   });
   return { id, duplicate: false };
 }
 
-function fromSnapshot(snapshot: QueryDocumentSnapshot): AgentActivity {
-  const raw = snapshot.data() as Record<string, unknown>;
+function fromSnapshot(snapshot: StoredRecord): AgentActivity {
+  const raw = snapshot.value as unknown as Record<string, unknown>;
   const occurred = raw.occurredAt;
-  const occurredAt = occurred instanceof Timestamp
-    ? occurred.toDate().toISOString()
-    : new Date(String(occurred)).toISOString();
+  const occurredAt = new Date(String(occurred)).toISOString();
   const { retentionDeleteAfter: _retentionDeleteAfter, ...activity } = raw;
   const parsed = agentActivitySchema.parse({ ...activity, occurredAt });
   return { id: snapshot.id, ...parsed };
@@ -102,19 +99,19 @@ function facets(items: AgentActivity[]): ObservabilityPage["facets"] {
 }
 
 export async function listAgentActivity(filters: ObservabilityQuery): Promise<ObservabilityPage> {
-  let query = collection().orderBy("occurredAt", "desc").orderBy(FieldPath.documentId(), "desc");
+  let query = ordered(ordered(collection(), "occurredAt", "desc"), "__name__", "desc");
   if (filters.cursor) {
     const cursor = decodeActivityCursor(filters.cursor);
-    query = query.startAfter(Timestamp.fromDate(new Date(cursor.occurredAt)), cursor.id);
+    query = after(query, [new Date(cursor.occurredAt).toISOString(), cursor.id]);
   }
   const matched: Array<{ item: AgentActivity; cursor: ActivityCursor }> = [];
   let scanned = 0;
   let lastScanned: ActivityCursor | null = null;
   let exhausted = false;
   while (matched.length <= filters.limit && scanned < MAX_SCAN && !exhausted) {
-    const snapshot = await query.limit(SCAN_CHUNK).get();
+    const snapshot = await awsRepository().query(limited(query, SCAN_CHUNK));
     if (snapshot.empty) break;
-    for (const doc of snapshot.docs) {
+    for (const doc of snapshot.rows) {
       const item = fromSnapshot(doc);
       const cursor = { occurredAt: item.occurredAt, id: item.id };
       lastScanned = cursor;
@@ -124,10 +121,7 @@ export async function listAgentActivity(filters: ObservabilityQuery): Promise<Ob
     }
     exhausted = snapshot.size < SCAN_CHUNK;
     if (!lastScanned || matched.length > filters.limit || scanned >= MAX_SCAN) break;
-    query = collection()
-      .orderBy("occurredAt", "desc")
-      .orderBy(FieldPath.documentId(), "desc")
-      .startAfter(Timestamp.fromDate(new Date(lastScanned.occurredAt)), lastScanned.id);
+    query = after(ordered(ordered(collection(), "occurredAt", "desc"), "__name__", "desc"), [new Date(lastScanned.occurredAt).toISOString(), lastScanned.id]);
   }
   const hasMore = matched.length > filters.limit || (!exhausted && scanned >= MAX_SCAN);
   const visible = matched.slice(0, filters.limit);
@@ -154,38 +148,38 @@ export function oldestLagSeconds(timestamps: string[], now = new Date().toISOStr
 
 export async function getDurableRuntimeSnapshot(now = new Date().toISOString()): Promise<DurableRuntimeSnapshot> {
   const tenant = currentTenant();
-  const tenantCollection = (name: string) => db().collection(tenantCollectionPath(tenant, name));
+  const tenantCollection = (name: string) => partition(tenantCollectionPath(tenant, name));
   const [operations, inbox, outbox, unknown, observed, projections, artifacts, recovery] = await Promise.all([
-    tenantCollection("operations").where("state", "==", "claimed").limit(100).get(),
-    tenantCollection("event_inbox").where("state", "==", "processing").limit(100).get(),
-    tenantCollection("stage_outbox").where("state", "==", "claimed").limit(100).get(),
-    tenantCollection("effect_commands").where("state", "==", "unknown").limit(100).get(),
-    tenantCollection("effect_commands").where("state", "==", "observed").limit(100).get(),
-    tenantCollection("context_projections").orderBy("createdAt", "desc").limit(100).get(),
-    tenantCollection("artifacts").limit(100).get(),
-    tenantCollection("recovery_work").orderBy("createdAt", "desc").limit(100).get(),
+    awsRepository().query(limited(where(tenantCollection("operations"), "state", "==", "claimed"), 100)),
+    awsRepository().query(limited(where(tenantCollection("event_inbox"), "state", "==", "processing"), 100)),
+    awsRepository().query(limited(where(tenantCollection("stage_outbox"), "state", "==", "claimed"), 100)),
+    awsRepository().query(limited(where(tenantCollection("effect_commands"), "state", "==", "unknown"), 100)),
+    awsRepository().query(limited(where(tenantCollection("effect_commands"), "state", "==", "observed"), 100)),
+    awsRepository().query(limited(ordered(tenantCollection("context_projections"), "createdAt", "desc"), 100)),
+    awsRepository().query(limited(tenantCollection("artifacts"), 100)),
+    awsRepository().query(limited(ordered(tenantCollection("recovery_work"), "createdAt", "desc"), 100)),
   ]);
   const nowMs = Date.parse(now);
-  const staleOperations = operations.docs.filter((doc) => Date.parse(String(doc.get("leaseExpiresAt") ?? "")) <= nowMs);
-  const staleInbox = inbox.docs.filter((doc) => Date.parse(String(doc.get("claimUntil") ?? "")) <= nowMs);
-  const staleOutbox = outbox.docs.filter((doc) => Date.parse(String(doc.get("claimUntil") ?? "")) <= nowMs);
-  const latestProjection = projections.docs[0];
-  const artifactStates = artifacts.docs.map((doc) => String(doc.get("state")));
+  const staleOperations = operations.rows.filter((doc) => Date.parse(String(field(doc.value, "leaseExpiresAt") ?? "")) <= nowMs);
+  const staleInbox = inbox.rows.filter((doc) => Date.parse(String(field(doc.value, "claimUntil") ?? "")) <= nowMs);
+  const staleOutbox = outbox.rows.filter((doc) => Date.parse(String(field(doc.value, "claimUntil") ?? "")) <= nowMs);
+  const latestProjection = projections.rows[0];
+  const artifactStates = artifacts.rows.map((doc) => String(field(doc.value, "state")));
   return durableRuntimeSnapshotSchema.parse({
     generatedAt: now,
     staleLeases: { operations: staleOperations.length, inbox: staleInbox.length, outbox: staleOutbox.length },
-    inboxLagSeconds: oldestLagSeconds(inbox.docs.map((doc) => String(doc.get("receivedAt") ?? doc.get("updatedAt") ?? now)), now),
-    outboxLagSeconds: oldestLagSeconds(outbox.docs.map((doc) => String(doc.get("createdAt") ?? now)), now),
-    unknownEffects: unknown.docs.map((doc) => ({
-      jobId: String(doc.get("jobId")), operationId: String(doc.get("operationId")), commandId: doc.id,
-      epoch: Number(doc.get("operationEpoch")), reason: String(doc.get("unknownReason") ?? "provider outcome unknown"),
-      ...(doc.get("dispatchedAt") ? { dispatchedAt: String(doc.get("dispatchedAt")) } : {}),
+    inboxLagSeconds: oldestLagSeconds(inbox.rows.map((doc) => String(field(doc.value, "receivedAt") ?? field(doc.value, "updatedAt") ?? now)), now),
+    outboxLagSeconds: oldestLagSeconds(outbox.rows.map((doc) => String(field(doc.value, "createdAt") ?? now)), now),
+    unknownEffects: unknown.rows.map((doc) => ({
+      jobId: String(field(doc.value, "jobId")), operationId: String(field(doc.value, "operationId")), commandId: doc.id,
+      epoch: Number(field(doc.value, "operationEpoch")), reason: String(field(doc.value, "unknownReason") ?? "provider outcome unknown"),
+      ...(field(doc.value, "dispatchedAt") ? { dispatchedAt: String(field(doc.value, "dispatchedAt")) } : {}),
     })),
     observedEffects: observed.size,
     projection: {
       count: projections.size,
-      compilerVersion: latestProjection ? String(latestProjection.get("compilerVersion")) : null,
-      manifestDigest: latestProjection ? String(latestProjection.get("manifestDigest")) : null,
+      compilerVersion: latestProjection ? String(field(latestProjection.value, "compilerVersion")) : null,
+      manifestDigest: latestProjection ? String(field(latestProjection.value, "manifestDigest")) : null,
     },
     artifacts: {
       ready: artifactStates.filter((state) => state === "ready").length,
@@ -193,8 +187,8 @@ export async function getDurableRuntimeSnapshot(now = new Date().toISOString()):
       failed: artifactStates.filter((state) => state === "failed").length,
     },
     recovery: {
-      pending: recovery.docs.filter((doc) => doc.get("state") === "pending").length,
-      recentActions: recovery.docs.map((doc) => String(doc.get("action"))).filter(Boolean),
+      pending: recovery.rows.filter((doc) => field(doc.value, "state") === "pending").length,
+      recentActions: recovery.rows.map((doc) => String(field(doc.value, "action"))).filter(Boolean),
     },
   });
 }

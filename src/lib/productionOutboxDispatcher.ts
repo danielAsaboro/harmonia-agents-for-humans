@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { publishProductionOperation } from "./pubsub";
+import { publishProductionOperation } from "./queue";
 import {
   claimProductionOutbox,
   finalizeProductionOutboxPublish,
@@ -10,7 +10,7 @@ import {
 import { currentTenant } from "./tenancy";
 
 export type ProductionOutboxDispatchResult =
-  | { id: string; outcome: "published"; pubsubMessageId: string }
+  | { id: string; outcome: "published"; transportMessageId: string }
   | { id: string; outcome: "in_progress" | "already_published" };
 
 export async function dispatchProductionOutboxRecord(id: string): Promise<ProductionOutboxDispatchResult> {
@@ -20,7 +20,7 @@ export async function dispatchProductionOutboxRecord(id: string): Promise<Produc
   try {
     const messageId = await publishProductionOperation(currentTenant(), decision.record);
     await finalizeProductionOutboxPublish(id, tokenDigest, messageId);
-    return { id, outcome: "published", pubsubMessageId: messageId };
+    return { id, outcome: "published", transportMessageId: messageId };
   } catch (error) {
     await releaseProductionOutbox(id, tokenDigest);
     throw error;

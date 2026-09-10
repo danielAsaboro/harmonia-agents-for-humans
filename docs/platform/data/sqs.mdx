@@ -1,0 +1,17 @@
+---
+title: "SQS"
+description: "Repeatable delivery with application-owned idempotency."
+---
+
+## How Harmonia uses it
+
+
+Stage and production outboxes publish JSON envelopes containing data and trace/scope attributes. Workers validate the envelope, acquire durable claims, and acknowledge only a durable outcome. Failed and malformed deliveries remain for retry and dead-letter redrive. Visibility renewals protect long-running work; revision and approval checks remain authoritative.
+
+## Implementation
+
+`agent/harmonia_agent/sqs_transport.py`
+
+## Evidence status
+
+This AWS edition has no authenticated deployment or provider rehearsal yet. Paid validation remains disabled. Local checks are reported separately from live proof.

@@ -11,10 +11,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .agent_models import LiaisonInput
 from .agent_errors import AgentContractError
 from .agents import AgentProtocolError, ask_with_team_detailed
 from .config import settings
-from .team_runtime import AgentEngineProviderError, AgentEngineProtocolError
+from .team_runtime import AgentCoreProviderError, AgentCoreProtocolError
 from .tenant_context import tenant_scope
 from .usage import InvocationContext
 
@@ -22,11 +23,8 @@ router = APIRouter()
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 
-class OperatorQuestion(BaseModel):
-    model_config = {"extra": "forbid"}
-
-    question: str = Field(min_length=1, max_length=2000)
-
+class OperatorQuestion(LiaisonInput):
+    pass
 
 class OperatorAnswer(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -70,21 +68,21 @@ async def operator_ask(payload: OperatorQuestion, request: Request) -> OperatorA
     try:
         with tenant_scope(workspace_id, brand_id):
             answer, activity = await ask_with_team_detailed(
-                payload.question, invocation=invocation,
+                payload.question, invocation=invocation, **({"context_record": payload.contextRecord} if payload.contextRecord is not None else {}),
             )
     except AgentContractError as exc:
         raise HTTPException(status_code=502, detail={
             "code": exc.code, "category": "protocol", "message": exc.public_message,
             "retryable": False, "role": exc.role, **({"path": exc.path} if exc.path else {}),
         }) from exc
-    except (AgentProtocolError, AgentEngineProtocolError) as exc:
+    except (AgentProtocolError, AgentCoreProtocolError) as exc:
         raise HTTPException(status_code=502, detail={
             "code": "liaison_protocol_failed", "category": "protocol",
             "message": "Nova returned a response that did not satisfy its contract.", "retryable": False,
         }) from exc
-    except AgentEngineProviderError as exc:
+    except AgentCoreProviderError as exc:
         raise HTTPException(status_code=502, detail={
-            "code": "agent_engine_unavailable", "category": "dependency",
+            "code": "agentcore_unavailable", "category": "dependency",
             "message": "The agent service is temporarily unavailable.", "retryable": True,
         }) from exc
     return OperatorAnswer(answer=answer, operationId=invocation.operation_id, traceId=trace_id, activity=activity)

@@ -22,7 +22,7 @@ const allowed: Record<string, string[]> = {
   draft: ["jobId", "traceId", "draftId", "platform", "text", "valid"], action: ["jobId", "traceId", "actionId", "actionType", "state"],
   approval: ["jobId", "traceId", "actionId", "decision", "actor"], effect_claim: ["jobId", "traceId", "actionId", "outcome", "receiptId"],
   receipt: ["jobId", "traceId", "receiptId", "actionId", "outcome", "verified"], verification: ["jobId", "traceId", "receiptId", "verified", "method"],
-  pubsub_delivery: ["jobId", "traceId", "messageId", "deliveryAttempt", "status"], scheduler_trigger: ["jobId", "traceId", "scheduleId", "scheduledAt", "status"],
+  sqs_delivery: ["jobId", "traceId", "messageId", "deliveryAttempt", "status"], scheduler_trigger: ["jobId", "traceId", "scheduleId", "scheduledAt", "status"],
   resident_autonomy: ["cycleId", "cycleType", "state", "summary", "historical"],
   a2ui_event: ["jobId", "traceId", "runId", "surfaceId", "operation"], surface_revision: ["jobId", "traceId", "surfaceId", "revision", "status"],
   usage: ["jobId", "traceId", "model", "inputTokens", "outputTokens", "estimatedCostUsd"], trace_correlation: ["jobId", "traceId", "spanId", "parentSpanId", "name"],

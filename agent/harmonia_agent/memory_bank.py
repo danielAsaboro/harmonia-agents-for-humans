@@ -1,11 +1,11 @@
-"""Exact-scope, durable context through Vertex AI Agent Engine Memory Bank."""
+"""Exact-scope, durable context through Amazon Bedrock AgentCore Memory."""
 
 from __future__ import annotations
 
 import json
 from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, AwareDatetime
 
 from .telemetry import safe_attributes, tracer
 
@@ -29,6 +29,7 @@ class MemoryScope(BaseModel):
 
 class MemoryCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
+    recorded_at: AwareDatetime
     kind: Literal["operator_decision", "verified_outcome", "learning", "preference"]
     fact: str = Field(min_length=1, max_length=1000)
     evidence_ref: "MemoryEvidenceRef"
@@ -53,101 +54,68 @@ class MemoryBank(Protocol):
     def generate(self, *, scope: MemoryScope, candidates: list[MemoryCandidate]) -> None: ...
 
 
-def _fact_from_result(result: Any) -> str | None:
-    if isinstance(result, dict):
-        memory = result.get("memory") or {}
-        return memory.get("fact") if isinstance(memory, dict) else getattr(memory, "fact", None)
-    memory = getattr(result, "memory", None)
-    return getattr(memory, "fact", None)
+class AgentCoreMemoryBank:
+    def __init__(self, *, memory_id: str, client: Any | None = None) -> None:
+        if not memory_id.strip():
+            raise ValueError("AGENTCORE_MEMORY_ID is required")
+        self.memory_id, self._client = memory_id, client
 
+    def _api(self):
+        import boto3
+        import os
+        from .aws_authority import require_paid_aws
+        require_paid_aws("AgentCore Memory")
+        return self._client or boto3.client("bedrock-agentcore", region_name=os.environ.get("AWS_REGION", "us-east-1"))
 
-class VertexMemoryBank:
-    def __init__(self, *, resource_name: str, client: Any | None = None) -> None:
-        if not resource_name.startswith("projects/") or "/reasoningEngines/" not in resource_name:
-            raise ValueError("MEMORY_BANK_RESOURCE must be a full reasoning engine resource name")
-        self.resource_name = resource_name
-        self._client = client
-
-    def _memories(self) -> Any:
-        client = self._client
-        if client is None:
-            try:
-                import vertexai
-            except ImportError as exc:  # pragma: no cover - deployment dependency
-                raise MemoryProviderError(
-                    "google-cloud-aiplatform Memory Bank support is not installed"
-                ) from exc
-            client = vertexai.Client()
-        return client.agent_engines.memories
+    @staticmethod
+    def namespace(scope: MemoryScope) -> str:
+        return f"/harmonia/{scope.workspace_id}/{scope.brand_id}/facts"
 
     def retrieve(self, *, scope: MemoryScope, query: str, top_k: int = 3) -> list[MemoryFact]:
         if not query.strip():
             return []
-        bounded_top_k = min(max(top_k, 1), 5)
-        with tracer().start_as_current_span("harmonia.memory.retrieve") as span:
-            span.set_attributes(safe_attributes({
-                "workspace.id": scope.workspace_id,
-                "brand.id": scope.brand_id,
-                "memory.top_k": bounded_top_k,
-            }))
-            try:
-                results = self._memories().retrieve(
-                    name=self.resource_name,
-                    scope=scope.to_wire(),
-                    similarity_search_params={
-                        "search_query": query[:1000],
-                        "top_k": bounded_top_k,
-                    },
-                )
-                facts: list[MemoryFact] = []
-                for result in results:
-                    raw = _fact_from_result(result)
-                    if not isinstance(raw, str) or not raw.strip():
-                        raise MemoryProtocolError("Memory Bank result is missing a valid fact")
-                    try:
-                        fact = MemoryFact.model_validate_json(raw)
-                    except Exception as exc:
-                        raise MemoryProtocolError("Memory Bank fact is missing typed evidence") from exc
-                    if fact.evidence_ref.workspace_id != scope.workspace_id or fact.evidence_ref.brand_id != scope.brand_id:
-                        raise MemoryProtocolError("Memory Bank returned a cross-scope fact")
-                    facts.append(fact)
-                span.set_attribute("memory.result_count", len(facts))
-                return facts
-            except MemoryProtocolError:
-                raise
-            except Exception as exc:  # noqa: BLE001 - provider boundary
-                raise MemoryProviderError(f"Memory Bank retrieval failed: {exc}") from exc
+        try:
+            response = self._api().retrieve_memory_records(
+                memoryId=self.memory_id, namespace=self.namespace(scope),
+                searchCriteria={"searchQuery": query[:1000], "topK": min(max(top_k, 1), 5)},
+            )
+            facts = []
+            for record in response.get("memoryRecordSummaries", []):
+                if self.namespace(scope) not in record.get("namespaces", []):
+                    raise MemoryProtocolError("AgentCore returned a cross-scope namespace")
+                fact = MemoryFact.model_validate_json(record["content"]["text"])
+                if fact.evidence_ref.workspace_id != scope.workspace_id or fact.evidence_ref.brand_id != scope.brand_id:
+                    raise MemoryProtocolError("AgentCore returned cross-scope evidence")
+                facts.append(fact)
+            return facts
+        except (MemoryProtocolError, PermissionError):
+            raise
+        except Exception as exc:
+            raise MemoryProviderError(f"AgentCore Memory retrieval failed: {type(exc).__name__}") from exc
 
     def generate(self, *, scope: MemoryScope, candidates: list[MemoryCandidate]) -> None:
         if not candidates:
             return
         if len(candidates) > 5:
-            raise MemoryProtocolError("Memory Bank accepts at most five eligible facts per write")
-        validated = [MemoryCandidate.model_validate(candidate) for candidate in candidates]
-        if any(
-            item.evidence_ref.workspace_id != scope.workspace_id
-            or item.evidence_ref.brand_id != scope.brand_id
-            for item in validated
-        ):
-            raise MemoryProtocolError("Memory Bank candidate evidence does not match retrieval scope")
-        with tracer().start_as_current_span("harmonia.memory.generate") as span:
-            span.set_attributes(safe_attributes({
-                "workspace.id": scope.workspace_id,
-                "brand.id": scope.brand_id,
-                "memory.fact_count": len(validated),
-            }))
-            try:
-                self._memories().generate(
-                    name=self.resource_name,
-                    scope=scope.to_wire(),
-                    direct_memories_source={
-                        "direct_memories": [{
-                            "fact": json.dumps(item.model_dump(mode="json"), sort_keys=True, separators=(",", ":")),
-                        } for item in validated],
-                    },
-                )
-            except Exception as exc:  # noqa: BLE001 - provider boundary
-                raise MemoryProviderError(f"Memory Bank generation failed: {exc}") from exc
+            raise MemoryProtocolError("Memory accepts at most five eligible facts per write")
+        validated = [MemoryCandidate.model_validate(item) for item in candidates]
+        if any(item.evidence_ref.workspace_id != scope.workspace_id or item.evidence_ref.brand_id != scope.brand_id for item in validated):
+            raise MemoryProtocolError("Memory candidate evidence does not match scope")
+        from hashlib import sha256
+        records = []
+        for item in validated:
+            content = json.dumps(item.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+            records.append({"requestIdentifier": sha256(content.encode()).hexdigest(),
+                            "content": {"text": content}, "namespaces": [self.namespace(scope)], "timestamp": item.recorded_at})
+        try:
+            response = self._api().batch_create_memory_records(memoryId=self.memory_id,
+                clientToken=sha256(json.dumps(records, sort_keys=True, default=str).encode()).hexdigest(), records=records)
+            if response.get("failedRecords") or len(response.get("successfulRecords", [])) != len(records):
+                raise MemoryProtocolError("AgentCore Memory write incomplete; reconcile records before retry")
+        except (MemoryProtocolError, PermissionError):
+            raise
+        except Exception as exc:
+            raise MemoryProviderError(f"AgentCore Memory write outcome unresolved: {type(exc).__name__}") from exc
 
 
 def format_memory_context(facts: list[MemoryFact], *, max_chars: int = 3500) -> str:
@@ -174,6 +142,9 @@ def eligible_job_memories(job: dict[str, Any], *, measured_posts: int) -> list[M
     job_id = str(job.get("id") or "")
     if not workspace_id or not brand_id or not job_id:
         raise MemoryProtocolError("eligible memory job is missing durable scope identifiers")
+    recorded_at = job.get("updatedAt") or job.get("createdAt")
+    if not recorded_at:
+        raise MemoryProtocolError("eligible memory job requires a durable recorded timestamp")
     verifications = job.get("verifications") or job.get("verification") or []
     candidates: list[MemoryCandidate] = []
     for action in actions:
@@ -182,6 +153,7 @@ def eligible_job_memories(job: dict[str, Any], *, measured_posts: int) -> list[M
         if decision not in {"approved", "rejected"} or not action_id:
             continue
         candidates.append(MemoryCandidate(
+            recorded_at=recorded_at,
             kind="operator_decision",
             fact=f"Operator {decision} 1 action in this job.",
             evidence_ref=MemoryEvidenceRef(
@@ -194,6 +166,7 @@ def eligible_job_memories(job: dict[str, Any], *, measured_posts: int) -> list[M
         if result.get("verified") is not True or not record_id:
             continue
         candidates.append(MemoryCandidate(
+            recorded_at=recorded_at,
             kind="verified_outcome",
             fact="The job independently verified 1 external or stored outcome.",
             evidence_ref=MemoryEvidenceRef(

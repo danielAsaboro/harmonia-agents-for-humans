@@ -34,7 +34,7 @@ describe("public documentation truth boundaries", () => {
     expect(overview).toContain("web-only preview");
   });
 
-  it("documents Agent Engine as mandatory in the managed worker", () => {
+  it("documents AgentCore Runtime as mandatory in the managed worker", () => {
     expect(deployment).toContain("mandatory in the managed worker");
     expect(deployment).not.toContain("optional explicit production mode");
   });
@@ -42,7 +42,7 @@ describe("public documentation truth boundaries", () => {
   it("documents durable context, crash ambiguity, and honest verification limits", () => {
     for (const required of [
       "prune + spill", "intent before effect", "unknown is not failed", "operator resolution",
-      "Firestore emulator", "does not prove multi-week uptime",
+      "DynamoDB emulator", "does not prove multi-week uptime",
     ]) expect(durableRuntime).toContain(required);
   });
 
@@ -51,7 +51,7 @@ describe("public documentation truth boundaries", () => {
       "Context rot", "Memory rot", "prune + spill", "Authority comes first",
       "intent before effect", "attempt generation", "10/10", "does not prove multi-week uptime",
     ]) expect(continuity).toContain(required);
-    expect(continuity).toContain("Memory Bank is advisory");
+    expect(continuity).toContain("AgentCore Memory is advisory");
     expect(continuity).not.toContain("exactly-once external effects");
   });
 

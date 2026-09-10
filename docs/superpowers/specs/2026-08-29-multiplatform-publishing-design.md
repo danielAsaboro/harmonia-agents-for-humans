@@ -8,7 +8,7 @@
 
 ## Purpose
 
-Harmonia currently uses a Google/Firebase identity to create an isolated owner workspace and supports an active X publishing path. LinkedIn, Instagram, and YouTube have OAuth registry groundwork but no complete external-effect adapters. This design extends the existing tenant, approval, idempotency, receipt, and verification boundaries to those providers without treating Google sign-in as social-account authorization.
+Harmonia currently uses a Google/Cognito identity to create an isolated owner workspace and supports an active X publishing path. LinkedIn, Instagram, and YouTube have OAuth registry groundwork but no complete external-effect adapters. This design extends the existing tenant, approval, idempotency, receipt, and verification boundaries to those providers without treating Google sign-in as social-account authorization.
 
 The result is a multi-tenant SaaS in which an operator signs in with Google, connects independent social accounts to that Harmonia workspace, approves an exact provider-specific action, and allows Harmonia to publish and verify that action on the connected account's behalf.
 
@@ -20,7 +20,7 @@ The result is a multi-tenant SaaS in which an operator signs in with Google, con
 - Publish Instagram single-image feed posts, carousels, and Reels.
 - Upload regular YouTube videos and Shorts.
 - Preserve exact human approval, tenant isolation, idempotency, audit receipts, and independent read-back verification.
-- Refresh and revoke credentials safely without exposing tokens to browser state, logs, Firestore plaintext, or model context.
+- Refresh and revoke credentials safely without exposing tokens to browser state, logs, DynamoDB plaintext, or model context.
 - Keep each connector disabled until its application credentials and provider readiness requirements are satisfied.
 
 ## Non-goals
@@ -34,7 +34,7 @@ The result is a multi-tenant SaaS in which an operator signs in with Google, con
 
 ## Core architecture
 
-Google/Firebase identity remains the tenant root. Every provider authorization is a separate encrypted connection owned by one workspace. Tenant identity is resolved from the verified server session and is never accepted from OAuth parameters, model output, publish payloads, or Pub/Sub message content without server-side reconciliation.
+Google/Cognito identity remains the tenant root. Every provider authorization is a separate encrypted connection owned by one workspace. Tenant identity is resolved from the verified server session and is never accepted from OAuth parameters, model output, publish payloads, or SQS message content without server-side reconciliation.
 
 A shared publishing core introduces a provider-neutral `PublishCommand`. It contains:
 
@@ -142,7 +142,7 @@ Until then, the UI states the exact blocker and does not imply that credential g
 
 Automated tests cover schemas, tenant isolation, OAuth state consumption, scope validation, encryption boundaries, refresh claims, revocation failure, destination selection, approval invalidation, media validation, request construction, resumable state, idempotent claims, response parsing, failure classification, receipts, and verification comparisons.
 
-Sanitized provider response shapes may be used for deterministic parser and contract tests, but never as integration evidence. Real evidence is captured outside the public repository and includes OAuth connection metadata, one approved publish for every supported mode, provider-visible state, fresh read-back output, duplicate suppression, and relevant Cloud Run/Firestore trace correlation with secrets removed.
+Sanitized provider response shapes may be used for deterministic parser and contract tests, but never as integration evidence. Real evidence is captured outside the public repository and includes OAuth connection metadata, one approved publish for every supported mode, provider-visible state, fresh read-back output, duplicate suppression, and relevant ECS Fargate/DynamoDB trace correlation with secrets removed.
 
 ## Developer-application setup
 

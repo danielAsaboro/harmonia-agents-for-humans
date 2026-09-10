@@ -1,24 +1,25 @@
 import { operatorTenantHandler } from "@/lib/auth";
-import { db } from "@/lib/firestore";
-import { assertResourceWorkspace, currentTenant, tenantSubjectId } from "@/lib/tenancy";
-import { outputRevisionSchema, planOutputRevision } from "@/lib/outputRevision";
+import { outputRevisionSchema,planOutputRevision } from "@/lib/outputRevision";
+import { db } from "@/lib/repository";
+import { assertResourceWorkspace,currentTenant,tenantSubjectId } from "@/lib/tenancy";
+import { partition,recordKey } from "../../../../../lib/dynamo";
 
 async function post(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const parsed = outputRevisionSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "invalid output correction" }, { status: 400 });
   const { id } = await params;
   const scope = currentTenant();
-  const ref = db().doc(`workspaces/${scope.workspaceId}/jobs/${id}`);
+  const ref = recordKey(`workspaces/${scope.workspaceId}/jobs/${id}`);
   try {
-    const result = await db().runTransaction(async (tx) => {
-      const snapshot = await tx.get(ref);
-      if (!snapshot.exists) throw new Error("job not found");
-      const job = snapshot.data()!;
+    const result = await db().atomic(async (tx) => {
+      const snapshot = await tx.read(ref);
+      if (!snapshot.present) throw new Error("job not found");
+      const job = snapshot.value!;
       assertResourceWorkspace(scope, job as { workspaceId: string; brandId?: string });
       const revision = planOutputRevision(job as Parameters<typeof planOutputRevision>[0], parsed.data.expectedControlEpoch, parsed.data.desiredOutputs);
       const now = new Date().toISOString();
-      tx.update(ref, { ...revision, updatedAt: now });
-      tx.create(ref.collection("output_revisions").doc(String(revision.controlEpoch)), {
+      tx.patch(ref, { ...revision, updatedAt: now });
+      tx.insert(recordKey(partition(ref.path + "/" + "output_revisions").partition + "/" + String(revision.controlEpoch)), {
         before: job.config, after: revision.config, controlEpoch: revision.controlEpoch,
         actor: tenantSubjectId(scope), createdAt: now,
       });

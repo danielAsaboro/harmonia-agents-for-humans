@@ -5,25 +5,19 @@ description: "Use explicit test fixtures, local emulators, and verification suit
 
 ## Test boundaries
 
-Unit tests inject explicit collaborators at function boundaries. Shipped runtime code has no provider-success fixture mode: Gemini and official publisher calls either execute with real credentials or fail visibly. Firestore and Pub/Sub emulators exercise durable state and delivery locally; they do not constitute provider or deployment evidence.
+Unit tests inject explicit collaborators at function boundaries. Shipped runtime code has no provider-success fixture mode: Bedrock and official publisher calls either execute with real credentials or fail visibly. Official DynamoDB Local and a versioned MinIO S3 service exercise persistence locally; SQS handlers are tested through injected transport boundaries; they do not constitute provider or deployment evidence.
 
-## Emulator-based workflow
+## Local persistence harness
 
-`scripts/dev.sh` pins both emulators to fixed ports and exports:
+`MINIO_BINARY=/absolute/path/minio DYNAMODB_LOCAL_JAR=/absolute/path/DynamoDBLocal.jar npm run test:integration` launches isolated DynamoDB and versioned S3 on loopback ports 18766 and 18767. It owns its processes and does not provision cloud resources. Test credentials apply only to these local endpoints.
 
-```bash
-FIRESTORE_EMULATOR_HOST=127.0.0.1:8081
-PUBSUB_EMULATOR_HOST=127.0.0.1:8082
-GOOGLE_CLOUD_PROJECT=harmonia-local   # any project id works against emulators
-```
-
-The worker consumes stage triggers through a pull loop against the Pub/Sub emulator — the same dispatch path as the Cloud Run push receiver in production.
+`scripts/dev.sh` starts web and worker with real Cognito configuration; it supplies no login bypass. Fargate workers consume SQS through native long polling, with durable claims, visibility renewal and receipt-based acknowledgement.
 
 ## Test suites
 
 ```bash
 # Web: lint, types, unit tests (vitest)
-npm run lint && npx tsc --noEmit && npm test
+npm run lint && npx tsc --noEmit && PYTHON_BIN=agent/.venv/bin/python npm test
 
 # Worker: pytest
 cd agent && ./.venv/bin/python -m pytest tests -q
@@ -45,6 +39,6 @@ Worker tests set non-secret dummy configuration via `agent/tests/conftest.py` an
 | `GET /api/chat/runs/{id}/events?after=N` | Replay persisted stream events after sequence `N` |
 | `GET /api/internal/insights` | Verified engagement and eligible context fed into Nimi/Ryan |
 
-Internal routes require service authentication plus workspace and brand headers. Dashboard routes require a verified Google session and derive the workspace from server-side membership.
+Internal routes require service authentication plus workspace and brand headers. Dashboard routes require a Cognito-backed server session and derive the workspace from server-side membership.
 
-Cloud Storage direct uploads require bucket CORS to permit the deployed web origin to `PUT` the allowed content types and expose resumable-upload response headers. The application never sends Cloud Storage credentials to the browser; it returns only the single-object resumable session URL. With `GCS_BUCKET` unset, the authenticated local upload route stores bytes in `.data/artifacts`.
+S3 uploads require bucket CORS for the deployed web origin and the signed upload method. The browser receives only a scoped expiring upload URL, never AWS credentials. Quarantine scanning and byte verification must complete before source extraction. Configure the real S3 bucket or explicit local test endpoint; internal cloud assets use S3.

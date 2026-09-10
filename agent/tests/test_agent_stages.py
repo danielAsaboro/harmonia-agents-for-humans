@@ -64,9 +64,9 @@ def _effect_command(action: dict) -> dict:
 
 def _veo_action() -> dict:
     return {"id": "veo-1", "type": "generate_video", "payload": {
-        "modelCapability": "veo-3.1-fast", "mode": "text_to_video", "prompt": "city",
-        "durationSec": 4, "aspectRatio": "9:16", "resolution": "720p",
-        "generateAudio": False, "enhancePrompt": True, "outputCount": 1,
+        "modelCapability": "nova-reel", "mode": "text_to_video", "prompt": "city",
+        "durationSec": 6, "aspectRatio": "16:9", "resolution": "720p",
+          "outputCount": 1,
     }}
 
 
@@ -449,7 +449,7 @@ def test_paid_media_actions_are_deterministic_and_reference_reviewed_evidence_on
         "generate_video", "generate_music",
     ]
     assert actions[0]["momentId"] == "m1"
-    assert actions[0]["payload"]["durationSec"] == 4
+    assert actions[0]["payload"]["durationSec"] == 6
     assert actions[1]["payload"]["targetDurationSec"] == 30
     assert all("requiresApproval" not in action for action in actions)
 

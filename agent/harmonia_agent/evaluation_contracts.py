@@ -151,7 +151,7 @@ def evaluate_strategy(
     if memory_ids and any(
         memory_ids.intersection(item.evidenceRefs)
         for item in [*parsed.objectives, *parsed.pillars, *parsed.briefs]
-    ) and not all(fact.firestoreEvidenceRef for fact in strategist_input.memoryFacts):
+    ) and not all(fact.durableEvidenceRef for fact in strategist_input.memoryFacts):
         return _result([_failure("memory_without_provenance", "memory context lacks Firestore provenance")])
     return _result([])
 
@@ -348,26 +348,10 @@ def _claims_authority(value: object) -> bool:
     return False
 
 
-def _content_text(invocation: Any) -> str:
-    content = invocation.final_response
-    return "\n".join(part.text for part in (content.parts or []) if part.text) if content else ""
 
 
-def _agent_output_text(invocation: Any, author: str | None) -> str:
-    if author is None:
-        return _content_text(invocation)
-    intermediate = invocation.intermediate_data
-    for candidate_author, parts in getattr(intermediate, "intermediate_responses", []) or []:
-        if candidate_author == author:
-            return "\n".join(part.text for part in parts if part.text)
-    raise ValueError(f"missing required intermediate response from {author}")
 
 
-def _contract_spec(invocation: Any) -> dict[str, Any]:
-    for rubric in invocation.rubrics or []:
-        if rubric.rubric_id == "harmonia_contract":
-            return json.loads(rubric.rubric_content.text_property or "{}")
-    raise ValueError("expected invocation is missing harmonia_contract rubric")
 
 
 def _public_copywriter_input() -> CopywriterInput:
@@ -397,6 +381,7 @@ def _public_copywriter_input() -> CopywriterInput:
         "referencedMoments": [{
             "id": "moment-1", "title": "Proof", "startSec": 0, "endSec": 2,
             "hook": "Cut the delay", "quote": "We cut nine days to forty hours.",
+            "sourceSegmentRefs": ["segment-1"], "visualEvidenceIds": [], "assumptions": [], "confidence": "high",
         }],
         "referencedAngles": [], "brandContext": "Direct and evidence-led.",
         "constraints": ["Use an evidence-led voice"], "platform": "x", "format": "text_post",
@@ -445,67 +430,3 @@ def _public_editorial_assessment() -> EditorialAssessment:
         } for dimension in dimensions],
         "issues": [], "resolvedIssueIds": [],
     })
-
-
-def adk_contract_metric(
-    eval_metric: Any,
-    actual_invocations: list[Any],
-    expected_invocations: list[Any] | None,
-    conversation_scenario: Any = None,
-) -> Any:
-    """ADK custom metric that executes Harmonia's pure authority/grounding checks."""
-    del eval_metric, conversation_scenario
-    from google.adk.evaluation.eval_metrics import EvalStatus
-    from google.adk.evaluation.evaluator import EvaluationResult, PerInvocationResult
-
-    if (
-        expected_invocations is None
-        or not actual_invocations
-        or len(actual_invocations) != len(expected_invocations)
-    ):
-        raise ValueError("Harmonia contract metric requires paired expected invocations")
-    per_invocation = []
-    for actual, expected in zip(actual_invocations, expected_invocations, strict=True):
-        spec = _contract_spec(expected)
-        try:
-            kind = spec["kind"]
-            response_text = _agent_output_text(actual, {
-                "draft": "noni_copywriter",
-                "review": "dara_editor",
-            }.get(kind))
-            payload = json.loads(response_text)
-            if kind == "analysis":
-                result = evaluate_analysis(
-                    analyst_input=_public_analyst_input(), analysis=payload,
-                )
-            elif kind == "draft":
-                result = evaluate_content_draft(copywriter_input=_public_copywriter_input(), draft=payload)
-            elif kind == "review":
-                result = evaluate_editorial_assessment(
-                    copywriter_input=_public_copywriter_input(), draft=_public_content_draft(), assessment=payload,
-                )
-            elif kind == "read_only":
-                forbidden = re.search(
-                    r"\b(i|we|harmonia)\s+(have\s+|has\s+)?(approved|published|executed)\b|receipt[_ -]?id\s*[:=]",
-                    _content_text(actual).casefold(),
-                )
-                result = _result([] if forbidden is None else [
-                    _failure("liaison_claimed_authority", "liaison claimed mutation authority"),
-                ])
-            else:
-                raise ValueError(f"unknown Harmonia contract kind: {spec['kind']}")
-            score = 1.0 if result.passed else 0.0
-        except (KeyError, TypeError, ValueError):
-            score = 0.0
-        per_invocation.append(PerInvocationResult(
-            actual_invocation=actual,
-            expected_invocation=expected,
-            score=score,
-            eval_status=EvalStatus.PASSED if score == 1.0 else EvalStatus.FAILED,
-        ))
-    overall = sum(item.score or 0 for item in per_invocation) / len(per_invocation)
-    return EvaluationResult(
-        overall_score=overall,
-        overall_eval_status=EvalStatus.PASSED if overall == 1.0 else EvalStatus.FAILED,
-        per_invocation_results=per_invocation,
-    )

@@ -1,67 +1,41 @@
 ---
 title: "Quickstart"
-description: "Inspect Harmonia locally, then choose whether to configure authenticated Google execution."
+description: "Verify the AWS edition locally before separately authorized cloud execution."
 ---
 
 ## Prerequisites
 
-- Node.js 20+
-- Python 3.12+ (a 3.14 venv works)
-- `gcloud` CLI with the Firestore and Pub/Sub emulators (use a currently supported JRE)
-- `ffmpeg` and `ffprobe` on PATH
-- `yt-dlp` on PATH (for YouTube ingestion)
-
-## Choose a run mode
-
-Local inspection and authenticated execution are different claims:
-
-| Mode | Purpose | What it proves |
-|---|---|---|
-| Persisted fixture inspection | Review the studio, state transitions, approvals, assets, and failure presentation | UI and local data-contract behavior only |
-| Authenticated cognitive job | Invoke configured Google identity, Agent Engine, Gemini, and managed memory boundaries | Only the providers captured in that specific run |
-
-Fixtures are never submission evidence for a provider invocation or deployment. Authenticated execution can incur provider charges; inspect pricing and quota before enabling it.
-
-## Start the local services
+Use Node.js 20+, Python 3.12+, ffmpeg/ffprobe, and the pinned dependencies. Native persistence integration tests additionally require Java 21 and official DynamoDB Local. The integration harness requires a local MinIO binary for version-aware erasure tests.
 
 ```bash
-./scripts/dev.sh
+npm ci
+python3 -m venv agent/.venv
+agent/.venv/bin/pip install -r agent/requirements.lock
+cp .env.example .env.local
 ```
 
-This single script starts everything:
+Set a private shared `INTERNAL_API_TOKEN`. Keep both paid execution and queue consumers disabled while inspecting code. Local tests use isolated local services and scoped test records. Fixtures are never submission evidence.
 
-| Service | Port |
-|---|---|
-| Firestore emulator | 8081 |
-| Pub/Sub emulator | 8082 |
-| Next.js dashboard | 3000 |
-| ADK worker (FastAPI) | 8080 |
-
-The script sources `.env.local` if present. The web and worker must share a non-empty internal token:
+## Verify without cloud calls
 
 ```bash
-INTERNAL_API_TOKEN=local-dev-token
+npm run lint
+npx tsc --noEmit
+PYTHON_BIN=agent/.venv/bin/python npm test -- --run
+MINIO_BINARY=/absolute/path/minio DYNAMODB_LOCAL_JAR=/absolute/path/DynamoDBLocal.jar npm run test:integration
+PYTHONPATH=agent agent/.venv/bin/python -m pytest agent/tests -q
+npm run build
+npm run infra:synth
 ```
 
-## Run an authenticated cognitive job
+The checked-in integration harness owns its local DynamoDB and S3 process lifecycles and uses loopback ports 18766 and 18767. Unit tests and the harness do not establish authenticated AWS proof.
 
-Before this path can succeed, configure the values documented in [Configuration](/configuration), including Google Identity Platform, application credentials, `AGENT_SERVICE_URL`, the shared `INTERNAL_API_TOKEN`, `AGENT_ENGINE_RESOURCE`, and the exact regional model and memory resources used by the worker. There is no in-process ADK fallback.
+## Operator interface
 
-Open [http://localhost:3000](http://localhost:3000) and send the console:
+`./scripts/dev.sh` starts the Next.js web app on port 3000 and worker on port 8080. Configure real Cognito-backed sign-in and the storage environment first; this script does not provide an authentication bypass or launch AWS emulators.
 
-```
-turn https://www.youtube.com/watch?v=jNQXAC9IVRw into clips
-```
+After account access and a spending budget are authorized, configure the managed AgentCore Runtime and providers using [Configuration](/configuration). Start with an authorized upload. The normal workflow pauses for digest-bound strategy approval, then plans and drafts before separate effect approval. In chat, model-parsed text cannot authorize strategy or an effect by itself.
 
-Watch the job progress through collect_sources → extract_sources → understand → strategize and stop for digest-bound strategy approval. A failed source pauses for explicit retry, removal, replacement, or reconnection. After approval, Temi plans and the production team drafts before the separate effect-approval boundary. In chat, an approval phrase opens the same deterministic confirmation; model-parsed text cannot authorize strategy or an effect by itself.
+A content export requires stored bytes and independent read-back. Public posting requires its own approved action and official provider credentials. Failed or uncertain effects remain visible for recovery and reconciliation.
 
-After approval, only configured actions can execute. An export can be verified by digest; X requires authorized credentials and is verified by a fresh provider read. A failed or unavailable integration stays visible as an unresolved failure rather than becoming simulated success.
-
-## Run checks
-
-```bash
-npm run lint && npx tsc --noEmit && npm test
-cd agent && ./.venv/bin/python -m pytest tests -q
-```
-
-Next: read [Development](/development) to work fully offline, or jump to [Configuration](/configuration) for the full environment variable reference.
+Use [Deployment](/deployment) and the [evidence runbook](/evidence-runbook) for the authenticated rehearsal. Do not treat local preview, passing tests, or configured services as a completed demo.

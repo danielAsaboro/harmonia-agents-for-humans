@@ -26,13 +26,13 @@ tool's executable contract. Nova's final typed error retains code, category, mes
 
 ## Persistence and transport
 
-Firestore remains the source of truth. Existing job event documents are extended cleanly with the
+DynamoDB remains the source of truth. Existing job event documents are extended cleanly with the
 structured fields; no parallel monitoring store is introduced. Web persistence routes emit
 structured handoffs only after their corresponding artifact has passed validation and been stored.
 The durable failure route emits a structured failed or retrying event from the exact
 `FailureEnvelope`.
 
-Nova's read-only ask response includes a sanitized activity trace derived from actual ADK callbacks.
+Nova's read-only ask response includes a sanitized activity trace derived from actual Strands callbacks.
 Chat streaming forwards that trace through typed activity/tool events. No tool arguments or returned
 records are exposed; only names, status, stable code, attempt, duration, and trace identity appear.
 
@@ -53,6 +53,6 @@ transcripts.
 ## Verification
 
 Python tests cover structured agent errors, strict tool envelopes, declared error codes, Nova trace
-sanitization, and failure normalization. TypeScript tests cover event schema parity, Firestore
+sanitization, and failure normalization. TypeScript tests cover event schema parity, DynamoDB
 round-trips, tenant-scoped API filtering, chat transport, and Monitoring rendering. Full Python,
 Vitest, lint, TypeScript, and production-build gates remain required.

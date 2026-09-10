@@ -18,15 +18,15 @@ function validBundle() {
     capturedAt: "2026-08-24T12:20:00.000Z",
     source: { kind: "source_manifest", manifestId: "manifest-1", sourceIds: ["public-video-id"], manifestDigest: digest },
     environment: {
-      projectId: "harmonia-prod",
-      location: "us-central1",
+      accountId: "harmonia-prod",
+      region: "us-east-1",
       webService: "harmonia-web",
       webRevision: "harmonia-web-00001-abc",
       agentService: "harmonia-agent",
       agentRevision: "harmonia-agent-00001-def",
-      agentEngineResource: "projects/123/locations/us-central1/reasoningEngines/456",
-      firestoreDatabase: "projects/harmonia-prod/databases/(default)",
-      pubsubTopic: "projects/harmonia-prod/topics/harmonia-stages",
+      agentcoreRuntimeArn: "arn:aws:bedrock-agentcore:us-east-1:123456789012:runtime/harmonia-test",
+      dynamodbTableArn: "arn:aws:dynamodb:us-east-1:123456789012:table/harmonia",
+      stageQueueArn: "arn:aws:sqs:us-east-1:123456789012:stages",
       mockAi: false,
       mockEffects: false,
       emulator: false,
@@ -51,26 +51,26 @@ function validBundle() {
       status: stage === "awaiting_approval" ? "waiting" : "completed",
       at: new Date(Date.parse("2026-08-24T12:01:00.000Z") + index * 60_000).toISOString(),
       operationId: `job-1:${stage}:0`,
-      pubsubMessageId: `message-${index}`,
+      transportMessageId: `message-${index}`,
       traceId: index >= 5 ? approvalTraceId : workflowTraceId,
     })),
     cognition: [
       {
-        role: "harmonia_coordinator", model: "gemini-3.5-flash-lite",
-        provider: "gemini", policyVersion: "gear-2026-08-24",
+        role: "harmonia_coordinator", model: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        provider: "bedrock", policyVersion: "gear-2026-08-24",
         usageRecordId: "usage-coordinator", operationId: "job-1:understand:0:harmonia_coordinator",
         traceId: workflowTraceId,
       },
       {
-        role: "nimi_analyst", model: "gemini-3.5-flash",
-        provider: "gemini", policyVersion: "gear-2026-08-24",
+        role: "nimi_analyst", model: "us.anthropic.claude-sonnet-4-6",
+        provider: "bedrock", policyVersion: "gear-2026-08-24",
         usageRecordId: "usage-analyst", operationId: "job-1:understand:0:nimi_analyst",
         traceId: workflowTraceId,
       },
     ],
     approval: {
       approvalId: "approval-1", actionId: "action-1", decision: "approved",
-      actorType: "firebase_operator", decidedAt: "2026-08-24T12:10:00.000Z", traceId: approvalTraceId,
+      actorType: "cognito_operator", decidedAt: "2026-08-24T12:10:00.000Z", traceId: approvalTraceId,
     },
     claim: {
       claimId: digest, actionId: "action-1", idempotencyKey: digest,
@@ -127,12 +127,12 @@ describe("vertical-slice evidence", () => {
     expect(failureCodes(bundle)).toContain("non_production_provenance");
   });
 
-  it("rejects missing or non-Gemini-3.5 cognition", () => {
+  it("rejects missing or non-Bedrock cognition", () => {
     const bundle = validBundle();
-    bundle.environment.agentEngineResource = "not-an-agent-engine-resource";
+    bundle.environment.agentcoreRuntimeArn = "not-an-agent-engine-resource";
     bundle.cognition[1].model = "gemini-2.5-flash";
     expect(failureCodes(bundle)).toEqual(expect.arrayContaining([
-      "missing_agent_engine", "missing_required_gemini",
+      "missing_agentcore_runtime", "missing_bedrock_model",
     ]));
   });
 
@@ -177,17 +177,17 @@ describe("vertical-slice evidence", () => {
     ]));
   });
 
-  it("allows non-Pub/Sub lifecycle events but requires real Pub/Sub evidence", () => {
+  it("allows non-SQS lifecycle events but requires real SQS evidence", () => {
     const partial = validBundle();
-    partial.events[4] = { ...partial.events[4], pubsubMessageId: undefined as unknown as string };
-    expect(failureCodes(partial)).not.toContain("missing_pubsub_evidence");
+    partial.events[4] = { ...partial.events[4], transportMessageId: undefined as unknown as string };
+    expect(failureCodes(partial)).not.toContain("missing_sqs_evidence");
 
     const absent = validBundle();
     absent.events = absent.events.map((event) => ({
       ...event,
-      pubsubMessageId: undefined as unknown as string,
+      transportMessageId: undefined as unknown as string,
     }));
-    expect(failureCodes(absent)).toContain("missing_pubsub_evidence");
+    expect(failureCodes(absent)).toContain("missing_sqs_evidence");
   });
 
   it("rejects effect execution before durable human approval", () => {

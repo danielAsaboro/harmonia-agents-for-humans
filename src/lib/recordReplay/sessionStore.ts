@@ -11,7 +11,7 @@ export function createReplaySession(raw: string): ReplaySession {
   const delivered: ReplayEvent[] = [];
   const dispatcher = new ReplayDispatcher(bundle, (event) => delivered.push(event));
   const session: ReplaySession = { id: randomUUID(), dispatcher, metadata: { executionMode: "recorded_replay", evidenceClassification: "historical_replay", bundleId: bundle.bundleId, capturedAt: bundle.capturedAt, scenario: bundle.scenario }, eventsAfter: (sequence) => delivered.filter((event) => event.sequence > sequence), start: (options) => dispatcher.start(options) };
-  if (sessions.size >= LIMIT) sessions.delete(sessions.keys().next().value as string);
+  if (sessions.size >= LIMIT) sessions.delete(sessions.keys().next().value as unknown as string);
   sessions.set(session.id, session); return session;
 }
 export function getReplaySession(id: string): ReplaySession | undefined { return sessions.get(id); }

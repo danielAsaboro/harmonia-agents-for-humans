@@ -14,7 +14,8 @@ describe("agent image dependency contract", () => {
   it("builds the worker from exact resolved versions", () => {
     expect(dockerfile).toContain("COPY requirements.lock .");
     expect(dockerfile).toContain("pip install --no-cache-dir -r requirements.lock");
-    expect(lock).toContain("google-adk==2.7.1");
+    expect(lock).toMatch(/^strands-agents==/m);
+    expect(lock).not.toMatch(/^google-adk==/m);
   });
 
   it("installs a build-time browser for unprivileged HyperFrames rendering", () => {
@@ -22,11 +23,11 @@ describe("agent image dependency contract", () => {
     expect(dockerfile).toContain('HYPERFRAMES_BROWSER_PATH="/usr/bin/chromium"');
   });
 
-  it("excludes workstation dependencies from the Cloud Build source archive", () => {
-    const ignoreUrl = new URL("../agent/.gcloudignore", import.meta.url);
+  it("excludes workstation dependencies from the container build context", () => {
+    const ignoreUrl = new URL("../agent/.dockerignore", import.meta.url);
     expect(existsSync(ignoreUrl)).toBe(true);
     const ignore = readFileSync(ignoreUrl, "utf8");
-    expect(ignore).toMatch(/^\.venv\/$/m);
-    expect(ignore).toMatch(/^node_modules\/$/m);
+    expect(ignore).toMatch(/^\.venv\/?$/m);
+    expect(ignore).toMatch(/^node_modules\/?$/m);
   });
 });

@@ -4,17 +4,17 @@
 
 **Goal:** Make Temi persist a validated four-week editorial plan and hand exactly one deterministic next item to Noni.
 
-**Architecture:** A focused Temi ADK invocation produces a strict plan proposal from an approved Ryan strategy. Deterministic Python and TypeScript validators bind it to the strategy and evidence, Firestore atomically persists the full plan and selected item, and the production workflow gives only that item to Noni and Dara.
+**Architecture:** A focused Temi Strands invocation produces a strict plan proposal from an approved Ryan strategy. Deterministic Python and TypeScript validators bind it to the strategy and evidence, DynamoDB atomically persists the full plan and selected item, and the production workflow gives only that item to Noni and Dara.
 
-**Tech Stack:** Google ADK, Pydantic, Python pytest, TypeScript, Zod, Firestore transactions, Vitest, Next.js.
+**Tech Stack:** Strands Agents SDK, Pydantic, Python pytest, TypeScript, Zod, DynamoDB transactions, Vitest, Next.js.
 
 **Spec:** `docs/superpowers/specs/2026-08-27-temi-editorial-planner-design.md`
 
 ## Global Constraints
 
-- Firestore remains durable workflow truth.
+- DynamoDB remains durable workflow truth.
 - Temi has no approval, external calendar, publishing, credential, receipt, or effect tools.
-- The approved Ryan strategy digest is immutable input authority, not Memory Bank.
+- The approved Ryan strategy digest is immutable input authority, not AgentCore Memory.
 - The plan covers the supplied four-week horizon and selects exactly one eligible item.
 - Noni drafts only the selected item.
 - No compatibility aliases, legacy schemas, dual reads, or migration adapters.
@@ -51,7 +51,7 @@
 
 **Interfaces:**
 - Consumes: `EditorialPlannerInput` and `EditorialPlan` from Task 1.
-- Produces: `validate_editorial_plan(input, plan) -> EditorialPlan` and a tool-free `temi_editorial_planner` ADK agent.
+- Produces: `validate_editorial_plan(input, plan) -> EditorialPlan` and a tool-free `temi_editorial_planner` Strands agent.
 
 - [ ] Add failing tests for unknown briefs/evidence, unsupported channels/formats, invalid windows/deadlines, duplicate slots, unknown/cyclic dependencies, capacity overflow, ineligible selection, strategy mismatch, and authority overreach.
 - [ ] Run the focused tests and verify each new case fails for the intended reason.
@@ -65,7 +65,7 @@
 - Modify: `agent/harmonia_agent/stages.py`
 - Create: `agent/tests/test_temi_stages.py`
 - Create: `src/lib/editorialPlan.ts`
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/repository.ts`
 - Create: `src/app/api/internal/editorial-plan/route.ts`
 - Modify: `src/lib/stages.ts`
 - Modify: `src/lib/types.ts`
@@ -90,7 +90,7 @@
 - Modify: `agent/tests/test_agent_team.py`
 - Modify: `agent/tests/test_temi_stages.py`
 - Modify: `src/app/api/internal/drafts/route.ts`
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/repository.ts`
 
 **Interfaces:**
 - Consumes: persisted approved `EditorialPlan` and `selectedNextItemId`.
@@ -102,7 +102,7 @@
 - [ ] Persist reviewed/action lifecycle transitions against the same editorial item; stop reconstructing calendar provenance from final text.
 - [ ] Run focused tests and commit `feat: hand one Temi item to Noni`.
 
-### Task 5: Firestore/API/UI representation
+### Task 5: DynamoDB/API/UI representation
 
 **Files:**
 - Modify: `src/components/jobTypes.ts`

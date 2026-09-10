@@ -12,13 +12,12 @@ from harmonia_agent import nimi_skills
 from harmonia_agent.nimi_skills import (
     NIMI_SKILL_NAME,
     NIMI_SKILL_REFERENCES,
-    build_nimi_analysis_skillset,
     guard_nimi_skill_tool,
     validate_nimi_skill_trace,
 )
 from harmonia_agent.nimi_research import (
     build_nimi_agent_search_tool,
-    build_nimi_google_search_tool,
+    build_nimi_search_tool,
     validate_nimi_research_trace,
 )
 
@@ -56,29 +55,17 @@ def _public_response() -> dict:
 
 
 def _public_metadata() -> dict:
-    return {
-        "webSearchQueries": ["startup onboarding activation speed"],
-        "searchEntryPoint": {"renderedContent": "search"},
-        "groundingChunks": [{"web": {"title": "Activation research", "uri": "https://example.com/activation"}}],
-        "groundingSupports": [{
-            "groundingChunkIndices": [0],
-            "segment": {"text": "Activation speed remains a startup onboarding concern."},
-        }],
-    }
+    return {"provider": "agentcore_gateway", "responseSha256": "a"*64, "sources": _public_response()["sources"]}
+
 
 
 def test_nimi_exposes_only_one_filesystem_skill_and_approved_resources():
-    tools = asyncio.run(build_nimi_analysis_skillset().get_tools())
-    assert {tool.name for tool in tools} == {"load_skill", "load_skill_resource"}
-    assert NIMI_SKILL_REFERENCES == (
-        "references/evidence-observation-and-provenance.md",
-        "references/moment-and-quote-extraction.md",
-        "references/visual-and-clip-analysis.md",
-        "references/themes-tensions-and-patterns.md",
-        "references/angle-development.md",
-        "references/performance-and-memory-interpretation.md",
-        "references/uncertainty-and-analysis-critique.md",
-    )
+    from harmonia_agent.agents import build_agent_team
+    specialist = build_agent_team().find_sub_agent("nimi_analyst")
+    assert specialist.tools == []
+    assert "skill" in specialist.instruction.lower()
+    assert specialist.input_schema is not None
+
 
 
 def test_nimi_runtime_bootstraps_the_owned_skill_and_approved_references():
@@ -113,18 +100,18 @@ def test_nimi_guard_rejects_unapproved_skill_resources_and_tools():
 
 def test_search_is_not_accepted_as_part_of_the_skill_trace():
     trace = _load_trace(NIMI_SKILL_REFERENCES[0])
-    trace.append({"sequence": 3, "name": "nimi_google_search_agent", "args": {}})
+    trace.append({"sequence": 3, "name": "nimi_gateway_search", "args": {}})
     with pytest.raises(ValueError, match="prohibited skill tool"):
         validate_nimi_skill_trace(trace)
 
 
 def test_public_google_search_is_isolated_and_preserves_native_grounding():
-    tool = build_nimi_google_search_tool("gemini-3.5-flash")
-    assert tool.name == "nimi_google_search_agent"
-    assert [item.name for item in tool.agent.tools] == ["google_search"]
+    tool = build_nimi_search_tool("gemini-3.5-flash")
+    assert tool.tool_name == "nimi_gateway_search"
+    assert tool.tool_spec["inputSchema"]["json"]["required"] == ["request"]
     validate_nimi_skill_trace(_load_trace(NIMI_SKILL_REFERENCES[4]))
     research_trace = [{
-        "sequence": 1, "name": "nimi_google_search_agent",
+        "sequence": 1, "name": "nimi_gateway_search",
         "args": {"request": json.dumps(_public_request(), sort_keys=True)},
         "response": _public_response(),
     }]
@@ -138,27 +125,26 @@ def test_public_google_search_is_isolated_and_preserves_native_grounding():
 
 def test_public_search_rejects_cross_request_and_missing_native_metadata():
     trace = [{
-        "sequence": 1, "name": "nimi_google_search_agent",
+        "sequence": 1, "name": "nimi_gateway_search",
         "args": {"request": json.dumps(_public_request(), sort_keys=True)},
         "response": _public_response(),
     }]
     wrong = {**_public_request(), "id": "analysis-research-other"}
     with pytest.raises(ValueError, match="exact analysis research request"):
         validate_nimi_research_trace(trace, research_request=wrong, grounding_metadata=_public_metadata())
-    with pytest.raises(ValueError, match="native grounding metadata"):
+    with pytest.raises(ValueError, match="provider response"):
         validate_nimi_research_trace(trace, research_request=_public_request(), grounding_metadata=None)
 
 
 def test_private_agent_search_is_isolated_and_requires_real_datastore():
-    with pytest.raises(ValueError, match="datastore"):
+    with pytest.raises(ValueError, match="Knowledge base"):
         build_nimi_agent_search_tool("gemini-3.5-flash", "")
     tool = build_nimi_agent_search_tool(
         "gemini-3.5-flash",
         "projects/project-1/locations/global/collections/default_collection/dataStores/nimi-docs",
     )
-    assert tool.name == "nimi_agent_search_agent"
-    assert len(tool.agent.tools) == 1
-    assert tool.agent.tools[0].__class__.__name__ == "VertexAiSearchTool"
+    assert tool.tool_name == "nimi_agent_search_agent"
+    assert tool.tool_spec["inputSchema"]["json"]["required"] == ["request"]
 
 
 def test_private_agent_search_preserves_request_bound_retrieval_metadata():
@@ -172,20 +158,10 @@ def test_private_agent_search_preserves_request_bound_retrieval_metadata():
         "query": "internal onboarding activation evidence",
         "sources": [{
             "evidenceId": "analysis-search-private-1", "title": "Onboarding study",
-            "url": "gs://tenant-research/onboarding", "supportedText": "Activation delays recur in onboarding.",
+            "url": "s3://tenant-research/onboarding", "supportedText": "Activation delays recur in onboarding.",
         }],
     }
-    metadata = {
-        "retrievalQueries": ["internal onboarding activation evidence"],
-        "groundingChunks": [{"retrievedContext": {
-            "title": "Onboarding study", "uri": "gs://tenant-research/onboarding",
-            "text": "Activation delays recur in onboarding.",
-        }}],
-        "groundingSupports": [{
-            "groundingChunkIndices": [0],
-            "segment": {"text": "Activation delays recur in onboarding."},
-        }],
-    }
+    metadata = {"provider": "bedrock_knowledge_base", "responseSha256": "a"*64, "sources": response["sources"]}
     trace = [{
         "sequence": 1, "name": "nimi_agent_search_agent",
         "args": {"request": request}, "response": response,
@@ -197,7 +173,7 @@ def test_private_agent_search_preserves_request_bound_retrieval_metadata():
 
 def test_search_is_forbidden_without_a_typed_request():
     trace = [{
-        "sequence": 1, "name": "nimi_google_search_agent",
+        "sequence": 1, "name": "nimi_gateway_search",
         "args": {"request": json.dumps(_public_request(), sort_keys=True)},
         "response": _public_response(),
     }]

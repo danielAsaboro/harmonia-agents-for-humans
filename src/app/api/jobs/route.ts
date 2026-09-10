@@ -1,6 +1,6 @@
 import { operatorTenantHandler } from "@/lib/auth";
 import { createJobInputSchema } from "@/lib/contracts";
-import { appendEvent, listJobs } from "@/lib/firestore";
+import { appendEvent, listJobs } from "@/lib/repository";
 import { createSourceJob } from "@/lib/sourceManifest";
 import { queueStageTrigger } from "@/lib/stageTrigger";
 

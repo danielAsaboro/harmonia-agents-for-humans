@@ -1,5 +1,5 @@
 import { stageExecutionFinalizeSchema } from "@/lib/contracts";
-import { finalizeJobStageExecution } from "@/lib/firestore";
+import { finalizeJobStageExecution } from "@/lib/repository";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { internalRoute } from "@/lib/internalHandler";
 

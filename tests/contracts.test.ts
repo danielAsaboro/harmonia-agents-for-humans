@@ -84,7 +84,7 @@ describe("internal contracts", () => {
       target: "content-pack", actionId: "a1", receiptId: "r1",
       operationId: "j1:verify:a1", traceId: "a".repeat(32),
       verified: true, method: "artifact_digest_reread",
-      evidence: { kind: "firestore_doc", url: "", fetchedAt: "2026-08-25T00:00:00Z", digest: "b".repeat(64) },
+      evidence: { kind: "dynamodb_record", url: "", fetchedAt: "2026-08-25T00:00:00Z", digest: "b".repeat(64) },
     };
     expect(verificationSubmissionSchema.safeParse({ jobId: "j1", results: [result] }).success).toBe(true);
     expect(verificationSubmissionSchema.safeParse({
@@ -111,7 +111,7 @@ describe("internal contracts", () => {
     }).success).toBe(true);
     expect(budgetReservationSchema.safeParse({
       jobId: "j1", operationId: "production:claim-1", stage: "production",
-      role: "veo_generator", model: "veo-3.1-fast-generate-001",
+      role: "veo_generator", model: "amazon.nova-reel-v1:1",
       estimatedCostUsd: "0.320000", pricingVersion: "2026-08-31",
       productionAuthorization: {
         planId: "plan-1", operationId: "plan-1:generate_video:scene-1",
@@ -120,7 +120,7 @@ describe("internal contracts", () => {
     }).success).toBe(true);
     expect(budgetReservationSchema.safeParse({
       jobId: "j1", operationId: "production:claim-1", stage: "production",
-      role: "veo_generator", model: "veo-3.1-fast-generate-001",
+      role: "veo_generator", model: "amazon.nova-reel-v1:1",
       estimatedCostUsd: "0.320000", pricingVersion: "2026-08-31",
     }).success).toBe(false);
     expect(usageRecordSchema.safeParse({

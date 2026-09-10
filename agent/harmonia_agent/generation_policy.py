@@ -1,51 +1,6 @@
-"""Translate Harmonia's provider-neutral role policy into Google Gen AI config."""
-
-from __future__ import annotations
-
-from google.genai import types
-
+"""Bedrock sampling configuration for native Strands requests."""
 from .role_models import RoleModelConfig
 
-_STANDARD_SAFETY_CATEGORIES = (
-    types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-    types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-    types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-    types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-)
-
-
-def safety_settings(profile: str) -> list[types.SafetySetting]:
-    """Resolve a named Harmonia safety profile or fail closed."""
-    if profile != "harmonia-standard":
-        raise ValueError(f"unknown safety profile: {profile}")
-    return [
-        types.SafetySetting(
-            category=category,
-            threshold=types.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-        )
-        for category in _STANDARD_SAFETY_CATEGORIES
-    ]
-
-
-def generation_config(role: RoleModelConfig) -> types.GenerateContentConfig:
-    """Build the concrete request configuration for a cognitive role."""
-    policy = role.generation
-    modern_defaults = role.model_id.startswith("gemini-3.7-")
-    return types.GenerateContentConfig(
-        temperature=None if modern_defaults else policy.temperature,
-        top_p=None if modern_defaults else policy.top_p,
-        top_k=None if modern_defaults else policy.top_k,
-        max_output_tokens=role.max_output_tokens,
-        safety_settings=safety_settings(policy.safety_profile),
-        http_options=types.HttpOptions(
-            timeout=role.timeout_seconds * 1_000,
-            retry_options=types.HttpRetryOptions(
-                attempts=2,
-                initial_delay=1,
-                max_delay=8,
-                exp_base=2,
-                jitter=0.2,
-                http_status_codes=[429, 500, 502, 503, 504],
-            ),
-        ),
-    )
+def generation_config(role: RoleModelConfig) -> dict:
+    # Claude supports either temperature or top_p for current model families.
+    return {"max_tokens": role.max_output_tokens, "temperature": role.generation.temperature}

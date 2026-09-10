@@ -1,56 +1,59 @@
 ---
 title: "Agent skills, tools, prompts, and traces"
-description: "Canonical runtime inventory for Harmonia's seven Google ADK specialists."
+description: "Actual Strands registrations and host-selected capability boundaries."
 ---
 
-This page answers which method skill an agent may load, which data tools it may call, where its
-focused prompt lives, and which deterministic trace proves what actually ran.
+Harmonia has a deterministic host coordinator and seven named operational specialists. Routing, context assembly, research and artifact variants, and resident Dream synthesis are separate registered tasks. The coordinator is host code; it is not a model that chooses its next stage.
 
-<Warning>Skill guidance is method, never evidence. Search is a tool, not a skill. Memory Bank is advisory context, never authority.</Warning>
+Skill guidance is method, never evidence. Search is a tool, not a skill. AgentCore Memory is advisory context, never authority.
 
 ## Runtime inventory
 
-| Agent | ADK name and model | Typed contract | Filesystem skill | Separate tools and research |
+| Registration | Default model | Input → output | State key | Model-visible tools |
 |---|---|---|---|---|
-| [Nimi](/agents/nimi) | `nimi_analyst`, `gemini-3.5-flash` | `AnalystInput` → `SourceAnalysis` | `nimi-analysis-skills` (seven references) | Isolated `nimi_google_search_agent`; optional isolated `nimi_agent_search_agent` for configured Vertex AI Search |
-| [Ryan](/agents/ryan) | `ryan_strategist`, `gemini-3.5-flash` | `StrategistInput` → `StrategistResult` / `ContentStrategy` | `ryan-strategy-skills` (seven references) | Isolated, request-bound `ryan_google_search_agent` only when current public information is necessary |
-| [Temi](/agents/temi) | `temi_editorial_planner`, `gemini-3.5-flash-lite` | `EditorialPlannerInput` → `EditorialPlan` | `temi-editorial-planning-skills` (six references) | Six read-only views over one immutable, digest-bound planning snapshot; no search or core MCP server |
-| [Noni](/agents/noni) | `noni_copywriter`, `gemini-3.5-flash` | `CopywriterInput` → `ContentDraft` | `noni-writing-skills` (eleven references) | `search_verified_publications`; native Google Search through isolated `google_search_agent` |
-| [Dara](/agents/dara) | `dara_editor`, `gemini-3.5-flash` | `EditorialReviewInput` → `EditorialAssessment` | `dara-editing-skills` (seven references) | Skill loaders only; no data or research tool |
-| [Maya](/agents/maya) | `maya_presenter`, `gemini-3.5-flash` | `UiContext` → `SurfacePlan` | None | None; deterministic host hydration only |
-| [Nova](/agents/nova) | `nova_liaison`, `gemini-3.5-flash` | `LiaisonInput` → `LiaisonAnswer` | `trend-scan`, `signal-watch`, `engagement-insights`, `posting-schedule`, or `job-status` | Six bounded reads for trends, engagement, operator feed, job status, and posting windows |
+| `harmonia_intent_router` | Haiku 4.5 | `IntentRoutingInput` → `IntentClassification` | `intent_classification` | None |
+| `harmonia_context_assembler` | Haiku 4.5 | `StrategyContextAssemblyInput` → `IntentStrategyContext` | `intent_strategy_context` | None |
+| `nimi_analyst` | Nova 2 Lite | `AnalystInput` → `SemanticSourceAnalysis` | `source_analysis` | None |
+| `nimi_research_analyst` | Nova 2 Lite | Same analysis contract | `source_analysis` | Exactly one of `nimi_gateway_search` or `nimi_agent_search_agent`, selected before inference |
+| `ryan_strategist` | Sonnet 4.6 | `StrategistInput` → `StrategistResult` | `strategist_result` | None |
+| `ryan_research_strategist` | Sonnet 4.6 | Same strategy contract | `strategist_result` | `ryan_gateway_search` |
+| `temi_editorial_planner` | Sonnet 4.6 | `EditorialPlannerInput` → `EditorialPlan` | `editorial_plan` | None; the host supplies the planning snapshot |
+| `noni_copywriter` | Sonnet 4.6 | `CopywriterInput` → `ContentDraft` | `copywriter_draft` | `search_verified_publications` |
+| `noni_artifact_producer` | Sonnet 4.6 | `ArtifactProductionInput` → `SemanticArtifactWireDraft` | `semantic_artifact_draft` | None |
+| `dara_editor` | Sonnet 4.6 | `EditorialReviewInput` → `EditorialAssessment` | `editorial_assessment` | None |
+| `dara_artifact_editor` | Sonnet 4.6 | `ArtifactReviewInput` → `SemanticArtifactReview` | `semantic_artifact_review` | None |
+| `maya_presenter` | Haiku 4.5 | `UiContext` → `SurfacePlan` | `surface_plan` | None |
+| `nova_liaison` | Haiku 4.5 | Host-validated `LiaisonInput` → `LiaisonAnswer` | `liaison_answer` | Six scoped reads listed below |
+| `nova_context_answer` | Haiku 4.5 | `LiaisonInput` → `ContextRecordAnswer` | `context_record_answer` | None; answers only from the supplied context record |
+| `harmonia_dream_synthesizer` | Sonnet 4.6 | `DreamCycleInput` → `DreamCycleOutput` | `dream_cycle_output` | None |
 
-## Prompt and runtime locations
+Exact model IDs are listed in [Bedrock models](/platform/agents/bedrock). `SourceAnalysis` is the host-bound persisted analysis, not the raw semantic model result.
 
-| Agent | Focused prompt | Skill or tool runtime | Trace enforcement |
-|---|---|---|---|
-| Nimi | `agent/harmonia_agent/nimi_prompt.py` | `nimi_skills.py`, `nimi_research.py` | Independent request-bound skill and research traces |
-| Ryan | `agent/harmonia_agent/ryan_prompt.py` | `ryan_skills.py` | Skill-first trace and optional isolated-search trace |
-| Temi | `agent/harmonia_agent/temi_prompt.py` | `temi_skills.py` | Skill-first trace plus exact snapshot identity and digest |
-| Noni | `agent/harmonia_agent/noni_prompt.py` | `noni_skills.py` | Skill-first trace plus exact brief-bound research evidence |
-| Dara | `agent/harmonia_agent/dara_prompt.py` | `dara_skills.py` | Skill-first trace with allow-listed resource paths |
-| Maya | `agent/harmonia_agent/maya_prompt.py` | `a2ui_presenter.py` | Closed entity-catalog and component/reference validation |
-| Nova | `agent/harmonia_agent/nova_prompt.py` | `nova_liaison.py`, `skills_runtime.py` | One skill precedes compatible reads; claims cite returned evidence IDs |
+## Preloaded method guidance
 
-## Loading and grounding rules
+| Role | Method module | Preloaded skill |
+|---|---|---|
+| Nimi | `nimi_skills.py` | `nimi-analysis-skills` |
+| Ryan | `ryan_skills.py` | `ryan-strategy-skills` |
+| Temi | `temi_skills.py` | `temi-editorial-planning-skills` |
+| Noni | `noni_skills.py` | `noni-writing-skills` |
+| Dara | `dara_skills.py` | `dara-editing-skills` |
+| Nova | `skills_runtime.py` | `trend-scan`, `signal-watch`, `engagement-insights`, `posting-schedule`, `job-status` |
 
-Nimi, Ryan, Temi, Noni, and Dara load their named project-owned skill exactly once, then load only
-approved references relevant to the request. Missing, duplicate, out-of-order, irrelevant, or
-unapproved resource loads fail closed. Nova selects exactly one routing skill before a compatible
-read tool. Maya has no skill or tool trace.
+The host compiles method text into each invocation and bootstraps activation provenance. The runtime does not register `load_skill` or `load_skill_resource`. Shared handoff/recovery instructions accompany every specialist. Method files and their hashes are not factual source evidence.
 
-Search-capable agents never place native `google_search` beside filesystem or function tools in the
-same model request. A dedicated ADK search agent returns a typed, request-bound result. Deterministic
-code preserves and validates grounding chunks, supports, queries, titles, URLs, and search entry-point
-metadata before search evidence IDs may be cited.
+Nova exposes `fetch_trend_signals`, `search_trend_signals`, `get_engagement_insights`, `get_operator_feed`, `get_job_status` and `suggest_posting_windows`. The host validates returned evidence and permits only a bounded retry of the same transient read.
 
-## Evidence and authority
+## Request and tool enforcement
 
-Valid evidence comes only from the typed invocation: operator context IDs, Nimi moment or angle IDs,
-verified performance IDs, eligible Memory Bank fact IDs with Firestore provenance, approved internal
-read-tool evidence IDs, or validated native-search evidence IDs. Skill files, prompts, model memory,
-and source-coverage ledgers cannot prove customer, market, trend, performance, or source claims.
+`build_agent_team()` creates `SpecialistDefinition` values. `HarmoniaCoordinator.select()` chooses the exact allowed definition from host state. `LocalStrandsTeamRuntime` constructs a fresh `strands.Agent` using `BedrockModel`, `structured_output_model`, `AuthorityHooks`, `callback_handler=None` and `retry_strategy=None`, then calls `invoke_async()`.
 
-No agent may approve, transition workflow state, schedule an external effect, publish, access
-credentials, create receipts, verify effects, or grant policy exceptions. See the
-[authority matrix](/reference/authority-matrix) and [agent contracts](/reference/agent-contracts).
+`BeforeModelCallEvent` records hashes of the actual request and enforces the paid-operation gate. `BeforeToolCallEvent` validates tool membership and the exact research request, consuming one-shot research authority before dispatch. `AfterToolCallEvent` records typed evidence. The native structured-output tool is a cognition contract, not permission for an external action.
+
+Gateway Web Search and Bedrock Knowledge Base retrieval use native AWS transports. Provider evidence is normalized at the host boundary. No Google built-in grounding tool is registered, and Noni has no public-web search registration.
+
+## Persistence and evidence status
+
+The runtime returns state keys; worker code validates and persists accepted results. DynamoDB operations, approval digests, effect claims and independent readback own execution truth. A model cannot authorize an effect or create an execution receipt.
+
+The registrations and request contracts have local tests. Authenticated AgentCore, Bedrock, Gateway and Memory execution in this AWS edition remains unverified. See `agent/harmonia_agent/agents.py`, `team_runtime.py`, `agentcore_app.py` and `runtime_instructions.py`.

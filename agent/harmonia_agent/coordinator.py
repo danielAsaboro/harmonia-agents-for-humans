@@ -1,51 +1,46 @@
-"""Deterministic ADK root that owns specialist delegation for Harmonia."""
+"""Host-owned specialist definitions; Strands never chooses workflow authority."""
+from dataclasses import dataclass, field
+from typing import Any, Callable
+from pydantic import BaseModel
 
-from __future__ import annotations
+@dataclass(frozen=True)
+class SpecialistDefinition:
+    name: str
+    model: Any
+    instruction: str
+    output_key: str
+    output_schema: type[BaseModel]
+    description: str = ""
+    input_schema: type[BaseModel] | None = None
+    generation: dict = field(default_factory=dict)
+    tools: list = field(default_factory=list)
+    before_agent_callback: Callable | None = None
+    before_tool_callback: Callable | None = None
+    after_tool_callback: Callable | None = None
+    on_tool_error_callback: Callable | None = None
 
-from collections.abc import AsyncGenerator
+@dataclass(frozen=True)
+class HarmoniaCoordinator:
+    name: str
+    description: str
+    sub_agents: list[SpecialistDefinition]
 
-from google.adk.agents import BaseAgent
-from google.adk.agents.invocation_context import InvocationContext
-from google.adk.events import Event
-from google.adk.utils.context_utils import Aclosing
-from pydantic import ConfigDict
-from typing_extensions import override
+    def find_sub_agent(self, name: str) -> SpecialistDefinition | None:
+        return next((item for item in self.sub_agents if item.name == name), None)
+
+    def select(self, requested: str, state: dict) -> SpecialistDefinition:
+        name = authorized_specialist_name(requested, state)
+        selected = self.find_sub_agent(name)
+        if selected is None:
+            raise ValueError(f"Unknown host-selected specialist: {requested}")
+        return selected
 
 
-def authorized_specialist_name(requested: str, state: dict[str, object]) -> str:
-    """Resolve an authority-scoped specialist without model discretion."""
+def authorized_specialist_name(requested: str, state: dict) -> str:
+    if requested == "nova_liaison" and state.get("contextRecord") is not None:
+        return "nova_context_answer"
     if requested == "nimi_analyst" and state.get("researchRequest") is not None:
         return "nimi_research_analyst"
     if requested == "ryan_strategist" and state.get("researchRequest") is not None:
         return "ryan_research_strategist"
     return requested
-
-
-class HarmoniaCoordinator(BaseAgent):
-    """Delegate one host-authorized request inside the real ADK agent tree.
-
-    Specialist selection is already an authority-bearing workflow decision.
-    The coordinator therefore reads the exact requested role from session state
-    instead of spending another model call to rediscover or alter that choice.
-    """
-
-    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
-
-    @override
-    async def _run_async_impl(
-        self, ctx: InvocationContext,
-    ) -> AsyncGenerator[Event, None]:
-        requested = ctx.session.state.get("requested_specialist")
-        if not isinstance(requested, str) or not requested:
-            raise ValueError("Harmonia coordinator requires requested_specialist state")
-        specialist = self.find_sub_agent(
-            authorized_specialist_name(requested, ctx.session.state),
-        )
-        if specialist is None:
-            raise ValueError(f"Harmonia coordinator has no specialist named {requested}")
-        if specialist is self:
-            raise ValueError("Harmonia coordinator cannot delegate to itself")
-
-        async with Aclosing(specialist.run_async(ctx)) as events:
-            async for event in events:
-                yield event

@@ -18,7 +18,7 @@ queued → collect_sources → extract_sources → understand → strategize
 | `awaiting_strategy_approval` | Strategy decision bound to current digest and revision | One feedback-bound Ryan revision; second rejection ends the job |
 | `awaiting_approval` | Per-action decision bound to exact payload digest | Action is skipped or job completes according to deterministic policy |
 
-Only application transactions advance the stage. Agents, Pub/Sub messages, logs, and external providers cannot do so directly. See [Production flow](/diagrams/production-flow) and [State ownership](/state-ownership).
+Only application transactions advance the stage. Agents, SQS messages, logs, and external providers cannot do so directly. See [Production flow](/diagrams/production-flow) and [State ownership](/state-ownership).
 
 The evidence packet is assembled and persisted during verification. It is an artifact and audit event, not a job stage.
 

@@ -4,7 +4,7 @@
 
 **Goal:** Build a fail-closed, inert, visibly disclosed record/replay plane that lets Harmonia reproduce sanitized authenticated runs locally without spending cloud credit or generating fresh evidence.
 
-**Architecture:** Strict Zod event envelopes are projected from live records through allowlisted sanitizers, canonicalized, and SHA-256 signed. Verified immutable bundles feed a deterministic in-memory dispatcher and isolated replay API/UI; they never write live Firestore state or invoke effect routes. A private recorder creates review candidates, while evidence verification rejects fixture and replay output as fresh proof.
+**Architecture:** Strict Zod event envelopes are projected from live records through allowlisted sanitizers, canonicalized, and SHA-256 signed. Verified immutable bundles feed a deterministic in-memory dispatcher and isolated replay API/UI; they never write live DynamoDB state or invoke effect routes. A private recorder creates review candidates, while evidence verification rejects fixture and replay output as fresh proof.
 
 **Tech Stack:** TypeScript 5, Zod 4, Node `crypto`, Next.js 16 route handlers and React 19, Vitest 4.
 
@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Runtime modes are exactly `fixture`, `recorded_replay`, and `live`.
-- Replay is read-only, isolated from Firestore mutations, approvals, retries, credentials, publishing, receipts, and effects.
+- Replay is read-only, isolated from DynamoDB mutations, approvals, retries, credentials, publishing, receipts, and effects.
 - Bundle parsing, sanitization, versioning, event unions, sequences, provenance, and integrity validation fail closed.
 - Never bundle credentials, tokens, cookies, authorization headers, private keys, signed secrets, raw prompts, private chain-of-thought, arbitrary headers, unsanitized logs, or unauthorized source text.
 - Every replay UI permanently displays `Recorded authenticated run — replay mode`, capture date, and bundle identity.
@@ -31,7 +31,7 @@
 - `src/lib/recordReplay/state.ts`: pure terminal-state reducer and state digest.
 - `src/lib/recordReplay/importer.ts`: parse, schema/invariant/digest verification, immutable imported bundle.
 - `src/lib/recordReplay/dispatcher.ts`: ordered timed playback, speed, pause/resume/stop, reconnect cursor.
-- `src/lib/recordReplay/sessionStore.ts`: process-local replay sessions only; no Firestore dependency.
+- `src/lib/recordReplay/sessionStore.ts`: process-local replay sessions only; no DynamoDB dependency.
 - `src/lib/recordReplay/recorder.ts`: candidate construction from already-fetched live observations.
 - `src/lib/recordReplay/scenarios.ts`: authentic-capture status registry with no fabricated bundles.
 - `src/app/api/replay/sessions/route.ts`: verified import/session creation.
@@ -71,7 +71,7 @@ Expected: FAIL because `@/lib/recordReplay/schema` and integrity exports do not 
 
 - [ ] **Step 3: Implement strict schemas and canonical hashing**
 
-Define exact literal event kinds for job snapshots, stage transitions, specialist handoffs, activity summaries, transcript segments, moments, drafts, actions, approvals, effect claims, receipts, verifications, Pub/Sub deliveries, Scheduler ticks, A2UI operations, surface revisions, usage, trace correlation, and typed failures. Use `.strict()` at every object boundary. Refine the bundle for contiguous sequences, capture-window timestamps, and nondecreasing offsets. Compute `sha256` over canonical JSON with `integrity.digest` omitted.
+Define exact literal event kinds for job snapshots, stage transitions, specialist handoffs, activity summaries, transcript segments, moments, drafts, actions, approvals, effect claims, receipts, verifications, SQS deliveries, Scheduler ticks, A2UI operations, surface revisions, usage, trace correlation, and typed failures. Use `.strict()` at every object boundary. Refine the bundle for contiguous sequences, capture-window timestamps, and nondecreasing offsets. Compute `sha256` over canonical JSON with `integrity.digest` omitted.
 
 - [ ] **Step 4: Run focused tests and observe GREEN**
 
@@ -112,7 +112,7 @@ Normalize keys for forbidden-key detection, scan scalar strings for credential p
 
 - [ ] **Step 4: Write state-reduction failure tests**
 
-Cover approval wait, rejection, transient failure followed by recovery, permanent failure, duplicate-effect suppression, scheduled autonomy, Memory Bank retrieval summary, Telegram approval, and repeat playback. Require identical terminal state and digest across repeated reductions.
+Cover approval wait, rejection, transient failure followed by recovery, permanent failure, duplicate-effect suppression, scheduled autonomy, AgentCore Memory retrieval summary, Telegram approval, and repeat playback. Require identical terminal state and digest across repeated reductions.
 
 - [ ] **Step 5: Implement the pure reducer and run both suites GREEN**
 
@@ -185,7 +185,7 @@ git commit -m "feat: verify and dispatch recorded runs"
 
 - [ ] **Step 1: Write API isolation tests**
 
-Create a reviewed signed test bundle, import it through the session route, reconnect with `after`, and exercise controls. Spy on or source-scan live mutation modules to prove replay modules do not import Firestore, effect claims, job decisions, retry, receipt, OAuth, or publishing code. Reject bundle paths and arbitrary server filesystem reads; accept bundle JSON only within the configured local size limit.
+Create a reviewed signed test bundle, import it through the session route, reconnect with `after`, and exercise controls. Spy on or source-scan live mutation modules to prove replay modules do not import DynamoDB, effect claims, job decisions, retry, receipt, OAuth, or publishing code. Reject bundle paths and arbitrary server filesystem reads; accept bundle JSON only within the configured local size limit.
 
 - [ ] **Step 2: Run API tests and observe RED**
 
@@ -310,4 +310,4 @@ Expected: only known cloud-remediation changes; `agent/.venv` remains untracked 
 
 - [ ] **Step 5: Commit any verification-only corrections and mark the cloud gate open**
 
-Do not claim authenticated replay capture yet. Once all local checks pass, resume exactly one meaningful Agent Engine deployment attempt and one authenticated vertical slice. Record the resulting raw data privately, create a sanitized candidate, verify local replay terminal-state equality, request explicit public release approval if desired, and then scale costly resources down.
+Do not claim authenticated replay capture yet. Once all local checks pass, resume exactly one meaningful AgentCore Runtime deployment attempt and one authenticated vertical slice. Record the resulting raw data privately, create a sanitized candidate, verify local replay terminal-state equality, request explicit public release approval if desired, and then scale costly resources down.

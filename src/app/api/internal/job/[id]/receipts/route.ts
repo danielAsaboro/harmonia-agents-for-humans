@@ -1,4 +1,4 @@
-import { listReceipts } from "@/lib/firestore";
+import { listReceipts } from "@/lib/repository";
 import { internalTenantHandler } from "@/lib/internalAuth";
 
 async function get(

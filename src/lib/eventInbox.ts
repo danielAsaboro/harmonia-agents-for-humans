@@ -43,7 +43,7 @@ export interface EventInboxRecord {
   state: EventInboxState;
   replayPolicy: ReplayPolicy;
   deliveryAttempts: number;
-  pubsubMessageIds: string[];
+  transportMessageIds: string[];
   ownerTokenDigest?: string;
   claimUntil?: string;
   completedAt?: string;
@@ -53,7 +53,7 @@ export interface EventInboxRecord {
 
 export interface EventInboxClaimInput {
   envelope: EventEnvelope;
-  pubsubMessageId: string;
+  transportMessageId: string;
   ownerTokenDigest: string;
   now: string;
   claimUntil: string;
@@ -74,13 +74,13 @@ function timestamp(value: string, label: string): number {
 }
 
 function appendDelivery(record: EventInboxRecord, messageId: string, now: string): EventInboxRecord {
-  const ids = record.pubsubMessageIds.includes(messageId)
-    ? record.pubsubMessageIds
-    : [...record.pubsubMessageIds, messageId].slice(-MAX_DELIVERY_IDS);
+  const ids = record.transportMessageIds.includes(messageId)
+    ? record.transportMessageIds
+    : [...record.transportMessageIds, messageId].slice(-MAX_DELIVERY_IDS);
   return {
     ...record,
     deliveryAttempts: record.deliveryAttempts + 1,
-    pubsubMessageIds: ids,
+    transportMessageIds: ids,
     updatedAt: now,
   };
 }
@@ -140,7 +140,7 @@ export function claimEventInbox(
   const now = timestamp(input.now, "event receipt timestamp");
   const claimUntil = timestamp(input.claimUntil, "event claim expiry");
   if (claimUntil <= now) throw new Error("event claim must expire after receipt time");
-  if (!input.pubsubMessageId || !input.ownerTokenDigest) throw new Error("event delivery claim is incomplete");
+  if (!input.transportMessageId || !input.ownerTokenDigest) throw new Error("event delivery claim is incomplete");
 
   if (!existing) {
     return {
@@ -164,7 +164,7 @@ export function claimEventInbox(
         state: "processing",
         replayPolicy: input.replayPolicy,
         deliveryAttempts: 1,
-        pubsubMessageIds: [input.pubsubMessageId],
+        transportMessageIds: [input.transportMessageId],
         ownerTokenDigest: input.ownerTokenDigest,
         claimUntil: input.claimUntil,
         updatedAt: input.now,
@@ -173,7 +173,7 @@ export function claimEventInbox(
   }
 
   assertSameEvent(existing, input.envelope);
-  const delivered = appendDelivery(existing, input.pubsubMessageId, input.now);
+  const delivered = appendDelivery(existing, input.transportMessageId, input.now);
   if (existing.state === "completed") return { outcome: "already_completed", record: delivered };
   if (existing.state === "rejected") return { outcome: "rejected", record: delivered };
   if (existing.state === "processing") {

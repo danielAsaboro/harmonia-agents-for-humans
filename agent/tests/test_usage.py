@@ -19,21 +19,15 @@ def test_accumulator_sums_adk_usage_metadata():
         operation_id="j1:draft:nimi:0",
         stage="draft",
         role="nimi",
-        model="gemini-3.5-flash",
+        model="us.anthropic.claude-sonnet-4-6",
         model_policy={"policyVersion": "gear-test", "temperature": 0.2},
     )
-    accumulator.observe_event(SimpleNamespace(usage_metadata=SimpleNamespace(
-        prompt_token_count=120,
-        candidates_token_count=30,
-    )))
-    accumulator.observe_event(SimpleNamespace(usage_metadata=SimpleNamespace(
-        prompt_token_count=10,
-        candidates_token_count=5,
-    )))
+    accumulator.observe_event({"inputTokens": 120, "outputTokens": 30})
+    accumulator.observe_event({"inputTokens": 10, "outputTokens": 5})
     record = accumulator.finalize(trace_id="0" * 32)
     assert record.input_units == 130
     assert record.output_units == 35
-    assert record.estimated_cost_usd == "0.000510"
+    assert record.estimated_cost_usd == "0.000305"
     assert record.operation_id == "j1:draft:nimi:0"
     assert record.model_policy["policyVersion"] == "gear-test"
 
@@ -41,11 +35,11 @@ def test_accumulator_sums_adk_usage_metadata():
 def test_usage_record_id_is_stable_across_retries():
     first = UsageAccumulator(
         job_id="j1", operation_id="j1:draft:nimi:0", stage="draft",
-        role="nimi", model="gemini-3.5-flash",
+        role="nimi", model="us.anthropic.claude-sonnet-4-6",
     ).finalize(trace_id="0" * 32)
     second = UsageAccumulator(
         job_id="j1", operation_id="j1:draft:nimi:0", stage="draft",
-        role="nimi", model="gemini-3.5-flash",
+        role="nimi", model="us.anthropic.claude-sonnet-4-6",
     ).finalize(trace_id="f" * 32)
     assert first.id == second.id
 

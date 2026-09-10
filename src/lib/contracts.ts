@@ -165,7 +165,7 @@ export const durableEventEnvelopeSchema = z.object({
 
 export const durableEventClaimSchema = z.object({
   envelope: durableEventEnvelopeSchema,
-  pubsubMessageId: z.string().min(1).max(512),
+  transportMessageId: z.string().min(1).max(512),
   claimToken: z.string().min(32).max(256),
 }).strict();
 
@@ -217,6 +217,8 @@ export const usageRecordSchema = z.object({
   unitType: z.enum(["tokens", "images", "video_seconds", "audio_seconds", "endpoint_seconds", "media_generations"]),
   estimatedCostUsd: usdDecimalSchema,
   observedCostUsd: usdDecimalSchema.optional(),
+  measurementBasis: z.enum(["provider_observed", "utf8_byte_token_upper_bound"]).optional(),
+  observedCostUnavailable: z.boolean().optional(),
   pricingVersion: z.string().min(1),
   modelPolicy: modelPolicySchema.optional(),
   traceId: z.string().regex(/^[0-9a-f]{32}$/),
@@ -230,7 +232,7 @@ export const evidenceRefSchema = z.object({
     "gemini_call",
     "x_api",
     "linkedin_api",
-    "firestore_doc",
+    "dynamodb_record",
     "http_probe",
     "asset_store",
   ]),
@@ -519,8 +521,8 @@ export const strategyInvocationContextSchema = z.object({
   jobId: z.string().min(1), stage: z.literal("strategize"), revision: z.number().int().min(1).max(2),
   sourceIds: z.array(z.string().min(1).max(100)).min(1).max(MAX_STRATEGY_SOURCE_IDS),
   operatorContextIds: z.array(z.string().min(1).max(100)).length(2),
-  performance: z.array(z.object({ id: z.string().min(1).max(100), firestoreEvidenceRef: z.string().min(1).max(500) }).strict()).max(12),
-  memoryFacts: z.array(z.object({ id: z.string().min(1).max(100), firestoreEvidenceRef: z.string().min(1).max(500) }).strict()).max(5),
+  performance: z.array(z.object({ id: z.string().min(1).max(100), durableEvidenceRef: z.string().min(1).max(500) }).strict()).max(12),
+  memoryFacts: z.array(z.object({ id: z.string().min(1).max(100), durableEvidenceRef: z.string().min(1).max(500) }).strict()).max(5),
   audienceIds: z.array(z.string().min(1).max(100)).min(1).max(6),
   requestedChannels: z.array(z.string().min(1).max(100)).min(1).max(8),
   supportedChannels: z.array(z.string().min(1).max(100)).min(1).max(8),
@@ -568,7 +570,7 @@ export const effectClaimSubmissionSchema = z.object({
 });
 
 export const mediaOperationSchema = z.object({
-  provider: z.enum(["veo", "lyria"]),
+  provider: z.enum(["nova_reel", "elevenlabs"]),
   operationName: z.string().min(1).max(1000),
 });
 

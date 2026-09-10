@@ -1,5 +1,5 @@
 import { createArtifactStore } from "@/lib/artifactStore";
-import { assertDurableOperationFence, db } from "@/lib/firestore";
+import { assertDurableOperationFence, db } from "@/lib/repository";
 import { internalTenantHandler } from "@/lib/internalAuth";
 import { isOperationFenceConflict, readOperationFenceHeaders } from "@/lib/internalHandler";
 import { currentTenant } from "@/lib/tenancy";

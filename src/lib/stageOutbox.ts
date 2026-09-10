@@ -22,7 +22,7 @@ export interface StageOutboxRecord {
   claimTokenDigest?: string;
   claimUntil?: string;
   publishedAt?: string;
-  pubsubMessageId?: string;
+  transportMessageId?: string;
 }
 
 export type StageOutboxClaimDecision =
@@ -75,11 +75,11 @@ export function decideStageOutboxClaim(
 export function finalizeStageOutbox(
   current: StageOutboxRecord,
   claimTokenDigest: string,
-  pubsubMessageId: string,
+  transportMessageId: string,
   now: Date,
 ): StageOutboxRecord {
   if (current.state === "published") {
-    if (current.pubsubMessageId !== pubsubMessageId) {
+    if (current.transportMessageId !== transportMessageId) {
       throw new Error("stage outbox was already finalized with another message");
     }
     return current;
@@ -91,7 +91,7 @@ export function finalizeStageOutbox(
     ...current,
     state: "published",
     publishedAt: now.toISOString(),
-    pubsubMessageId,
+    transportMessageId,
   };
 }
 

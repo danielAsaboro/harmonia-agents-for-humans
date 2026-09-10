@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { administratorTenantHandler } from "@/lib/auth";
-import { db } from "@/lib/firestore";
+import { db } from "@/lib/repository";
 import { createCommandEnvelope, jobControlActionSchema } from "@/lib/operations/commands";
 import { JobControlCommandStore } from "@/lib/operations/commandStore";
 import { currentTenant } from "@/lib/tenancy";
@@ -18,12 +18,12 @@ async function post(req: Request, { params }: { params: Promise<{ id: string }> 
   if (!parsed.success) return Response.json({ error: "invalid job control command", detail: parsed.error.flatten() }, { status: 400 });
   const { id } = await params;
   const tenant = currentTenant();
-  if (tenant.principal.kind !== "firebase_user") return Response.json({ error: "Firebase operator required" }, { status: 403 });
+  if (tenant.principal.kind !== "cognito_user") return Response.json({ error: "Firebase operator required" }, { status: 403 });
   const command = createCommandEnvelope({
     ...parsed.data,
     jobId: id,
     actor: {
-      actorType: "firebase_operator",
+      actorType: "cognito_operator",
       subjectId: tenant.principal.subjectId,
       authenticationId: tenant.principal.authenticationId,
     },

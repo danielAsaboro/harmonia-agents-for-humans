@@ -1,5 +1,5 @@
 import { proposalSubmissionSchema } from "@/lib/contracts";
-import { createNotification, listProposals, saveProposal } from "@/lib/firestore";
+import { createNotification, listProposals, saveProposal } from "@/lib/repository";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 

@@ -1,5 +1,5 @@
 import { analysisSubmissionSchema } from "@/lib/contracts";
-import { appendEvent, getJob, saveAnalysis, saveCampaignOutputPlan } from "@/lib/firestore";
+import { appendEvent, getJob, saveAnalysis, saveCampaignOutputPlan } from "@/lib/repository";
 import { proposeOutputPlan } from "@/lib/outputPlanning";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";

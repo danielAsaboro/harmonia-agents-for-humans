@@ -33,7 +33,7 @@ class InvocationContext(BaseModel):
     def role_operation_id(self, role: str) -> str:
         return f"{self.operation_id}:{role}"
 
-    def agent_engine_user_id(self) -> str:
+    def runtime_user_id(self) -> str:
         return f"{self.workspace_id}:{self.user_id}:{self.job_id}"
 
 
@@ -163,12 +163,9 @@ class UsageAccumulator:
         self.input_tokens = 0
         self.output_tokens = 0
 
-    def observe_event(self, event: object) -> None:
-        metadata = getattr(event, "usage_metadata", None)
-        if metadata is None:
-            return
-        self.input_tokens += int(getattr(metadata, "prompt_token_count", 0) or 0)
-        self.output_tokens += int(getattr(metadata, "candidates_token_count", 0) or 0)
+    def observe_event(self, usage: dict[str, Any]) -> None:
+        self.input_tokens += int(usage.get("inputTokens", 0))
+        self.output_tokens += int(usage.get("outputTokens", 0))
 
     def finalize(self, *, trace_id: str) -> UsageRecord:
         return UsageRecord(

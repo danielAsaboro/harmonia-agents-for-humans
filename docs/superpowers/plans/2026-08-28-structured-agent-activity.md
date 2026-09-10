@@ -6,13 +6,13 @@
 
 **Architecture:** Extend the existing durable job-event stream rather than creating another store. Python produces structured agent/tool diagnostics; TypeScript validates, persists, serves, and renders the same bounded vocabulary.
 
-**Tech Stack:** Python 3.14, Pydantic, Google ADK callbacks, TypeScript, Zod, Firestore, Next.js, React, Vitest, pytest.
+**Tech Stack:** Python 3.14, Pydantic, Strands Agents SDK callbacks, TypeScript, Zod, DynamoDB, Next.js, React, Vitest, pytest.
 
 **Spec:** `docs/superpowers/specs/2026-08-28-structured-agent-activity-design.md`
 
 ## Global Constraints
 
-- Firestore remains durable workflow truth.
+- DynamoDB remains durable workflow truth.
 - Events never grant approval or effect authority.
 - Do not persist prompts, responses, source text, drafts, credentials, provider bodies, or private reasoning.
 - Use a clean contract cut; do not add legacy aliases or dual-read logic.
@@ -33,11 +33,11 @@
 
 ### Task 2: Durable structured activity schema
 
-**Files:** `src/lib/contracts.ts`, `src/lib/types.ts`, `src/lib/firestore.ts`, internal failure and artifact persistence routes, tests.
+**Files:** `src/lib/contracts.ts`, `src/lib/types.ts`, `src/lib/repository.ts`, internal failure and artifact persistence routes, tests.
 
 **Produces:** `agentActivityEventSchema`, structured `StageEvent`, and exact event persistence from accepted artifacts and failures.
 
-- [ ] Write failing schema, Firestore, and route tests.
+- [ ] Write failing schema, DynamoDB, and route tests.
 - [ ] Confirm failures are caused by absent structured fields.
 - [ ] Implement strict event validation and persistence.
 - [ ] Run focused tests to green.

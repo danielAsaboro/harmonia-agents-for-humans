@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { strategyContextSchema } from "@/lib/contracts";
-import { getGoals, saveGoals } from "@/lib/firestore";
+import { getGoals, saveGoals } from "@/lib/repository";
 import { administratorTenantHandler } from "@/lib/auth";
 
 const goalsSchema = z.object({

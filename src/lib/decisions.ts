@@ -4,7 +4,7 @@ import {
   markActionExecuted,
   recordApproval,
   transitionStageWithOutbox,
-} from "@/lib/firestore";
+} from "@/lib/repository";
 import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";
 import { requireContentOperator } from "@/lib/authority";
 import { actionPayloadDigest } from "@/lib/idempotency";
@@ -13,7 +13,7 @@ import type { PlannedAction } from "@/lib/types";
 import { materializeExecutableJobCommands } from "@/lib/jobEffectCommands";
 
 export interface ApprovalActor {
-  actorType: "firebase_operator" | "telegram_operator";
+  actorType: "cognito_operator" | "telegram_operator";
   actorSubjectId: string;
   authenticationId: string;
   channel: "dashboard" | "telegram";
@@ -22,10 +22,10 @@ export interface ApprovalActor {
 export function approvalActor(context: TenantContext): ApprovalActor {
   const principal = requireContentOperator(context);
   return {
-    actorType: principal.kind === "firebase_user" ? "firebase_operator" : "telegram_operator",
+    actorType: principal.kind === "cognito_user" ? "cognito_operator" : "telegram_operator",
     actorSubjectId: principal.subjectId,
     authenticationId: principal.authenticationId,
-    channel: principal.kind === "firebase_user" ? "dashboard" : "telegram",
+    channel: principal.kind === "cognito_user" ? "dashboard" : "telegram",
   };
 }
 

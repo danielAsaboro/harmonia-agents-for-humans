@@ -3,13 +3,13 @@ title: "Observability and trace lineage"
 description: "W3C propagation, stage and agent spans, action lineage, privacy boundaries, and evidence correlation."
 ---
 
-Harmonia carries one W3C trace context across the web control plane, Pub/Sub delivery, ADK invocation, model usage, approval, effect claim, external effect, verification, and replay proof.
+Harmonia carries one W3C trace context across the web control plane, SQS delivery, Strands invocation, model usage, approval, effect claim, external effect, verification, and replay proof.
 
-The worker configures Google ADK's native OpenTelemetry providers for Cloud Logging, Cloud Monitoring, and Cloud Trace. Harmonia also writes a deliberately smaller, validated activity projection to tenant-scoped Firestore so operators can inspect agent activity without browser access to Google Cloud telemetry.
+The web and worker propagate W3C OpenTelemetry traces to local AWS Distro for OpenTelemetry collectors, which export to AWS X-Ray. ECS logs are delivered to CloudWatch Logs. Harmonia also writes a deliberately smaller, validated activity projection to tenant-scoped DynamoDB so operators can inspect agent activity without browser access to AWS telemetry.
 
 ```mermaid
 flowchart LR
-  WEB[Web request] -->|traceparent| PS[Pub/Sub]
+  WEB[Web request] -->|traceparent| PS[SQS]
   PS --> STAGE[harmonia.stage.execute]
   STAGE --> AGENT[harmonia.agent.invoke]
   AGENT --> DELEGATE[harmonia.agent.delegate]
@@ -26,7 +26,7 @@ flowchart LR
 | Identifier | Purpose |
 |---|---|
 | `traceId` | end-to-end causal graph |
-| `traceparent` / `tracestate` | W3C transport across HTTP and Pub/Sub |
+| `traceparent` / `tracestate` | W3C transport across HTTP and SQS |
 | `pubsubMessageId` | delivery and redelivery evidence |
 | `operationId` | stable logical attempt across retries |
 | `actionId` | approved proposal identity |
@@ -47,23 +47,19 @@ Usage, budget reservation, approval, claim, effect, verification, and replay rec
 
 ## Durable agent activity
 
-The Monitoring **Agents** view reads structured activity from the existing tenant-scoped Firestore job event stream. Each record identifies its kind (`handoff`, `tool_call`, `retry`, or `failure`), status, responsible role, safe public message, operation, and trace. Handoffs identify both roles; retries and failures carry a stable code, category, retryability, and bounded attempt counts.
+The Monitoring **Agents** view reads structured activity from the existing tenant-scoped DynamoDB job event stream. Each record identifies its kind (`handoff`, `tool_call`, `retry`, or `failure`), status, responsible role, safe public message, operation, and trace. Handoffs identify both roles; retries and failures carry a stable code, category, retryability, and bounded attempt counts.
 
 Events are written only after the corresponding typed artifact passes deterministic validation and persistence. They describe what happened but cannot advance a stage, approve content, or authorize an effect.
 
-## Native ADK signals
+## Native Strands signals
 
-When `HARMONIA_TELEMETRY_ENABLED=true`, the worker enables all three ADK Google Cloud exporters:
+When `HARMONIA_TELEMETRY_ENABLED=true`, `OTEL_EXPORTER_OTLP_ENDPOINT` is required. Fargate task sidecars receive OTLP/gRPC on loopback and export metadata-only traces using task IAM roles. CloudWatch Logs receives application stdout and collector logs. The AgentCore role has the managed runtime's logging, tracing, and metrics permissions; actual export remains an authenticated rehearsal check.
 
-- structured ADK and GenAI logs in Cloud Logging;
-- ADK invocation, workflow, tool, latency, and token metrics in Cloud Monitoring;
-- `invoke_agent`, `invoke_workflow`, `execute_tool`, and `generate_content` spans in Cloud Trace.
-
-The worker resource identifies `harmonia-agent`, the Google Cloud project, the Cloud Run revision, and the deployment environment. `HARMONIA_TELEMETRY_SAMPLE_RATE` controls parent-based trace sampling. See Google's ADK references for [logging](https://adk.dev/observability/logging/), [metrics](https://adk.dev/observability/metrics/), and [traces](https://adk.dev/observability/traces/).
+Python resource attributes include service name, AWS region, release, and environment. `HARMONIA_TELEMETRY_SAMPLE_RATE` controls parent-based sampling. Content capture is disabled before inference. Native provider instrumentation and application event projections remain separate from execution authority.
 
 ## Operator activity explorer
 
-Open **Monitoring → Agent activity** to query the safe Firestore projection. It supports:
+Open **Monitoring → Agent activity** to query the safe DynamoDB projection. It supports:
 
 - log, trace, and metric modes;
 - agent, stage, outcome, severity, model, tool, job, trace, time-window, and free-text filters;
@@ -71,9 +67,9 @@ Open **Monitoring → Agent activity** to query the safe Firestore projection. I
 - nested parent/child spans by trace ID;
 - per-agent latency, invocation, failure, token, inference-call, and tool-call summaries for the current filtered page.
 
-The internal writer authenticates before parsing and rejects records whose workspace or brand differs from the active tenant. Browser queries derive tenancy from the authenticated session. Records receive a 30-day deletion timestamp; production must configure a Firestore TTL policy on `retentionDeleteAfter` for the `agent_activity` collection group.
+The internal writer authenticates before parsing and rejects records whose workspace or brand differs from the active tenant. Browser queries derive tenancy from the authenticated session. Records receive a 30-day deletion timestamp; production must configure a DynamoDB TTL policy on `retentionDeleteAfter` for the `agent_activity` collection group.
 
-<Warning>The activity projection is operational telemetry, not durable workflow truth or authorization. Firestore job, approval, claim, receipt, and verification records remain authoritative.</Warning>
+<Warning>The activity projection is operational telemetry, not durable workflow truth or authorization. DynamoDB job, approval, claim, receipt, and verification records remain authoritative.</Warning>
 
 ## Privacy boundary
 
@@ -86,10 +82,10 @@ The internal writer authenticates before parsing and rejects records whose works
   </Tab>
 </Tabs>
 
-Both current and legacy ADK message-content capture settings are disabled in cloud configuration.
+Both current and legacy Strands message-content capture settings are disabled in cloud configuration.
 
 Projection failures never change a workflow outcome, and their exception messages are not logged. The projection schema has no fields for prompts, responses, transcript text, drafts, provider bodies, credentials, or chain-of-thought.
 
-<Info>Local trace-contract tests prove propagation and redaction behavior. A judge-facing claim still requires authenticated Cloud Trace or log exports correlated with the same Firestore records.</Info>
+<Info>Local trace-contract tests prove propagation and redaction behavior. A judge-facing claim still requires authenticated CloudWatch traces or log exports correlated with the same DynamoDB records.</Info>
 
-See [How to capture Google Cloud deployment evidence](/cloud-proof) for the live capture sequence.
+See [How to capture AWS deployment evidence](/cloud-proof) for the live capture sequence.

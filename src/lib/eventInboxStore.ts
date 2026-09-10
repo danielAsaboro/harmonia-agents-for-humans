@@ -1,21 +1,21 @@
-import type { Firestore } from "@google-cloud/firestore";
+import { awsRepository,DynamoRepository,recordKey } from "./dynamo";
 
 import {
-  claimEventInbox,
-  completeEventInbox,
-  eventInboxKey,
-  type EventInboxClaimInput,
-  type EventInboxClaimResult,
-  type EventInboxRecord,
+claimEventInbox,
+completeEventInbox,
+eventInboxKey,
+type EventInboxClaimInput,
+type EventInboxClaimResult,
+type EventInboxRecord,
 } from "./eventInbox";
 import {
-  assertOperationFence,
-  createOperation,
-  finalizeOperation,
-  type CreateOperationInput,
-  type OperationRecord,
+assertOperationFence,
+createOperation,
+finalizeOperation,
+type CreateOperationInput,
+type OperationRecord,
 } from "./operations";
-import { currentTenant, tenantCollectionPath } from "./tenancy";
+import { currentTenant,tenantCollectionPath } from "./tenancy";
 
 const EVENT_INBOX = "event_inbox";
 const OPERATIONS = "operations";
@@ -45,7 +45,7 @@ function assertOperationIntent(existing: OperationRecord, expected: OperationRec
 }
 
 export class EventInboxStore {
-  constructor(private readonly database: Firestore) {}
+  constructor(private readonly database: DynamoRepository) {}
 
   private inboxPath(source: string, sourceEventId: string): string {
     return `${tenantCollectionPath(currentTenant(), EVENT_INBOX)}/${eventInboxKey(source, sourceEventId)}`;
@@ -70,32 +70,32 @@ export class EventInboxStore {
       throw new Error("event operation replay policy mismatch");
     }
 
-    const inboxRef = this.database.doc(this.inboxPath(input.envelope.source, input.envelope.sourceEventId));
-    const operationRef = this.database.doc(this.operationPath(expectedOperation.id));
-    return this.database.runTransaction(async (transaction) => {
+    const inboxRef = recordKey(this.inboxPath(input.envelope.source, input.envelope.sourceEventId));
+    const operationRef = recordKey(this.operationPath(expectedOperation.id));
+    return this.database.atomic(async (transaction) => {
       const [inboxSnapshot, operationSnapshot] = await Promise.all([
-        transaction.get(inboxRef),
-        transaction.get(operationRef),
+        transaction.read(inboxRef),
+        transaction.read(operationRef),
       ]);
-      const existingInbox = inboxSnapshot.exists ? inboxSnapshot.data() as EventInboxRecord : null;
+      const existingInbox = inboxSnapshot.present ? inboxSnapshot.value as unknown as EventInboxRecord : null;
       const result = claimEventInbox(existingInbox, input);
-      if (!operationSnapshot.exists) {
-        transaction.create(operationRef, expectedOperation);
+      if (!operationSnapshot.present) {
+        transaction.insert(operationRef, expectedOperation);
       } else {
-        const existingOperation = operationSnapshot.data() as OperationRecord;
+        const existingOperation = operationSnapshot.value as unknown as OperationRecord;
         assertTenant(existingOperation);
         assertOperationIntent(existingOperation, expectedOperation);
       }
-      if (!inboxSnapshot.exists) transaction.create(inboxRef, result.record);
-      else if (result.record !== existingInbox) transaction.set(inboxRef, result.record);
+      if (!inboxSnapshot.present) transaction.insert(inboxRef, result.record);
+      else if (result.record !== existingInbox) transaction.put(inboxRef, result.record);
       return result;
     });
   }
 
   async get(source: string, sourceEventId: string): Promise<EventInboxRecord | null> {
-    const snapshot = await this.database.doc(this.inboxPath(source, sourceEventId)).get();
-    if (!snapshot.exists) return null;
-    const record = snapshot.data() as EventInboxRecord;
+    const snapshot = await awsRepository().read(recordKey(this.inboxPath(source, sourceEventId)));
+    if (!snapshot.present) return null;
+    const record = snapshot.value as unknown as EventInboxRecord;
     assertTenant(record);
     return record;
   }
@@ -114,17 +114,17 @@ export class EventInboxStore {
       operationReason?: string;
     },
   ): Promise<EventInboxRecord> {
-    const ref = this.database.doc(this.inboxPath(source, sourceEventId));
-    return this.database.runTransaction(async (transaction) => {
-      const snapshot = await transaction.get(ref);
-      if (!snapshot.exists) throw new Error("event inbox record not found");
-      const current = snapshot.data() as EventInboxRecord;
+    const ref = recordKey(this.inboxPath(source, sourceEventId));
+    return this.database.atomic(async (transaction) => {
+      const snapshot = await transaction.read(ref);
+      if (!snapshot.present) throw new Error("event inbox record not found");
+      const current = snapshot.value as unknown as EventInboxRecord;
       assertTenant(current);
       if (current.operationId !== input.operationId) throw new Error("event operation id mismatch");
-      const operationRef = this.database.doc(this.operationPath(current.operationId));
-      const operationSnapshot = await transaction.get(operationRef);
-      if (!operationSnapshot.exists) throw new Error("event operation not found");
-      const operation = operationSnapshot.data() as OperationRecord;
+      const operationRef = recordKey(this.operationPath(current.operationId));
+      const operationSnapshot = await transaction.read(operationRef);
+      if (!operationSnapshot.present) throw new Error("event operation not found");
+      const operation = operationSnapshot.value as unknown as OperationRecord;
       assertTenant(operation);
       const tenant = currentTenant();
       assertOperationFence(operation, {
@@ -141,8 +141,8 @@ export class EventInboxStore {
         now: input.now,
         ...(input.operationReason ? { unresolvedReason: input.operationReason } : {}),
       });
-      transaction.set(ref, completed);
-      transaction.set(operationRef, finalizedOperation);
+      transaction.put(ref, completed);
+      transaction.put(operationRef, finalizedOperation);
       return completed;
     });
   }

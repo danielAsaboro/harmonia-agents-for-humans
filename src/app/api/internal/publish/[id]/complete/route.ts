@@ -1,4 +1,4 @@
-import { getJob, transitionStageWithOutbox } from "@/lib/firestore";
+import { getJob, transitionStageWithOutbox } from "@/lib/repository";
 import { internalTenantHandler } from "@/lib/internalAuth";
 import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";
 

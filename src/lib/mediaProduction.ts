@@ -15,97 +15,36 @@ export const verifiedProductionArtifactRefSchema = z.object({
 }).strict();
 export type VerifiedProductionArtifactRef = z.infer<typeof verifiedProductionArtifactRefSchema>;
 
-export const VEO_CAPABILITIES = {
-  "veo-3.1-fast": { model: "veo-3.1-fast-generate-001", resolutions: ["720p", "1080p"], durations: [4, 6, 8], modes: ["text_to_video", "image_to_video", "first_last_frame"], usdPerSecond: "0.080000", preview: false },
-  "veo-3.1": { model: "veo-3.1-generate-001", resolutions: ["720p", "1080p", "4k"], durations: [4, 6, 8], modes: ["text_to_video", "image_to_video", "first_last_frame"], usdPerSecond: null, preview: false },
+export const NOVA_REEL_CAPABILITIES = {
+  "nova-reel": { model: "amazon.nova-reel-v1:1", resolutions: ["720p"], durations: [6, 12, 18, 24, 30, 36, 42, 48, 54, 60, 66, 72, 78, 84, 90, 96, 102, 108, 114, 120], modes: ["text_to_video", "image_to_video"], usdPerSecond: null, preview: false },
 } as const;
-
-export const LYRIA_CAPABILITIES = {
-  "lyria-3-clip": { model: "lyria-3-clip-preview", durations: [30], imageConditioning: true, vocals: true, structure: true, preview: true, fixedCostUsd: null },
-  "lyria-3-pro": { model: "lyria-3-pro-preview", durations: [184], imageConditioning: true, vocals: true, structure: true, preview: true, fixedCostUsd: null },
-  "lyria-2": { model: "lyria-002", durations: [30], imageConditioning: false, vocals: false, structure: false, preview: false, fixedCostUsd: "0.060000" },
+export const ELEVENLABS_CAPABILITIES = {
+  "elevenlabs-music": { model: "music_v1", durations: [30], maximumDurationSec: 600, instrumental: true, usdPerSecond: null, preview: false },
 } as const;
-
-const videoCapability = z.enum(["veo-3.1-fast", "veo-3.1"]);
-const videoMode = z.enum(["text_to_video", "image_to_video", "first_last_frame", "reference_images", "extend_video"]);
 export const generatedVideoSpecSchema = z.object({
-  modelCapability: videoCapability,
-  mode: videoMode,
+  modelCapability: z.literal("nova-reel"),
+  mode: z.enum(["text_to_video", "image_to_video"]),
   prompt: z.string().min(1).max(4000),
-  negativePrompt: z.string().min(1).max(2000).optional(),
   sourceImageArtifact: verifiedProductionArtifactRefSchema.optional(),
-  lastFrameArtifact: verifiedProductionArtifactRefSchema.optional(),
-  durationSec: z.union([z.literal(4), z.literal(6), z.literal(8)]),
-  aspectRatio: z.enum(["16:9", "9:16"]),
-  resolution: z.enum(["720p", "1080p", "4k"]),
-  generateAudio: z.boolean(),
-  seed: z.number().int().nonnegative().max(4294967295).optional(),
-  enhancePrompt: z.boolean(),
+  durationSec: z.number().int().min(6).max(120).multipleOf(6),
+  aspectRatio: z.literal("16:9"),
+  resolution: z.literal("720p"),
+  seed: z.number().int().nonnegative().max(2147483646).optional(),
   outputCount: z.literal(1),
 }).strict().superRefine((value, context) => {
-  const capability = VEO_CAPABILITIES[value.modelCapability];
-  if (!(capability.resolutions as readonly string[]).includes(value.resolution)) context.addIssue({ code: "custom", path: ["resolution"], message: `resolution is not supported by ${value.modelCapability}` });
-  if (!(capability.durations as readonly number[]).includes(value.durationSec)) context.addIssue({ code: "custom", path: ["durationSec"], message: `duration is not supported by ${value.modelCapability}` });
-  if (!(capability.modes as readonly string[]).includes(value.mode)) context.addIssue({ code: "custom", path: ["mode"], message: `mode is not supported by ${value.modelCapability}` });
-  const requireField = (condition: boolean, field: keyof typeof value, message: string) => { if (condition && !value[field]) context.addIssue({ code: "custom", path: [field], message }); };
-  requireField(value.mode === "image_to_video" || value.mode === "first_last_frame", "sourceImageArtifact", "source image is required");
-  requireField(value.mode === "first_last_frame", "lastFrameArtifact", "last frame is required");
-  if (value.mode === "text_to_video" && (value.sourceImageArtifact || value.lastFrameArtifact)) {
-    context.addIssue({ code: "custom", path: ["sourceImageArtifact"], message: "text-to-video cannot include conditioning images" });
-  }
-  if (value.mode !== "first_last_frame" && value.lastFrameArtifact) {
-    context.addIssue({ code: "custom", path: ["lastFrameArtifact"], message: "last frame requires first-last-frame mode" });
-  }
-  for (const field of ["sourceImageArtifact", "lastFrameArtifact"] as const) {
-    const reference = value[field];
-    if (reference && reference.mime !== "image/jpeg" && reference.mime !== "image/png") {
-      context.addIssue({ code: "custom", path: [field, "mime"], message: "Veo conditioning artifact must be JPEG or PNG" });
-    }
-    if (reference && reference.sizeBytes > 20 * 1024 * 1024) {
-      context.addIssue({ code: "custom", path: [field, "sizeBytes"], message: "Veo conditioning artifact must not exceed 20 MB" });
-    }
-  }
-  if (value.negativePrompt) {
-    context.addIssue({ code: "custom", path: ["negativePrompt"], message: "negative prompt is unavailable until its real provider path is implemented" });
-  }
+  if ((value.mode === "image_to_video") !== Boolean(value.sourceImageArtifact)) context.addIssue({ code: "custom", path: ["sourceImageArtifact"], message: "image conditioning must match mode" });
+  if (value.durationSec === 6 && value.prompt.length > 512) context.addIssue({ code: "custom", path: ["prompt"], message: "single-shot prompt must not exceed 512 characters" });
+  if (value.durationSec > 6 && value.sourceImageArtifact) context.addIssue({ code: "custom", path: ["sourceImageArtifact"], message: "multi-shot video cannot include an input image" });
+  const ref = value.sourceImageArtifact;
+  if (ref && (!["image/jpeg", "image/png"].includes(ref.mime) || ref.sizeBytes > 20 * 1024 * 1024)) context.addIssue({ code: "custom", path: ["sourceImageArtifact"], message: "Nova Reel requires a JPEG or PNG up to 20 MB" });
 });
-
 export const generatedMusicSpecSchema = z.object({
-  modelCapability: z.enum(["lyria-3-clip", "lyria-3-pro", "lyria-2"]),
-  prompt: z.string().min(1).max(4000),
-  conditioningImageArtifactId: z.string().min(1).optional(),
-  instrumental: z.boolean(),
-  lyricsMode: z.enum(["none", "generated", "provided"]),
-  providedLyrics: z.string().min(1).max(12000).optional(),
-  language: z.string().min(2).max(20),
-  genre: z.string().min(1).max(200).optional(),
-  mood: z.string().min(1).max(200).optional(),
-  instrumentation: z.array(z.string().min(1).max(100)).max(20).optional(),
-  bpm: z.number().int().min(40).max(240).optional(),
-  intensity: z.number().min(0).max(1).optional(),
-  structure: z.array(z.string().min(1).max(100)).max(20).optional(),
-  targetDurationSec: z.number().int().positive().max(184),
-  seed: z.number().int().nonnegative().max(4294967295).optional(),
+  modelCapability: z.literal("elevenlabs-music"),
+  prompt: z.string().min(1).max(4100),
+  instrumental: z.literal(true),
+  targetDurationSec: z.number().int().min(3).max(600).default(30),
   outputCount: z.literal(1),
-}).strict().superRefine((value, context) => {
-  const capability = LYRIA_CAPABILITIES[value.modelCapability];
-  if (value.instrumental && value.lyricsMode !== "none") context.addIssue({ code: "custom", path: ["lyricsMode"], message: "instrumental music cannot include lyrics" });
-  if (value.lyricsMode === "provided" && !value.providedLyrics) context.addIssue({ code: "custom", path: ["providedLyrics"], message: "provided lyrics are required" });
-  if (value.lyricsMode !== "provided" && value.providedLyrics) context.addIssue({ code: "custom", path: ["providedLyrics"], message: "provided lyrics require provided mode" });
-  if (value.conditioningImageArtifactId && !capability.imageConditioning) context.addIssue({ code: "custom", path: ["conditioningImageArtifactId"], message: "image conditioning is unsupported" });
-  if (!value.instrumental && !capability.vocals) context.addIssue({ code: "custom", path: ["instrumental"], message: "vocals are unsupported" });
-  if ((value.structure?.length || value.bpm || value.intensity !== undefined) && !capability.structure) context.addIssue({ code: "custom", path: ["structure"], message: "structure controls are unsupported" });
-  if (
-    value.conditioningImageArtifactId || !value.instrumental || value.lyricsMode !== "none"
-    || value.genre || value.mood || value.instrumentation?.length || value.bpm
-    || value.intensity !== undefined || value.structure?.length || value.seed !== undefined
-  ) context.addIssue({ code: "custom", path: ["conditioningImageArtifactId"], message: "advanced Lyria conditioning and music controls are unavailable until their real provider path is implemented" });
-  const maximum = Math.max(...capability.durations);
-  if (value.targetDurationSec > maximum) context.addIssue({ code: "custom", path: ["targetDurationSec"], message: `duration exceeds ${maximum} seconds` });
-  if (value.modelCapability === "lyria-3-clip" && value.targetDurationSec !== 30) {
-    context.addIssue({ code: "custom", path: ["targetDurationSec"], message: "Lyria 3 Clip always generates a 30-second provider output" });
-  }
-});
+}).strict();
 
 const sourceWindowSchema = z.object({
   startSec: z.number().nonnegative(),
@@ -195,7 +134,7 @@ export const videoProductionPlanSchema = z.object({
   const references = [
     ...value.scenes.flatMap((scene) => scene.sourceArtifact ? [scene.sourceArtifact] : []),
     ...value.scenes.flatMap((scene) => scene.video
-      ? [scene.video.sourceImageArtifact, scene.video.lastFrameArtifact].filter(
+      ? [scene.video.sourceImageArtifact].filter(
         (reference): reference is VerifiedProductionArtifactRef => Boolean(reference),
       )
       : []),
@@ -211,7 +150,7 @@ export const videoProductionPlanSchema = z.object({
   }
   const requiredOperationIds = value.scenes.flatMap((scene) => {
     if (!scene.video) return [];
-    const type = scene.video.mode === "extend_video" ? "extend_video" : "generate_video";
+    const type = "generate_video";
     return [`${value.id}:${type}:${scene.id}`];
   });
   if (value.soundtrack) requiredOperationIds.push(`${value.id}:generate_music`);
@@ -228,7 +167,7 @@ export type GeneratedVideoSpec = z.infer<typeof generatedVideoSpecSchema>;
 export type GeneratedMusicSpec = z.infer<typeof generatedMusicSpecSchema>;
 export type VideoProductionPlan = z.infer<typeof videoProductionPlanSchema>;
 
-const operationTypes = ["extract_source_segment", "normalize_media", "generate_video", "extend_video", "generate_music", "generate_image", "generate_voice", "resolve_media", "build_composition", "render_composition", "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production", "repair_media", "inspect_delivery", "evaluate_delivery", "assemble_export", "publish_external"] as const;
+const operationTypes = ["extract_source_segment", "normalize_media", "generate_video", "generate_music", "generate_image", "generate_voice", "resolve_media", "build_composition", "render_composition", "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production", "repair_media", "inspect_delivery", "evaluate_delivery", "assemble_export", "publish_external"] as const;
 export const productionOperationSchema = z.object({ id: z.string().min(1), jobId: z.string().min(1), type: z.enum(operationTypes), dependsOn: z.array(z.string().min(1)), payload: z.record(z.string(), z.unknown()), requestDigest: digest, estimatedCostUsd: usd.optional(), executionAuthority: z.enum(["production_mandate", "internal", "publication_approval"]) }).strict().superRefine((value, context) => {
   if (value.executionAuthority === "production_mandate" && !value.estimatedCostUsd) context.addIssue({ code: "custom", path: ["estimatedCostUsd"], message: "paid operation requires a sealed cost quote" });
   if (value.executionAuthority !== "production_mandate" && value.estimatedCostUsd) context.addIssue({ code: "custom", path: ["estimatedCostUsd"], message: "only paid operations carry cost quotes" });
@@ -236,7 +175,7 @@ export const productionOperationSchema = z.object({ id: z.string().min(1), jobId
 export type ProductionOperation = z.infer<typeof productionOperationSchema>;
 
 export const mediaOperationSchema = z.object({
-  id: z.string().min(1), jobId: z.string().min(1), actionId: z.string().min(1), provider: z.enum(["veo", "lyria"]),
+  id: z.string().min(1), jobId: z.string().min(1), actionId: z.string().min(1), provider: z.enum(["nova_reel", "elevenlabs"]),
   state: z.enum(["prepared", "budget_reserved", "provider_submitted", "provider_pending", "provider_succeeded", "artifact_ingested", "independently_verified", "applied", "policy_filtered", "permanent_failure", "cancelled_before_submission", "unknown_after_submission"]),
   providerOperationId: z.string().min(1).optional(), attempt: z.number().int().nonnegative(), requestDigest: digest, estimatedCostUsd: usd,
   artifactId: z.string().min(1).optional(), artifactDigest: digest.optional(), createdAt: z.string().datetime({ offset: true }), updatedAt: z.string().datetime({ offset: true }),
@@ -377,14 +316,9 @@ export function assertProductionMandateAuthorizes(input: {
 }
 
 export function estimateGeneratedMediaCost(spec: GeneratedVideoSpec | GeneratedMusicSpec, overrides: Record<string, string> = {}): string {
-  if ("mode" in spec) {
-    const rate = VEO_CAPABILITIES[spec.modelCapability].usdPerSecond;
-    if (!rate) throw new Error(`pricing unavailable for ${spec.modelCapability}`);
-    return (Number(rate) * spec.durationSec).toFixed(6);
-  }
-  const configured = overrides[spec.modelCapability] ?? LYRIA_CAPABILITIES[spec.modelCapability].fixedCostUsd;
-  if (!configured) throw new Error(`pricing unavailable for ${spec.modelCapability}`);
-  return Number(configured).toFixed(6);
+  const rate = Number(overrides[spec.modelCapability]);
+  if (!Number.isFinite(rate) || rate <= 0) throw new Error(`pricing unavailable for ${spec.modelCapability}`);
+  return (rate * ("mode" in spec ? spec.durationSec : spec.targetDurationSec)).toFixed(6);
 }
 
 export function compileProductionOperations(plan: VideoProductionPlan): ProductionOperation[] {
@@ -393,7 +327,7 @@ export function compileProductionOperations(plan: VideoProductionPlan): Producti
     ...plan.narration.map((clip) => clip.artifact),
   ];
   const conditioningReferences = plan.scenes.flatMap((scene) => scene.video
-    ? [scene.video.sourceImageArtifact, scene.video.lastFrameArtifact].filter(
+    ? [scene.video.sourceImageArtifact].filter(
       (reference): reference is VerifiedProductionArtifactRef => Boolean(reference),
     )
     : []);
@@ -410,10 +344,10 @@ export function compileProductionOperations(plan: VideoProductionPlan): Producti
   }));
   const paid: ProductionOperation[] = [];
   for (const scene of [...plan.scenes].sort((a, b) => a.order - b.order)) if (scene.video) {
-    const type = scene.video.mode === "extend_video" ? "extend_video" : "generate_video";
+    const type = "generate_video";
     const id = `${plan.id}:${type}:${scene.id}`;
     const requestDigest = generatedMediaRequestDigest(scene.video);
-    const conditioningIds = [scene.video.sourceImageArtifact, scene.video.lastFrameArtifact]
+    const conditioningIds = [scene.video.sourceImageArtifact]
       .filter((reference): reference is VerifiedProductionArtifactRef => Boolean(reference))
       .map((reference) => `${plan.id}:resolve_media:${reference.artifactId}`);
     paid.push({ id, jobId: plan.jobId, type, dependsOn: conditioningIds, payload: scene.video, requestDigest, estimatedCostUsd: plan.operationCostsUsd[id], executionAuthority: "production_mandate" });

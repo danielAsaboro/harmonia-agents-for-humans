@@ -1,6 +1,6 @@
 import { effectClaimSubmissionSchema } from "@/lib/contracts";
 import { effectClaimResponse } from "@/lib/effectClaims";
-import { claimEffect } from "@/lib/firestore";
+import { claimEffect } from "@/lib/repository";
 import { claimCommandEffect } from "@/lib/effectCommandStore";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";

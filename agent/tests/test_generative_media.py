@@ -1,384 +1,93 @@
-"""Veo/Lyria provider contracts, resumption, and failure semantics."""
-
-from __future__ import annotations
-
+"""Native media transports: authority, requests, resumptions and uncertainty."""
 import json
+from unittest.mock import Mock
 import pytest
+from harmonia_agent.generative_media import AwsMediaTransport, NovaReelGenerator, ElevenLabsGenerator, MediaOperationPending, MediaProtocolError, MediaProviderError, validate_nova_reel_request, validate_elevenlabs_request, estimate_media_cost
 
-from harmonia_agent.generative_media import (
-    GoogleMediaTransport,
-    LyriaGenerator,
-    MediaOperationPending,
-    MediaProtocolError,
-    VeoGenerator,
-    estimate_media_cost,
-    validate_lyria_request,
-    validate_veo_request,
-)
-from harmonia_agent.stages import classify_failure
+VIDEO = dict(modelCapability="nova-reel", mode="text_to_video", prompt="Calm abstract light", durationSec=6, aspectRatio="16:9", resolution="720p", outputCount=1)
+MUSIC = dict(modelCapability="elevenlabs-music", prompt="Quiet instrumental", instrumental=True, outputCount=1)
+PREFIX = "s3://private/workspaces/w/jobs/j/claims/c/"
 
+def test_paid_gate_prevents_client_construction(monkeypatch):
+    client = Mock()
+    monkeypatch.setattr("harmonia_agent.generative_media.boto3.client", client)
+    with pytest.raises(MediaProviderError, match="disabled"):
+        AwsMediaTransport().poll_nova_reel("arn", "model")
+    client.assert_not_called()
 
-class FakeTransport:
-    def __init__(self) -> None:
-        self.calls: list[tuple] = []
-        self.veo_done = True
+def test_nova_native_request_has_idempotent_token(monkeypatch):
+    client = Mock(); client.start_async_invoke.return_value = {"invocationArn": "arn"}
+    monkeypatch.setattr("harmonia_agent.generative_media.boto3.client", lambda *a, **k: client)
+    transport = AwsMediaTransport(enabled=True, generative_enabled=True)
+    for _ in range(2): transport.start_nova_reel(model="amazon.nova-reel-v1:1", prompt="light", duration_sec=6, source_image=None, storage_uri=PREFIX)
+    calls = client.start_async_invoke.call_args_list
+    assert calls[0].kwargs == calls[1].kwargs
+    assert calls[0].kwargs["modelInput"]["videoGenerationConfig"] == {"durationSeconds": 6, "fps": 24, "dimension": "1280x720"}
 
-    def start_veo(self, **kwargs):
-        self.calls.append(("start", kwargs))
-        return {"name": "projects/p/locations/us-central1/models/veo/operations/op-1"}
+def test_reel_persists_before_poll_and_resumes_without_start():
+    transport = Mock(); events=[]
+    transport.start_nova_reel.return_value = {"invocationArn": "arn"}
+    transport.poll_nova_reel.side_effect = lambda *a: events.append("poll") or {"status": "Completed", "outputDataConfig": {"s3OutputDataConfig": {"s3Uri": PREFIX + "invocation/"}}}
+    transport.download_s3.return_value = b"video"
+    gen = NovaReelGenerator(transport=transport)
+    for existing in [None, "arn"]:
+        result = gen.generate(request=VIDEO, existing_operation=existing, persist_operation=lambda arn: events.append("persist"), authorized_output_prefix=PREFIX, estimated_cost_usd="0.100000")
+        assert result.data == b"video"
+    assert events == ["persist", "poll", "poll"]
+    assert transport.start_nova_reel.call_count == 1
 
-    def poll_veo(self, operation_name: str, model: str):
-        self.calls.append(("poll", operation_name, model))
-        if not self.veo_done:
-            return {"name": operation_name, "done": False}
-        return {"name": operation_name, "done": True, "response": {"videos": [{
-            "bytesBase64Encoded": "dmlkZW8=", "mimeType": "video/mp4",
-        }]}}
+def test_pending_and_foreign_output_are_not_success():
+    transport = Mock(); gen = NovaReelGenerator(transport=transport)
+    args = dict(request=VIDEO, existing_operation="arn", persist_operation=Mock(), authorized_output_prefix=PREFIX, estimated_cost_usd="0.100000")
+    transport.poll_nova_reel.return_value = {"status": "InProgress"}
+    with pytest.raises(MediaOperationPending): gen.generate(**args)
+    transport.poll_nova_reel.return_value = {"status": "Completed", "outputDataConfig": {"s3OutputDataConfig": {"s3Uri": "s3://other/"}}}
+    with pytest.raises(MediaProtocolError): gen.generate(**args)
+    transport.download_s3.assert_not_called()
 
-    def generate_lyria(self, **kwargs):
-        self.calls.append(("lyria", kwargs))
-        return {"id": "interaction-1", "status": "completed", "outputs": [{
-            "type": "audio", "mime_type": "audio/mpeg", "data": "YXVkaW8=",
-        }]}
+def test_music_defaults_to_thirty_and_requires_instrumental():
+    assert validate_elevenlabs_request(MUSIC)["targetDurationSec"] == 30
+    with pytest.raises(MediaProtocolError): validate_elevenlabs_request({**MUSIC, "instrumental": False})
+    with pytest.raises(MediaProtocolError): validate_elevenlabs_request({**MUSIC, "lyricsMode": "none"})
+    with pytest.raises(MediaProtocolError): validate_nova_reel_request({**VIDEO, "durationSec": 8})
 
-    def download_gcs(self, uri: str, authorized_prefix: str) -> bytes:
-        self.calls.append(("download", uri, authorized_prefix))
-        return b"video-from-gcs"
+def test_elevenlabs_real_http_contract(monkeypatch):
+    response = Mock(status_code=200, content=b"audio", headers={"song-id": "song-1"})
+    post = Mock(return_value=response); monkeypatch.setattr("harmonia_agent.generative_media.httpx.post", post)
+    media = ElevenLabsGenerator(transport=AwsMediaTransport(enabled=True, generative_enabled=True, elevenlabs_api_key="test-key")).generate(request=MUSIC, estimated_cost_usd="1.000000")
+    assert media.provider_id == "song-1"
+    assert post.call_args.kwargs["json"] == {"model_id": "music_v1", "prompt": MUSIC["prompt"], "music_length_ms": 30000, "force_instrumental": True}
 
+def test_pricing_has_no_silent_default():
+    request = validate_nova_reel_request(VIDEO)
+    with pytest.raises(MediaProtocolError): estimate_media_cost(request)
+    assert estimate_media_cost(request, {"nova-reel": "0.010000"}) == "0.060000"
 
-def test_veo_persists_operation_before_polling_and_returns_typed_media():
-    transport = FakeTransport()
-    order: list[str] = []
+def test_python_serialized_provider_specs_match_typescript_contracts():
+    import subprocess
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2]
+    video = validate_nova_reel_request(VIDEO)
+    music = validate_elevenlabs_request(MUSIC)
+    for spec in (video, music):
+        spec.pop("providerModel"); spec.pop("mediaKind")
+    payload = json.dumps({"video": video, "music": music})
+    script = "import {generatedVideoSpecSchema as v,generatedMusicSpecSchema as m} from './src/lib/mediaProduction.ts'; const x=JSON.parse(process.argv[1]); console.log(JSON.stringify({video:v.parse(x.video),music:m.parse(x.music)}));"
+    result = subprocess.run([str(root / "node_modules/.bin/tsx"), "-e", script, payload], cwd=root, capture_output=True, text=True, check=True)
+    assert json.loads(result.stdout) == json.loads(payload)
 
-    result = VeoGenerator(transport=transport).generate(
-        request=validate_veo_request({"modelCapability": "veo-3.1-fast", "mode": "text_to_video", "prompt": "abstract startup dashboard motion", "durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p", "generateAudio": False, "enhancePrompt": True, "outputCount": 1}),
-        existing_operation=None,
-        persist_operation=lambda name: order.append(f"persist:{name}"),
-    )
+def test_multishot_native_request_and_supported_duration(monkeypatch):
+    client = Mock(); client.start_async_invoke.return_value = {"invocationArn": "arn"}
+    monkeypatch.setattr("harmonia_agent.generative_media.boto3.client", lambda *a, **k: client)
+    request = validate_nova_reel_request({**VIDEO, "durationSec": 120, "prompt": "long narrative " * 100})
+    AwsMediaTransport(enabled=True, generative_enabled=True).start_nova_reel(model=request["providerModel"], prompt=request["prompt"], duration_sec=120, source_image=None, storage_uri=PREFIX)
+    body = client.start_async_invoke.call_args.kwargs["modelInput"]
+    assert body["taskType"] == "MULTI_SHOT_AUTOMATED"
+    assert body["multiShotAutomatedParams"] == {"text": request["prompt"]}
+    assert body["videoGenerationConfig"]["durationSeconds"] == 120
+    for duration in (7, 121, 0):
+        with pytest.raises(MediaProtocolError): validate_nova_reel_request({**VIDEO, "durationSec": duration})
 
-    assert result.data == b"video"
-    assert result.mime == "video/mp4"
-    assert result.model == "veo-3.1-fast-generate-001"
-    assert order == ["persist:projects/p/locations/us-central1/models/veo/operations/op-1"]
-    assert [call[0] for call in transport.calls] == ["start", "poll"]
-    assert transport.calls[1][2] == "veo-3.1-fast-generate-001"
-
-
-def test_veo_materializes_sealed_first_and_last_frames_into_the_official_rest_instance():
-    first = {
-        "artifactId": "018f47a2-4f40-7b1f-b19f-8f6b916b7d13",
-        "digest": "3" * 64,
-        "mime": "image/png",
-        "sizeBytes": 5,
-        "rightsAuthorizationId": "license-first",
-    }
-    last = {
-        "artifactId": "018f47a2-4f40-7b1f-b19f-8f6b916b7d14",
-        "digest": "4" * 64,
-        "mime": "image/jpeg",
-        "sizeBytes": 4,
-        "rightsAuthorizationId": "license-last",
-    }
-    request = validate_veo_request({
-        "modelCapability": "veo-3.1-fast", "mode": "first_last_frame",
-        "prompt": "camera moves through the product interface", "durationSec": 4,
-        "aspectRatio": "9:16", "resolution": "1080p", "generateAudio": False,
-        "enhancePrompt": True, "outputCount": 1,
-        "sourceImageArtifact": first, "lastFrameArtifact": last,
-    })
-    transport = FakeTransport()
-
-    VeoGenerator(transport=transport).generate(
-        request=request,
-        existing_operation=None,
-        persist_operation=lambda _name: None,
-        conditioning_media={
-            first["artifactId"]: (b"first", "image/png", first["digest"]),
-            last["artifactId"]: (b"last", "image/jpeg", last["digest"]),
-        },
-    )
-
-    started = transport.calls[0][1]
-    assert started["source_image"] == {
-        "bytesBase64Encoded": "Zmlyc3Q=", "mimeType": "image/png",
-    }
-    assert started["last_frame"] == {
-        "bytesBase64Encoded": "bGFzdA==", "mimeType": "image/jpeg",
-    }
-
-    captured: list[dict] = []
-    vertex = GoogleMediaTransport(project="project-1", location="us-central1")
-    vertex._post = lambda _url, body, timeout: captured.append(body) or {"name": "operations/1"}  # type: ignore[method-assign]
-    vertex.start_veo(
-        model="veo-3.1-fast-generate-001", prompt="validated prompt", duration_sec=4,
-        aspect_ratio="9:16", resolution="1080p", generate_audio=False,
-        enhance_prompt=True, seed=None, storage_uri="gs://bucket/output/",
-        source_image=started["source_image"], last_frame=started["last_frame"],
-    )
-    assert captured[0]["instances"] == [{
-        "prompt": "validated prompt",
-        "image": {"bytesBase64Encoded": "Zmlyc3Q=", "mimeType": "image/png"},
-        "lastFrame": {"bytesBase64Encoded": "bGFzdA==", "mimeType": "image/jpeg"},
-    }]
-
-
-def test_veo_rejects_conditioning_bytes_that_do_not_match_the_sealed_identity():
-    reference = {
-        "artifactId": "018f47a2-4f40-7b1f-b19f-8f6b916b7d13",
-        "digest": "3" * 64,
-        "mime": "image/png",
-        "sizeBytes": 5,
-        "rightsAuthorizationId": "license-first",
-    }
-    request = validate_veo_request({
-        "modelCapability": "veo-3.1-fast", "mode": "image_to_video", "prompt": "move",
-        "durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p",
-        "generateAudio": False, "enhancePrompt": True, "outputCount": 1,
-        "sourceImageArtifact": reference,
-    })
-    with pytest.raises(MediaProtocolError, match="sealed identity"):
-        VeoGenerator(transport=FakeTransport()).generate(
-            request=request,
-            existing_operation=None,
-            persist_operation=lambda _name: None,
-            conditioning_media={reference["artifactId"]: (b"wrong", "image/jpeg", "5" * 64)},
-        )
-
-
-def test_veo_rejects_conditioning_images_above_the_provider_limit():
-    reference = {
-        "artifactId": "018f47a2-4f40-7b1f-b19f-8f6b916b7d13",
-        "digest": "3" * 64,
-        "mime": "image/png",
-        "sizeBytes": 20 * 1024 * 1024 + 1,
-        "rightsAuthorizationId": "license-first",
-    }
-    with pytest.raises(MediaProtocolError, match="malformed|size"):
-        validate_veo_request({
-            "modelCapability": "veo-3.1-fast", "mode": "image_to_video", "prompt": "move",
-            "durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p",
-            "generateAudio": False, "enhancePrompt": True, "outputCount": 1,
-            "sourceImageArtifact": reference,
-        })
-
-
-def test_veo_uses_only_its_authorized_gcs_output_prefix_and_retains_filtering_metadata():
-    class GcsTransport(FakeTransport):
-        def poll_veo(self, operation_name: str, model: str):
-            self.calls.append(("poll", operation_name, model))
-            return {
-                "name": operation_name,
-                "done": True,
-                "response": {
-                    "raiMediaFilteredCount": 0,
-                    "raiMediaFilteredReasons": [],
-                    "usageMetadata": {"generatedVideoCount": 1, "billedDurationSeconds": 4},
-                    "modelStatus": "GA",
-                    "costMetadata": {"currency": "USD", "billedUnits": 4},
-                    "videos": [{
-                        "gcsUri": "gs://media-bucket/workspaces/w1/brands/b1/jobs/j1/plans/p1/claims/c1/123/sample_0.mp4",
-                        "mimeType": "video/mp4",
-                        "watermark": {"type": "SynthID", "embedded": True},
-                        "c2pa": {"manifestId": "manifest-1"},
-                        "bytesBase64Encoded": "must-not-be-persisted",
-                    }],
-                    "prompt": "must-not-be-persisted",
-                },
-            }
-
-    transport = GcsTransport()
-    prefix = "gs://media-bucket/workspaces/w1/brands/b1/jobs/j1/plans/p1/claims/c1/"
-    result = VeoGenerator(transport=transport).generate(
-        request=validate_veo_request({"modelCapability": "veo-3.1-fast", "mode": "text_to_video", "prompt": "abstract startup dashboard motion", "durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p", "generateAudio": False, "enhancePrompt": True, "outputCount": 1}),
-        existing_operation=None,
-        persist_operation=lambda _name: None,
-        authorized_output_prefix=prefix,
-    )
-
-    assert transport.calls[0][1]["storage_uri"] == prefix
-    assert transport.calls[-1] == (
-        "download",
-        "gs://media-bucket/workspaces/w1/brands/b1/jobs/j1/plans/p1/claims/c1/123/sample_0.mp4",
-        prefix,
-    )
-    assert result.data == b"video-from-gcs"
-    assert result.provider_metadata == {
-        "gcsUri": "gs://media-bucket/workspaces/w1/brands/b1/jobs/j1/plans/p1/claims/c1/123/sample_0.mp4",
-        "raiMediaFilteredCount": 0,
-        "raiMediaFilteredReasons": [],
-        "usageMetadata": {"generatedVideoCount": 1, "billedDurationSeconds": 4},
-        "modelStatus": "GA",
-        "costMetadata": {"currency": "USD", "billedUnits": 4},
-        "watermark": {"type": "SynthID", "embedded": True},
-        "c2pa": {"manifestId": "manifest-1"},
-    }
-
-
-def test_veo_rejects_a_completed_output_outside_its_authorized_prefix():
-    class EscapedTransport(FakeTransport):
-        def poll_veo(self, operation_name: str, model: str):
-            return {"done": True, "response": {"videos": [{
-                "gcsUri": "gs://media-bucket/another-job/sample_0.mp4", "mimeType": "video/mp4",
-            }]}}
-
-        def download_gcs(self, uri: str, authorized_prefix: str) -> bytes:
-            pytest.fail("out-of-prefix media must not be downloaded")
-
-    with pytest.raises(MediaProtocolError, match="authorized GCS prefix"):
-        VeoGenerator(transport=EscapedTransport()).generate(
-            request=validate_veo_request({"modelCapability": "veo-3.1-fast", "mode": "text_to_video", "prompt": "abstract startup dashboard motion", "durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p", "generateAudio": False, "enhancePrompt": True, "outputCount": 1}),
-            existing_operation="operations/op-1",
-            persist_operation=lambda _name: None,
-            authorized_output_prefix="gs://media-bucket/workspaces/w1/brands/b1/jobs/j1/plans/p1/claims/c1/",
-        )
-
-
-def test_veo_rejects_inline_bytes_when_gcs_output_was_required():
-    with pytest.raises(MediaProtocolError, match="GCS output URI"):
-        VeoGenerator(transport=FakeTransport()).generate(
-            request=validate_veo_request({"modelCapability": "veo-3.1-fast", "mode": "text_to_video", "prompt": "abstract startup dashboard motion", "durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p", "generateAudio": False, "enhancePrompt": True, "outputCount": 1}),
-            existing_operation="operations/op-1",
-            persist_operation=lambda _name: None,
-            authorized_output_prefix="gs://media-bucket/workspaces/w1/brands/b1/jobs/j1/plans/p1/claims/c1/",
-        )
-
-
-def test_veo_resumes_existing_operation_without_starting_a_duplicate():
-    transport = FakeTransport()
-    transport.veo_done = False
-    with pytest.raises(MediaOperationPending, match="op-1"):
-        VeoGenerator(transport=transport).generate(
-            request=validate_veo_request({"modelCapability": "veo-3.1-fast", "mode": "text_to_video", "prompt": "abstract startup dashboard motion", "durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p", "generateAudio": False, "enhancePrompt": True, "outputCount": 1}),
-            existing_operation="operations/op-1",
-            persist_operation=lambda _: pytest.fail("must not persist twice"),
-        )
-    assert transport.calls == [("poll", "operations/op-1", "veo-3.1-fast-generate-001")]
-
-
-def test_lyria_returns_one_bounded_audio_clip_and_provider_interaction_id():
-    class ProvenanceTransport(FakeTransport):
-        def generate_lyria(self, **kwargs):
-            return {
-                "id": "interaction-1", "object": "interaction", "status": "completed",
-                "role": "model", "model": "lyria-3-clip-preview",
-                "created": "2026-08-31T10:00:00Z", "updated": "2026-08-31T10:00:12Z",
-                "usage": {"generated_audio_seconds": 30},
-                "release_status": "preview",
-                "cost_metadata": {"currency": "USD", "billedGenerations": 1},
-                "watermark": {"type": "SynthID", "embedded": True},
-                "outputs": [
-                    {"type": "text", "text": "These are generated lyrics"},
-                    {"type": "text", "text": "Warm electronic instrumental description"},
-                    {"type": "audio", "mime_type": "audio/mpeg", "data": "YXVkaW8=", "c2pa": {"manifestId": "music-1"}},
-                ],
-                "input": "must-not-be-persisted",
-            }
-
-    result = LyriaGenerator(transport=ProvenanceTransport()).generate(
-        request=validate_lyria_request({"modelCapability": "lyria-3-clip", "prompt": "instrumental optimistic technology pulse", "instrumental": True, "lyricsMode": "none", "language": "en", "targetDurationSec": 30, "outputCount": 1}),
-        estimated_cost_usd="0.120000",
-    )
-    assert result.data == b"audio"
-    assert result.mime == "audio/mpeg"
-    assert result.model == "lyria-3-clip-preview"
-    assert result.provider_id == "interaction-1"
-    assert result.provider_metadata == {
-        "object": "interaction", "status": "completed", "role": "model",
-        "model": "lyria-3-clip-preview", "created": "2026-08-31T10:00:00Z",
-        "updated": "2026-08-31T10:00:12Z",
-        "usageMetadata": {"generated_audio_seconds": 30},
-        "modelStatus": "preview",
-        "costMetadata": {"currency": "USD", "billedGenerations": 1},
-        "watermark": {"type": "SynthID", "embedded": True},
-        "lyrics": "These are generated lyrics",
-        "description": "Warm electronic instrumental description",
-        "c2pa": {"manifestId": "music-1"},
-    }
-
-
-def test_media_generators_reject_malformed_success_without_fallback():
-    class EmptyLyria(FakeTransport):
-        def generate_lyria(self, **kwargs):
-            return {"status": "completed", "outputs": []}
-
-    with pytest.raises(MediaProtocolError, match="audio"):
-        LyriaGenerator(transport=EmptyLyria()).generate(request=validate_lyria_request({"modelCapability": "lyria-3-clip", "prompt": "pulse", "instrumental": True, "lyricsMode": "none", "language": "en", "targetDurationSec": 30, "outputCount": 1}), estimated_cost_usd="0.120000")
-
-
-def test_lyria_requires_a_unique_interaction_id_and_never_uses_the_object_type_as_identity():
-    class MissingIdentity(FakeTransport):
-        def generate_lyria(self, **kwargs):
-            return {"object": "interaction", "status": "completed", "outputs": [{
-                "type": "audio", "mime_type": "audio/mpeg", "data": "YXVkaW8=",
-            }]}
-
-    with pytest.raises(MediaProtocolError, match="interaction id"):
-        LyriaGenerator(transport=MissingIdentity()).generate(
-            request=validate_lyria_request({"modelCapability": "lyria-3-clip", "prompt": "pulse", "instrumental": True, "lyricsMode": "none", "language": "en", "targetDurationSec": 30, "outputCount": 1}),
-            estimated_cost_usd="0.120000",
-        )
-
-
-def test_provider_provenance_is_globally_bounded_below_the_artifact_metadata_header_limit():
-    class OversizedProvenance(FakeTransport):
-        def generate_lyria(self, **kwargs):
-            return {
-                "id": "interaction-large", "object": "interaction", "status": "completed",
-                "usage": {f"metric_{index}": "u" * 2000 for index in range(100)},
-                "watermark": {"manifest": "w" * 20000},
-                "outputs": [
-                    {"type": "text", "text": "lyrics-" + "l" * 20000},
-                    {"type": "text", "text": "description-" + "d" * 20000},
-                    {"type": "audio", "mime_type": "audio/mpeg", "data": "YXVkaW8=", "c2pa": {"manifest": "c" * 20000}},
-                ],
-            }
-
-    result = LyriaGenerator(transport=OversizedProvenance()).generate(
-        request=validate_lyria_request({"modelCapability": "lyria-3-clip", "prompt": "pulse", "instrumental": True, "lyricsMode": "none", "language": "en", "targetDurationSec": 30, "outputCount": 1}),
-        estimated_cost_usd="0.120000",
-    )
-
-    encoded = json.dumps(result.provider_metadata, separators=(",", ":")).encode()
-    assert len(encoded) <= 3072
-    assert result.provider_metadata["lyrics"].startswith("lyrics-")
-    assert "data" not in encoded.decode()
-
-
-def test_media_pending_is_retryable_but_malformed_output_is_permanent():
-    assert classify_failure(MediaOperationPending("operations/op-1")) is False
-    assert classify_failure(MediaProtocolError("bad media")) is True
-
-
-def test_catalog_validates_provider_capabilities_before_spend():
-    request = validate_veo_request({
-        "modelCapability": "veo-3.1-fast", "mode": "text_to_video", "prompt": "blue network",
-        "durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p",
-        "generateAudio": False, "enhancePrompt": True, "outputCount": 1,
-    })
-    assert estimate_media_cost(request) == "0.320000"
-    with pytest.raises(MediaProtocolError, match="resolution"):
-        validate_veo_request({**request, "resolution": "4k"})
-
-
-def test_preview_lyria_requires_deployment_pricing_and_rejects_invalid_instrumental_lyrics():
-    request = validate_lyria_request({
-        "modelCapability": "lyria-3-clip", "prompt": "warm minimal pulse", "instrumental": True,
-        "lyricsMode": "none", "language": "en", "targetDurationSec": 30, "outputCount": 1,
-    })
-    with pytest.raises(MediaProtocolError, match="pricing unavailable"):
-        estimate_media_cost(request)
-    assert estimate_media_cost(request, {"lyria-3-clip": "0.120000"}) == "0.120000"
-    with pytest.raises(MediaProtocolError, match="lyrics"):
-        validate_lyria_request({**request, "lyricsMode": "provided", "providedLyrics": "hello"})
-    with pytest.raises(MediaProtocolError, match="30-second"):
-        validate_lyria_request({**request, "targetDurationSec": 4})
-
-
-def test_unwired_conditioning_and_music_controls_are_not_advertised_as_executable():
-    base_video = {"modelCapability": "veo-3.1-fast", "prompt": "blue network", "durationSec": 6, "aspectRatio": "16:9", "resolution": "1080p", "generateAudio": True, "enhancePrompt": False, "outputCount": 1}
-    with pytest.raises(MediaProtocolError, match="mode"):
-        validate_veo_request({**base_video, "mode": "reference_images"})
-    with pytest.raises(MediaProtocolError, match="mode"):
-        validate_veo_request({**base_video, "mode": "extend_video"})
-    with pytest.raises(MediaProtocolError, match="conditioning|controls"):
-        validate_lyria_request({"modelCapability": "lyria-3-clip", "prompt": "pulse", "conditioningImageArtifactId": "image-1", "instrumental": True, "lyricsMode": "none", "language": "en", "targetDurationSec": 30, "outputCount": 1})
+def test_paid_authorization_alone_does_not_enable_generation():
+    with pytest.raises(MediaProviderError, match="disabled"):
+        AwsMediaTransport(enabled=True).poll_nova_reel("arn", "model")

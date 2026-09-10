@@ -6,15 +6,15 @@ const byId = (id: string) => architectureDefinition.nodes.find((node) => node.id
 
 describe("Harmonia architecture dataset", () => {
   it("contains the exact agent and model team", () => {
-    expect(byId("agent-harmonia").model?.name).toBe("Gemini 3.5 Flash-Lite");
-    expect(byId("agent-intent-router").model?.name).toBe("Gemini 3.5 Flash-Lite");
-    expect(byId("agent-ryan").model?.name).toBe("Gemini 3.5 Flash");
-    expect(byId("agent-nimi").model?.name).toBe("Gemini 3.5 Flash");
-    expect(byId("agent-noni").model?.name).toBe("Gemini 3.5 Flash");
-    expect(byId("agent-dara").model?.name).toBe("Gemini 3.5 Flash");
-    expect(byId("agent-temi").model?.name).toBe("Gemini 3.5 Flash-Lite");
-    expect(byId("agent-maya").model?.name).toBe("Gemini 3.5 Flash");
-    expect(byId("agent-nova").model?.name).toBe("Gemini 3.5 Flash");
+    expect(byId("agent-harmonia").model?.name).toBe("Claude Haiku 4.5");
+    expect(byId("agent-intent-router").model?.name).toBe("Claude Haiku 4.5");
+    expect(byId("agent-ryan").model?.name).toBe("Claude Sonnet 4.6");
+    expect(byId("agent-nimi").model?.name).toBe("Amazon Nova 2 Lite");
+    expect(byId("agent-noni").model?.name).toBe("Claude Sonnet 4.6");
+    expect(byId("agent-dara").model?.name).toBe("Claude Sonnet 4.6");
+    expect(byId("agent-temi").model?.name).toBe("Claude Sonnet 4.6");
+    expect(byId("agent-maya").model?.name).toBe("Claude Haiku 4.5");
+    expect(byId("agent-nova").model?.name).toBe("Claude Haiku 4.5");
   });
 
   it("contains the eleven stages, routing skill, and read-only data tools", () => {
@@ -25,15 +25,15 @@ describe("Harmonia architecture dataset", () => {
     expect(byId("skill-harmonia-intent-routing")).toBeTruthy();
     expect(byId("agent-intent-router").skills).toEqual(["harmonia-intent-routing"]);
     expect(architectureDefinition.edges).toContainEqual(expect.objectContaining({ source: "agent-harmonia", target: "agent-intent-router", kind: "delegation" }));
-    for (const id of ["fetch-trend-signals", "search-trend-signals", "get-engagement-insights", "get-operator-feed", "get-job-status", "suggest-posting-windows", "search-verified-publications", "google-search-grounding"]) {
+    for (const id of ["fetch-trend-signals", "search-trend-signals", "get-engagement-insights", "get-operator-feed", "get-job-status", "suggest-posting-windows", "search-verified-publications", "agentcore-gateway-search"]) {
       expect(byId(`tool-${id}`).authorities).toEqual(["read"]);
     }
   });
 
   it("keeps durable and ephemeral state ownership explicit", () => {
-    expect(byId("firestore").stateLifetime).toBe("durable");
-    expect(byId("agent-engine").stateLifetime).toBe("ephemeral");
-    expect(byId("agent-engine").summary).toMatch(/cognitive runtime/i);
+    expect(byId("dynamodb").stateLifetime).toBe("durable");
+    expect(byId("agentcore").stateLifetime).toBe("ephemeral");
+    expect(byId("agentcore").summary).toMatch(/cognitive runtime/i);
   });
 
   it("represents Temi planning as agentic cognition inside deterministic controls", () => {
@@ -50,15 +50,15 @@ describe("Harmonia architecture dataset", () => {
     expect(byId("agent-dara").summary).toMatch(/all seven editorial checks.*at most one revision.*complete issue resolution/i);
     expect(byId("agent-dara").skills).toEqual(["dara-editing-skills"]);
     expect(byId("agent-dara").promptResponsibility).toMatch(/allow-listed editing method.*no workflow metadata.*replacement copy.*effects/i);
-    expect(byId("firestore").summary).toMatch(/editorial plan.*item lifecycle/i);
+    expect(byId("dynamodb").summary).toMatch(/editorial plan.*item lifecycle/i);
     expect(architectureDefinition.edges).toContainEqual(expect.objectContaining({
       source: "stage-plan", target: "agent-temi", kind: "delegation",
     }));
     expect(architectureDefinition.edges).toContainEqual(expect.objectContaining({
-      source: "agent-temi", target: "firestore", kind: "workflow",
+      source: "agent-temi", target: "dynamodb", kind: "workflow",
     }));
     expect(architectureDefinition.edges).toContainEqual(expect.objectContaining({
-      source: "firestore", target: "agent-noni",
+      source: "dynamodb", target: "agent-noni",
       label: "Selected item + exact Ryan brief + referenced Nimi evidence",
     }));
     expect(architectureDefinition.edges).toContainEqual(expect.objectContaining({
@@ -73,14 +73,14 @@ describe("Harmonia architecture dataset", () => {
   });
 
   it("does not claim pending providers are live verified", () => {
-    for (const id of ["external-veo", "external-lyria", "agent-engine", "memory-bank"]) {
+    for (const id of ["external-nova-reel", "external-elevenlabs", "agentcore", "agentcore-memory"]) {
       expect(byId(id).statuses).toContain("pending-live");
       expect(byId(id).statuses).not.toContain("offline-verified");
     }
   });
 
   it("represents the canonical approval policy for each effect", () => {
-    for (const id of ["effect-publish-x", "effect-generate-veo", "effect-generate-lyria", "effect-schedule-content"]) {
+    for (const id of ["effect-publish-x", "effect-generate-nova-reel", "effect-generate-elevenlabs", "effect-schedule-content"]) {
       expect(byId(id).statuses).toContain("approval-gated");
       expect(byId(id).approval).toBe("Required");
     }
@@ -94,7 +94,7 @@ describe("Harmonia architecture dataset", () => {
       .map((edge) => edge.target)
       .sort();
     expect(approvalTargets).toEqual([
-      "effect-generate-lyria", "effect-generate-veo", "effect-publish-x", "effect-schedule-content",
+      "effect-generate-elevenlabs", "effect-generate-nova-reel", "effect-publish-x", "effect-schedule-content",
     ]);
   });
 
@@ -103,4 +103,11 @@ describe("Harmonia architecture dataset", () => {
       "overview", "agents", "workflow", "effect-safety", "state", "apis", "observability",
     ]);
   });
+});
+
+it("marks every AWS architecture node pending authenticated live verification", () => {
+  for (const node of architectureDefinition.nodes) {
+    expect(node.statuses).toContain("pending-live");
+    expect(node.statuses).not.toContain("offline-verified");
+  }
 });

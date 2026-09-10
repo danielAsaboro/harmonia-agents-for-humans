@@ -19,7 +19,7 @@ export const dataBatchSchema = z.object({
   workspaceId: id,
   brandId: id,
   manifest: z.object({
-    uri: z.string().regex(/^gs:\/\/[A-Za-z0-9._-]+\/.+/),
+    uri: z.string().regex(/^s3:\/\/[A-Za-z0-9._-]+\/.+/),
     sha256: digest,
     itemCount: z.number().int().positive().max(1_000_000),
     byteCount: z.number().int().nonnegative(),

@@ -6,7 +6,7 @@ const { claimDurableEvent, completeDurableEvent, claimDurableOperation, finalize
   claimDurableOperation: vi.fn(),
   finalizeDurableOperation: vi.fn(),
 }));
-vi.mock("@/lib/firestore", () => ({
+vi.mock("@/lib/repository", () => ({
   claimDurableEvent,
   completeDurableEvent,
   claimDurableOperation,
@@ -67,7 +67,7 @@ describe("durable event and operation routes", () => {
 
   it("derives event claim digests and operation intent server-side", async () => {
     const response = await claimEvent(post("/api/internal/event-inbox/claim", {
-      envelope, pubsubMessageId: "delivery-1", claimToken: "s".repeat(32),
+      envelope, transportMessageId: "delivery-1", claimToken: "s".repeat(32),
     }));
     expect(response.status).toBe(200);
     expect(claimDurableEvent).toHaveBeenCalledWith(expect.objectContaining({
@@ -88,7 +88,7 @@ describe("durable event and operation routes", () => {
       payloadDigest: eventPayloadDigest({ stage: "verify" }),
     };
     const response = await claimEvent(post("/api/internal/event-inbox/claim", {
-      envelope: verifyEnvelope, pubsubMessageId: "delivery-verify", claimToken: "v".repeat(32),
+      envelope: verifyEnvelope, transportMessageId: "delivery-verify", claimToken: "v".repeat(32),
     }));
 
     expect(response.status).toBe(200);

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import os
 from decimal import ROUND_HALF_UP, Decimal
 
-PRICING_VERSION = "2026-09-02"
-RATE_SOURCE = "https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing"
+PRICING_VERSION = "aws-configured-2026-09-10"
+RATE_SOURCE = "https://aws.amazon.com/bedrock/pricing/"
 MILLION = Decimal("1000000")
 
 
@@ -23,44 +25,24 @@ class PricingEntry:
     source: str = RATE_SOURCE
 
 
-CATALOG = {
-    "gemini-3.7-flash": PricingEntry(
-        model="gemini-3.7-flash",
-        input_usd_per_million=Decimal("0.75"),
-        output_usd_per_million=Decimal("3.75"),
-        source="https://ai.google.dev/gemini-api/docs/pricing",
-    ),
-    "gemini-3.5-flash": PricingEntry(
-        model="gemini-3.5-flash",
-        input_usd_per_million=Decimal("1.50"),
-        output_usd_per_million=Decimal("9.00"),
-    ),
-    "gemini-3.5-flash-lite": PricingEntry(
-        model="gemini-3.5-flash-lite",
-        input_usd_per_million=Decimal("0.30"),
-        output_usd_per_million=Decimal("2.50"),
-    ),
-    "gemini-3.6-flash": PricingEntry(
-        model="gemini-3.6-flash",
-        input_usd_per_million=Decimal("0.75"),
-        output_usd_per_million=Decimal("3.75"),
-        source="https://ai.google.dev/gemini-api/docs/pricing",
-    ),
-}
-
 MEDIA_CATALOG = {
-    "veo-3.1-fast-generate-001": {"unit": "second", "price": Decimal("0.080000")},
-    "lyria-002": {"unit": "generation", "price": Decimal("0.060000")},
-    "lyria-3-clip-preview": {"unit": "generation", "price": None},
-    "lyria-3-pro-preview": {"unit": "generation", "price": None},
+    "amazon.nova-canvas-v1:0": {"unit": "generation", "price": None},
+    "amazon.nova-reel-v1:1": {"unit": "second", "price": None},
+    "amazon-transcribe": {"unit": "second", "price": None},
+    "music_v1": {"unit": "generation", "price": None},
 }
 
 
 def lookup_pricing(model_id: str) -> PricingEntry:
     try:
-        return CATALOG[model_id]
-    except KeyError as exc:
-        raise UnknownModelPrice(f"no price configured for model: {model_id}") from exc
+        rates = json.loads(os.environ.get("BEDROCK_TEXT_PRICING_JSON", "{}"))[model_id]
+        input_rate, output_rate = Decimal(str(rates["input"])), Decimal(str(rates["output"]))
+        if not input_rate.is_finite() or not output_rate.is_finite() or min(input_rate, output_rate) <= 0:
+            raise ValueError("rates must be positive finite values")
+        return PricingEntry(model=model_id, input_usd_per_million=input_rate, output_usd_per_million=output_rate)
+    except (KeyError, ValueError, TypeError) as exc:
+        raise UnknownModelPrice(f"deployment pricing is required for Bedrock model: {model_id}") from exc
+
 
 
 def estimate_text_cost(model_id: str, input_tokens: int, output_tokens: int) -> Decimal:
@@ -84,6 +66,8 @@ def lookup_media_price(
     price = Decimal(configured_price) if configured_price is not None else entry["price"]
     if price is None:
         raise UnknownModelPrice(f"deployment price is required for preview model: {model_id}")
+    if not price.is_finite() or price <= 0:
+        raise UnknownModelPrice("media price must be positive and finite")
     if duration_sec <= 0:
         raise ValueError("media duration must be positive")
     amount = price * duration_sec if entry["unit"] == "second" else price

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { firebasePrincipal } from "@/lib/authority";
+import { cognitoPrincipal } from "@/lib/authority";
 import { hasRightsAttestation, sourceRightsAuthorization } from "@/lib/sourceRights";
 
 describe("source-rights authorization", () => {
@@ -11,7 +11,7 @@ describe("source-rights authorization", () => {
   it("persists verified actor provenance before ingestion", () => {
     expect(sourceRightsAuthorization({
       workspaceId: "workspace-1", brandId: "brand-1",
-      principal: firebasePrincipal({ subjectId: "user-1", workspaceRole: "member", authenticationId: "session-1" }),
+      principal: cognitoPrincipal({ subjectId: "user-1", workspaceRole: "member", authenticationId: "session-1" }),
     }, "youtube", "2026-08-26T00:00:00.000Z")).toMatchObject({
       version: "source-rights-v1", sourceKind: "youtube", attestedBySubjectId: "user-1", channel: "dashboard",
     });

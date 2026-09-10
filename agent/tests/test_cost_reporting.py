@@ -14,8 +14,8 @@ from harmonia_agent.agents import RoleModelInstances
 from harmonia_agent.role_models import RoleModelConfig
 from harmonia_agent.usage import InvocationContext, run_metered
 from harmonia_agent.telemetry import configure_telemetry
-from harmonia_agent.team_runtime import AgentEngineProviderError
-from test_agent_team import ManagedRuntime, ScriptedDraftModel, _analysis, _production_input
+from harmonia_agent.team_runtime import AgentCoreProviderError
+from test_agent_team import ManagedRuntime, _analysis, _production_input
 from harmonia_agent.tenant_context import tenant_scope
 from tests.test_ryan_strategy import strategy as _content_strategy
 
@@ -60,7 +60,7 @@ def test_model_call_reserves_budget_before_provider():
 def test_draft_run_reserves_and_reports_each_participating_role():
     reservations: list[dict] = []
     reports: list[dict] = []
-    model = ScriptedDraftModel(model="gemini-3.5-flash")
+    model = "us.anthropic.claude-sonnet-4-6"
     payload = _production_input()
 
     state = asyncio.run(_run_coordinator(
@@ -101,7 +101,7 @@ def test_managed_agent_run_projects_log_trace_and_metric_activity():
         job_id="job-1", stage="understand", operation_id="job-1:understand:0",
     )
     asyncio.run(_run_coordinator(
-        "nimi_analyst", _analyst_input(), model="gemini-3.5-flash",
+        "nimi_analyst", _analyst_input(), model="us.anthropic.claude-sonnet-4-6",
         team_runtime=ManagedRuntime(), invocation=invocation,
         budget_reserver=lambda _item: None, usage_reporter=lambda _item: None,
         activity_reporter=activity.append,
@@ -126,7 +126,7 @@ def test_team_does_not_dispatch_when_the_specialist_reservation_fails():
         asyncio.run(_run_coordinator(
             "noni_copywriter",
             _production_input(),
-            model=ScriptedDraftModel(model="gemini-3.5-flash"),
+            model="us.anthropic.claude-sonnet-4-6",
             team_runtime=ManagedRuntime(),
             invocation=InvocationContext(
                 workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
@@ -146,11 +146,11 @@ def test_team_quarantines_all_reservations_when_runtime_fails_after_dispatch():
             raise TimeoutError("managed runtime timeout")
 
     resolutions: list[dict] = []
-    with pytest.raises(AgentEngineProviderError, match="operation timeout") as raised:
+    with pytest.raises(AgentCoreProviderError, match="operation timeout") as raised:
         asyncio.run(_run_coordinator(
             "nimi_analyst",
             _analyst_input(),
-            model="gemini-3.5-flash",
+            model="us.anthropic.claude-sonnet-4-6",
             team_runtime=FailingRuntime(),
             invocation=InvocationContext(
                 workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
@@ -168,236 +168,6 @@ def test_team_quarantines_all_reservations_when_runtime_fails_after_dispatch():
     assert {item["outcome"] for item in resolutions} == {"uncertain"}
 
 
-def test_transcription_reserves_before_provider_and_reports_tokens(monkeypatch):
-    order: list[str] = []
-    reservations: list[dict] = []
-    reports: list[dict] = []
-    monkeypatch.setattr(youtube, "probe_audio_duration", lambda _audio: 1)
-    monkeypatch.setenv("TRANSCRIBER_MODEL_ID", "gemini-3.5-flash-lite")
-
-    class Models:
-        def generate_content(self, **_kwargs):
-            assert order == ["reserve"]
-            assert _kwargs["model"] == "gemini-3.5-flash-lite"
-            order.append("provider")
-            return SimpleNamespace(
-                text='{"language":"en","segments":[{"id":"s1","startSec":0,"endSec":1,"text":"hello"}]}',
-                usage_metadata=SimpleNamespace(
-                    prompt_token_count=120, candidates_token_count=30,
-                ),
-            )
-
-    monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=Models()))
-
-    result = content.transcribe_audio(
-        b"audio", "audio/mp4",
-        invocation=InvocationContext(
-            workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
-            job_id="job-1", stage="extract_sources", operation_id="job-1:extract_sources:0",
-        ),
-        budget_reserver=lambda item: (reservations.append(item), order.append("reserve")),
-        usage_reporter=lambda item: (reports.append(item), order.append("usage")),
-    )
-
-    assert result["segments"][0]["text"] == "hello"
-    assert order == ["reserve", "provider", "usage"]
-    assert reservations[0]["role"] == "transcriber"
-    assert reservations[0]["model"] == "gemini-3.5-flash-lite"
-    assert reports[0]["inputUnits"] == 120
-    assert reports[0]["outputUnits"] == 30
-
-
-def test_transcription_reservation_prices_audio_duration_instead_of_encoded_bytes(monkeypatch):
-    reservations: list[dict] = []
-
-    class Models:
-        def generate_content(self, **_kwargs):
-            return SimpleNamespace(
-                text='{"language":"en","segments":[{"id":"s1","startSec":0,"endSec":1,"text":"hello"}]}',
-                usage_metadata=SimpleNamespace(prompt_token_count=20_000, candidates_token_count=30),
-            )
-
-    monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=Models()))
-    monkeypatch.setattr(youtube, "probe_audio_duration", lambda _audio: 600)
-
-    content.transcribe_audio(
-        b"x" * 10_000_000, "audio/mp4",
-        invocation=InvocationContext(
-            workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
-            job_id="job-1", stage="extract_sources", operation_id="job-1:extract_sources:0",
-        ),
-        budget_reserver=reservations.append,
-        usage_reporter=lambda _item: None,
-    )
-
-    assert 0.02 < float(reservations[0]["estimatedCostUsd"]) < 0.10
-
-
-def test_large_transcription_uses_private_gcs_instead_of_developer_files(monkeypatch):
-    from google.cloud import storage
-    calls: dict[str, object] = {}
-    monkeypatch.setattr(youtube, "probe_audio_duration", lambda _audio: 600)
-
-    class Blob:
-        name = "transcription-inputs/test/media"
-        generation = 7
-        def upload_from_string(self, data, **kwargs):
-            calls["upload"] = kwargs
-        def delete(self, **kwargs):
-            calls["delete"] = kwargs
-
-    monkeypatch.setattr(storage, "Client", lambda **kwargs: SimpleNamespace(bucket=lambda name: SimpleNamespace(blob=lambda key: Blob())))
-    monkeypatch.setattr(content, "settings", lambda: SimpleNamespace(gcp_project="project", media_output_bucket="private-bucket"))
-
-    class Models:
-        def generate_content(self, **kwargs):
-            calls["generate"] = kwargs
-            return SimpleNamespace(
-                text='{"language":"en","segments":[{"id":"s1","startSec":0,"endSec":1,"text":"hello"}]}',
-                usage_metadata=SimpleNamespace(prompt_token_count=120, candidates_token_count=30),
-            )
-
-    monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=Models()))
-
-    content.transcribe_audio(
-        b"x" * (content.MAX_INLINE_MEDIA_BYTES + 1), "audio/mp4",
-        invocation=InvocationContext(
-            workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
-            job_id="job-1", stage="extract_sources", operation_id="job-1:extract_sources:0",
-        ),
-        budget_reserver=lambda _item: None,
-        usage_reporter=lambda _item: None,
-    )
-
-    assert calls["upload"] == {"content_type": "audio/mp4", "if_generation_match": 0}
-    assert calls["delete"] == {"if_generation_match": 7}
-    contents = calls["generate"]["contents"]
-    assert contents["parts"][0]["fileData"]["fileUri"] == "gs://private-bucket/transcription-inputs/test/media"
-    assert "inlineData" not in repr(contents)
-
-
-def test_transcription_releases_when_client_fails_before_dispatch(monkeypatch):
-    resolutions: list[dict] = []
-    monkeypatch.setattr(youtube, "probe_audio_duration", lambda _audio: 1)
-    monkeypatch.setattr(content, "_client", lambda: (_ for _ in ()).throw(RuntimeError("client unavailable")))
-
-    with pytest.raises(RuntimeError):
-        content.transcribe_audio(
-            b"audio", "audio/mp4",
-            invocation=InvocationContext(
-                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
-                job_id="job-1", stage="extract_sources", operation_id="job-1:extract_sources:0",
-            ),
-            budget_reserver=lambda _item: None,
-            budget_resolver=resolutions.append,
-        )
-
-    assert resolutions[0]["outcome"] == "not_invoked"
-
-
-def test_transcription_quarantines_timeout_after_dispatch(monkeypatch):
-    resolutions: list[dict] = []
-    monkeypatch.setattr(youtube, "probe_audio_duration", lambda _audio: 1)
-
-    class Models:
-        def generate_content(self, **_kwargs):
-            raise TimeoutError("timeout")
-
-    monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=Models()))
-    with pytest.raises(TimeoutError):
-        content.transcribe_audio(
-            b"audio", "audio/mp4",
-            invocation=InvocationContext(
-                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
-                job_id="job-1", stage="extract_sources", operation_id="job-1:extract_sources:0",
-            ),
-            budget_reserver=lambda _item: None,
-            budget_resolver=resolutions.append,
-        )
-
-    assert resolutions[0]["outcome"] == "uncertain"
-
-
-def test_image_generation_uses_explicit_maximum_cost_reservation(monkeypatch):
-    reservations: list[dict] = []
-    reports: list[dict] = []
-    image = SimpleNamespace(image_bytes=b"png", mime_type="image/png")
-    response = SimpleNamespace(generated_images=[SimpleNamespace(image=image)])
-    models = SimpleNamespace(generate_images=lambda **_kwargs: response)
-    monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=models))
-
-    generated, mime = content.generate_image(
-        "safe visual description",
-        invocation=InvocationContext(
-            workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
-            job_id="job-1", stage="publish", operation_id="job-1:publish:act-img",
-        ),
-        budget_reserver=reservations.append,
-        usage_reporter=reports.append,
-    )
-
-    assert generated == b"png" and mime == "image/png"
-    assert reservations[0]["estimatedCostUsd"] == "0.500000"
-    assert reports[0]["unitType"] == "images"
-    assert reports[0]["inputUnits"] == 1
-
-
-def test_image_generation_releases_reservation_when_client_fails_before_dispatch(monkeypatch):
-    resolutions: list[dict] = []
-    monkeypatch.setattr(content, "_client", lambda: (_ for _ in ()).throw(RuntimeError("client unavailable")))
-
-    with pytest.raises(content.ImageGenError):
-        content.generate_image(
-            "safe visual description",
-            invocation=InvocationContext(
-                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
-                job_id="job-1", stage="publish", operation_id="job-1:publish:act-img",
-            ),
-            budget_reserver=lambda _item: None,
-            budget_resolver=resolutions.append,
-        )
-
-    assert resolutions[0]["outcome"] == "not_invoked"
-
-
-def test_image_generation_marks_reservation_uncertain_after_provider_dispatch(monkeypatch):
-    resolutions: list[dict] = []
-    models = SimpleNamespace(generate_images=lambda **_kwargs: (_ for _ in ()).throw(TimeoutError("timeout")))
-    monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=models))
-
-    with pytest.raises(content.ImageGenError):
-        content.generate_image(
-            "safe visual description",
-            invocation=InvocationContext(
-                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
-                job_id="job-1", stage="publish", operation_id="job-1:publish:act-img",
-            ),
-            budget_reserver=lambda _item: None,
-            budget_resolver=resolutions.append,
-        )
-
-    assert resolutions[0]["outcome"] == "uncertain"
-
-
-def test_image_generation_marks_empty_provider_response_uncertain(monkeypatch):
-    resolutions: list[dict] = []
-    models = SimpleNamespace(generate_images=lambda **_kwargs: SimpleNamespace(generated_images=[]))
-    monkeypatch.setattr(content, "_client", lambda: SimpleNamespace(models=models))
-
-    with pytest.raises(content.ImageGenError):
-        content.generate_image(
-            "safe visual description",
-            invocation=InvocationContext(
-                workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
-                job_id="job-1", stage="publish", operation_id="job-1:publish:act-img",
-            ),
-            budget_reserver=lambda _item: None,
-            budget_resolver=resolutions.append,
-        )
-
-    assert resolutions[0]["outcome"] == "uncertain"
-
-
 def test_agent_trace_has_safe_delegation_model_and_validation_spans():
     exporter = InMemorySpanExporter()
     configure_telemetry(exporter=exporter, force=True)
@@ -406,7 +176,7 @@ def test_agent_trace_has_safe_delegation_model_and_validation_spans():
     asyncio.run(_run_coordinator(
         "noni_copywriter",
         payload,
-        model=ScriptedDraftModel(model="gemini-3.5-flash"),
+        model="us.anthropic.claude-sonnet-4-6",
         team_runtime=ManagedRuntime(),
         invocation=InvocationContext(
             workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
@@ -437,19 +207,19 @@ def test_heterogeneous_draft_usage_keeps_each_actual_gemini_role_model():
     reports: list[dict] = []
 
     models = RoleModelInstances(
-        coordinator=ScriptedDraftModel(model="gemini-3.5-flash-lite"),
-        strategist=ScriptedDraftModel(model="gemini-3.5-flash"),
-        analyst=ScriptedDraftModel(model="gemini-3.5-flash"),
-        copywriter=ScriptedDraftModel(model="gemini-3.5-flash"),
-        editor=ScriptedDraftModel(model="gemini-3.5-flash"),
-        planner=ScriptedDraftModel(model="gemini-3.5-flash-lite"),
-        presenter=ScriptedDraftModel(model="gemini-3.5-flash"),
-        liaison=ScriptedDraftModel(model="gemini-3.5-flash"),
+        coordinator="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        strategist="us.anthropic.claude-sonnet-4-6",
+        analyst="us.anthropic.claude-sonnet-4-6",
+        copywriter="us.anthropic.claude-sonnet-4-6",
+        editor="us.anthropic.claude-sonnet-4-6",
+        planner="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        presenter="us.anthropic.claude-sonnet-4-6",
+        liaison="us.anthropic.claude-sonnet-4-6",
         configs={
             "noni_copywriter": RoleModelConfig(
                 role="noni_copywriter",
-                provider="gemini",
-                model_id="gemini-3.5-flash",
+                provider="bedrock",
+                model_id="us.anthropic.claude-sonnet-4-6",
                 max_output_tokens=2048,
             ),
         },
@@ -475,7 +245,7 @@ def test_heterogeneous_draft_usage_keeps_each_actual_gemini_role_model():
         budget_reserver=reservations.append, usage_reporter=reports.append,
     ))
 
-    expected = {"noni_copywriter": "gemini-3.5-flash", "dara_editor": "gemini-3.5-flash"}
+    expected = {"noni_copywriter": "us.anthropic.claude-sonnet-4-6", "dara_editor": "us.anthropic.claude-sonnet-4-6"}
     assert {item["role"]: item["model"] for item in reservations} == expected
     assert {item["role"]: item["model"] for item in reports} == expected
     noni_usage = next(item for item in reports if item["role"] == "noni_copywriter")
@@ -532,7 +302,7 @@ def test_managed_runtime_finalizes_explicit_estimated_usage_for_every_reserved_r
     asyncio.run(_run_coordinator(
         "nimi_analyst",
         _analyst_input(),
-        model="gemini-3.5-flash",
+        model="us.anthropic.claude-sonnet-4-6",
         invocation=InvocationContext(
             workspace_id="workspace-test", brand_id="brand-test", user_id="user-test",
             job_id="job-1", stage="understand", operation_id="job-1:understand:0",

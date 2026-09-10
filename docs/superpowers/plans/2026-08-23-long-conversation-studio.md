@@ -4,9 +4,9 @@
 
 **Goal:** Replace the dashboard’s stacked chat cards with a production-grade long-conversation studio: conversation at two fifths, living cross-media canvas at three fifths, and the existing trusted approval boundary integrated across both.
 
-**Architecture:** Keep the existing chat stream, replay, Firestore history, job detail, asset, and decision APIs. Add pure selectors that derive chapters, active jobs, artifact groups, summaries, and trace links from persisted data; then render those view models through a split `StudioShell`, focused conversation components, cross-media canvas workspaces, and a trusted approval dock. `ChatConsole` remains the state orchestrator but delegates visual rendering to focused studio components.
+**Architecture:** Keep the existing chat stream, replay, DynamoDB history, job detail, asset, and decision APIs. Add pure selectors that derive chapters, active jobs, artifact groups, summaries, and trace links from persisted data; then render those view models through a split `StudioShell`, focused conversation components, cross-media canvas workspaces, and a trusted approval dock. `ChatConsole` remains the state orchestrator but delegates visual rendering to focused studio components.
 
-**Tech Stack:** Next.js 16.3.1, React 19.2.8, TypeScript 5, Tailwind CSS 4, Zod 4, Google A2UI React/web core v0.9 compatibility exports, Firestore, Vitest 4.1.11.
+**Tech Stack:** Next.js 16.3.1, React 19.2.8, TypeScript 5, Tailwind CSS 4, Zod 4, Google A2UI React/web core v0.9 compatibility exports, DynamoDB, Vitest 4.1.11.
 
 **Spec:** `docs/superpowers/specs/2026-08-23-long-conversation-studio-design.md`
 
@@ -18,7 +18,7 @@
 - Use only persisted messages, validated stream events, jobs, actions, assets, receipts, and source references; never manufacture successful media, model execution, approval, or verification state.
 - Completed agent activity is collapsed; active work, failures, and unresolved decisions are expanded; hidden chain-of-thought is never rendered.
 - Written content, images, memes, clips, reels, Veo outputs, Lyria/audio outputs, sources, cost, policy, approval, and verification are first-class where real records exist.
-- Public chat payloads, Firestore job documents, Pub/Sub messages, action IDs, receipts, Telegram, publishing, and approval semantics remain unchanged.
+- Public chat payloads, DynamoDB job documents, SQS messages, action IDs, receipts, Telegram, publishing, and approval semantics remain unchanged.
 - Creation-mode shortcuts submit through the existing chat stream and coordinator; the browser never invokes a model or publishing provider directly.
 - Every behavior change follows red-green-refactor TDD and ends in a focused commit.
 
@@ -681,7 +681,7 @@ Expected: FAIL until `ConsoleMessage` retains `id`/`run` and `StudioConsoleView`
 
 - [ ] **Step 3: Preserve stable message and session data**
 
-Extend `ConsoleMessage` with optional `id`, `attachments`, and `run`. Update the history mapper to retain Firestore message IDs. Continue replaying `chatRunId` through `historyRunState`. `groupSessions` must carry object identity and all optional fields without cloning them away.
+Extend `ConsoleMessage` with optional `id`, `attachments`, and `run`. Update the history mapper to retain DynamoDB message IDs. Continue replaying `chatRunId` through `historyRunState`. `groupSessions` must carry object identity and all optional fields without cloning them away.
 
 - [ ] **Step 4: Replace ChatConsole’s rendering with StudioShell**
 
@@ -820,7 +820,7 @@ Run:
 
 ```bash
 npx vitest run tests/demoStudioConversation.test.ts tests/demoA2uiRun.test.ts
-DEMO_USER_UID=dev-local-user FIRESTORE_EMULATOR_HOST=127.0.0.1:8081 GOOGLE_CLOUD_PROJECT=harmonia-local npm run seed
+DEMO_USER_UID=dev-local-user FIRESTORE_EMULATOR_HOST=127.0.0.1:8081 AWS_ACCOUNT_ID=harmonia-local npm run seed
 ```
 
 Expected: tests pass; seeder reports at least 24 chat messages and validated A2UI replay events.
@@ -873,7 +873,7 @@ WATCHPACK_POLLING=true \
 HARMONIA_DEV_AUTH_BYPASS=1 \
 FIRESTORE_EMULATOR_HOST=127.0.0.1:8081 \
 PUBSUB_EMULATOR_HOST=127.0.0.1:8082 \
-GOOGLE_CLOUD_PROJECT=harmonia-local \
+AWS_ACCOUNT_ID=harmonia-local \
 INTERNAL_API_TOKEN=local-dev-token \
 ./node_modules/.bin/next dev
 ```

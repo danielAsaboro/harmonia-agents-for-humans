@@ -1,4 +1,4 @@
-import { listRecentReceipts } from "@/lib/firestore";
+import { listRecentReceipts } from "@/lib/repository";
 import { tenantHandler } from "@/lib/auth";
 
 async function get(req: Request) {

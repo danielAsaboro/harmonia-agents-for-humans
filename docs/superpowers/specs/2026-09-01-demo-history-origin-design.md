@@ -6,7 +6,7 @@ Create a clearly isolated teaching-demo history inside the existing Harmonia ten
 
 ## Scope
 
-The operator utility copies every source job in one workspace/brand into a named demo dataset. It copies each job aggregate and every descendant document. It also copies brand-scoped documents whose stored `jobId` matches a copied job, including production plans, claims, receipts, actions, artifacts, and related records discoverable through Firestore collection traversal.
+The operator utility copies every source job in one workspace/brand into a named demo dataset. It copies each job aggregate and every descendant document. It also copies brand-scoped documents whose stored `jobId` matches a copied job, including production plans, claims, receipts, actions, artifacts, and related records discoverable through DynamoDB collection traversal.
 
 The utility does not copy credentials, OAuth connections, Telegram connections, workspace membership, scheduler configuration, active autonomy configuration, or unscoped brand records.
 
@@ -24,7 +24,7 @@ Every copied document receives a `demoProvenance` object containing the dataset 
 
 ## Timeline Transformation
 
-The utility discovers every ISO-8601 string and Firestore Timestamp within the selected job graph. The earliest discovered instant becomes `2026-08-27T00:00:00.000Z`. The same millisecond offset is applied recursively to all other timestamps, including nested arrays and objects. Durations and ordering therefore remain unchanged.
+The utility discovers every ISO-8601 string and DynamoDB Timestamp within the selected job graph. The earliest discovered instant becomes `2026-08-27T00:00:00.000Z`. The same millisecond offset is applied recursively to all other timestamps, including nested arrays and objects. Durations and ordering therefore remain unchanged.
 
 Plain strings that are not complete ISO timestamps are never altered. Object names, digests, provider IDs, costs, and content are unchanged.
 
@@ -37,20 +37,20 @@ Copied records are historical display data only:
 - Copied jobs are forced to terminal display state while their original status and stage are retained in `demoProvenance`.
 - External object keys remain read-only references to the original immutable objects; no provider or storage copy is performed.
 
-This prevents the demo dataset from being claimed by Cloud Run or Pub/Sub.
+This prevents the demo dataset from being claimed by ECS Fargate or SQS.
 
 ## Execution Contract
 
 The utility has two phases:
 
 1. `--dry-run` discovers the graph and prints source counts, earliest timestamp, offset, destination paths, and rejected/unsafe records without writing.
-2. `--apply` repeats discovery, verifies the dry-run digest supplied by the operator, and creates the dataset atomically in bounded Firestore batches. Existing destination documents cause the run to stop rather than overwrite.
+2. `--apply` repeats discovery, verifies the dry-run digest supplied by the operator, and creates the dataset atomically in bounded DynamoDB batches. Existing destination documents cause the run to stop rather than overwrite.
 
 The first implementation targets the currently authenticated Harmonia workspace and brand, with source and destination scope supplied explicitly on the command line. It never changes the operator's default workspace or brand.
 
 ## Validation
 
-Pure transformation tests cover ISO strings, Firestore Timestamps, nested arrays, unchanged non-time strings, deterministic IDs, and preserved intervals. Firestore emulator integration tests cover recursive job copying, associated-record selection, manifest creation, collision refusal, source immutability, and quarantine of executable records.
+Pure transformation tests cover ISO strings, DynamoDB Timestamps, nested arrays, unchanged non-time strings, deterministic IDs, and preserved intervals. DynamoDB emulator integration tests cover recursive job copying, associated-record selection, manifest creation, collision refusal, source immutability, and quarantine of executable records.
 
 After applying to the live tenant, a read-only verification pass must prove:
 

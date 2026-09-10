@@ -1,12 +1,11 @@
-import type { Firestore } from "@google-cloud/firestore";
+import { DynamoRepository,partition,recordKey,where } from "../dynamo";
 
-import { createStageOutboxInTransaction } from "../firestore";
-import { invalidateEffectCommand, type EffectCommand } from "../effectCommands";
-import { assertResourceWorkspace, currentTenant, tenantCollectionPath, tenantDocumentPath } from "../tenancy";
-import type { EffectClaim } from "../types";
-import type { JobStatus, Stage } from "../types";
-import { decideJobControl, type CommandEnvelope, type JobControlState } from "./commands";
-import { jobControlStateSchema, type JobControlStateValue } from "./jobShell";
+import { invalidateEffectCommand,type EffectCommand } from "../effectCommands";
+import { createStageOutboxInTransaction } from "../repository";
+import { assertResourceWorkspace,currentTenant,tenantCollectionPath,tenantDocumentPath } from "../tenancy";
+import type { EffectClaim,JobStatus,Stage } from "../types";
+import { decideJobControl,type CommandEnvelope,type JobControlState } from "./commands";
+import { jobControlStateSchema,type JobControlStateValue } from "./jobShell";
 
 export interface CommandReceipt {
   commandId: string;
@@ -26,12 +25,12 @@ export interface CommandReceipt {
 }
 
 export class JobControlCommandStore {
-  constructor(private readonly firestore: Firestore) {}
+  constructor(private readonly repository: DynamoRepository) {}
 
   async record(command: CommandEnvelope): Promise<CommandReceipt> {
     const tenant = currentTenant();
-    const expectedActorType = tenant.principal.kind === "firebase_user"
-      ? "firebase_operator"
+    const expectedActorType = tenant.principal.kind === "cognito_user"
+      ? "cognito_operator"
       : tenant.principal.kind === "telegram_user"
         ? "telegram_operator"
         : null;
@@ -41,20 +40,20 @@ export class JobControlCommandStore {
       || command.actor.authenticationId !== tenant.principal.authenticationId
     ) throw new Error("job control command actor does not match authenticated tenant principal");
 
-    const jobRef = this.firestore.doc(tenantDocumentPath(tenant, "jobs", command.jobId));
-    const receiptRef = jobRef.collection("control_commands").doc(command.commandId);
-    return this.firestore.runTransaction(async (transaction) => {
+    const jobRef = recordKey(tenantDocumentPath(tenant, "jobs", command.jobId));
+    const receiptRef = recordKey(partition(jobRef.path + "/" + "control_commands").partition + "/" + command.commandId);
+    return this.repository.atomic(async (transaction) => {
       const [jobSnapshot, receiptSnapshot] = await Promise.all([
-        transaction.get(jobRef),
-        transaction.get(receiptRef),
+        transaction.read(jobRef),
+        transaction.read(receiptRef),
       ]);
-      if (receiptSnapshot.exists) {
-        const receipt = receiptSnapshot.data() as CommandReceipt;
+      if (receiptSnapshot.present) {
+        const receipt = receiptSnapshot.value as unknown as CommandReceipt;
         if (receipt.payloadDigest !== command.payloadDigest) throw new Error("command id was already used with a different payload");
         return receipt;
       }
-      if (!jobSnapshot.exists) throw new Error(`job not found: ${command.jobId}`);
-      const job = jobSnapshot.data() as {
+      if (!jobSnapshot.present) throw new Error(`job not found: ${command.jobId}`);
+      const job = jobSnapshot.value as unknown as {
         workspaceId: string;
         brandId: string;
         status: JobStatus;
@@ -65,10 +64,10 @@ export class JobControlCommandStore {
       };
       assertResourceWorkspace(tenant, job);
       const effectSnapshots = command.action === "cancel"
-        ? await transaction.get(this.firestore.collection(tenantCollectionPath(tenant, "effect_commands")).where("jobId", "==", command.jobId))
+        ? await transaction.read(where(partition(tenantCollectionPath(tenant, "effect_commands")), "jobId", "==", command.jobId))
         : null;
       const effectClaims = effectSnapshots
-        ? await Promise.all(effectSnapshots.docs.map((snapshot) => transaction.get(snapshot.ref.collection("claims").doc("effect"))))
+        ? await Promise.all(effectSnapshots.rows.map((snapshot) => transaction.read(recordKey(partition(snapshot.key.path + "/" + "claims").partition + "/" + "effect"))))
         : [];
       const state: JobControlState = {
         jobId: command.jobId,
@@ -96,13 +95,13 @@ export class JobControlCommandStore {
       if (decision.accepted) {
         const activeActionIds = new Set<string>();
         if (effectSnapshots) {
-          effectSnapshots.docs.forEach((snapshot, index) => {
-            const effect = snapshot.data() as EffectCommand;
-            const claim = effectClaims[index]?.exists ? effectClaims[index].data() as EffectClaim : null;
+          effectSnapshots.rows.forEach((snapshot, index) => {
+            const effect = snapshot.value as unknown as EffectCommand;
+            const claim = effectClaims[index].present ? effectClaims[index].value as unknown as EffectClaim : null;
             const inFlight = ["dispatched", "observed", "unknown"].includes(effect.state)
               || (claim ? ["claimed", "dispatched", "observed", "unknown"].includes(claim.state) : false);
             if (inFlight) activeActionIds.add(effect.actionId);
-            else if (effect.state === "prepared") transaction.set(snapshot.ref, invalidateEffectCommand(effect, `job cancelled by command ${command.commandId}`, receipt.recordedAt));
+            else if (effect.state === "prepared") transaction.put(snapshot.key, invalidateEffectCommand(effect, `job cancelled by command ${command.commandId}`, receipt.recordedAt));
           });
         }
         const actions = command.action === "cancel"
@@ -110,7 +109,7 @@ export class JobControlCommandStore {
             ? { ...action, state: "skipped", approvalState: "rejected" }
             : action)
           : job.actions;
-        transaction.update(jobRef, {
+        transaction.patch(jobRef, {
           controlState: decision.next.controlState,
           controlEpoch: decision.next.controlEpoch,
           ...(command.action === "cancel" ? {
@@ -131,7 +130,7 @@ export class JobControlCommandStore {
           );
         }
       }
-      transaction.create(receiptRef, receipt);
+      transaction.insert(receiptRef, receipt);
       return receipt;
     });
   }

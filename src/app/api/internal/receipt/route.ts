@@ -4,7 +4,7 @@ import {
   finalizeEffectReceipt,
   getJob,
   transitionStageWithOutbox,
-} from "@/lib/firestore";
+} from "@/lib/repository";
 import { internalRoute, readOperationFenceHeaders } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";

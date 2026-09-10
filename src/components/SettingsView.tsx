@@ -456,8 +456,8 @@ export default function SettingsView() {
             inline-button taps.
           </li>
           <li>
-            <strong className="text-zinc-800 dark:text-zinc-200">Gemini</strong> — required for
-            transcription, analysis, drafting, and chat intent parsing.
+            <strong className="text-zinc-800 dark:text-zinc-200">Bedrock</strong> — required for
+            analysis, drafting, and chat intent parsing; Amazon Transcribe supplies spoken evidence.
           </li>
         </ul>
         <p className="mt-3 text-[11px] text-zinc-400">

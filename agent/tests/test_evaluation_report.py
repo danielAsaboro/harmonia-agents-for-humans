@@ -47,11 +47,11 @@ def record(
 
 def test_candidate_must_meet_quality_floor_before_cost_selection():
     comparison = compare_role_candidates([
-        record("gemini-3.5-flash", pass_rate="1.0", cost="0.020000", latency_ms=900),
-        record("gemini-3.5-flash-lite", pass_rate="0.7", cost="0.005000", latency_ms=400),
+        record("us.anthropic.claude-sonnet-4-6", pass_rate="1.0", cost="0.020000", latency_ms=900),
+        record("us.anthropic.claude-haiku-4-5-20251001-v1:0", pass_rate="0.7", cost="0.005000", latency_ms=400),
     ], minimum_pass_rate="0.95")
 
-    assert comparison.selected_model == "gemini-3.5-flash"
+    assert comparison.selected_model == "us.anthropic.claude-sonnet-4-6"
     assert comparison.rejected[0].reason == "below_quality_floor"
 
 
@@ -108,13 +108,13 @@ def test_loader_verifies_artifact_usage_and_catalog_linkage(tmp_path):
     usage = tmp_path / "usage.json"
     artifact.write_text(json.dumps({
         "runId": "run-1", "role": "nimi_analyst", "modelId": "candidate-model",
-        "policyVersion": "gear-2026-08-24", "pricingVersion": "2026-09-02",
+        "policyVersion": "strands-2026-09-09", "pricingVersion": "aws-configured-2026-09-10",
         "minimumPassRate": "0.95", "usageRecordIds": ["usage-1"],
         "cases": [{"caseId": "grounding", "passed": True, "latencyMs": 250}],
     }, sort_keys=True))
     usage.write_text(json.dumps([{
         "id": "usage-1", "role": "nimi_analyst", "model": "candidate-model",
-        "estimatedCostUsd": "0.012000", "pricingVersion": "2026-09-02",
+        "estimatedCostUsd": "0.012000", "pricingVersion": "aws-configured-2026-09-10",
         "modelPolicy": load_role_model_catalog().analyst.policy_snapshot(),
     }], sort_keys=True))
 

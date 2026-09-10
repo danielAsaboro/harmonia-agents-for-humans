@@ -1,3 +1,4 @@
+import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { getConfig } from "@/lib/config";
@@ -8,13 +9,13 @@ const creativeDraftSchema = z.object({
   audience: z.string().min(1).max(500),
   tone: z.array(z.string().min(1).max(100)).min(1).max(8),
   platform: z.string().min(1).max(100),
-  aspectRatio: z.enum(["16:9", "9:16"]),
-  resolution: z.enum(["720p", "1080p"]),
+  aspectRatio: z.literal("16:9"),
+  resolution: z.literal("720p"),
   frameRate: z.union([z.literal(24), z.literal(30)]),
   scenes: z.array(z.object({
     purpose: z.string().min(1).max(500),
     prompt: z.string().min(1).max(4000),
-    durationSec: z.union([z.literal(4), z.literal(6), z.literal(8)]),
+    durationSec: z.number().int().min(6).max(120).multipleOf(6),
   }).strict()).min(1).max(3),
   soundtrack: z.object({ include: z.boolean(), prompt: z.string().min(1).max(4000).optional() }).strict(),
 }).strict().superRefine((value, context) => {
@@ -32,26 +33,26 @@ type DraftGenerator = (input: {
 }) => Promise<ProductionCreativeDraft>;
 export interface ProductionPricingCatalog {
   version: string;
-  veo31FastUsdPerSecond: string;
-  lyria3ClipFixedUsd: string;
+  novaReelUsdPerSecond: string;
+  elevenLabsUsdPerSecond: string;
 }
 
 const priceSchema = z.string().regex(/^\d+\.\d{6}$/).refine((value) => BigInt(value.replace(".", "")) > BigInt(0));
 
 function productionPricingCatalog(configured?: ProductionPricingCatalog): ProductionPricingCatalog {
   if (configured) {
-    if (!priceSchema.safeParse(configured.veo31FastUsdPerSecond).success) throw new Error("Veo 3.1 Fast pricing is unavailable");
-    if (!priceSchema.safeParse(configured.lyria3ClipFixedUsd).success) throw new Error("Lyria 3 Clip pricing is unavailable");
+    if (!priceSchema.safeParse(configured.novaReelUsdPerSecond).success) throw new Error("Nova Reel pricing is unavailable");
+    if (!priceSchema.safeParse(configured.elevenLabsUsdPerSecond).success) throw new Error("ElevenLabs Music pricing is unavailable");
     if (!configured.version.trim()) throw new Error("media pricing version is unavailable");
     return configured;
   }
   const config = getConfig();
-  if (!config.VEO_3_1_COST_PER_SECOND_USD) throw new Error("Veo 3.1 Fast pricing is unavailable");
-  if (!config.LYRIA_3_CLIP_COST_USD) throw new Error("Lyria 3 Clip pricing is unavailable");
+  if (!config.NOVA_REEL_COST_PER_SECOND_USD) throw new Error("Nova Reel pricing is unavailable");
+  if (!config.ELEVENLABS_MUSIC_COST_PER_SECOND_USD) throw new Error("ElevenLabs Music pricing is unavailable");
   return {
     version: config.MODEL_PRICING_VERSION,
-    veo31FastUsdPerSecond: config.VEO_3_1_COST_PER_SECOND_USD,
-    lyria3ClipFixedUsd: config.LYRIA_3_CLIP_COST_USD,
+    novaReelUsdPerSecond: config.NOVA_REEL_COST_PER_SECOND_USD,
+    elevenLabsUsdPerSecond: config.ELEVENLABS_MUSIC_COST_PER_SECOND_USD,
   };
 }
 
@@ -60,11 +61,11 @@ const responseSchema = {
   properties: {
     goal: { type: "string" }, audience: { type: "string" },
     tone: { type: "array", items: { type: "string" } }, platform: { type: "string" },
-    aspectRatio: { type: "string", enum: ["16:9", "9:16"] },
-    resolution: { type: "string", enum: ["720p", "1080p"] },
+    aspectRatio: { type: "string", enum: ["16:9"] },
+    resolution: { type: "string", enum: ["720p"] },
     frameRate: { type: "integer", enum: [24, 30] },
     scenes: { type: "array", maxItems: 3, items: { type: "object", properties: {
-      purpose: { type: "string" }, prompt: { type: "string" }, durationSec: { type: "integer", enum: [4, 6, 8] },
+      purpose: { type: "string" }, prompt: { type: "string" }, durationSec: { type: "integer", minimum: 6, maximum: 120, multipleOf: 6 },
     }, required: ["purpose", "prompt", "durationSec"] } },
     soundtrack: { type: "object", properties: { include: { type: "boolean" }, prompt: { type: "string" } }, required: ["include"] },
   },
@@ -76,30 +77,39 @@ async function generateCreativeDraft(input: {
   job: JobContext;
   existing?: VideoProductionPlan;
 }): Promise<ProductionCreativeDraft> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not configured for production planning");
+  if (process.env.HARMONIA_ALLOW_PAID_AWS !== "true") throw new Error("paid AWS operations disabled");
   const groundedContext = JSON.stringify({
     sourceAnalysis: input.job.sourceAnalysis ?? null,
     contentStrategy: input.job.contentStrategy ?? null,
     contentArtifacts: input.job.contentArtifacts ?? null,
     existingPlan: input.existing ?? null,
   });
-  const prompt = `Create a concise supported media-production creative draft from the operator request and supplied job evidence. Use only text-to-video shots. Each shot must be 4, 6, or 8 seconds; use at most three. Use 720p or 1080p and 16:9 or 9:16. Include a soundtrack only when it materially serves the request; it must be instrumental. Do not invent source facts, likeness permissions, provider completion, costs, IDs, or approval. Operator request:\n${input.request}\nGrounded job evidence:\n${groundedContext}`;
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${getConfig().MODEL_ID}:generateContent`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: "You are Harmonia's bounded media production planner. Return JSON only and obey the supplied capability envelope." }] },
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { responseMimeType: "application/json", responseSchema, temperature: 0.2 },
-    }),
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!response.ok) throw new Error(`Gemini production planning failed (${response.status}): ${(await response.text()).slice(0, 300)}`);
-  const data = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-  const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("");
-  if (!text) throw new Error("Gemini returned no production plan draft");
-  return creativeDraftSchema.parse(JSON.parse(text));
+  const prompt = `Create a concise supported media-production creative draft from the operator request and supplied job evidence. Use only text-to-video shots. Each scene may be 6 seconds (single shot, prompt at most 512 characters) or a multiple of 6 between 12 and 120 seconds (automated multi-shot, prompt at most 4000 characters); use at most three scenes. Use 720p and 16:9. Include a soundtrack only when it materially serves the request; it must be instrumental. Do not invent source facts, likeness permissions, provider completion, costs, IDs, or approval. Operator request:\n${input.request}\nGrounded job evidence:\n${groundedContext}`;
+  const client = new BedrockRuntimeClient({ region: process.env.AWS_REGION ?? "us-east-1", maxAttempts: 1 });
+  const { reserveJobBudget, finalizeUsageRecord, resolveJobBudgetReservation } = await import("@/lib/repository");
+  const { currentTraceId } = await import("@/lib/telemetry");
+  const maximumCost = process.env.PRODUCTION_PLANNER_MAX_COST_USD;
+  if (!maximumCost || !priceSchema.safeParse(maximumCost).success) throw new Error("PRODUCTION_PLANNER_MAX_COST_USD is required");
+  const operationId = "production-plan:" + createHash("sha256").update(JSON.stringify({ jobId: input.job.id, request: input.request, revision: input.existing?.revision ?? 0 })).digest("hex");
+  const model = process.env.PRODUCTION_PLANNER_MODEL_ID ?? "us.anthropic.claude-sonnet-4-6";
+  const reservation = await reserveJobBudget({ jobId: input.job.id, operationId, stage: "production", role: "production_planner", model, estimatedCostUsd: maximumCost, pricingVersion: "configured-aws-media-v1" });
+  if (!reservation.reserved || reservation.duplicate) throw new Error("production planning requires a fresh admitted budget operation; reconcile existing outcomes before retry");
+  try {
+  const response = await client.send(new ConverseCommand({
+    modelId: model,
+    system: [{ text: "You are Harmonia's bounded media production planner. Return JSON only matching this schema: " + JSON.stringify(responseSchema) }],
+    messages: [{ role: "user", content: [{ text: prompt }] }],
+    inferenceConfig: { maxTokens: 3000, temperature: 0.2 },
+  }));
+  const text = response.output?.message?.content?.map((part) => part.text ?? "").join("");
+  if (!text) throw new Error("Bedrock returned no production plan draft");
+  const draft = creativeDraftSchema.parse(JSON.parse(text));
+  await finalizeUsageRecord({ id: "usage-" + operationId, jobId: input.job.id, operationId, stage: "production", role: "production_planner", model, inputUnits: response.usage?.inputTokens ?? 0, outputUnits: response.usage?.outputTokens ?? 0, unitType: "tokens", estimatedCostUsd: maximumCost, pricingVersion: "configured-aws-media-v1", traceId: currentTraceId(), createdAt: new Date().toISOString() });
+  return draft;
+  } catch (error) {
+    await resolveJobBudgetReservation({ jobId: input.job.id, operationId, outcome: "uncertain", reason: "production planning failed after dispatch; reconcile before retry" });
+    throw error;
+  }
 }
 
 function usdFromMicros(micros: bigint): string {
@@ -132,16 +142,16 @@ export async function authorProductionPlan(input: {
   const operationCostsUsd: Record<string, string> = {};
   const scenes = draft.scenes.map((scene, index) => {
     const sceneId = `scene-${index + 1}`;
-    const cost = usdFromMicros(BigInt(scene.durationSec) * BigInt(pricing.veo31FastUsdPerSecond.replace(".", "")));
+    const cost = usdFromMicros(BigInt(scene.durationSec) * BigInt(pricing.novaReelUsdPerSecond.replace(".", "")));
     operationCostsUsd[`${id}:generate_video:${sceneId}`] = cost;
     const result = {
       id: sceneId, order: index + 1, startSec, durationSec: scene.durationSec,
       purpose: scene.purpose,
       video: {
-        modelCapability: "veo-3.1-fast" as const, mode: "text_to_video" as const,
+        modelCapability: "nova-reel" as const, mode: "text_to_video" as const,
         prompt: scene.prompt, durationSec: scene.durationSec,
         aspectRatio: draft.aspectRatio, resolution: draft.resolution,
-        generateAudio: false, enhancePrompt: true, outputCount: 1 as const,
+        outputCount: 1 as const,
       },
       overlays: [], captions: [], transitions: [],
     };
@@ -149,11 +159,11 @@ export async function authorProductionPlan(input: {
     return result;
   });
   const soundtrack = draft.soundtrack.include ? {
-    modelCapability: "lyria-3-clip" as const,
-    prompt: draft.soundtrack.prompt!, instrumental: true, lyricsMode: "none" as const,
-    language: "en", targetDurationSec: 30, outputCount: 1 as const,
+    modelCapability: "elevenlabs-music" as const,
+    prompt: draft.soundtrack.prompt!, instrumental: true,
+    targetDurationSec: 30, outputCount: 1 as const,
   } : undefined;
-  if (soundtrack) operationCostsUsd[`${id}:generate_music`] = pricing.lyria3ClipFixedUsd;
+  if (soundtrack) operationCostsUsd[`${id}:generate_music`] = usdFromMicros(BigInt(30) * BigInt(pricing.elevenLabsUsdPerSecond.replace(".", "")));
   const estimatedMicros = Object.values(operationCostsUsd)
     .reduce((sum, cost) => sum + BigInt(cost.replace(".", "")), BigInt(0));
   const estimatedCostUsd = usdFromMicros(estimatedMicros);

@@ -1,0 +1,18 @@
+---
+title: "AgentCore Memory"
+description: "Native typed memory APIs with workspace-and-brand provenance."
+---
+
+## How Harmonia uses it
+
+`AgentCoreMemoryBank` uses the official `bedrock-agentcore` client. `batch_create_memory_records` writes at most five eligible typed facts with deterministic request identifiers and a client token. `retrieve_memory_records` searches `/harmonia/{workspace_id}/{brand_id}/facts` with a bounded result count.
+
+Every fact carries a typed reference to an operator decision, receipt, verification or learning. Retrieval rejects a foreign namespace or mismatched workspace/brand evidence. Writes reject cross-scope candidates and incomplete provider results. Raw sources, prompts, transcripts and generated drafts are not memory facts.
+
+## Authority and errors
+
+Memory is advisory context. It cannot prove that an effect happened, approve work or bypass current evidence validation. `HARMONIA_ALLOW_PAID_AWS` gates native Memory access. Failed or ambiguous writes remain unresolved; the client does not fabricate retained records.
+
+## Evidence status
+
+`agent/harmonia_agent/memory_bank.py` implements the contract. Worker and runtime roles require the matching scoped Memory permissions. Native API wire shapes and scope tests are local evidence; authenticated Memory read/write in this AWS edition remains unverified.

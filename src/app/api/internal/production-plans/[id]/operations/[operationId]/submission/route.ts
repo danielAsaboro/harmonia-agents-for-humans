@@ -7,7 +7,7 @@ import { startProductionProviderSubmission } from "@/lib/productionPlanStore";
 const bodySchema = z.object({
   claimId: z.string().min(1).max(256),
   claimToken: z.string().min(1).max(512),
-  provider: z.enum(["veo", "lyria"]),
+  provider: z.enum(["nova_reel", "elevenlabs"]),
 }).strict();
 
 async function post(

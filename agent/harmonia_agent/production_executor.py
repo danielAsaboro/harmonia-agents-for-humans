@@ -14,13 +14,13 @@ from typing import Any
 
 from .config import settings
 from .generative_media import (
-    GoogleMediaTransport,
-    LyriaGenerator,
+    AwsMediaTransport,
+    ElevenLabsGenerator,
     MediaOperationPending,
     MediaProviderError,
-    VeoGenerator,
-    validate_lyria_request,
-    validate_veo_request,
+    NovaReelGenerator,
+    validate_elevenlabs_request,
+    validate_nova_reel_request,
 )
 from .usage import InvocationContext, media_usage_record
 from .telemetry import current_trace_id
@@ -93,7 +93,7 @@ def inspect_conditioning_image_bytes(data: bytes, mime: str) -> dict[str, Any]:
     return inspection
 
 
-def _materialize_veo_conditioning(
+def _materialize_nova_conditioning(
     plan_id: str,
     request: dict[str, Any],
     inputs: Any,
@@ -104,7 +104,7 @@ def _materialize_veo_conditioning(
         raise ProductionExecutionProtocolError("paid production conditioning inputs are missing")
     references = [
         reference for reference in (
-            request.get("sourceImageArtifact"), request.get("lastFrameArtifact"),
+            request.get("sourceImageArtifact"),
         ) if isinstance(reference, dict)
     ]
     expected_ids = {
@@ -133,7 +133,9 @@ def _materialize_veo_conditioning(
         mime = mime.split(";", 1)[0]
         if digest != reference["digest"] or mime != reference["mime"] or len(data) != reference["sizeBytes"]:
             raise ProductionExecutionProtocolError("conditioning artifact does not match its sealed identity")
-        inspect_conditioning_image_bytes(data, mime)
+        inspection = inspect_conditioning_image_bytes(data, mime)
+        if (inspection.get("video", {}).get("width"), inspection.get("video", {}).get("height")) != (1280, 720):
+            raise ProductionExecutionProtocolError("Nova Reel conditioning image must be 1280x720")
         materialized[reference["artifactId"]] = (data, mime, digest)
     return materialized
 
@@ -277,7 +279,7 @@ def _execute_internal_operation(
                         raise ProductionExecutionProtocolError("scene source artifact identity is missing")
                     source_id = f"{plan_id}:resolve_media:{artifact_id}"
                 elif isinstance(spec, dict):
-                    generated_type = "extend_video" if spec.get("mode") == "extend_video" else "generate_video"
+                    generated_type = "generate_video"
                     source_id = f"{plan_id}:{generated_type}:{scene['id']}"
                 else:
                     raise ProductionExecutionProtocolError("scene media source is missing")
@@ -534,22 +536,22 @@ def execute_production_operation(
     if not isinstance(sealed_cost, str) or sealed_cost != claim.get("reservedCostUsd"):
         raise ProductionExecutionProtocolError("production claim cost does not match the sealed operation")
     operation_type = operation.get("type")
-    if operation_type not in {"generate_video", "extend_video", "generate_music"}:
+    if operation_type not in {"generate_video", "generate_music"}:
         raise ProductionExecutionProtocolError("executor received a non-paid production operation")
 
-    provider = "lyria" if operation_type == "generate_music" else "veo"
-    role = "lyria_generator" if provider == "lyria" else "veo_generator"
+    provider = "elevenlabs" if operation_type == "generate_music" else "nova_reel"
+    role = "elevenlabs_generator" if provider == "elevenlabs" else "nova_reel_generator"
     model_request = (
-        validate_lyria_request(operation.get("payload"))
-        if provider == "lyria"
-        else validate_veo_request(operation.get("payload"))
+        validate_elevenlabs_request(operation.get("payload"))
+        if provider == "elevenlabs"
+        else validate_nova_reel_request(operation.get("payload"))
     )
     model = str(model_request["providerModel"])
     persisted_provider_id = claim.get("providerOperationId")
     conditioning_media: dict[str, tuple[bytes, str, str]] = {}
-    if provider == "veo":
+    if provider == "nova_reel":
         try:
-            conditioning_media = _materialize_veo_conditioning(
+            conditioning_media = _materialize_nova_conditioning(
                 plan_id,
                 model_request,
                 decision.get("inputs"),
@@ -566,21 +568,27 @@ def execute_production_operation(
             )
             return {"outcome": "failed", "reason": "conditioning artifact verification failed"}
     config = settings()
+    if not config.allow_paid_aws or not config.generative_media_enabled:
+        record_production_operation_failure(plan_id, operation_id, claim_id=claim["id"], claim_token=token, outcome="failed", reason="paid AWS operations disabled")
+        return {"outcome": "failed", "reason": "paid AWS operations disabled"}
+    if provider == "elevenlabs" and not getattr(config, "elevenlabs_api_key", None):
+        record_production_operation_failure(plan_id, operation_id, claim_id=claim["id"], claim_token=token, outcome="failed", reason="ELEVENLABS_API_KEY required before submission")
+        return {"outcome": "failed", "reason": "music provider configuration unavailable"}
     media_output_bucket = getattr(config, "media_output_bucket", None)
-    if provider == "veo" and not media_output_bucket:
+    if provider == "nova_reel" and not media_output_bucket:
         record_production_operation_failure(
             plan_id,
             operation_id,
             claim_id=claim["id"],
             claim_token=token,
             outcome="failed",
-            reason="MEDIA_OUTPUT_BUCKET is required for authorized Veo output",
+            reason="MEDIA_OUTPUT_BUCKET is required for authorized Nova Reel output",
         )
-        return {"outcome": "failed", "reason": "authorized Veo output storage unavailable"}
+        return {"outcome": "failed", "reason": "authorized Nova Reel output storage unavailable"}
     authorized_output_prefix = (
-        f"gs://{media_output_bucket}/workspaces/{claim['workspaceId']}/brands/{claim['brandId']}"
+        f"s3://{media_output_bucket}/workspaces/{claim['workspaceId']}/brands/{claim['brandId']}"
         f"/jobs/{claim['jobId']}/plans/{plan_id}/claims/{claim['id']}/"
-        if provider == "veo" else None
+        if provider == "nova_reel" else None
     )
     budget_operation_id = f"production:{claim['id']}"
     try:
@@ -623,9 +631,9 @@ def execute_production_operation(
         return {"outcome": "failed", "reason": reason}
 
     active_provider_id = str(persisted_provider_id) if persisted_provider_id else None
-    if provider == "lyria" and persisted_provider_id:
+    if provider == "elevenlabs" and persisted_provider_id:
         raise ProductionExecutionProtocolError(
-            "persisted Lyria identity cannot be resubmitted or resumed by this provider interface"
+            "persisted ElevenLabs identity cannot be resubmitted or resumed by this provider interface"
         )
     if not persisted_provider_id:
         try:
@@ -657,9 +665,9 @@ def execute_production_operation(
                 logger.exception("failed to release pre-provider production budget %s", budget_operation_id)
             return {"outcome": "failed", "reason": "provider submission authorization failed"}
 
-    transport = GoogleMediaTransport(
-        project=config.gcp_project,
-        location=config.vertex_media_location,
+    transport = AwsMediaTransport(
+        region=config.aws_region, enabled=config.allow_paid_aws, generative_enabled=config.generative_media_enabled,
+        elevenlabs_api_key=getattr(config, "elevenlabs_api_key", None),
     )
 
     def persist_provider(provider_operation_id: str) -> None:
@@ -699,16 +707,17 @@ def execute_production_operation(
             logger.exception("failed to quarantine production budget %s", budget_operation_id)
 
     try:
-        if provider == "veo":
-            generated = VeoGenerator(transport=transport).generate(
+        if provider == "nova_reel":
+            generated = NovaReelGenerator(transport=transport).generate(
                 request=model_request,
                 existing_operation=str(persisted_provider_id) if persisted_provider_id else None,
                 persist_operation=persist_provider,
                 authorized_output_prefix=authorized_output_prefix,
                 conditioning_media=conditioning_media,
+                estimated_cost_usd=sealed_cost,
             )
         else:
-            generated = LyriaGenerator(transport=transport).generate(
+            generated = ElevenLabsGenerator(transport=transport).generate(
                 request=model_request,
                 estimated_cost_usd=sealed_cost,
             )

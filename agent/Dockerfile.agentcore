@@ -1,0 +1,8 @@
+FROM --platform=linux/arm64 python:3.13-slim@sha256:9d2e5553305c7c7b0097999bb17187c69b921ccd6bc9d40e4bb5ebe652c00285
+WORKDIR /app
+COPY requirements.lock ./requirements.lock
+RUN pip install --no-cache-dir -r requirements.lock
+COPY harmonia_agent ./harmonia_agent
+ENV AWS_REGION=us-east-1 HARMONIA_ALLOW_PAID_AWS=false
+EXPOSE 8080
+CMD ["python", "-m", "harmonia_agent.agentcore_app"]

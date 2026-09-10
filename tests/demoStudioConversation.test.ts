@@ -10,6 +10,6 @@ describe("studio demo conversation", () => {
     expect(messages.some((message: { data?: { intent?: string } }) => message.data?.intent === "list_artifacts")).toBe(true);
     expect(messages.some((message: { data?: { pendingActions?: unknown[] } }) => message.data?.pendingActions?.length)).toBe(true);
     expect(JSON.stringify(messages)).toContain("Local demo fixture");
-    expect(JSON.stringify(messages)).not.toContain("Veo generated successfully");
+    expect(JSON.stringify(messages)).not.toContain("Nova Reel generated successfully");
   });
 });

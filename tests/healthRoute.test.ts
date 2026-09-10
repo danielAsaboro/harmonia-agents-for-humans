@@ -9,9 +9,9 @@ afterEach(() => {
 describe("GET /api/health", () => {
   it("reports web health without requiring an agent runtime", async () => {
     delete process.env.AGENT_SERVICE_URL;
-    delete process.env.GEMINI_API_KEY;
-    process.env.GOOGLE_CLOUD_PROJECT = "harmonia-preview";
-    process.env.GOOGLE_CLOUD_LOCATION = "us-central1";
+    delete process.env.COGNITO_USER_POOL_ID;
+    process.env.AWS_ACCOUNT_ID = "harmonia-preview";
+    process.env.AWS_REGION = "us-east-1";
 
     const { GET } = await import("@/app/api/health/route");
     const response = await GET();
@@ -21,11 +21,11 @@ describe("GET /api/health", () => {
       ok: true,
       service: "harmonia-web",
       project: "harmonia-preview",
-      region: "us-central1",
+      region: "us-east-1",
       durableRuntime: {
         protocolVersion: 1,
-        stateStore: "firestore",
-        wakeTransport: "pubsub",
+        stateStore: "dynamodb",
+        wakeTransport: "sqs",
         contextCompiler: "harmonia-context/v1",
       },
     });

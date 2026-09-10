@@ -5,12 +5,12 @@ description: "Operator identity, workload identity, and secret boundaries in Har
 
 ## How Harmonia uses it
 
-Firebase Authentication establishes operator identity and workspace membership. IAM service accounts identify Cloud Run and automation workloads. Secret Manager keeps provider credentials server-side; browsers receive neither integration secrets nor machine credentials.
+Amazon Cognito establishes operator identity and workspace membership. Separate IAM roles identify ECS Fargate, AgentCore, and automation workloads. AWS Secrets Manager keeps provider credentials server-side; browsers receive neither integration secrets nor machine credentials.
 
 <CardGroup cols={2}>
-  <Card title="Firebase Authentication" href="/platform/security/firebase-auth">Operator authentication and tenant scope.</Card>
-  <Card title="IAM service accounts" href="/platform/security/iam-service-accounts">Machine identity and least privilege.</Card>
-  <Card title="Secret Manager" href="/platform/security/secret-manager">Credential storage and delivery.</Card>
+  <Card title="Cognito Authentication" href="/platform/security/cognito">Operator authentication and tenant scope.</Card>
+  <Card title="IAM roles" href="/platform/security/iam-service-accounts">Machine identity and least privilege.</Card>
+  <Card title="AWS Secrets Manager" href="/platform/security/secret-manager">Credential storage and delivery.</Card>
 </CardGroup>
 
 ## Evidence status

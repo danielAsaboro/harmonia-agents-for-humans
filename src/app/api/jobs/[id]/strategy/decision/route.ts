@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { operatorTenantHandler } from "@/lib/auth";
-import { appendEvent, decideStrategy } from "@/lib/firestore";
+import { appendEvent, decideStrategy } from "@/lib/repository";
 import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";
 
 const schema = z.object({

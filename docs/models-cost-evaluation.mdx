@@ -1,50 +1,45 @@
 ---
 title: "Models, cost, and evaluation"
-description: "Role-specific model policies, safety configuration, budget reservations, usage records, and evidence-gated promotion."
+description: "Native Bedrock role policies, explicit deployment pricing, reservations, and evidence requirements."
 ---
 
-Harmonia balances quality and cost per role rather than applying one model and one generation profile everywhere.
+Harmonia chooses a model for each bounded cognitive task. The deterministic coordinator selects the task; a model cannot select its own authority or bypass a stage prerequisite.
 
 ## Role policy
 
-| Role | Default target | Temperature | Max output | Primary evaluation |
-|---|---|---:|---:|---|
-| coordinator | Gemini 3.5 Flash-Lite | 0.1 | 1,024 | exact specialist route |
-| strategist | Gemini 3.5 Flash | 0.4 | 4,096 | provenance-linked four-week strategy and briefs |
-| analyst | Gemini 3.5 Flash multimodal | 0.2 | 2,048 | quote, time, and frame grounding |
-| copywriter | Gemini 3.5 Flash | 0.8 | 2,048 | skill trace, references, grounding, and platform limits |
-| editor | Gemini 3.5 Flash | 0.2 | 2,048 | seven complete checks, grounded issues, and no false acceptance |
-| planner | Gemini 3.5 Flash-Lite | 0.1 | 1,024 | approved-strategy fidelity and no scheduling/effect authority |
-| presenter | Gemini 3.5 Flash | 0.2 | 2,048 | bounded A2UI component/entity references |
-| liaison | Gemini 3.5 Flash | 0.2 | 2,048 | grounded read-only answers |
+| Registered task family | Default model | Evaluation focus |
+|---|---|---|
+| Intent routing and context assembly | Claude Haiku 4.5 | Small strict contracts and faithful operator intent |
+| Nimi analysis | Amazon Nova 2 Lite | Authoritative source references and quote/time grounding |
+| Ryan strategy and Temi planning | Claude Sonnet 4.6 | Evidence-linked strategy and approved-strategy fidelity |
+| Noni writing/production and Dara review | Claude Sonnet 4.6 | Complete output coverage, grounded content and issue-bound revision |
+| Maya presentation | Claude Haiku 4.5 | Bounded component and entity references |
+| Nova liaison and contextual answers | Claude Haiku 4.5 | Scoped read-only answers and explicit missing evidence |
+| Resident Dream synthesis | Claude Sonnet 4.6 | Sanitized verified observations and bounded experiment proposals |
 
-Every role records the policy version, provider/model identity, generation limits, and safety profile. An unavailable configured target fails visibly.
+Exact defaults are `us.anthropic.claude-haiku-4-5-20251001-v1:0`, `us.amazon.nova-2-lite-v1:0`, and `us.anthropic.claude-sonnet-4-6`. `agent/harmonia_agent/role_models.py` defines per-role sampling and token limits. Configured targets fail visibly when unavailable; no provider fallback exists.
 
 ## Reservation and usage lifecycle
 
-<Steps>
-  <Step title="Estimate">Resolve an immutable pricing-catalog entry and the operation’s maximum authorized cost.</Step>
-  <Step title="Reserve">Atomically reserve budget using the stable operation ID before provider execution.</Step>
-  <Step title="Execute">Call the configured provider only after reservation succeeds.</Step>
-  <Step title="Finalize">Write one immutable usage record and reconcile observed units or endpoint time.</Step>
-  <Step title="Report">Group cost by workspace, job, stage, role, model, and pricing version.</Step>
-</Steps>
+The host estimates the operation's maximum cost, reserves its budget atomically, calls the provider, and records usage or an unresolved outcome. Stable operation identities connect reservations, model usage, execution receipts and verification. A retry may reuse durable accounting but does not automatically authorize another provider call. Unknown external outcomes require reconciliation.
 
-Retried operation IDs reuse their reservation and usage document. Unknown pricing is not represented as zero and cannot be budget-authorized.
+Text pricing comes from `BEDROCK_TEXT_PRICING_JSON`, keyed by exact model ID with positive `input` and `output` USD-per-million-token rates. The version is `aws-configured-2026-09-10`. Missing prices fail admission; they are not zero-cost operations. Operators must supply rates applicable to their model, region and account. Configured estimates are not a claim about actual billed charges.
 
-## Evaluation gates
-
-The public ADK evalset contains source-neutral contract fixtures. Private real-video runs record quality, latency, usage IDs, policy version, and artifact digests outside the public repository.
-
-| Gate | Required outcome |
+| Provider operation | Admission input |
 |---|---|
-| schema and trajectory | valid ADK events, handoffs, and required output keys |
-| grounding | claims retain supplied transcript/media references |
-| authority | no role approves or executes an action |
-| quality floor | candidate pass rate is at least `0.95` for the recorded role policy |
-| pricing | model has a known catalog entry |
-| ranking | pass rate, then observed cost, then p95 latency |
+| Amazon Transcribe | `TRANSCRIBE_COST_PER_SECOND_USD`, including the host's minimum billed duration |
+| Nova Canvas | `IMAGE_MAX_COST_USD` ceiling |
+| Nova Reel | `NOVA_REEL_COST_PER_SECOND_USD` and approved duration |
+| ElevenLabs Music | `ELEVENLABS_MUSIC_COST_PER_SECOND_USD` and approved duration |
+| Direct production planning | `PRODUCTION_PLANNER_MAX_COST_USD` plus text prices |
+| Dream synthesis | `DREAM_MAX_COST_USD` plus text prices and resident policy |
 
-<Warning>Offline fixtures prove contracts, not real-model quality. No numeric promotion, cost, latency, or quality claim is valid until linked private artifacts and immutable usage records exist.</Warning>
+`HARMONIA_ALLOW_PAID_AWS` defaults false. Media generation additionally requires `GENERATIVE_MEDIA_ENABLED`; music needs a server-side ElevenLabs key. Neither enabling flag proves provider readiness or grants approval for an output operation.
 
-See [Configuration](/configuration#model-evaluation-and-promotion) for the live runner and comparison manifest.
+## Evaluation and evidence
+
+Local tests exercise typed output, tool admission before dispatch, source lineage, cost accounting, claim recovery and independent byte verification. Test doubles isolate transport contracts; they are not authenticated provider evidence. A build proves compilation, not model quality.
+
+A candidate model must be evaluated against the same trusted inputs and role constraints, with exact model identity, request policy, usage, latency and retained output evidence. Grounding and authority failures disqualify a result even when the prose is persuasive. No quality, latency or cost ranking is established for this AWS edition until a real authorized evaluation is captured.
+
+Authenticated Bedrock, AgentCore, Transcribe, generated-media and billing reconciliation remain pending-live. See [Runtime inventory](/reference/agent-runtime-inventory), [Evaluation](/evaluation) and [Configuration](/configuration).

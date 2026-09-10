@@ -1,4 +1,4 @@
-"""Harmonia ADK worker service."""
+"""Harmonia Strands worker service."""
 
 async def dispatch(job_id: str, stage: str, *, attempt: int = 0, operation_id: str | None = None) -> bool:
     """Load the worker graph only when dispatch is invoked."""

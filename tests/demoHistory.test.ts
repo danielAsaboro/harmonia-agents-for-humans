@@ -1,4 +1,3 @@
-import { Timestamp } from "firebase-admin/firestore";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -13,12 +12,12 @@ describe("demo history transformations", () => {
   it("shifts nested ISO instants and Firestore timestamps by one offset", () => {
     const input = {
       createdAt: "2026-08-30T12:00:00.000Z",
-      nested: [Timestamp.fromDate(new Date("2026-08-31T12:00:00.000Z"))],
+      nested: ["2026-08-31T12:00:00.000Z"],
     };
 
     expect(shiftDemoValue(input, -3 * 86_400_000)).toEqual({
       createdAt: "2026-08-27T12:00:00.000Z",
-      nested: [Timestamp.fromDate(new Date("2026-08-28T12:00:00.000Z"))],
+      nested: ["2026-08-28T12:00:00.000Z"],
     });
   });
 
@@ -33,7 +32,7 @@ describe("demo history transformations", () => {
   it("collects complete instants from nested values", () => {
     expect(collectInstants({
       a: "2026-08-30T00:00:00.000Z",
-      b: [Timestamp.fromMillis(1_788_048_000_000), "no"],
+      b: [new Date(1_788_048_000_000).toISOString(), "no"],
     })).toEqual([1_788_048_000_000, 1_788_048_000_000]);
   });
 

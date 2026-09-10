@@ -1,4 +1,4 @@
-import { listAllChatMessages, listChatMessages } from "@/lib/firestore";
+import { listAllChatMessages, listChatMessages } from "@/lib/repository";
 import { tenantHandler } from "@/lib/auth";
 import type { ChatSurface } from "@/lib/chatHistory";
 

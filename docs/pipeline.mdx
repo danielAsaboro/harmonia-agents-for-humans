@@ -3,7 +3,7 @@ title: "The Pipeline"
 description: "Stage by stage: collect sources, extract sources, understand, strategize, approve strategy, plan, draft, approve effects, publish, verify, learn."
 ---
 
-Harmonia's pipeline is a linear stage machine. Each completed stage persists its payload and atomically records the next trigger in a Firestore outbox. Pub/Sub publication is claimed and finalized from that outbox; the durable tick recovers pending delivery after a crash.
+Harmonia's pipeline is a linear stage machine. Each completed stage persists its payload and atomically records the next trigger in a DynamoDB outbox. SQS publication is claimed and finalized from that outbox; the durable tick recovers pending delivery after a crash.
 
 ```mermaid
 flowchart LR
@@ -18,7 +18,7 @@ Loads the sealed source manifest and its independent source records. Direct inpu
 
 ## extract_sources
 
-Normalizes every ready source behind one typed artifact contract. Gemini 3.5 Flash creates timed segments for authorized audio and video; deterministic extractors normalize documents, web pages, and pasted text. Each segment carries a source ID, digest, and typed locator. A replacement or exclusion seals a new manifest revision before execution resumes.
+Normalizes every ready source behind one typed artifact contract. Amazon Transcribe creates timed spoken segments for authorized audio and video; Nova visual analysis supplies separately labelled observations; deterministic extractors normalize documents, web pages, and pasted text. Each segment carries a source ID, digest, and typed locator. A replacement or exclusion seals a new manifest revision before execution resumes.
 
 ## understand
 
@@ -29,7 +29,7 @@ the complete object and canonical digest. Ryan receives that exact persisted ana
 
 ## strategize
 
-Ryan turns the persisted analysis and bounded operator, performance, and eligible Memory Bank context
+Ryan turns the persisted analysis and bounded operator, performance, and eligible AgentCore Memory context
 into one four-week `ContentStrategy` with grounded briefs. Application code validates its evidence
 lineage and authority, then persists the proposal, version, and canonical digest. See
 [Ryan](/agents/ryan) for the strategy method.
@@ -67,7 +67,7 @@ Paid provider operations are isolated behind the production outbox and immutable
 
 ## awaiting_approval
 
-Hard gate for X and LinkedIn publishing, image generation, and paid Veo/Lyria generation. Approvals arrive through the dashboard queue, chat confirmation, or a Telegram inline-button callback — all through the same decision engine. Conversational intent can locate and explain a decision, but cannot manufacture approval. Deterministic content-artifact export and local ffmpeg rendering remain internal actions with `approvalState: not_required`.
+Hard gate for X and LinkedIn publishing, image generation, and paid Nova Reel/ElevenLabs generation. Approvals arrive through the dashboard queue, chat confirmation, or a Telegram inline-button callback — all through the same decision engine. Conversational intent can locate and explain a decision, but cannot manufacture approval. Content-pack exports and ffmpeg rendering require approval. Internal draft artifacts can be stored without granting publication authority.
 
 ## publish
 
@@ -79,7 +79,7 @@ Executes policy-authorized actions in dependency order, checking effect claims a
 | `publish_x_thread` | Ordered, resumable X reply chain with each confirmed post id durably checkpointed |
 | `publish_linkedin_post` | Official LinkedIn API post to an exact connected destination |
 | `export_content_artifact` | Immutable canonical JSON plus deterministic Markdown; both byte streams are hash-verified |
-| `generate_image` | Approval-gated Gemini image bytes into the asset store |
+| `generate_image` | Approval-gated Nova Canvas image bytes into the asset store |
 | `render_clip` / `render_reel` | Real ffmpeg cuts/captions/reframes into the asset store |
 
 Failures are classified: permanent errors stop the job visibly, transient errors nack for redelivery.

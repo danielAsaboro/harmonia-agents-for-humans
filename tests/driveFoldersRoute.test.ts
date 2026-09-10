@@ -1,7 +1,7 @@
 import { expect, it, vi } from "vitest";
 
 vi.mock("@/lib/auth", () => ({ tenantHandler: (handler: unknown) => handler }));
-vi.mock("@/lib/firestore", () => ({ getConnection: async () => ({ accessToken: "expired" }) }));
+vi.mock("@/lib/repository", () => ({ getConnection: async () => ({ accessToken: "expired" }) }));
 vi.mock("@/lib/validConnection", () => ({ validPlatformConnection: async () => ({ accessToken: "refreshed" }) }));
 
 import { GET } from "@/app/api/settings/libraries/google-drive/folders/route";

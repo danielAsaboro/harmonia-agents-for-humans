@@ -49,8 +49,8 @@ def strategist_input() -> StrategistInput:
             "angles": [{"id": "a1", "angleType": "source_insight", "evidenceKind": "source", "title": "Operational speed", "rationale": "The source demonstrates a measurable operational improvement.", "evidenceRefs": ["m1"], "assumptions": [], "confidence": "high"}],
             "assumptions": [], "confidence": "high",
         }),
-        performance=[PerformanceObservation(id="perf-1", summary="Proof-led posts earned more qualified replies", firestoreEvidenceRef="jobs/job-0/verifiedMetrics/perf-1")],
-        memoryFacts=[MemoryFact(id="mem-1", content="Operators prefer quantified proof", firestoreEvidenceRef="jobs/job-0/learnings/mem-1")],
+        performance=[PerformanceObservation(id="perf-1", summary="Proof-led posts earned more qualified replies", durableEvidenceRef="jobs/job-0/verifiedMetrics/perf-1")],
+        memoryFacts=[MemoryFact(id="mem-1", content="Operators prefer quantified proof", durableEvidenceRef="jobs/job-0/learnings/mem-1")],
     )
 
 

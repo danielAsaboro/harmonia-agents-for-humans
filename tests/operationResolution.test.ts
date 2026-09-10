@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { firebasePrincipal, servicePrincipal } from "@/lib/authority";
+import { cognitoPrincipal, servicePrincipal } from "@/lib/authority";
 import { resolveOperationAggregate } from "@/lib/operationResolution";
 import { runWithTenant } from "@/lib/tenancy";
 import type { ArtifactRecord } from "@/lib/artifacts";
@@ -44,7 +44,7 @@ const artifact: ArtifactRecord = {
 };
 const operatorScope = {
   workspaceId: "workspace-1", brandId: "brand-1",
-  principal: firebasePrincipal({ subjectId: "operator-1", workspaceRole: "owner", authenticationId: "session-1" }),
+  principal: cognitoPrincipal({ subjectId: "operator-1", workspaceRole: "owner", authenticationId: "session-1" }),
 };
 
 function resolve(choice: "confirm_applied" | "confirm_not_applied" | "compensate" | "cancel") {

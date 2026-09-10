@@ -1,0 +1,28 @@
+---
+title: "Strands Agents SDK"
+description: "Native request-scoped cognition with deterministic host authority."
+---
+
+## How Harmonia uses it
+
+`HarmoniaCoordinator` selects one `SpecialistDefinition` from validated host state. It is a project-owned coordinator, not a free-running model router. `LocalStrandsTeamRuntime` validates the typed input, activates preloaded method provenance, projects runtime constraints and constructs a fresh `strands.Agent`.
+
+The agent receives a `BedrockModel`, explicit system prompt, only the permitted tools, `AuthorityHooks` and a Pydantic `structured_output_model`. `invoke_async()` returns the structured result and usage metrics. `callback_handler=None` suppresses token callbacks; `retry_strategy=None` prevents unbounded SDK retries. The host separately controls bounded provider and schema repair.
+
+## Hooks
+
+| Native hook | Enforcement |
+|---|---|
+| `BeforeModelCallEvent` | Paid gate, turn bound and actual-request hash |
+| `BeforeToolCallEvent` | Allowed tool set, exact request binding and one-shot research permission |
+| `AfterToolCallEvent` | Tool evidence capture and typed handoff handling |
+
+Skills are host-preloaded text. There are no registered filesystem skill-loader tools. Tool-free registrations remain tool-free except for the native structured-output cognition mechanism.
+
+## State and authority
+
+Each call owns new messages, hooks and mutable state. The output is returned under the definition's state key. The worker validates and persists it before changing a stage. Human waits, retries, external-effect claims and receipts survive in DynamoDB independently of the runtime session.
+
+## Evidence status
+
+`agent/harmonia_agent/agents.py`, `team_runtime.py`, `runtime_instructions.py` and `workflow.py` define this boundary. Local tests exercise real Strands request/hook contracts with test model doubles. Authenticated Bedrock and AgentCore invocation remains pending live verification.

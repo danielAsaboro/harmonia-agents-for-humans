@@ -8,7 +8,7 @@ describe("bounded autonomy and KPI documentation", () => {
   const document = readFileSync(join(process.cwd(), "docs/operational-model.mdx"), "utf8");
   const durableRuntime = readFileSync(join(process.cwd(), "docs/durable-runtime.md"), "utf8");
   it("explains where Harmonia is and is not an agent", () => {
-    expect(readme).toContain("Why Harmonia is an agent—and where it deliberately is not");
+    expect(readme).toContain("Strands supplies bounded judgment");
     expect(document).toContain("bounded agency inside a durable workflow");
   });
   it.each([

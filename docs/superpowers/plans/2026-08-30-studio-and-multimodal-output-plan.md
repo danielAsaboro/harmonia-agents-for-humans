@@ -6,7 +6,7 @@
 
 **Architecture:** The existing conversation/canvas Studio remains the shell. The composer creates source manifests and selects one healthy brand-library snapshot. The Sources canvas becomes the manifest/extraction/provenance command center. Output intent is captured in the job, proposed by strategy, confirmed by the operator, and compiled into typed artifact actions with existing policy, idempotency, receipts, and verification.
 
-**Tech Stack:** React 19, Next.js 16, A2UI, TypeScript, Zod, Google ADK, Gemini 3.5 Flash, existing effect pipeline, ffmpeg, Vitest, pytest.
+**Tech Stack:** React 19, Next.js 16, A2UI, TypeScript, Zod, Strands Agents SDK, Gemini 3.5 Flash, existing effect pipeline, ffmpeg, Vitest, pytest.
 
 **Spec:** `docs/superpowers/specs/2026-08-30-multisource-content-operations-design.md`
 

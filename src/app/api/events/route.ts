@@ -1,4 +1,4 @@
-import { listEventLog, type EventLogEntry } from "@/lib/firestore";
+import { listEventLog, type EventLogEntry } from "@/lib/repository";
 import { tenantHandler } from "@/lib/auth";
 import { getDurableRuntimeSnapshot } from "@/lib/observability/repository";
 

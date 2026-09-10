@@ -2,7 +2,7 @@ import {
   createNotification,
   listContentItems,
   updateContentItem,
-} from "@/lib/firestore";
+} from "@/lib/repository";
 import { internalTenantHandler } from "@/lib/internalAuth";
 import { listDueCommands } from "@/lib/effectCommandStore";
 

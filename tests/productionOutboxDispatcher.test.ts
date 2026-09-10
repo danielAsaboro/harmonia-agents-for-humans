@@ -8,7 +8,7 @@ const store = vi.hoisted(() => ({
 }));
 const publisher = vi.hoisted(() => ({ publishProductionOperation: vi.fn() }));
 vi.mock("@/lib/productionPlanStore", () => store);
-vi.mock("@/lib/pubsub", () => publisher);
+vi.mock("@/lib/queue", () => publisher);
 vi.mock("@/lib/tenancy", () => ({ currentTenant: () => ({ workspaceId: "workspace-1", brandId: "brand-1", principal: { kind: "service" } }) }));
 
 import { dispatchProductionOutbox } from "@/lib/productionOutboxDispatcher";
@@ -30,7 +30,7 @@ describe("production operation outbox dispatcher", () => {
 
   it("publishes the exact durable production wake and finalizes its outbox record", async () => {
     await expect(dispatchProductionOutbox(10)).resolves.toEqual([
-      { id: "outbox-1", outcome: "published", pubsubMessageId: "message-1" },
+      { id: "outbox-1", outcome: "published", transportMessageId: "message-1" },
     ]);
     expect(publisher.publishProductionOperation).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceId: "workspace-1", brandId: "brand-1" }),

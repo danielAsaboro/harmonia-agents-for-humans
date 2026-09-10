@@ -4,9 +4,9 @@
 
 **Goal:** Replace single-video jobs with durable mixed-source manifests, generalized extraction stages, typed provenance locators, and a working local mixed-source pipeline.
 
-**Architecture:** Firestore stores bounded source records and manifest metadata; normalized payloads live in the artifact store. The Python worker executes provider-specific extractors behind one interface and writes extraction receipts through internal APIs. The stage machine becomes collect-sources then extract-sources before generalized understanding.
+**Architecture:** DynamoDB stores bounded source records and manifest metadata; normalized payloads live in the artifact store. The Python worker executes provider-specific extractors behind one interface and writes extraction receipts through internal APIs. The stage machine becomes collect-sources then extract-sources before generalized understanding.
 
-**Tech Stack:** TypeScript, Zod, Firestore, Pub/Sub, Python, Pydantic, FastAPI, BeautifulSoup, pypdf, python-docx, Gemini 3.5 Flash, Vitest, pytest.
+**Tech Stack:** TypeScript, Zod, DynamoDB, SQS, Python, Pydantic, FastAPI, BeautifulSoup, pypdf, python-docx, Gemini 3.5 Flash, Vitest, pytest.
 
 **Spec:** `docs/superpowers/specs/2026-08-30-multisource-content-operations-design.md`
 
@@ -106,15 +106,15 @@ git add src/lib/types.ts src/lib/contracts.ts src/components/jobTypes.ts tests/s
 git commit -m "feat: replace jobs with multisource contracts"
 ```
 
-### Task 2: Firestore source registry and immutable manifests
+### Task 2: DynamoDB source registry and immutable manifests
 
 **Files:**
 - Create: `src/lib/sourceRegistry.ts`
 - Create: `src/lib/sourceManifest.ts`
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/repository.ts`
 - Modify: `firestore.indexes.json`
 - Test: `tests/sourceRegistry.test.ts`
-- Test: `tests/sourceRegistryFirestore.integration.test.ts`
+- Test: `tests/sourceRegistryDynamoDB.integration.test.ts`
 
 **Interfaces:**
 - Produces: `createSourceRecords(scope, inputs)`, `transitionSourceState(...)`, `sealSourceManifest(...)`, `reviseManifestAfterResolution(...)`, `listManifestSources(...)`.
@@ -146,7 +146,7 @@ Use explicit transition tables. Canonicalize sorted source IDs, snapshot ID, exc
 Run: `npm test -- tests/sourceRegistry.test.ts`  
 Expected: PASS.
 
-- [ ] **Step 5: Write failing Firestore transaction tests**
+- [ ] **Step 5: Write failing DynamoDB transaction tests**
 
 Test concurrent state transitions, manifest revision conflicts, cross-tenant reads, zero-ready-source rejection, and immutable sealed manifests.
 
@@ -155,7 +155,7 @@ Test concurrent state transitions, manifest revision conflicts, cross-tenant rea
 Run: `npm run test:integration`  
 Expected: FAIL because persistence functions do not exist.
 
-- [ ] **Step 7: Implement Firestore persistence and indexes**
+- [ ] **Step 7: Implement DynamoDB persistence and indexes**
 
 Store sources at `workspaces/{workspaceId}/brands/{brandId}/sources/{sourceId}` and manifests under each job. Use transactions for revision checks. Store large normalized payloads by artifact ID only.
 
@@ -167,7 +167,7 @@ Expected: PASS.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/lib/sourceRegistry.ts src/lib/sourceManifest.ts src/lib/firestore.ts firestore.indexes.json tests/sourceRegistry.test.ts tests/sourceRegistryFirestore.integration.test.ts
+git add src/lib/sourceRegistry.ts src/lib/sourceManifest.ts src/lib/repository.ts firestore.indexes.json tests/sourceRegistry.test.ts tests/sourceRegistryDynamoDB.integration.test.ts
 git commit -m "feat: add durable source registry"
 ```
 
@@ -380,7 +380,7 @@ git commit -m "feat: run generalized source stages"
 - Modify: `src/lib/a2ui/hydrateSurfacePlan.ts`
 - Test: `agent/tests/test_nimi_multisource.py`
 - Test: `agent/tests/test_agent_team.py`
-- Test: `tests/mixedSourceWorkflowFirestore.integration.test.ts`
+- Test: `tests/mixedSourceWorkflowDynamoDB.integration.test.ts`
 
 **Interfaces:**
 - Produces: one bounded multi-source analysis package whose claims reference source ID, segment ID, and typed locator.

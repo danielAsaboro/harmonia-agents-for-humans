@@ -4,8 +4,8 @@ import { validateArchitecture } from "../src/lib/architecture/validate";
 const valid = {
   version: "test",
   nodes: [
-    { id: "firestore", name: "Firestore", kind: "store", layer: "data", statuses: ["implemented"], authorities: ["read", "write"], dataScope: "workspace", stateLifetime: "durable", summary: "Durable source of truth" },
-    { id: "agent-engine", name: "Agent Engine", kind: "runtime", layer: "agents", statuses: ["pending-live"], authorities: ["delegate"], dataScope: "workspace", stateLifetime: "ephemeral", summary: "Cognitive runtime" },
+    { id: "dynamodb", name: "DynamoDB", kind: "store", layer: "data", statuses: ["implemented"], authorities: ["read", "write"], dataScope: "workspace", stateLifetime: "durable", summary: "Durable source of truth" },
+    { id: "agentcore", name: "AgentCore", kind: "runtime", layer: "agents", statuses: ["pending-live"], authorities: ["delegate"], dataScope: "workspace", stateLifetime: "ephemeral", summary: "Cognitive runtime" },
     { id: "approval", name: "Approval", kind: "gate", layer: "effects", statuses: ["approval-gated"], authorities: ["approve"], dataScope: "workspace", stateLifetime: "durable", summary: "Human gate" },
     { id: "effect", name: "Effect", kind: "effect", layer: "effects", statuses: ["approval-gated"], authorities: ["execute-effect"], dataScope: "external", stateLifetime: "external", summary: "Official provider effect", approval: "Required" },
     { id: "verification", name: "Verification", kind: "verification", layer: "effects", statuses: ["implemented"], authorities: ["read"], dataScope: "external", stateLifetime: "durable", summary: "Independent read-back" },
@@ -14,7 +14,7 @@ const valid = {
     { id: "approve", source: "approval", target: "effect", kind: "approval", label: "Human approval" },
     { id: "verify", source: "effect", target: "verification", kind: "verification", label: "Independent read-back" },
   ],
-  presets: [{ id: "overview", name: "Overview", expanded: [], layers: [], statuses: [], focusNodeIds: ["firestore"] }],
+  presets: [{ id: "overview", name: "Overview", expanded: [], layers: [], statuses: [], focusNodeIds: ["dynamodb"] }],
 };
 
 describe("architecture validation", () => {
@@ -37,7 +37,7 @@ describe("architecture validation", () => {
   it("enforces agent authority and runtime ownership", () => {
     const agent = { ...valid.nodes[1], id: "agent", kind: "agent", authorities: ["approve"] };
     expect(() => validateArchitecture({ ...valid, nodes: [...valid.nodes, agent] })).toThrow(/agent.*authority/i);
-    expect(() => validateArchitecture({ ...valid, nodes: valid.nodes.map((n) => n.id === "agent-engine" ? { ...n, stateLifetime: "durable" } : n) })).toThrow(/Agent Engine.*ephemeral/i);
+    expect(() => validateArchitecture({ ...valid, nodes: valid.nodes.map((n) => n.id === "agentcore" ? { ...n, stateLifetime: "durable" } : n) })).toThrow(/AgentCore.*ephemeral/i);
   });
 
   it("enforces approval and independent verification for effects", () => {

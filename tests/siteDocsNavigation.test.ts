@@ -32,7 +32,7 @@ describe("site-wide documentation navigation", () => {
       "operations/overview", "optimization/context-memory-continuity",
       "reference/overview", "evaluation", "glossary",
       "reference/api-routes", "reference/job-state-machine", "reference/agent-contracts",
-      "reference/effect-contracts", "reference/error-taxonomy", "reference/firestore-data",
+      "reference/effect-contracts", "reference/error-taxonomy", "reference/dynamodb-data",
       "reference/authority-matrix", "reference/environment", "reference/upload-media",
       "reference/pricing-budget", "reference/receipts-verification",
     ]));

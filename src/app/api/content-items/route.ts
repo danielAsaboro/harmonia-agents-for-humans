@@ -3,7 +3,7 @@ import {
   getConnection,
   getContentItem,
   listContentItems,
-} from "@/lib/firestore";
+} from "@/lib/repository";
 import { operatorTenantHandler } from "@/lib/auth";
 import { validateDraftText } from "@/lib/policy";
 import { markCalendarSyncStale } from "@/lib/calendarSyncState";
@@ -95,7 +95,7 @@ async function patch(req: Request) {
     }
   }
 
-  // Strip undefined values — Firestore rejects them even in merge writes.
+  // Strip undefined values — DynamoRepository rejects them even in merge writes.
   const clean = Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined));
   const next = markCalendarSyncStale(item, clean as Partial<typeof item>);
   if (next.googleCalendarSync !== item.googleCalendarSync) clean.googleCalendarSync = next.googleCalendarSync;

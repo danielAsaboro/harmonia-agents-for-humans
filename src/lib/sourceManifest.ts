@@ -1,9 +1,10 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash,randomUUID } from "node:crypto";
+import { recordKey } from "./dynamo";
 
-import { createJob, db } from "./firestore";
+import { createJob } from "./repository";
 import { sealManifest } from "./sourceRegistry";
-import { currentTenant, tenantSubjectId } from "./tenancy";
-import type { AnalysisResearchRequest, Job, OutputKind, SourceInput, SourceRecord, StrategyContext } from "./types";
+import { currentTenant,tenantSubjectId } from "./tenancy";
+import type { AnalysisResearchRequest,Job,OutputKind,SourceInput,SourceRecord,StrategyContext } from "./types";
 
 export interface CreateSourceJobInput {
   operatorBrief?: string;
@@ -56,11 +57,11 @@ export async function createSourceJob(input: CreateSourceJobInput): Promise<Job>
       directSourceIds: sourceIds, excludedSourceIds: [], exclusionRecords: [], sealedAt: now,
       sealedBySubjectId: tenantSubjectId(tenant),
     });
-    transaction.create(db().doc(`workspaces/${tenant.workspaceId}/jobs/${jobId}/source_manifests/${manifestId}`), manifest);
+    transaction.insert(recordKey(`workspaces/${tenant.workspaceId}/jobs/${jobId}/source_manifests/${manifestId}`), manifest);
     input.directSources.forEach((source, index) => {
       const record = buildSourceRecord(source, sourceIds[index], now);
-      transaction.create(db().doc(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/sources/${record.id}`), record);
-      transaction.create(db().doc(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/source_payloads/${record.id}`), { sourceId: record.id, input: source, createdAt: now });
+      transaction.insert(recordKey(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/sources/${record.id}`), record);
+      transaction.insert(recordKey(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/source_payloads/${record.id}`), { sourceId: record.id, input: source, createdAt: now });
     });
   });
 }

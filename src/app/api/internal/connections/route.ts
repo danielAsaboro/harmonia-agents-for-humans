@@ -1,5 +1,5 @@
 import { internalTenantHandler } from "@/lib/internalAuth";
-import { listConnectionMetadata } from "@/lib/firestore";
+import { listConnectionMetadata } from "@/lib/repository";
 import { PLATFORMS } from "@/lib/platforms";
 
 async function get() {

@@ -21,7 +21,7 @@ const eventPayloads = {
   effect_claim: z.object({ ...commonPayload, actionId: id, outcome: z.enum(["execute", "already_applied", "in_progress", "uncertain"]), receiptId: id.optional() }).strict(),
   receipt: z.object({ ...commonPayload, receiptId: id, actionId: id, outcome: z.enum(["applied", "already_applied", "rejected", "failed"]), verified: z.boolean() }).strict(),
   verification: z.object({ ...commonPayload, receiptId: id, verified: z.boolean(), method: z.string().max(500) }).strict(),
-  pubsub_delivery: z.object({ ...commonPayload, messageId: id, deliveryAttempt: z.number().int().positive(), status }).strict(),
+  sqs_delivery: z.object({ ...commonPayload, messageId: id, deliveryAttempt: z.number().int().positive(), status }).strict(),
   scheduler_trigger: z.object({ ...commonPayload, scheduleId: id, scheduledAt: iso, status }).strict(),
   resident_autonomy: z.object({ cycleId: id, cycleType: z.enum(["heartbeat", "micro_reflection", "dream_cycle", "wakeup_call"]), state: status, summary: z.string().max(2000), historical: z.literal(true) }).strict(),
   a2ui_event: z.object({ ...commonPayload, runId: id, surfaceId: id, operation: z.string().max(4000) }).strict(),

@@ -4,15 +4,15 @@
 
 **Goal:** Make Noni produce one strictly typed, evidence-grounded, brief-aligned draft and at most one traceable revision for the selected Temi item.
 
-**Architecture:** Deterministic code assembles an immutable `CopywriterInput` from the accepted editorial plan and approved strategy history. A focused tool-free Noni ADK agent returns one `ContentDraft`; deterministic validators enforce lineage, brief alignment, claim provenance, platform limits, constraints, and authority boundaries before a structured Dara review and one optional revision.
+**Architecture:** Deterministic code assembles an immutable `CopywriterInput` from the accepted editorial plan and approved strategy history. A focused tool-free Noni Strands agent returns one `ContentDraft`; deterministic validators enforce lineage, brief alignment, claim provenance, platform limits, constraints, and authority boundaries before a structured Dara review and one optional revision.
 
-**Tech Stack:** Google ADK, Pydantic, Python pytest, TypeScript, Zod, Firestore transactions, Vitest, Next.js.
+**Tech Stack:** Strands Agents SDK, Pydantic, Python pytest, TypeScript, Zod, DynamoDB transactions, Vitest, Next.js.
 
 **Spec:** `docs/superpowers/specs/2026-08-27-noni-copywriter-design.md`
 
 ## Global Constraints
 
-- Firestore is durable workflow truth; agent session state is ephemeral.
+- DynamoDB is durable workflow truth; agent session state is ephemeral.
 - Noni receives only one selected Temi item, its exact approved Ryan brief, and referenced Nimi evidence.
 - Noni and Dara have no tools and no strategy, planning, approval, scheduling, publishing, receipt, credential, or workflow-mutation authority.
 - Every factual claim must map to supplied evidence; insufficient evidence means omission or a clearly non-factual creative assumption.
@@ -54,14 +54,14 @@
 
 **Interfaces:**
 - Consumes: `CopywriterInput` and `ContentDraft` from Task 1.
-- Produces: `validate_content_draft(input: CopywriterInput, draft: ContentDraft) -> ContentDraft` and a tool-free `noni_copywriter` ADK agent.
+- Produces: `validate_content_draft(input: CopywriterInput, draft: ContentDraft) -> ContentDraft` and a tool-free `noni_copywriter` Strands agent.
 
 - [ ] Add failing tests for unknown/missing evidence, uncited factual statements, textually unsupported claim terms, invented metrics/trends/testimonials/capabilities, objective/audience/funnel/CTA/format divergence, missing constraints, exclusions/safety violations, invented URLs, multiple final alternatives, and approval/schedule/publish/effect/receipt/credential overreach.
 - [ ] Add passing boundary cases for persuasive but non-factual language, creative assumptions, qualified claims, supplied URLs, and insufficient evidence expressed with reduced confidence.
 - [ ] Run focused tests and confirm each red case fails for its intended reason.
 - [ ] Implement `noni_prompt.py` with the six-step evidence-first writing/revision method and explicit prohibitions.
 - [ ] Implement conservative deterministic claim/brief/constraint validation using exact supplied IDs and normalized supplied evidence text; fail closed without model-based validation.
-- [ ] Configure Noni as a tool-free ADK agent with `CopywriterInput`/`ContentDraft` schemas and run focused agent tests.
+- [ ] Configure Noni as a tool-free Strands agent with `CopywriterInput`/`ContentDraft` schemas and run focused agent tests.
 - [ ] Commit `feat: ground Noni drafts in selected evidence`.
 
 ### Task 3: Structured Dara review and bounded revision loop
@@ -79,17 +79,17 @@
 
 - [ ] Add failing tests for accepted original, one requested revision then acceptance, invalid review lineage, invented review evidence, new replacement copy, revision missing issue IDs, ignored required issues, a second revise verdict, empty/duplicate issue IDs, and more than two Noni invocations.
 - [ ] Implement focused Dara instructions for grounding, brief alignment, brand, CTA, platform, safety, and clarity review without replacement copy or effect authority.
-- [ ] Replace the implicit ADK `LoopAgent` draft-set exchange with explicit bounded orchestration: Noni original → Dara review → optional Noni revision → Dara final review; fail closed if revision 2 is not accepted.
+- [ ] Replace the implicit Strands `LoopAgent` draft-set exchange with explicit bounded orchestration: Noni original → Dara review → optional Noni revision → Dara final review; fail closed if revision 2 is not accepted.
 - [ ] Validate each Noni output and Dara review between invocations, preserve immutable IDs/evidence, and return a strict result containing full trace and accepted exact draft.
 - [ ] Run focused tests and commit `feat: bound the Noni Dara revision protocol`.
 
-### Task 4: Firestore production wiring and persistence
+### Task 4: DynamoDB production wiring and persistence
 
 **Files:**
 - Modify: `agent/harmonia_agent/stages.py`
 - Modify: `agent/tests/test_temi_stages.py`
 - Create: `agent/tests/test_noni_stages.py`
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/repository.ts`
 - Modify: `src/app/api/internal/drafts/route.ts`
 - Modify: `src/lib/types.ts`
 - Create or modify focused tests under `tests/`.
@@ -128,7 +128,7 @@
 **Interfaces:**
 - Produces: deterministic Noni evaluation verdicts and persisted-truth UI for original/revision provenance and Dara review state.
 
-- [ ] Add failing evaluation cases for grounded copy, missing/invented evidence, unsupported claims, invented results/trends/testimonials, brief/CTA deviation, exclusions/safety/platform failures, incomplete claims, authority overreach, Memory Bank/general knowledge misuse, successful revision, invalid lineage, ignored issues, and attempted third pass.
+- [ ] Add failing evaluation cases for grounded copy, missing/invented evidence, unsupported claims, invented results/trends/testimonials, brief/CTA deviation, exclusions/safety/platform failures, incomplete claims, authority overreach, AgentCore Memory/general knowledge misuse, successful revision, invalid lineage, ignored issues, and attempted third pass.
 - [ ] Implement evaluation classification through schema and deterministic validators, not exact prompt text.
 - [ ] Add UI tests for original versus revision text, claim-to-evidence provenance, assumptions, confidence, applied constraints, Dara issues, revision count, and acceptance state from persisted job truth.
 - [ ] Update current documentation and architecture labels to Noni's exact single-item copywriting role and structured Dara loop; leave historical specs unchanged.

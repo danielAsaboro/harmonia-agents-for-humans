@@ -11,7 +11,7 @@ describe("immutable release inputs", () => {
     expect(agent).toMatch(/^FROM python:[^\s]+@sha256:[a-f0-9]{64}/m);
   });
 
-  it("runs the web build and runtime on the Node version required by Google Cloud clients", () => {
+  it("runs the web build and runtime on the Node version used in the production image", () => {
     expect(web.match(/^FROM node:([^\s@]+)/gm)).toEqual([
       "FROM node:22-bookworm-slim",
       "FROM node:22-bookworm-slim",
@@ -19,13 +19,11 @@ describe("immutable release inputs", () => {
     ]);
   });
 
-  it("records deployed revision and image digests for both services", () => {
-    expect(deploy).toContain("record_release_identity harmonia-web");
-    expect(deploy).toContain("record_release_identity harmonia-agent");
-    expect(deploy).toContain("status.imageDigest");
-    expect(deploy).toContain("gcloud builds submit");
-    expect(deploy).toContain("--image \"${WEB_IMAGE_TAG}@${WEB_IMAGE_DIGEST}\"");
-    expect(deploy).toContain("--image \"${AGENT_IMAGE_TAG}@${AGENT_IMAGE_DIGEST}\"");
-    expect(deploy).not.toContain("--source .");
+  it("requires a pinned cognition image and content-addresses worker build assets", () => {
+    const stack=readFileSync(new URL("../infra/aws/stack.ts", import.meta.url), "utf8");
+    expect(stack).toContain("AgentCoreImageUri");
+    expect(stack).toContain("sha256 digest");
+    expect(stack).toContain("ContainerImage.fromAsset");
+    expect(deploy).toContain("cdk deploy");
   });
 });

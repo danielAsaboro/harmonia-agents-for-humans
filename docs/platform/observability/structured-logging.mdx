@@ -7,7 +7,7 @@ Application logs complement traces with human-readable worker, scheduler, conten
 
 ## How Harmonia uses it
 
-Python modules use named `logging` loggers for service startup, stage outcomes, retry decisions, provider failures, scheduling, proactive scans, and notification errors. Cloud Run captures stdout and stderr. Correlation identifiers in surrounding telemetry and persisted records connect logs to a job or operation.
+Python modules use named `logging` loggers for service startup, stage outcomes, retry decisions, provider failures, scheduling, proactive scans, and notification errors. ECS Fargate captures stdout and stderr. Correlation identifiers in surrounding telemetry and persisted records connect logs to a job or operation.
 
 Logs avoid raw prompts, transcripts, drafts, media bytes, connection data, authorization headers, and provider payloads. Typed errors shown to operators use value-free messages where secrets might otherwise leak.
 
@@ -21,7 +21,7 @@ Logging failure must not mask the primary workflow result. Secondary reporting e
 
 ## Evidence status
 
-Redaction helpers, typed failures, and safe telemetry attributes have automated coverage. Production logging claims require redacted Cloud Run log entries correlated with persisted workflow records.
+Redaction helpers, typed failures, and safe telemetry attributes have automated coverage. Production logging claims require redacted ECS Fargate log entries correlated with persisted workflow records.
 
 ## Relevant files
 

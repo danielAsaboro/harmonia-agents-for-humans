@@ -1,5 +1,5 @@
 import { strategyInvocationContextSchema } from "@/lib/contracts";
-import { saveStrategyInvocationContext } from "@/lib/firestore";
+import { saveStrategyInvocationContext } from "@/lib/repository";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 

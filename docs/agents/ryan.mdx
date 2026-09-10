@@ -1,90 +1,53 @@
 ---
 title: "Ryan — content strategist"
-description: "Ryan's strategy, content-brief, provenance, and approval-boundary reference."
+description: "Current Strands registration, model, inputs, tools and authority."
 ---
 
 ## Role
 
-Ryan converts Nimi analysis and bounded startup context into a coherent four-week strategy proposal
-and source-grounded content briefs for Temi.
+Proposes startup positioning, content pillars, channels, objectives and grounded briefs from the operator context and validated source analysis.
 
 ## Contract
 
 | Property | Value |
 |---|---|
-| ADK name | `ryan_strategist` |
-| Default model | `gemini-3.5-flash` |
-| Input | `StrategistInput` |
-| Output | `StrategistResult` containing `ContentStrategy` |
-| Runtime skill | `ryan-strategy-skills` |
-| Tools | `load_skill`, `load_skill_resource`, and isolated `ryan_google_search_agent` |
+| Registered specialist | `ryan_strategist; ryan_research_strategist` |
+| Default Bedrock model ID | `us.anthropic.claude-sonnet-4-6` |
+| Typed boundary | `StrategistInput → StrategistResult → ContentStrategy` |
+| Returned state key | `strategist_result` |
 
 ## Skills
 
-`ryan-strategy-skills` contains seven allow-listed methods for diagnosis, thesis and positioning,
-campaign architecture, channel and format decisions, funnel/CTA/measurement, brief construction,
-and evidence-informed revision. Ryan loads it once and selects only relevant references.
+The host preloads `ryan-strategy-skills` method guidance and approved references into the system prompt. No `load_skill` or `load_skill_resource` tool is registered. Host bootstrap records activation provenance. Skill guidance is method, never evidence.
 
 ## Tools and research
 
-Ryan principally synthesizes typed Nimi analysis, operator context, verified performance, and eligible
-memory. When an exact `researchRequest` requires current external facts, the isolated
-`ryan_google_search_agent` returns typed native-grounded evidence. Ryan never receives
-`google_search` beside its skill tools.
+`ryan_strategist` has no tools. The host may select `ryan_research_strategist` with the single `ryan_gateway_search` tool for an exact supplied researchRequest. The before-tool hook consumes one-shot research authority before dispatch.
 
 ## Prompt method
 
-Ryan first loads the strategy skill exactly once and at least one problem-relevant approved
-reference. A deterministic callback trace rejects missing, duplicate, out-of-order, or unapproved
-loads. The seven focused references cover diagnosis; positioning and thesis; campaign portfolio;
-channels, formats, and cadence; funnel, CTA, and measurement; brief construction; and
-evidence-informed learning and revision.
-
-Ryan then synthesizes business objectives, audience pains, positioning, funnel intent, intended
-conversion, and differentiated narrative. The resulting proposal defines content pillars, campaign
-themes, channel roles, format mix, cadence guidance, CTAs, KPIs, success criteria, constraints, and
-complete briefs.
-
-Evidence is closed-world. Ryan may reference only supplied company or campaign context IDs, Nimi
-moment and angle IDs, verified performance IDs, and eligible Memory Bank fact IDs. Every brief must
-cite at least one Nimi moment or angle. Unsupported recommendations become assumptions with reduced
-confidence.
-
-Skill guidance changes Ryan's method, not the typed contract, and can never be cited as evidence.
-The source-coverage ledger is development documentation and is excluded from the runtime allow-list.
+Separate supported facts from assumptions. Strategy choices cite supplied operator, source or returned research evidence. Research is bounded by the host request and cannot silently widen the task.
 
 ## Evidence and provenance
 
-The catalog is closed-world: operator context IDs, Nimi moment/angle IDs, verified performance IDs,
-eligible Memory Bank fact IDs, and validated search IDs retain their exact kind and provenance. Every
-brief cites a Nimi moment or angle. Weak support becomes a bounded assumption with reduced confidence.
+Only the supplied typed input and authorized returned tool evidence can support factual claims. Preloaded skills, model memory and generated prose do not establish facts. The host retains request hashes and validated references without logging private prompts or chain-of-thought.
 
 ## Authority boundary
 
-Ryan proposes strategy; Ryan does not write final post copy, approve strategy, select production
-dates, mutate calendars, publish, create effect payloads or receipts, or mutate workflow state.
-Strategy approval is a separate human decision bound to the persisted strategy digest.
+The specialist cannot approve, grant permissions, publish, schedule an external effect, access credentials, mutate workflow state or create verification receipts. Those operations belong to deterministic host code and persisted authorization.
 
 ## Handoff
 
-The complete proposal, evidence lineage, version, and digest are persisted before human strategy
-approval. Only an authenticated approval matching that digest passes the unchanged strategy to Temi.
+The host validates and persists the proposal. Human strategy approval binds its digest before Temi can operationalize it.
 
 ## Runtime enforcement
 
-Strict validators reject an invalid skill trace, invented references, ungrounded briefs, unsupported
-operational channels, performance claims without verified IDs, incoherent theses where mechanically
-detectable, unexplained high confidence, final-copy-shaped output, effects, approval claims, and
-Memory Bank used as authority. Ryan never receives `google_search` directly. When an exact typed
-`researchRequest` establishes that current external information is necessary, an isolated ADK
-search agent runs native Google Search and returns a request-bound typed result. Deterministic code
-requires matching chunks, supports, queries, titles, URLs, and search-entry-point metadata before
-its `search-*` IDs can ground the strategy. Without that request, any search call fails closed.
+`LocalStrandsTeamRuntime` creates a fresh Strands `Agent` per invocation with `structured_output_model`, `AuthorityHooks` and automatic model retries disabled. The host selects the registration, projects bounded input and validates output before a stage mutation. Provider repair follows the bounded host policy. Authenticated AWS execution remains pending live verification.
 
 ## Implementation references
 
+- Registration: `agent/harmonia_agent/agents.py`
 - Prompt: `agent/harmonia_agent/ryan_prompt.py`
-- Skill runtime: `agent/harmonia_agent/ryan_skills.py`
-- Skill: `agent/harmonia_agent/skills/ryan-strategy-skills/SKILL.md`
-- Contracts: `StrategistInput`, `StrategistResult`, and `ContentStrategy` in `agent_models.py`
-- Tests: `agent/tests/test_ryan_skills.py`, `test_ryan_strategy.py`, and `test_ryan_stages.py`
+- Method/tool implementation: `agent/harmonia_agent/ryan_skills.py`
+- Runtime: `agent/harmonia_agent/team_runtime.py`
+- Model assignment: `agent/harmonia_agent/role_models.py`

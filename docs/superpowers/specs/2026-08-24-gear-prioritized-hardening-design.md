@@ -6,26 +6,26 @@ Turn Harmonia's existing production-shaped architecture into a verified, judge-r
 
 The priority is one undeniable real workflow:
 
-`YouTube → Gemini 3.5 → Google ADK / Agent Engine → Firestore + Pub/Sub → human approval → real external effect → idempotent receipt → independent verification`
+`YouTube → Gemini 3.5 → Strands Agents SDK / AgentCore Runtime → DynamoDB + SQS → human approval → real external effect → idempotent receipt → independent verification`
 
 ## Scope and non-goals
 
 This project implements:
 
 1. Authenticated end-to-end evidence for the required vertical slice.
-2. ADK-native evaluation of routing, specialist outputs, and tool trajectories.
+2. Strands-native evaluation of routing, specialist outputs, and tool trajectories.
 3. Explicit generation, safety, quality, latency, and cost policy per cognitive role.
-4. Targeted hardening of session state, chat history, Memory Bank, tools, typed failures, retry, escalation, recovery, tracing, and operator-facing evidence.
+4. Targeted hardening of session state, chat history, AgentCore Memory, tools, typed failures, retry, escalation, recovery, tracing, and operator-facing evidence.
 5. Judge-visible documentation of agentic cognition, deterministic workflow, and human authority.
 
 The following remain deferred unless a measured requirement makes them necessary after the core slice passes: MCP, Google Search, Drive, Calendar, `BuiltInPlanner`, Veo/Lyria, and additional publishing platforms. Deferral is an architectural decision, not an implementation gap.
 
 ## Existing foundations to preserve
 
-- Firestore is the source of truth for jobs, actions, approval decisions, receipts, usage, failures, and verification.
-- Pub/Sub drives resumable stage transitions and redelivery.
-- Google ADK and Agent Engine own bounded cognitive turns, not durable business-process control.
-- Memory Bank contains only eligible, evidence-linked preferences and verified learnings.
+- DynamoDB is the source of truth for jobs, actions, approval decisions, receipts, usage, failures, and verification.
+- SQS drives resumable stage transitions and redelivery.
+- Strands Agents SDK and AgentCore Runtime own bounded cognitive turns, not durable business-process control.
+- AgentCore Memory contains only eligible, evidence-linked preferences and verified learnings.
 - Side-effecting actions require explicit operator approval.
 - Stable idempotency keys prevent duplicate effects.
 - OpenTelemetry contains execution metadata, never prompts, transcripts, drafts, media bytes, or hidden chain-of-thought.
@@ -35,7 +35,7 @@ The following remain deferred unless a measured requirement makes them necessary
 
 ### 1. Vertical-slice proof harness
 
-Add a private evidence runner outside the public repository that invokes the deployed application with one authorized YouTube source and records immutable source metadata, Cloud Run revision, Agent Engine resource, model IDs, Firestore job/event identifiers, Pub/Sub message identifiers, approval record, effect receipt, verification result, trace identifiers, timings, and itemized cost.
+Add a private evidence runner outside the public repository that invokes the deployed application with one authorized YouTube source and records immutable source metadata, ECS Fargate revision, AgentCore Runtime resource, model IDs, DynamoDB job/event identifiers, SQS message identifiers, approval record, effect receipt, verification result, trace identifiers, timings, and itemized cost.
 
 The public repository provides deterministic verification commands and schemas. Credentials, raw transcripts, private logs, screenshots, and execution exports remain under parent-level `submission/` or `evidence/` directories.
 
@@ -43,11 +43,11 @@ No stage may translate an unavailable provider, missing credential, policy rejec
 
 ### 2. State, history, and memory boundaries
 
-Firestore remains authoritative for operational state. ADK session state contains only serializable invocation context and typed handoffs written through `output_key`, event `state_delta`, `CallbackContext`, or `ToolContext`. Retrieved session objects are read-only outside the managed event lifecycle.
+DynamoDB remains authoritative for operational state. Strands session state contains only serializable invocation context and typed handoffs written through `output_key`, event `state_delta`, `CallbackContext`, or `ToolContext`. Retrieved session objects are read-only outside the managed event lifecycle.
 
 Conversation history is scoped by workspace, authenticated operator, interface, and conversation ID. The application enforces maximum retained turns and explicit summarization boundaries without copying approval authority or operational truth into model history.
 
-Memory Bank records only scoped preferences, explicit approval/rejection feedback, verified outcomes, and aggregate learnings. Every memory record references durable Firestore evidence and its workspace/brand scope. Memory failure is visible but cannot roll back an already verified external effect.
+AgentCore Memory records only scoped preferences, explicit approval/rejection feedback, verified outcomes, and aggregate learnings. Every memory record references durable DynamoDB evidence and its workspace/brand scope. Memory failure is visible but cannot roll back an already verified external effect.
 
 ### 3. Typed failures and recovery
 
@@ -74,13 +74,13 @@ Cost reservation occurs before dispatch. Final usage is immutable and linked to 
 
 ### 5. Tool and skill contracts
 
-Every ADK-exposed tool has a contract declaring its verb-noun name, purpose, input types, return schema, error codes, permission level, data scope, timeout, retry behavior, and external-effect classification. Tool outputs use consistent `status`, `data`, and `error` envelopes.
+Every Strands-exposed tool has a contract declaring its verb-noun name, purpose, input types, return schema, error codes, permission level, data scope, timeout, retry behavior, and external-effect classification. Tool outputs use consistent `status`, `data`, and `error` envelopes.
 
 The coordinator and insight roles receive only the minimum read-only tools needed for their tasks. Publishing, approval decisions, credential mutation, destructive operations, and budget changes are never agent tools. Skills must instruct the agent to load the relevant skill, call only allowed tools, cite returned evidence, and report absence/failure honestly.
 
 MCP is not part of the required implementation. If later adopted, it must use an authenticated remote server, an explicit tool allow-list/filter, tenant-scoped credentials, read-only capability for the first integration, and the same tool envelope. MCP failure cannot block the core slice.
 
-### 6. ADK evaluation and conformance
+### 6. Strands evaluation and conformance
 
 Create a public evaluation structure without private source content and private parent-level eval inputs/results for the authorized demo video. Evaluation cases cover:
 
@@ -93,11 +93,11 @@ Create a public evaluation structure without private source content and private 
 - liaison selects the correct read-only skill/tool and cites tool output;
 - invalid schemas and prohibited authority produce explicit failures.
 
-Where supported by the installed ADK version, record golden conformance sessions and compare expected versus actual agent/tool trajectories. Otherwise, retain the same evalset semantics in versioned Pydantic-backed fixtures and document the precise compatibility limitation. Real-model results, not scripted fixtures, determine the submission claims.
+Where supported by the installed Strands version, record golden conformance sessions and compare expected versus actual agent/tool trajectories. Otherwise, retain the same evalset semantics in versioned Pydantic-backed fixtures and document the precise compatibility limitation. Real-model results, not scripted fixtures, determine the submission claims.
 
 ### 7. Observability and judge-facing evidence
 
-W3C trace lineage connects authenticated web requests, Pub/Sub publication/delivery, stage execution, Agent Engine invocation, specialist delegation, model usage, validation, approval wait, external effect, receipt, and verification. Separate inbound requests—such as operator approval and replay proof—correctly start separate traces. Firestore records retain trace and operation identifiers so cognition links to lifecycle events while approval, claim, effect, and verification share the action trace.
+W3C trace lineage connects authenticated web requests, SQS publication/delivery, stage execution, AgentCore Runtime invocation, specialist delegation, model usage, validation, approval wait, external effect, receipt, and verification. Separate inbound requests—such as operator approval and replay proof—correctly start separate traces. DynamoDB records retain trace and operation identifiers so cognition links to lifecycle events while approval, claim, effect, and verification share the action trace.
 
 The architecture documentation contains three matrices:
 
@@ -115,7 +115,7 @@ Add role generation/safety configuration, real-source eval schemas, trajectory a
 
 ### Project B — State, history, memory, and failure hardening
 
-Enforce state-write boundaries, conversation retention/scope, evidence-linked Memory Bank records, shared failure envelopes, and centralized retry decisions.
+Enforce state-write boundaries, conversation retention/scope, evidence-linked AgentCore Memory records, shared failure envelopes, and centralized retry decisions.
 
 ### Project C — Tool and skill contracts
 
@@ -129,14 +129,14 @@ Each project must leave the repository buildable and testable and ends in a cohe
 
 ## Acceptance criteria
 
-1. A real authorized YouTube job completes through an authenticated Gemini 3.5 and ADK/Agent Engine path.
-2. Firestore and Pub/Sub evidence proves durable progression and retry-safe behavior.
+1. A real authorized YouTube job completes through an authenticated Gemini 3.5 and Strands/AgentCore Runtime path.
+2. DynamoDB and SQS evidence proves durable progression and retry-safe behavior.
 3. No external effect executes without a durable approval record.
 4. Replaying an executed action produces `already_applied`, not a duplicate effect.
 5. Independent verification confirms the real effect or preserves an honest failure.
 6. Every cognitive role has explicit generation/safety configuration and an evaluation-backed model choice.
-7. ADK evalsets cover routing, grounding, schemas, preservation, non-authority, and tool trajectory.
-8. Session, history, Firestore, and Memory Bank scopes cannot leak across workspaces.
+7. Strands evalsets cover routing, grounding, schemas, preservation, non-authority, and tool trajectory.
+8. Session, history, DynamoDB, and AgentCore Memory scopes cannot leak across workspaces.
 9. Exposed tools have validated least-privilege contracts and typed failures.
 10. One correlated trace and itemized cost report cover the complete demonstrated job without private content.
 11. Public documentation accurately distinguishes implemented, verified, deferred, and externally blocked capabilities.

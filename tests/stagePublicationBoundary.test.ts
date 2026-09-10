@@ -10,14 +10,14 @@ function sourceFiles(root: string): string[] {
 }
 
 describe("stage publication boundary", () => {
-  it("allows Pub/Sub stage publication only inside the outbox dispatcher", () => {
+  it("allows SQS stage publication only inside the outbox dispatcher", () => {
     const root = join(process.cwd(), "src");
     const callers = sourceFiles(root)
       .filter((path) => /\bpublishStage\s*\(/.test(readFileSync(path, "utf8")))
       .map((path) => relative(process.cwd(), path))
       .sort();
     expect(callers).toEqual([
-      "src/lib/pubsub.ts",
+      "src/lib/queue.ts",
       "src/lib/stageOutboxDispatcher.ts",
     ]);
   });

@@ -1,0 +1,28 @@
+---
+title: "Amazon Bedrock models"
+description: "Exact default model identifiers and metering boundaries."
+---
+
+## How Harmonia uses it
+
+Strands cognition uses native Bedrock model IDs. The host selects a role policy, reserves the configured cost, dispatches the request and records the actual model and usage. There is no implicit provider fallback.
+
+| Default model ID | Roles |
+|---|---|
+| `us.anthropic.claude-haiku-4-5-20251001-v1:0` | Intent routing, context assembly, Maya and Nova liaison |
+| `us.anthropic.claude-sonnet-4-6` | Ryan, Temi, Noni, Dara and Dream synthesis |
+| `us.amazon.nova-2-lite-v1:0` | Nimi evidence analysis |
+| `amazon.nova-canvas-v1:0` | Native image generation outside the agent tool loop |
+| `amazon.nova-reel-v1:1` | Native asynchronous video generation outside the agent tool loop |
+
+Amazon Transcribe owns timed speech transcription; it is not a Bedrock text-model call. ElevenLabs owns instrumental music. See [generated media](/platform/media/generated-media).
+
+## Policy and pricing
+
+`role_models.py` defines role-specific token limits, sampling and deadlines. Model overrides use the corresponding role environment variable. `BEDROCK_TEXT_PRICING_JSON` supplies rates keyed by exact model ID, in USD per million input/output tokens. Missing rates fail closed; no guessed rate is substituted.
+
+`HARMONIA_ALLOW_PAID_AWS` defaults false. Generated images, video and music also require `GENERATIVE_MEDIA_ENABLED`. A true configuration flag does not prove provider readiness or an authenticated invocation.
+
+## Evidence status
+
+`agent/harmonia_agent/role_models.py`, `model_catalog.py`, `usage.py` and `team_runtime.py`. Local contract verification is separate from billed usage reconciliation and live provider proof, which remain pending for this AWS edition.

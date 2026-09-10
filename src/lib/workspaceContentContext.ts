@@ -1,4 +1,4 @@
-import { getGoals, listContentItems, listJobs, type OperatorGoals } from "@/lib/firestore";
+import { getGoals, listContentItems, listJobs, type OperatorGoals } from "@/lib/repository";
 import type { ContentItem, Job } from "@/lib/types";
 
 export interface WorkspaceContentContext {

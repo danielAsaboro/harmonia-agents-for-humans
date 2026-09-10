@@ -6,7 +6,7 @@
 
 **Architecture:** Replace conditioning artifact IDs with full sealed artifact references. Compile each reference into an internal `resolve_media` dependency, require those dependencies to succeed before the paid claim can be acquired, download their durable bytes in the paid worker, and pass validated base64 image objects to the official Vertex Veo REST request. Keep reference-image and video-extension modes blocked because the selected GA Veo 3.1 models do not support them.
 
-**Tech Stack:** TypeScript, Zod, Firestore transactions, Python, pytest, Vertex AI Veo REST, ffprobe/ffmpeg media inspection.
+**Tech Stack:** TypeScript, Zod, DynamoDB transactions, Python, pytest, Amazon Bedrock Veo REST, ffprobe/ffmpeg media inspection.
 
 **Spec:** `/Users/MAC/.codex/attachments/e192f7bd-b684-4f5c-8059-6cf063b0e933/pasted-text.txt`
 
@@ -56,19 +56,19 @@ Expected: PASS.
 
 **Files:**
 - Modify: `src/lib/productionPlanStore.ts`
-- Test: `tests/productionPlanFirestore.integration.test.ts`
+- Test: `tests/productionPlanDynamoDB.integration.test.ts`
 
 **Interfaces:**
 - Consumes: paid operation `dependsOn` resolver IDs.
 - Produces: `PaidProductionClaimOutcome.inputs`, containing immutable dependency artifact identities.
 
-- [x] **Step 1: Write a failing Firestore integration test**
+- [x] **Step 1: Write a failing DynamoDB integration test**
 
 Create and approve an image-conditioned plan. Prove the resolver is scheduled first, the paid operation cannot be claimed while the resolver is incomplete, completing the resolver schedules the paid operation, and the paid claim returns the exact dependency artifact.
 
 - [x] **Step 2: Verify RED**
 
-Run: `npm run test:integration -- tests/productionPlanFirestore.integration.test.ts`
+Run: `npm run test:integration -- tests/productionPlanDynamoDB.integration.test.ts`
 
 Expected: FAIL because paid claims currently ignore dependencies and do not return inputs.
 
@@ -78,7 +78,7 @@ Read every dependency claim in the same paid-claim transaction, reject incomplet
 
 - [x] **Step 4: Verify GREEN**
 
-Run: `npm run test:integration -- tests/productionPlanFirestore.integration.test.ts`
+Run: `npm run test:integration -- tests/productionPlanDynamoDB.integration.test.ts`
 
 Expected: PASS.
 

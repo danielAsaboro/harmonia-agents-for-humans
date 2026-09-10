@@ -8,10 +8,10 @@ import { compileProductionOperations, productionPlanDigest, videoProductionPlanS
 const plan = videoProductionPlanSchema.parse({
   id: "media-plan-1", jobId: "job-1", workspaceId: "workspace-1", brandId: "brand-1", revision: 1,
   goal: "Launch the autonomous content engine", audience: "startup founders", tone: ["clear"],
-  target: { platform: "linkedin", durationSec: 4, aspectRatio: "9:16", resolution: "1080p", frameRate: 30, format: "mp4" },
+  target: { platform: "linkedin", durationSec: 6, aspectRatio: "16:9", resolution: "720p", frameRate: 30, format: "mp4" },
   scenes: [{
-    id: "scene-1", order: 1, startSec: 0, durationSec: 4, purpose: "Show the product loop",
-    video: { modelCapability: "veo-3.1-fast", mode: "text_to_video", prompt: "A precise product workflow", durationSec: 4, aspectRatio: "9:16", resolution: "1080p", generateAudio: false, enhancePrompt: true, outputCount: 1 },
+    id: "scene-1", order: 1, startSec: 0, durationSec: 6, purpose: "Show the product loop",
+    video: { modelCapability: "nova-reel", mode: "text_to_video", prompt: "A precise product workflow", durationSec: 6, aspectRatio: "16:9", resolution: "720p", outputCount: 1 },
     overlays: [], captions: [], transitions: [],
   }],
   narration: [],
@@ -39,7 +39,7 @@ describe("production workspace", () => {
     expect(html).toContain("Approve production · $0.400000");
     expect(html).toContain("Production approval only.");
     expect(html).toContain("External publication remains separately gated.");
-    expect(html).toContain("veo-3.1-fast");
+    expect(html).toContain("nova-reel");
     expect(html).toContain("waiting_provider");
     expect(html).not.toContain("Approve publication");
   });

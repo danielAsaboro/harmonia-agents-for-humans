@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { deleteConnection, getConnection, saveConnection } from "@/lib/firestore";
+import { deleteConnection, getConnection, saveConnection } from "@/lib/repository";
 import { administratorTenantHandler } from "@/lib/auth";
 import { getPlatform, revokeAccess } from "@/lib/oauth";
 import { disconnectConnection } from "@/lib/connectionDisconnect";

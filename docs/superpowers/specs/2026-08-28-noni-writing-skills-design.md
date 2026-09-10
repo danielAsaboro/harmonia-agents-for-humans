@@ -2,7 +2,7 @@
 
 ## Goal
 
-Give Noni one real Google ADK filesystem skill, `noni-writing-skills`, that
+Give Noni one real Strands Agents SDK filesystem skill, `noni-writing-skills`, that
 encodes ten complete areas of professional content-writing judgment while
 preserving Harmonia's closed-world evidence and authority boundaries.
 
@@ -14,11 +14,11 @@ brands. The skill does not identify or imitate another company's voice.
 
 Noni moves from the custom Vertex Gemma endpoint to Gemini 3.5 Flash because
 the existing Gemma adapter declares `output_schema_and_tools=False` and cannot
-perform ADK skill calls. No compatibility adapter or dual provider path remains.
+perform Strands skill calls. No compatibility adapter or dual provider path remains.
 
 The Noni agent receives a dedicated `SkillToolset` containing exactly one
 filesystem skill and no additional tools. Noni must load `noni-writing-skills`
-before drafting and may load only its declared Markdown references. ADK
+before drafting and may load only its declared Markdown references. Strands
 callbacks record the actual skill/resource trajectory in managed state.
 Deterministic validation rejects missing or wrong skill loads, scripts,
 unapproved resources, external tools, malformed sequences, and skill guidance
@@ -57,7 +57,7 @@ limit, deterministic validator, and Dara loop remain authoritative.
 
 ## Verification
 
-Tests cover ADK skill validity, ten-topic coverage, exact Noni toolset,
+Tests cover Strands skill validity, ten-topic coverage, exact Noni toolset,
 skill/resource trajectory validation, prohibited tools/scripts, missing skill
 loads, prompt boundaries, clean Gemini model policy, and existing Noni/Dara
 grounding behavior. Completion requires complete Python and application test

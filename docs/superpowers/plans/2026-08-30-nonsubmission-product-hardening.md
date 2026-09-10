@@ -6,7 +6,7 @@
 
 **Architecture:** Replace X-only draft production with a typed content-artifact pipeline backed by one capability registry, format-specific producer/reviewer contracts, immutable exports, and optional approval-gated X/LinkedIn publishers. Repair steering so every rewind or nudge atomically creates recoverable stage delivery, and harden scheduled libraries with preflight policy, budget reservations, artifact read-back, and retry classification.
 
-**Tech Stack:** TypeScript, Zod, Next.js 16, Firestore, Pub/Sub outbox, Python 3, Pydantic, Google ADK/Gemini, official X and LinkedIn APIs, Vitest, pytest.
+**Tech Stack:** TypeScript, Zod, Next.js 16, DynamoDB, SQS outbox, Python 3, Pydantic, Strands Agents SDK/Gemini, official X and LinkedIn APIs, Vitest, pytest.
 
 **Spec:** `docs/superpowers/specs/2026-08-30-nonsubmission-product-hardening-design.md`
 
@@ -134,11 +134,11 @@ git commit -m "feat: produce and review multiformat content"
 - Create: `src/lib/contentArtifacts/repository.ts`
 - Create: `src/app/api/internal/content-artifacts/route.ts`
 - Modify: `src/app/api/internal/drafts/route.ts`
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/repository.ts`
 - Modify: `src/lib/types.ts`
 - Modify: `agent/harmonia_agent/stages.py`
 - Modify: `agent/harmonia_agent/web_client.py`
-- Test: `tests/contentArtifactRepositoryFirestore.integration.test.ts`
+- Test: `tests/contentArtifactRepositoryDynamoDB.integration.test.ts`
 - Test: `tests/contracts.test.ts`
 - Modify: `agent/tests/test_agent_stages.py`
 
@@ -152,7 +152,7 @@ Assert create-only revisions, digest conflict rejection, exact output-plan bindi
 
 - [ ] **Step 2: Verify RED**
 
-Run: `npx vitest run tests/contentArtifactRepositoryFirestore.integration.test.ts tests/contracts.test.ts && cd agent && ./.venv/bin/python -m pytest tests/test_agent_stages.py -q`
+Run: `npx vitest run tests/contentArtifactRepositoryDynamoDB.integration.test.ts tests/contracts.test.ts && cd agent && ./.venv/bin/python -m pytest tests/test_agent_stages.py -q`
 
 - [ ] **Step 3: Implement repository and internal submission boundary**
 
@@ -162,14 +162,14 @@ Persist authoritative IDs/digests server-side in a transaction. Reject a batch t
 
 Call the generalized production team with the output plan, post the typed batch, and derive only registry-backed actions. Remove the rule requiring exactly one `publish_x_post` action.
 
-- [ ] **Step 5: Verify GREEN and run Firestore integration coverage**
+- [ ] **Step 5: Verify GREEN and run DynamoDB integration coverage**
 
 Run: `npm run test:integration` and `cd agent && ./.venv/bin/python -m pytest tests/test_agent_stages.py -q`
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lib/contentArtifacts src/app/api/internal/content-artifacts src/app/api/internal/drafts/route.ts src/lib/firestore.ts src/lib/types.ts agent/harmonia_agent/stages.py agent/harmonia_agent/web_client.py tests agent/tests/test_agent_stages.py
+git add src/lib/contentArtifacts src/app/api/internal/content-artifacts src/app/api/internal/drafts/route.ts src/lib/repository.ts src/lib/types.ts agent/harmonia_agent/stages.py agent/harmonia_agent/web_client.py tests agent/tests/test_agent_stages.py
 git commit -m "feat: persist multiformat production batches"
 ```
 
@@ -183,7 +183,7 @@ git commit -m "feat: persist multiformat production batches"
 - Modify: `src/lib/types.ts`
 - Modify: `src/lib/policy.ts`
 - Test: `agent/tests/test_artifact_export.py`
-- Test: `tests/contentArtifactVerificationFirestore.integration.test.ts`
+- Test: `tests/contentArtifactVerificationDynamoDB.integration.test.ts`
 - Modify: `tests/policy.test.ts`
 
 **Interfaces:**
@@ -200,7 +200,7 @@ Run: `cd agent && ./.venv/bin/python -m pytest tests/test_artifact_export.py -q`
 
 - [ ] **Step 3: Implement serializers, action policy, execution, receipts, and read-back**
 
-Store Markdown and canonical JSON as separate immutable objects. The receipt artifact references the JSON identity and includes both hashes in detail. The verifier must fetch stored objects rather than trust Firestore payload copies.
+Store Markdown and canonical JSON as separate immutable objects. The receipt artifact references the JSON identity and includes both hashes in detail. The verifier must fetch stored objects rather than trust DynamoDB payload copies.
 
 - [ ] **Step 4: Replace legacy content-pack assembly**
 
@@ -309,24 +309,24 @@ git commit -m "feat: expose truthful multiformat operations"
 ### Task 7: Repair durable steering delivery and UI
 
 **Files:**
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/repository.ts`
 - Modify: `src/lib/steering/repository.ts`
 - Modify: `src/lib/steering/lineage.ts`
 - Modify: `src/app/api/jobs/[id]/steering/redo/route.ts`
 - Modify: `src/app/api/jobs/[id]/steering/nudges/[nudgeId]/apply/route.ts`
 - Modify: `src/components/studio/SteeringControls.tsx`
-- Create: `tests/steeringFirestore.integration.test.ts`
+- Create: `tests/steeringDynamoDB.integration.test.ts`
 - Modify: `tests/steeringLineage.test.ts`
 
 **Interfaces:**
 - Produces: `rewindJobStageWithOutbox(...) -> { controlEpoch, outboxId }` and `applyNudgeWithOutbox(...)`.
 - Preserves: executed actions, receipts, effect claims, and verification records.
 
-- [ ] **Step 1: Write failing Firestore integration tests**
+- [ ] **Step 1: Write failing DynamoDB integration tests**
 
 Assert redo atomically changes stage and creates attempt-scoped pending outbox, stale epochs fail, unsafe rewind after executed effects fails, safe rewind invalidates only dependent unexecuted artifacts/approvals, nudge resumes through outbox, and durable dispatch can recover after route failure.
 
-- [ ] **Step 2: Verify RED with the Firestore emulator**
+- [ ] **Step 2: Verify RED with the DynamoDB emulator**
 
 Run: `npm run test:integration`.
 
@@ -340,12 +340,12 @@ Add explicit impact review and exact typed confirmation. Never use a generic con
 
 - [ ] **Step 5: Verify GREEN**
 
-Run Firestore integration, steering unit tests, TypeScript, and lint.
+Run DynamoDB integration, steering unit tests, TypeScript, and lint.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/lib/firestore.ts src/lib/steering src/app/api/jobs/[id]/steering src/components/studio/SteeringControls.tsx tests/steeringFirestore.integration.test.ts tests/steeringLineage.test.ts
+git add src/lib/repository.ts src/lib/steering src/app/api/jobs/[id]/steering src/components/studio/SteeringControls.tsx tests/steeringDynamoDB.integration.test.ts tests/steeringLineage.test.ts
 git commit -m "fix: make steering durably resumable"
 ```
 
@@ -359,7 +359,7 @@ git commit -m "fix: make steering durably resumable"
 - Modify: `src/lib/brandLibraries/contracts.ts`
 - Modify: `src/app/api/internal/libraries/sync/route.ts`
 - Test: `agent/tests/test_extraction_preflight.py`
-- Create: `tests/brandLibrarySyncFirestore.integration.test.ts`
+- Create: `tests/brandLibrarySyncDynamoDB.integration.test.ts`
 - Modify: `tests/brandLibraryContracts.test.ts`
 
 **Interfaces:**
@@ -384,7 +384,7 @@ Verify normalized artifact existence and digest before reuse. Persist typed fail
 
 - [ ] **Step 5: Verify GREEN**
 
-Run focused tests, full Firestore integration, scheduler tests, and cost-reporting tests.
+Run focused tests, full DynamoDB integration, scheduler tests, and cost-reporting tests.
 
 - [ ] **Step 6: Commit**
 
@@ -461,7 +461,7 @@ Run: `cd agent && ./.venv/bin/python -m pytest -q`
 
 Expected: all pass; warnings must be understood and must not conceal failures.
 
-- [ ] **Step 3: Run Firestore integration**
+- [ ] **Step 3: Run DynamoDB integration**
 
 Run: `npm run test:integration`
 

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { createContextProjectionStore } from "@/lib/contextProjectionStore";
 import { createContextProjection } from "@/lib/contextProjections";
-import { db } from "@/lib/firestore";
+import { db } from "@/lib/repository";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { internalRoute, readOperationFenceHeaders } from "@/lib/internalHandler";
 import { currentTenant } from "@/lib/tenancy";

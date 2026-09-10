@@ -1,0 +1,17 @@
+---
+title: "Cognito identity"
+description: "Google federation with server-owned sessions."
+---
+
+## How Harmonia uses it
+
+
+Cognito authorization-code login uses PKCE and nonce validation. Server sessions bind the verified subject to workspace membership and role. The application has no development identity bypass. Google Drive and Calendar permissions are connected separately and never inferred from login.
+
+## Implementation
+
+`src/lib/cognito.ts`
+
+## Evidence status
+
+This AWS edition has no authenticated deployment or provider rehearsal yet. Paid validation remains disabled. Local checks are reported separately from live proof.

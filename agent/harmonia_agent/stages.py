@@ -56,7 +56,7 @@ from .memory_bank import (
     eligible_job_memories,
 )
 from .failures import FailureCategory, FailureEnvelope, normalize_failure
-from .team_runtime import AgentEngineProtocolError, AgentEngineProviderError
+from .team_runtime import AgentCoreProtocolError, AgentCoreProviderError
 from .telemetry import current_trace_id, inject_context, safe_attributes, tracer
 from .usage import InvocationContext
 from .effect_executor import execute_effect_command, production_adapters
@@ -175,21 +175,21 @@ def deterministic_generative_media_actions(job: dict[str, Any]) -> list[dict[str
     if moments:
         moment = moments[0]
         prompt = (
-            f"Vertical cinematic b-roll for {title}. Visual beat: {str(moment['visualHook'])[:500]}. "
+            f"Landscape cinematic b-roll for {title}. Visual beat: {str(moment['visualHook'])[:150]}. "
             "Abstract product motion, no people, no logos, no text, no dialogue, silent output."
         )
-        digest = hashlib.sha256(f"veo|{moment['id']}|{prompt}".encode()).hexdigest()[:12]
+        digest = hashlib.sha256(f"nova_reel|{moment['id']}|{prompt}".encode()).hexdigest()[:12]
         actions.append({
-            "id": f"act-veo-{digest}",
+            "id": f"act-nova_reel-{digest}",
             "type": "generate_video",
-            "title": f"Generate Veo video: {str(moment.get('title') or title)[:36]}",
-            "description": "Generate one 4-second 720p vertical video asset with Veo 3.1 Fast (estimated $0.32).",
+            "title": f"Generate Nova Reel video: {str(moment.get('title') or title)[:36]}",
+            "description": "Generate one 6-second 720p landscape video asset with Nova Reel; deployment pricing must be configured.",
             "momentId": moment["id"],
             "payload": {
-                "type": "generate_video", "modelCapability": "veo-3.1-fast",
-                "mode": "text_to_video", "prompt": prompt, "durationSec": 4,
-                "aspectRatio": "9:16", "resolution": "720p", "generateAudio": False,
-                "enhancePrompt": True, "outputCount": 1,
+                "type": "generate_video", "modelCapability": "nova-reel",
+                "mode": "text_to_video", "prompt": prompt, "durationSec": 6,
+                "aspectRatio": "16:9", "resolution": "720p",
+                "outputCount": 1,
             },
         })
     angle = angles[0] if angles else None
@@ -198,16 +198,16 @@ def deterministic_generative_media_actions(job: dict[str, Any]) -> list[dict[str
         f"Instrumental 30-second soundtrack for a startup social clip about {music_concept}. "
         "Optimistic, modern, focused, no vocals, clean ending."
     )
-    digest = hashlib.sha256(f"lyria|{music_concept}|{prompt}".encode()).hexdigest()[:12]
+    digest = hashlib.sha256(f"elevenlabs|{music_concept}|{prompt}".encode()).hexdigest()[:12]
     actions.append({
-        "id": f"act-lyria-{digest}",
+        "id": f"act-elevenlabs-{digest}",
         "type": "generate_music",
-        "title": f"Generate Lyria soundtrack: {music_concept[:34]}",
-        "description": "Generate one 30-second instrumental clip with Lyria 3; deployment pricing must be configured before approval.",
+        "title": f"Generate ElevenLabs soundtrack: {music_concept[:34]}",
+        "description": "Generate one 30-second instrumental clip with ElevenLabs; deployment pricing must be configured before approval.",
         **({"angleId": angle["id"]} if angle else {}),
         "payload": {
-            "type": "generate_music", "modelCapability": "lyria-3-clip", "prompt": prompt,
-            "instrumental": True, "lyricsMode": "none", "language": "en",
+            "type": "generate_music", "modelCapability": "elevenlabs-music", "prompt": prompt,
+            "instrumental": True,
             "targetDurationSec": 30, "outputCount": 1,
         },
     })
@@ -333,6 +333,14 @@ async def run_extract_sources(job_id: str) -> None:
         except Exception as exc:
             failed = True
             web_patch(f"/api/internal/sources/{source_id}", {"outcome": "failed", "expectedState": "extracting", "failure": _source_failure(exc, category="provider_transient" if isinstance(exc, (httpx.TimeoutException, httpx.TransportError)) else "validation")})
+    if not failed:
+        from .knowledge_index import index_job_sources, KnowledgeIndexPending
+        try:
+            await asyncio.to_thread(index_job_sources, job_id)
+        except KnowledgeIndexPending:
+            # Durable submitted records are recovered by the independent tick.
+            # Direct source processing does not wait on optional private retrieval.
+            pass
     web_post("/api/internal/source-manifest", {"jobId": job_id, "stage": "extract_sources", "outcome": "partial_failure" if failed else "all_ready"})
 
 
@@ -363,7 +371,7 @@ async def run_understand(job_id: str) -> None:
                     f"Verified post {post_id}: {int(item.get('likes') or 0)} likes and "
                     f"{int(item.get('reposts') or 0)} reposts."
                 ),
-                firestoreEvidenceRef=f"engagement/{post_id}",
+                durableEvidenceRef=f"engagement/{post_id}",
             ))
     except WebApiError:
         logger.info("no prior engagement insights yet")
@@ -437,7 +445,7 @@ def _strategy_input(job: dict[str, Any], insights: dict[str, Any]) -> Strategist
             performance.append(PerformanceObservation(
                 id=f"performance:{post_id}",
                 summary=f"Verified post {post_id}: {int(item.get('likes') or 0)} likes and {int(item.get('reposts') or 0)} reposts.",
-                firestoreEvidenceRef=f"engagement/{post_id}",
+                durableEvidenceRef=f"engagement/{post_id}",
             ))
     revision = int(job.get("strategyRevision") or 1)
     return StrategistInput(
@@ -481,8 +489,8 @@ async def run_strategize(job_id: str) -> None:
             *[ref for item in prepared.analysis.angles for ref in item.evidenceRefs],
         }),
         "operatorContextIds": [prepared.company.evidenceId, prepared.campaign.evidenceId],
-        "performance": [{"id": item.id, "firestoreEvidenceRef": item.firestoreEvidenceRef} for item in prepared.performance],
-        "memoryFacts": [{"id": item.id, "firestoreEvidenceRef": item.firestoreEvidenceRef} for item in prepared.memoryFacts],
+        "performance": [{"id": item.id, "durableEvidenceRef": item.durableEvidenceRef} for item in prepared.performance],
+        "memoryFacts": [{"id": item.id, "durableEvidenceRef": item.durableEvidenceRef} for item in prepared.memoryFacts],
         "audienceIds": [item.id for item in prepared.campaign.audiences],
         "requestedChannels": prepared.campaign.requestedChannels,
         "supportedChannels": prepared.campaign.supportedChannels,

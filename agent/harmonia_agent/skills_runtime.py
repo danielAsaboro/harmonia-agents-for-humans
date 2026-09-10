@@ -1,4 +1,4 @@
-"""Skill-backed operator insight tools for the Harmonia ADK team.
+"""Skill-backed operator insight tools for the Harmonia Strands team.
 
 Loads the filesystem skills in ``harmonia_agent/skills`` into one
 ``SkillToolset`` whose additional function tools are real data paths only:
@@ -13,8 +13,6 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any
 
-from google.adk.skills import load_skill_from_dir
-from google.adk.tools import FunctionTool, skill_toolset
 
 from . import signals, web_client
 from .telemetry import safe_attributes, tracer
@@ -78,7 +76,7 @@ def get_engagement_insights() -> dict[str, Any]:
     """Read measured engagement outcomes for this workspace's published posts."""
     try:
         data, provenance = _engagement_data()
-        items = [evidence("harmonia_firestore_engagement", provenance=provenance)]
+        items = [evidence("harmonia_dynamodb_engagement", provenance=provenance)]
         items.extend(
             evidence("harmonia_measured_post", provenance=provenance, reference=str(post["postId"]))
             for post in data.get("topPosts") or [] if post.get("postId")
@@ -92,7 +90,7 @@ def get_operator_feed() -> dict[str, Any]:
     """Read the workspace feed: pending items, job health, goals, recent posts."""
     try:
         data, provenance = _feed_data()
-        return success(data, evidence_items=[evidence("harmonia_firestore_feed", provenance=provenance)])
+        return success(data, evidence_items=[evidence("harmonia_dynamodb_feed", provenance=provenance)])
     except Exception as exc:  # noqa: BLE001
         return provider_error(exc)
 
@@ -147,7 +145,7 @@ def get_job_status(job_id: str) -> dict[str, Any]:
         if exc.status == 404:
             return error("job_not_found", "No job exists in this workspace with that ID.", category="not_found", retryable=False)
         return provider_error(exc)
-    return success({"found": True, "job": _summarize_job(job)}, evidence_items=[evidence("harmonia_firestore_job", provenance="live", reference=job_id)])
+    return success({"found": True, "job": _summarize_job(job)}, evidence_items=[evidence("harmonia_dynamodb_job", provenance="live", reference=job_id)])
 
 
 # ---------- schedule derivation ----------
@@ -248,7 +246,7 @@ _TOOL_CONTRACTS = {
 
 
 def validate_tool_contracts() -> dict[str, ToolContract]:
-    """Fail closed when an exposed ADK tool lacks a least-privilege contract."""
+    """Fail closed when an exposed Strands tool lacks a least-privilege contract."""
     exposed = {tool.__name__ for tool in _TOOLS}
     registered = set(_TOOL_CONTRACTS)
     if exposed != registered:
@@ -264,11 +262,7 @@ def validate_tool_contracts() -> dict[str, ToolContract]:
     return dict(_TOOL_CONTRACTS)
 
 
-def build_insight_skillset() -> skill_toolset.SkillToolset:
-    """One SkillToolset covering all Harmonia insight skills plus their tools."""
+def build_insight_skillset() -> list:
+    from strands import tool
     validate_tool_contracts()
-    skills = [load_skill_from_dir(SKILLS_DIR / name) for name in _SKILL_NAMES]
-    return skill_toolset.SkillToolset(
-        skills=skills,
-        additional_tools=[FunctionTool(tool) for tool in _TOOLS],
-    )
+    return [tool(fn) for fn in _TOOLS]

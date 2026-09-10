@@ -1,6 +1,6 @@
 # Maya Presenter Implementation Plan
 
-- [x] Audit Maya's ADK prompt, contracts, endpoint, context builder, hydration, rendering, tests, and docs.
+- [x] Audit Maya's Strands prompt, contracts, endpoint, context builder, hydration, rendering, tests, and docs.
 - [x] Add failing tests for invented references, component mismatches, unsafe approval, authority claims, duplicate IDs, and host-owned state components.
 - [x] Add a focused Maya prompt and exact-context Python runtime validator.
 - [x] Mirror the validator in TypeScript before trusted hydration and A2UI event persistence.

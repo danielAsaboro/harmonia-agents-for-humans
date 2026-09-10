@@ -2,7 +2,7 @@
 
 ## Goal
 
-Give Harmonia's full Chat Console a production-grade generative interface inspired by the interaction patterns in Vercel AI Elements while remaining on Google ADK, Google's A2UI protocol, React, Cloud Storage, Firestore, and the existing approval pipeline.
+Give Harmonia's full Chat Console a production-grade generative interface inspired by the interaction patterns in Vercel AI Elements while remaining on Strands Agents SDK, Google's A2UI protocol, React, Cloud Storage, DynamoDB, and the existing approval pipeline.
 
 ## Scope
 
@@ -34,7 +34,7 @@ Uploads alone cause no workflow side effect. A submitted message references read
 
 The stream event union is `run_started`, `text_delta`, `activity`, `tool_activity`, `a2ui_operation`, `confirmation_requested`, `job_updated`, `run_completed`, and `run_failed`. Each submitted prompt creates a durable chat run. Events receive monotonic sequence numbers and are stored before delivery so the client can reconnect after its last sequence. A disconnected browser does not cancel server work; the Console can stop local consumption without rolling back an already accepted job or decision.
 
-Only validated final messages and A2UI surfaces are added to normal conversation history. Firestore gains tenant-scoped `chatAttachments`, `chatRuns`, `chatRunEvents`, and `pendingOperations` records without changing existing job, action, receipt, Pub/Sub, or chat-message document shapes.
+Only validated final messages and A2UI surfaces are added to normal conversation history. DynamoDB gains tenant-scoped `chatAttachments`, `chatRuns`, `chatRunEvents`, and `pendingOperations` records without changing existing job, action, receipt, SQS, or chat-message document shapes.
 
 ## Component Mapping
 
@@ -48,7 +48,7 @@ Only validated final messages and A2UI surfaces are added to normal conversation
 | Inline Citation | validated `InlineCitation` |
 | Message | shared `MessageContent` renderer |
 | Plan | `PlanView` |
-| Queue | Firestore-backed `QueueView` |
+| Queue | DynamoDB-backed `QueueView` |
 | Reasoning | `ReasoningSummary`, never hidden reasoning |
 | Tool | `ToolActivity` with sanitized input and output summaries |
 | Task | `TaskView` with status and optional job/stage reference |

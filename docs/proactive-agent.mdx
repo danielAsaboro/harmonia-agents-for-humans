@@ -40,10 +40,10 @@ sequenceDiagram
     participant W as Proactive agent (worker)
     participant S as External sources
     participant Web as Web API
-    participant DB as Firestore
+    participant DB as DynamoDB
     participant O as Operator
     W->>S: fetch signals / insights
-    W->>W: coordinator delegates to strategist (Gemini or explicit mock)
+    W->>W: coordinator delegates to strategist (Bedrock through Strands)
     W->>Web: POST /api/internal/proposals
     Web->>DB: save proposals (dedup by id)
     Web->>O: bell notifications

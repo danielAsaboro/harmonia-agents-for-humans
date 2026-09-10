@@ -13,7 +13,7 @@ from .agent_errors import AgentContractError
 from .generative_media import MediaProtocolError, MediaProviderError
 from .memory_bank import MemoryProtocolError, MemoryProviderError
 from .model_catalog import UnknownModelPrice
-from .team_runtime import AgentEngineProtocolError, AgentEngineProviderError
+from .team_runtime import AgentCoreProtocolError, AgentCoreProviderError
 from .web_client import (
     ConnectionAuthorizationError,
     EffectClaimInProgress,
@@ -87,7 +87,7 @@ def _classification(exc: Exception) -> tuple[FailureCategory, str, bool]:
         if isinstance(exc, UnknownModelPrice):
             return FailureCategory.BUDGET, "unknown_model_price", False
         return FailureCategory.VALIDATION, "contract_validation_failed", False
-    if isinstance(exc, (AgentProtocolError, AgentEngineProtocolError, MediaProtocolError, MemoryProtocolError)):
+    if isinstance(exc, (AgentProtocolError, AgentCoreProtocolError, MediaProtocolError, MemoryProtocolError)):
         return FailureCategory.PROTOCOL, "invalid_provider_response", False
     if isinstance(exc, (WebApiError, XError)):
         if status in (401, 403):
@@ -107,13 +107,13 @@ def _classification(exc: Exception) -> tuple[FailureCategory, str, bool]:
         if status is not None and status < 500 and status != 429:
             return FailureCategory.PROVIDER_PERMANENT, "provider_request_rejected", False
         return FailureCategory.PROVIDER_TRANSIENT, "provider_transport_failed", True
-    if isinstance(exc, AgentEngineProviderError) and status is not None:
+    if isinstance(exc, AgentCoreProviderError) and status is not None:
         if status == 429 or status >= 500:
             return FailureCategory.PROVIDER_TRANSIENT, "provider_request_failed", True
         if status in (401, 403):
             return FailureCategory.AUTHORIZATION, "service_authorization_failed", False
         return FailureCategory.PROVIDER_PERMANENT, "provider_request_rejected", False
-    if isinstance(exc, (AgentEngineProviderError, MemoryProviderError)):
+    if isinstance(exc, (AgentCoreProviderError, MemoryProviderError)):
         return FailureCategory.DEPENDENCY, "managed_dependency_unavailable", True
     return FailureCategory.DEPENDENCY, "unexpected_dependency_failure", True
 

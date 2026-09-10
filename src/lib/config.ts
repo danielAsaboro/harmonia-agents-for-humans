@@ -1,19 +1,18 @@
 import { z } from "zod";
 
 const envSchema = z.object({
-  GOOGLE_CLOUD_PROJECT: z.string().min(1).default("harmonia-local"),
-  GOOGLE_CLOUD_LOCATION: z.string().default("us-central1"),
-  FIRESTORE_JOB_COLLECTION: z.string().default("jobs"),
-  PUBSUB_STAGE_TOPIC: z.string().default("harmonia-stages"),
-  PUBSUB_DATA_TOPIC: z.string().default("harmonia-data-work"),
-  PUBSUB_PRODUCTION_TOPIC: z.string().default("harmonia-production"),
+  AWS_REGION: z.string().default("us-east-1"),
+  DYNAMODB_TABLE: z.string().min(1).default("harmonia"),
+  S3_BUCKET: z.string().optional(),
+  SQS_STAGE_QUEUE_URL: z.string().url().optional(),
+  SQS_DATA_QUEUE_URL: z.string().url().optional(),
+  SQS_PRODUCTION_QUEUE_URL: z.string().url().optional(),
   INTERNAL_API_TOKEN: z.string().min(1),
   AGENT_SERVICE_URL: z.string().url(),
-  GEMINI_API_KEY: z.string().min(1).optional(),
-  MODEL_ID: z.string().default("gemini-3.7-flash"),
+  MODEL_ID: z.string().default("us.anthropic.claude-haiku-4-5-20251001-v1:0"),
   MODEL_PRICING_VERSION: z.string().min(1).default("unconfigured"),
-  LYRIA_3_CLIP_COST_USD: z.preprocess((value) => value === "" ? undefined : value, z.string().regex(/^\d+\.\d{6}$/).optional()),
-  VEO_3_1_COST_PER_SECOND_USD: z.preprocess((value) => value === "" ? undefined : value, z.string().regex(/^\d+\.\d{6}$/).optional()),
+  ELEVENLABS_MUSIC_COST_PER_SECOND_USD: z.preprocess((value) => value === "" ? undefined : value, z.string().regex(/^\d+\.\d{6}$/).optional()),
+  NOVA_REEL_COST_PER_SECOND_USD: z.preprocess((value) => value === "" ? undefined : value, z.string().regex(/^\d+\.\d{6}$/).optional()),
   DEFAULT_JOB_BUDGET_USD: z.string().regex(/^\d+\.\d{1,6}$/).default("5.00"),
   DEFAULT_JOB_APPROVAL_THRESHOLD_USD: z.string().regex(/^\d+\.\d{1,6}$/).default("0.25"),
   DEFAULT_WORKSPACE_BUDGET_USD: z.string().regex(/^\d+\.\d{1,6}$/).default("100.00"),
@@ -54,5 +53,5 @@ export function getConfig(): Config {
 }
 
 export function isEmulatorMode(): boolean {
-  return Boolean(process.env.FIRESTORE_EMULATOR_HOST || process.env.PUBSUB_EMULATOR_HOST);
+  return Boolean(process.env.AWS_LOCAL_ENDPOINT);
 }

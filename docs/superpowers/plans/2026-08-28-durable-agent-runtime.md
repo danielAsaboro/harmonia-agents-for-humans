@@ -4,9 +4,9 @@
 
 **Goal:** Make Harmonia survive multi-hour or multi-day, event-driven runs without treating an LLM context window as durable state, while preserving exactly-once domain transitions, explicit effect ambiguity, reproducible context projections, and bounded crash recovery.
 
-**Architecture:** Extend the existing Firestore/Pub/Sub/Cloud Run/Google ADK runtime with a canonical operation ledger, stable event inbox, monotonically fenced claims, artifact metadata, deterministic context projections, explicit effect-dispatch states, and a recovery controller. Firestore remains authoritative; Pub/Sub remains an at-least-once wake transport; GCS holds large immutable payloads; model context is a disposable projection of durable state.
+**Architecture:** Extend the existing DynamoDB/SQS/ECS Fargate/Strands Agents SDK runtime with a canonical operation ledger, stable event inbox, monotonically fenced claims, artifact metadata, deterministic context projections, explicit effect-dispatch states, and a recovery controller. DynamoDB remains authoritative; SQS remains an at-least-once wake transport; GCS holds large immutable payloads; model context is a disposable projection of durable state.
 
-**Tech Stack:** Next.js 16, TypeScript, Zod, Firestore transactions, Google Cloud Pub/Sub and Storage, Python 3.12, Google ADK, pytest, Vitest, Firestore/Pub/Sub emulators.
+**Tech Stack:** Next.js 16, TypeScript, Zod, DynamoDB transactions, Google Cloud SQS and Storage, Python 3.12, Strands Agents SDK, pytest, Vitest, DynamoDB/SQS emulators.
 
 **Design spec:** `docs/superpowers/specs/2026-08-28-durable-agent-runtime-design.md`
 
@@ -30,14 +30,14 @@
 
 **Files:**
 - Create: `src/lib/operationStore.ts`
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/repository.ts`
 - Create: `tests/operationStore.test.ts`
-- Create: `tests/operationFirestore.integration.test.ts`
+- Create: `tests/operationDynamoDB.integration.test.ts`
 
 - [ ] Write failing repository tests for tenant paths, deterministic creation, claim transactions, fence checks, terminal updates, and paginated recovery candidates.
 - [ ] Write emulator tests proving two concurrent claims yield one owner, reclaim increments epoch, a stale worker cannot commit, and cross-tenant access fails.
 - [ ] Run both focused tests; confirm the unit suite fails for missing implementation and the integration suite runs when `FIRESTORE_EMULATOR_HOST` is present.
-- [ ] Implement repository functions with injected transaction adapters for unit tests and Firestore wrappers for production. Add only thin exports to `firestore.ts` to preserve the existing persistence boundary.
+- [ ] Implement repository functions with injected transaction adapters for unit tests and DynamoDB wrappers for production. Add only thin exports to `firestore.ts` to preserve the existing persistence boundary.
 - [ ] Re-run focused unit and emulator tests.
 - [ ] Commit: `feat: persist and fence durable operations`.
 
@@ -48,18 +48,18 @@
 - Create: `src/lib/eventInboxStore.ts`
 - Modify: `src/lib/stageOutbox.ts`
 - Modify: `src/lib/stageOutboxDispatcher.ts`
-- Modify: `src/lib/pubsub.ts`
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/queue.ts`
+- Modify: `src/lib/repository.ts`
 - Create: `tests/eventInbox.test.ts`
-- Create: `tests/eventInboxFirestore.integration.test.ts`
+- Create: `tests/eventInboxDynamoDB.integration.test.ts`
 - Modify: `tests/stageOutbox.test.ts`
-- Modify: `tests/stageOutboxFirestore.integration.test.ts`
+- Modify: `tests/stageOutboxDynamoDB.integration.test.ts`
 - Modify: `tests/pubsubTenancy.test.ts`
 
 - [ ] Write failing tests for canonical `(source, sourceEventId)` hashing, stable stage-outbox event identity across publish attempts, payload digest verification, inbox outcomes (`execute`, `in_progress`, `already_completed`, `rejected`), and replay-policy handling after an abandoned lease.
-- [ ] Add emulator tests showing duplicate Pub/Sub deliveries accept one domain event and that inbox acceptance plus operation creation is atomic.
+- [ ] Add emulator tests showing duplicate SQS deliveries accept one domain event and that inbox acceptance plus operation creation is atomic.
 - [ ] Run the focused tests and record the expected failures.
-- [ ] Implement a versioned event envelope and transactional inbox. Extend outbox records additively with `sourceEventId`, `schemaVersion`, `operationId`, correlation/causation fields, and `publishAttempt`; never key deduplication on Pub/Sub message ID.
+- [ ] Implement a versioned event envelope and transactional inbox. Extend outbox records additively with `sourceEventId`, `schemaVersion`, `operationId`, correlation/causation fields, and `publishAttempt`; never key deduplication on SQS message ID.
 - [ ] Re-run focused unit/emulator tests and the existing stage-outbox tests.
 - [ ] Commit: `feat: deduplicate durable source events`.
 
@@ -82,7 +82,7 @@
 - [ ] Write failing route tests proving protected mutations reject missing, stale, terminal, or cross-tenant fences and accept the current epoch.
 - [ ] Write failing Python tests proving operation context is scoped, cannot leak between events, and automatically attaches both operation headers to protected calls.
 - [ ] Write failing worker tests proving inbox dedup occurs before stage/model execution and transient errors leave a retryable record.
-- [ ] Implement claim/finalize endpoints, `internalRoute({ requireFence: true })`, Python `ContextVar` operation scope, and event acceptance in the Pub/Sub push path.
+- [ ] Implement claim/finalize endpoints, `internalRoute({ requireFence: true })`, Python `ContextVar` operation scope, and event acceptance in the SQS push path.
 - [ ] Apply `requireFence` first to stage finalization and the new projection/effect transitions; migrate other protected mutation routes as their task lands.
 - [ ] Re-run all focused TypeScript and Python tests.
 - [ ] Commit: `feat: enforce event inbox and operation fences`.
@@ -123,7 +123,7 @@
 - [ ] Prove via tests that approval IDs, policy version, goal digest, unresolved effects, and current revision references cannot be dropped by compaction and that memory facts cannot grant authority.
 - [ ] Run focused suites and confirm red.
 - [ ] Implement the projection record/store and Python compiler. Order sections as authority, operation state, unresolved effects, current revisions, trusted evidence, bounded memory, recent events, then artifact previews. Persist the manifest before a model call and spill oversized rendered context through Task 5.
-- [ ] Integrate the compiler at bounded stage/ADK invocation points without injecting the full historical chat or raw tool log.
+- [ ] Integrate the compiler at bounded stage/Strands invocation points without injecting the full historical chat or raw tool log.
 - [ ] Re-run focused and affected agent tests.
 - [ ] Commit: `feat: compile reproducible bounded agent context`.
 
@@ -142,7 +142,7 @@
 - Modify: `tests/effectCommands.test.ts`
 - Modify: `tests/effectClaims.test.ts`
 - Modify: `tests/effectCommandStore.test.ts`
-- Modify: `tests/effectCommandFirestore.integration.test.ts`
+- Modify: `tests/effectCommandDynamoDB.integration.test.ts`
 - Modify: `agent/tests/test_effect_executor.py`
 
 - [ ] Write failing tests for `prepared -> dispatched -> observed -> applied|failed|unknown`, mandatory fence checks, and atomic receipt/command/operation finalization.
@@ -161,7 +161,7 @@
 - Modify: `agent/harmonia_agent/heartbeat.py`
 - Modify: `agent/harmonia_agent/durable_tick.py`
 - Create: `tests/recovery.test.ts`
-- Create: `tests/recoveryFirestore.integration.test.ts`
+- Create: `tests/recoveryDynamoDB.integration.test.ts`
 - Create: `agent/tests/test_recovery.py`
 - Modify: `agent/tests/test_heartbeat.py`
 - Modify: `agent/tests/test_durable_tick.py`
@@ -215,7 +215,7 @@
 
 **Files:**
 - Modify: `infra/deploy.sh`
-- Modify: `infra/deploy-web-preview.sh`
+- Modify: `infra/deploy.sh`
 - Modify: `scripts/dev.sh`
 - Modify: `docs/deployment.mdx`
 - Modify: `docs/evidence-runbook.mdx`
@@ -223,9 +223,9 @@
 - Modify: `tests/infraScripts.test.ts`
 - Modify: `tests/healthRoute.test.ts`
 
-- [ ] Write failing infrastructure tests for required indexes, Pub/Sub dead-letter/retry policy, least-privilege access to new collections/artifact paths, recovery scheduling, and health/readiness reporting.
+- [ ] Write failing infrastructure tests for required indexes, SQS dead-letter/retry policy, least-privilege access to new collections/artifact paths, recovery scheduling, and health/readiness reporting.
 - [ ] Run focused tests and confirm red.
-- [ ] Add Firestore indexes/rules where applicable, Pub/Sub envelope settings, recovery scheduler wiring, environment validation, and health detail without exposing tenant data or secrets.
+- [ ] Add DynamoDB indexes/rules where applicable, SQS envelope settings, recovery scheduler wiring, environment validation, and health detail without exposing tenant data or secrets.
 - [ ] Re-run infrastructure, health, and documentation truth tests.
 - [ ] Commit: `chore: wire durable runtime infrastructure`.
 
@@ -237,11 +237,11 @@
 
 - [ ] Run `npm test` and require zero unexpected skips/failures.
 - [ ] Run `npm run test:agent` and require zero failures.
-- [ ] Start the configured Firestore/Pub/Sub emulators and run integration suites with no runtime-related skips.
+- [ ] Start the configured DynamoDB/SQS emulators and run integration suites with no runtime-related skips.
 - [ ] Run `npm run verify:durable-runtime`.
 - [ ] Run `npm run lint`.
 - [ ] Run `npm run build`.
 - [ ] Start the local web and worker processes, exercise health/readiness, submit a real event, interrupt/restart a worker at a deterministic safe boundary, and prove resumption plus duplicate suppression.
-- [ ] If authenticated configuration is available, run one real Gemini + Firestore + Pub/Sub + GCS vertical slice through an operator-approved export or official publish effect, then independently re-read the result and capture sanitized receipts. If any credential/service is absent, report that exact gate as unverified rather than substituting a mock.
+- [ ] If authenticated configuration is available, run one real Gemini + DynamoDB + SQS + GCS vertical slice through an operator-approved export or official publish effect, then independently re-read the result and capture sanitized receipts. If any credential/service is absent, report that exact gate as unverified rather than substituting a mock.
 - [ ] Inspect `git diff --check`, `git status --short`, and the complete commit log for accidental secrets, private research, generated junk, or unrelated edits.
 - [ ] Use the verification-before-completion skill, then commit any final regression-only fixes with precise messages.

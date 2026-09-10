@@ -1,4 +1,4 @@
-"""Harmonia ADK worker service configuration (12-factor environment)."""
+"""Harmonia AWS worker service configuration (12-factor environment)."""
 
 from __future__ import annotations
 
@@ -28,19 +28,22 @@ class Settings:
     web_internal_url: str
     internal_api_token: str
     model_id: str
-    gemini_api_key: str | None
+    aws_region: str
+    allow_paid_aws: bool
+    elevenlabs_api_key: str | None
+    transcribe_cost_per_second_usd: str | None
     github_token: str | None
-    gcp_project: str
     pricing_version: str
     telemetry_enabled: bool
     telemetry_sample_rate: float
     otel_service_name: str
     image_max_cost_usd: str
-    agent_engine_resource: str
+    agentcore_runtime_arn: str
+    agentcore_gateway_url: str | None
+    bedrock_knowledge_base_id: str | None
     memory_bank_enabled: bool
-    memory_bank_resource: str | None
+    agentcore_memory_id: str | None
     generative_media_enabled: bool
-    vertex_media_location: str
     media_output_bucket: str | None
     durable_recovery_limit: int
     durable_recovery_deadline_seconds: int
@@ -49,7 +52,6 @@ class Settings:
 
     @classmethod
     def load(cls) -> "Settings":
-        gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         pricing_version = os.environ.get("MODEL_PRICING_VERSION", PRICING_VERSION)
         if pricing_version != PRICING_VERSION:
             raise RuntimeError(
@@ -84,21 +86,24 @@ class Settings:
         return cls(
             web_internal_url=_require("WEB_INTERNAL_URL").rstrip("/"),
             internal_api_token=_require("INTERNAL_API_TOKEN"),
-            model_id=os.environ.get("MODEL_ID", "gemini-3.7-flash"),
-            gemini_api_key=gemini_key,
+            model_id=os.environ.get("MODEL_ID", "us.anthropic.claude-sonnet-4-6"),
+            aws_region=os.environ.get("AWS_REGION", "us-east-1"),
+            allow_paid_aws=_bool_env("HARMONIA_ALLOW_PAID_AWS"),
+            elevenlabs_api_key=os.environ.get("ELEVENLABS_API_KEY") or None,
+            transcribe_cost_per_second_usd=os.environ.get("TRANSCRIBE_COST_PER_SECOND_USD") or None,
             github_token=os.environ.get("GITHUB_TOKEN"),
-            gcp_project=os.environ.get("GOOGLE_CLOUD_PROJECT", "harmonia-local"),
             pricing_version=pricing_version,
             telemetry_enabled=_bool_env("HARMONIA_TELEMETRY_ENABLED"),
             telemetry_sample_rate=telemetry_sample_rate,
             otel_service_name=os.environ.get("OTEL_SERVICE_NAME", "harmonia-agent"),
             image_max_cost_usd=image_max_cost_usd,
-            agent_engine_resource=(os.environ.get("AGENT_ENGINE_RESOURCE") or "") if _bool_env("HARMONIA_LOCAL_ADK") else _require("AGENT_ENGINE_RESOURCE"),
+            agentcore_runtime_arn=os.environ.get("AGENTCORE_RUNTIME_ARN", ""),
+            agentcore_gateway_url=os.environ.get("AGENTCORE_GATEWAY_URL") or None,
+            bedrock_knowledge_base_id=os.environ.get("BEDROCK_KNOWLEDGE_BASE_ID") or None,
             memory_bank_enabled=_bool_env("MEMORY_BANK_ENABLED"),
-            memory_bank_resource=os.environ.get("MEMORY_BANK_RESOURCE") or None,
+            agentcore_memory_id=os.environ.get("AGENTCORE_MEMORY_ID") or None,
             generative_media_enabled=_bool_env("GENERATIVE_MEDIA_ENABLED"),
-            vertex_media_location=os.environ.get("VERTEX_MEDIA_LOCATION", "us-central1"),
-            media_output_bucket=os.environ.get("MEDIA_OUTPUT_BUCKET") or os.environ.get("GCS_BUCKET") or None,
+            media_output_bucket=os.environ.get("MEDIA_OUTPUT_BUCKET") or os.environ.get("S3_BUCKET") or None,
             durable_recovery_limit=recovery_limit,
             durable_recovery_deadline_seconds=recovery_deadline,
             durable_recovery_max_retries=recovery_retries,

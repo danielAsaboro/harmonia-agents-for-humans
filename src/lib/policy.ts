@@ -55,7 +55,7 @@ export function evaluateActionPolicy(
       return {
         risk: "medium",
         requiresApproval: true,
-        reason: "incurs paid Gemini image generation; output remains internal until separately published",
+        reason: "incurs paid Bedrock image generation; output remains internal until separately published",
       };
     case "generate_video":
     case "generate_music":

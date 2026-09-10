@@ -1,4 +1,3 @@
-import { GoogleAuth } from "google-auth-library";
 import { getConfig } from "@/lib/config";
 import { currentTenant, tenantSubjectId } from "@/lib/tenancy";
 
@@ -9,6 +8,7 @@ interface AgentTenantHeaders {
 }
 
 interface AgentAskOptions {
+  contextRecord?: Record<string, unknown>;
   baseUrl?: string;
   token?: string;
   tenant?: AgentTenantHeaders;
@@ -41,12 +41,12 @@ function isLocalAgent(url: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
 
-async function cloudRunFetch(url: string, init: RequestInit, audience: string): Promise<Response> {
-  const auth = new GoogleAuth();
-  const client = await auth.getIdTokenClient(audience);
-  const identityHeaders = await client.getRequestHeaders(url);
+async function workerFetch(url: string, init: RequestInit, audience: string): Promise<Response> {
+  void audience;
   const headers = new Headers(init.headers);
-  identityHeaders.forEach((value, name) => headers.set(name, value));
+  const token = headers.get("x-harmonia-internal-token");
+  if (!token) throw new Error("internal authentication is not configured");
+  headers.set("authorization", `Bearer ${token}`);
   return fetch(url, { ...init, headers });
 }
 
@@ -66,7 +66,7 @@ function errorDetail(value: unknown, status: number): string {
 }
 
 /**
- * Routes a free-form operator question to the skill-enabled ADK liaison on
+ * Routes a free-form operator question to the skill-enabled Strands liaison on
  * the agent worker. Read-only by contract; publishing still requires the
  * normal approval flow.
  */
@@ -90,18 +90,19 @@ export async function requestAgentAnswer(
       headers: {
         "content-type": "application/json",
         "x-harmonia-internal-token": token,
+        "authorization": `Bearer ${token}`,
         "x-workspace-id": tenant.workspaceId,
         "x-brand-id": tenant.brandId,
         "x-user-id": tenant.userId,
       },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, ...(options.contextRecord ? { contextRecord: options.contextRecord } : {}) }),
       signal: controller.signal,
     };
     const response = options.fetchImpl
       ? await options.fetchImpl(url, init)
       : isLocalAgent(baseUrl)
         ? await fetch(url, init)
-        : await cloudRunFetch(url, init, baseUrl);
+        : await workerFetch(url, init, baseUrl);
     const data = (await response.json().catch(() => null)) as
       | { answer?: unknown; operationId?: unknown; traceId?: unknown; activity?: unknown; detail?: string; error?: string }
       | null;

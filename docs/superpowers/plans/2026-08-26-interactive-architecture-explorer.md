@@ -15,7 +15,7 @@
 - Treat checked-in implementation and public docs as architectural truth; never derive truth from the generated blueprint image.
 - Add only `@xyflow/react` and `elkjs`; preserve npm and `package-lock.json`.
 - Public data may reference only repository-relative `src/`, `agent/`, and `docs/` paths.
-- Firestore is durable truth; Agent Engine sessions are ephemeral cognition.
+- DynamoDB is durable truth; AgentCore Runtime sessions are ephemeral cognition.
 - Every external effect has an approval path and every executed effect has an independent verification path.
 - Cognitive agents never claim approval, effect execution, credential mutation, or destructive authority.
 - Pending authenticated evidence remains visibly distinct from implemented/offline-verified behavior.
@@ -44,7 +44,7 @@ Expected: dependency entries and lockfile are updated without changing the packa
 
 - [ ] **Step 2: Write failing schema and invariant tests**
 
-Create fixtures with one valid Firestore → approved effect → receipt → verification graph and mutations that duplicate IDs, dangle an edge, create a parent cycle, include `/Users/private`, grant `approve` to an agent, mark Agent Engine durable, omit Firestore ownership, omit approval, and omit verification.
+Create fixtures with one valid DynamoDB → approved effect → receipt → verification graph and mutations that duplicate IDs, dangle an edge, create a parent cycle, include `/Users/private`, grant `approve` to an agent, mark AgentCore Runtime durable, omit DynamoDB ownership, omit approval, and omit verification.
 
 ```ts
 expect(() => validateArchitecture(validDefinition)).not.toThrow();
@@ -63,7 +63,7 @@ Expected: FAIL because the architecture schema modules do not exist.
 
 - [ ] **Step 4: Implement the schema and semantic validator**
 
-Define discriminated, closed enums and metadata fields from the spec. Parse with Zod first, then check uniqueness, endpoint validity, parent acyclicity, public-path safety, required Firestore/Agent Engine lifetime facts, forbidden agent authorities, inbound approval reachability, and post-execution verification reachability. Return the parsed immutable definition.
+Define discriminated, closed enums and metadata fields from the spec. Parse with Zod first, then check uniqueness, endpoint validity, parent acyclicity, public-path safety, required DynamoDB/AgentCore Runtime lifetime facts, forbidden agent authorities, inbound approval reachability, and post-execution verification reachability. Return the parsed immutable definition.
 
 ```ts
 export function validateArchitecture(input: unknown): ArchitectureDefinition {
@@ -103,7 +103,7 @@ git commit -m "feat: validate architecture explorer data"
 
 - [ ] **Step 1: Write failing completeness tests**
 
-Assert the exact agents/models, nine workflow stages, five skills, six tools, route families, state stores, approval lifecycle, external systems, status vocabulary, source references, and documentation references. Assert Nova tools are read-only and scoped, Temi is proposal-only, Firestore is durable, Agent Engine is ephemeral, and pending providers are not live-verified.
+Assert the exact agents/models, nine workflow stages, five skills, six tools, route families, state stores, approval lifecycle, external systems, status vocabulary, source references, and documentation references. Assert Nova tools are read-only and scoped, Temi is proposal-only, DynamoDB is durable, AgentCore Runtime is ephemeral, and pending providers are not live-verified.
 
 ```ts
 expect(node("agent-nimi").model?.name).toBe("Gemma 3 12B IT");
@@ -404,7 +404,7 @@ Expected: exit 0 and `/dashboard/architecture` appears in the route output.
 
 - [ ] **Step 4: Audit acceptance criteria against code and tests**
 
-Confirm navigation and docs links, every required node family, progressive expansion, search/filter/preset/selection, URL restoration, edge accessibility, approval and verification separation, Firestore/Agent Engine state ownership, pending-live status, keyboard names, and mobile fallback. Record any gap as a failing test before fixing it.
+Confirm navigation and docs links, every required node family, progressive expansion, search/filter/preset/selection, URL restoration, edge accessibility, approval and verification separation, DynamoDB/AgentCore Runtime state ownership, pending-live status, keyboard names, and mobile fallback. Record any gap as a failing test before fixing it.
 
 - [ ] **Step 5: Inspect final diff and repository hygiene**
 

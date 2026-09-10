@@ -1,5 +1,5 @@
 import { strategySubmissionSchema } from "@/lib/contracts";
-import { acceptStrategyProposal, appendEvent, createNotification, getJob } from "@/lib/firestore";
+import { acceptStrategyProposal, appendEvent, createNotification, getJob } from "@/lib/repository";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { strategyDigest } from "@/lib/strategyApproval";

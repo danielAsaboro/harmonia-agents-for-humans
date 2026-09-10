@@ -23,15 +23,15 @@ const sourceSchema = z.object({
 }).strict();
 
 const environmentSchema = z.object({
-  projectId: z.string().min(1),
-  location: z.string().min(1),
+  accountId: z.string().min(1),
+  region: z.string().min(1),
   webService: z.string().min(1),
   webRevision: z.string().min(1),
   agentService: z.string().min(1),
   agentRevision: z.string().min(1),
-  agentEngineResource: z.string().min(1),
-  firestoreDatabase: z.string().min(1),
-  pubsubTopic: z.string().min(1),
+  agentcoreRuntimeArn: z.string().min(1),
+  dynamodbTableArn: z.string().min(1),
+  stageQueueArn: z.string().min(1),
   mockAi: z.boolean(),
   mockEffects: z.boolean(),
   emulator: z.boolean(),
@@ -62,14 +62,14 @@ const eventSchema = z.object({
   status: z.enum(["waiting", "completed"]),
   at: timestamp,
   operationId: z.string().min(1),
-  pubsubMessageId: z.string().min(1).optional(),
+  transportMessageId: z.string().min(1).optional(),
   traceId,
 }).strict();
 
 const cognitionSchema = z.object({
   role: z.string().min(1),
   model: z.string().min(1),
-  provider: z.literal("gemini"),
+  provider: z.literal("bedrock"),
   policyVersion: z.string().min(1),
   usageRecordId: z.string().min(1),
   operationId: z.string().min(1),
@@ -80,7 +80,7 @@ const approvalSchema = z.object({
   approvalId: z.string().min(1),
   actionId: z.string().min(1),
   decision: z.literal("approved"),
-  actorType: z.enum(["firebase_operator", "telegram_operator"]),
+  actorType: z.enum(["cognito_operator", "telegram_operator"]),
   decidedAt: timestamp,
   traceId,
 }).strict();
@@ -264,21 +264,21 @@ export function verifyVerticalSliceEvidence(input: unknown): EvidenceVerificatio
     ));
   }
 
-  if (!/^projects\/[^/]+\/locations\/[^/]+\/reasoningEngines\/[^/]+$/.test(
-    bundle.environment.agentEngineResource,
+  if (!/^arn:aws:bedrock-agentcore:[a-z0-9-]+:\d{12}:runtime\/[A-Za-z0-9_-]+$/.test(
+    bundle.environment.agentcoreRuntimeArn,
   )) {
     failures.push(failure(
-      "missing_agent_engine",
-      "environment.agentEngineResource",
-      "A concrete Vertex AI Agent Engine resource is required.",
+      "missing_agentcore_runtime",
+      "environment.agentcoreRuntimeArn",
+      "A concrete Amazon Bedrock AgentCore runtime ARN is required.",
     ));
   }
 
-  if (!bundle.cognition.every((entry) => /^gemini-3\.(?:[5-9]|\d{2,})(?:-|$)/.test(entry.model))) {
+  if (!bundle.cognition.every((entry) => /^(?:(?:us|global|eu|apac)\.)?(?:anthropic\.claude-|amazon\.nova-)/.test(entry.model))) {
     failures.push(failure(
-      "missing_required_gemini",
+      "missing_bedrock_model",
       "cognition",
-      "Every cognition record must use Gemini 3.5 or newer.",
+      "Every cognition record must identify a configured Bedrock Claude or Nova model.",
     ));
   }
 
@@ -384,11 +384,11 @@ export function verifyVerticalSliceEvidence(input: unknown): EvidenceVerificatio
   if (new Set(operationIds).size !== operationIds.length) {
     failures.push(failure("duplicate_operation_id", "events", "Event operation IDs must be unique."));
   }
-  if (!bundle.events.some((event) => event.pubsubMessageId)) {
+  if (!bundle.events.some((event) => event.transportMessageId)) {
     failures.push(failure(
-      "missing_pubsub_evidence",
+      "missing_sqs_evidence",
       "events",
-      "At least one lifecycle transition must retain its real Pub/Sub message ID.",
+      "At least one lifecycle transition must retain its real SQS message ID.",
     ));
   }
 

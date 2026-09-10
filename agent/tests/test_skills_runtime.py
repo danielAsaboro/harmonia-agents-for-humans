@@ -6,32 +6,19 @@ from harmonia_agent import skills_runtime
 
 
 def test_all_skills_are_valid_and_discoverable():
-    skillset = skills_runtime.build_insight_skillset()
-    names = {skill.frontmatter.name for skill in skillset.skills}
-    assert names == set(skills_runtime._SKILL_NAMES)
-    for skill in skillset.skills:
-        assert len(skill.frontmatter.name) <= 64
-        assert "-" not in (skill.frontmatter.name[0], skill.frontmatter.name[-1])
-        assert 0 < len(skill.frontmatter.description) <= 1024
-        assert skill.instructions.strip()
+    for name in skills_runtime._SKILL_NAMES:
+        text = (skills_runtime.SKILLS_DIR / name / "SKILL.md").read_text()
+        assert f"name: {name}" in text
+        assert "description:" in text
+
 
 
 def test_skill_tools_are_read_only():
-    skillset = skills_runtime.build_insight_skillset()
-    tool_names = {
-        tool.name
-        for skill in skillset.skills
-        for tool in getattr(skillset, "_SkillToolset__tools", []) or []
-    } | {
-        tool.__name__
-        for tool in skills_runtime._TOOLS
-    }
-    assert {"fetch_trend_signals", "search_trend_signals", "get_engagement_insights",
-            "get_operator_feed", "get_job_status", "suggest_posting_windows"} <= tool_names
+    tools = skills_runtime.build_insight_skillset()
     contracts = skills_runtime.validate_tool_contracts()
-    assert set(contracts) == {tool.__name__ for tool in skills_runtime._TOOLS}
-    assert all(contract.permission == "read" for contract in contracts.values())
-    assert all(contract.external_effect is False for contract in contracts.values())
+    assert {tool.tool_name for tool in tools} == set(contracts)
+    assert all(contract.permission == "read" and not contract.external_effect for contract in contracts.values())
+
 
 
 def test_fetch_trend_signals_returns_live_provenance(monkeypatch):

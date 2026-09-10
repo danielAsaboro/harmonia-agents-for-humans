@@ -2,7 +2,7 @@ import { z } from "zod";
 import { operatorTenantHandler } from "@/lib/auth";
 import { claimPendingOperationDecision, decidePendingOperation, failPendingOperationDecision, finalizePendingOperationDecision, getPendingOperation } from "@/lib/pendingOperations";
 import { resolveDecision } from "@/lib/decisions";
-import { decideStrategy } from "@/lib/firestore";
+import { decideStrategy } from "@/lib/repository";
 import { dispatchStageOutboxRecord } from "@/lib/stageOutboxDispatcher";
 import { approveProductionPlan, getProductionPlan } from "@/lib/productionPlanStore";
 

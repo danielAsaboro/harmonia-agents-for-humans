@@ -6,7 +6,7 @@
 
 **Architecture:** Extend the existing workspace OAuth connection boundary with a narrow Google Calendar adapter. Keep event planning and state transitions pure; place network I/O behind an injected gateway; expose one tenant-authenticated route and explicit calendar UI controls.
 
-**Tech Stack:** Next.js 16 route handlers, TypeScript, Zod, Firestore, Google OAuth 2.0, Google Calendar API v3, Vitest.
+**Tech Stack:** Next.js 16 route handlers, TypeScript, Zod, DynamoDB, Google OAuth 2.0, Google Calendar API v3, Vitest.
 
 **Spec:** `docs/superpowers/specs/2026-08-25-google-calendar-sync-design.md`
 
@@ -42,7 +42,7 @@
 **Files:**
 - Modify: `src/lib/platforms.ts`
 - Modify: `src/lib/oauth.ts`
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/repository.ts`
 - Test: `tests/googleCalendarOAuth.test.ts`
 
 **Interfaces:**
@@ -75,7 +75,7 @@
 
 **Files:**
 - Modify: `src/lib/types.ts`
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/repository.ts`
 - Modify: `src/app/api/content-items/route.ts`
 - Create: `src/app/api/calendar/google/route.ts`
 - Test: `tests/googleCalendarRoute.test.ts`

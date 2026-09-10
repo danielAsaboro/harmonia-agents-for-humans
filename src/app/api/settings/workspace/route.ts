@@ -1,5 +1,5 @@
 import { administratorTenantHandler } from "@/lib/auth";
-import { eraseWorkspaceData } from "@/lib/firestore";
+import { eraseWorkspaceData } from "@/lib/repository";
 import { planWorkspaceDeletion } from "@/lib/lifecycle";
 import { currentTenant } from "@/lib/tenancy";
 import { z } from "zod";

@@ -6,7 +6,7 @@
 
 **Architecture:** A typed NDJSON chat stream carries host events and A2UI operations. The official A2UI React renderer consumes only validated A2UI payloads, while trusted React components retain control of uploads, reconnection, and confirmations.
 
-**Tech Stack:** Next.js 16, React 19, TypeScript, Zod, Google ADK, A2UI v0.9.1, Firestore, Cloud Storage, Vitest, Pytest.
+**Tech Stack:** Next.js 16, React 19, TypeScript, Zod, Strands Agents SDK, A2UI v0.9.1, DynamoDB, Cloud Storage, Vitest, Pytest.
 
 **Spec:** `docs/superpowers/specs/2026-08-23-a2ui-chat-console-design.md`
 
@@ -15,7 +15,7 @@
 - Do not install or import Vercel AI SDK, AI Elements, or Genkit.
 - Never expose raw hidden model reasoning.
 - Agent-produced data cannot directly approve or execute an operation.
-- Existing public chat, job, action, approval, receipt, and Pub/Sub contracts remain compatible.
+- Existing public chat, job, action, approval, receipt, and SQS contracts remain compatible.
 - Production uploads must go directly to tenant-scoped Cloud Storage through resumable sessions.
 - Mock mode must use the same validation and rendering contracts as real mode.
 
@@ -77,7 +77,7 @@
 - Create: `src/app/api/chat/attachments/[id]/route.ts`
 - Create: `src/components/a2ui/AttachmentComposer.tsx`
 - Create: `tests/chatAttachments.test.ts`
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/repository.ts`
 - Modify: `src/lib/storage.ts`
 - Modify: `.env.example`
 - Modify: `docs/configuration.mdx`
@@ -87,7 +87,7 @@
 
 - [ ] Write failing tests for MIME and size rejection, tenant-scoped object names, readiness checks, and attachment reference validation.
 - [ ] Run the focused tests and verify expected failures.
-- [ ] Implement Firestore records and Cloud Storage resumable-session creation.
+- [ ] Implement DynamoDB records and Cloud Storage resumable-session creation.
 - [ ] Implement completion verification and authorized download.
 - [ ] Implement local-development upload fallback and composer progress/cancel/retry.
 - [ ] Run focused tests, TypeScript, and ESLint.
@@ -104,7 +104,7 @@
 - Create: `tests/chatRuns.test.ts`
 - Create: `tests/pendingOperations.test.ts`
 - Modify: `src/app/api/chat/route.ts`
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/repository.ts`
 
 **Interfaces:**
 - Consumes: `ChatStreamEvent`, ready attachment IDs, and existing `ChatResponse` behavior.

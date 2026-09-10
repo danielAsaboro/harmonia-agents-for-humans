@@ -22,7 +22,7 @@ The current `Draft` contract contains only an ID, X platform, optional moment/an
 
 ## Input Boundary
 
-Deterministic stage code constructs one strict `CopywriterInput` from Firestore truth. It includes:
+Deterministic stage code constructs one strict `CopywriterInput` from DynamoDB truth. It includes:
 
 - `planId`, `planDigest`, `strategyDigest`, `editorialItemId`, and `briefId`;
 - the exact selected `EditorialPlanItem`;
@@ -33,7 +33,7 @@ Deterministic stage code constructs one strict `CopywriterInput` from Firestore 
 - either an `original` pass or a `revision` pass;
 - for a revision, the immutable prior draft and Dara's structured revision instructions.
 
-The input rejects mismatched lineage, brief/item divergence, missing or extra evidence, unsupported platform/format, unrecognized revision targets, and revision context on an original pass. Memory Bank content is not supplied directly and cannot become drafting or effect authority.
+The input rejects mismatched lineage, brief/item divergence, missing or extra evidence, unsupported platform/format, unrecognized revision targets, and revision context on an original pass. AgentCore Memory content is not supplied directly and cannot become drafting or effect authority.
 
 ## Output Boundary
 
@@ -55,7 +55,7 @@ The contract forbids extra fields, effect payloads, receipts, approval decisions
 
 ## Writing Method and Prompt
 
-Noni becomes a focused, tool-free Google ADK agent with instructions in `noni_prompt.py`. The prompt requires this method:
+Noni becomes a focused, tool-free Strands Agents SDK agent with instructions in `noni_prompt.py`. The prompt requires this method:
 
 1. Lock to the selected item, exact brief, platform, format, audience, objective, funnel intent, and CTA.
 2. Build a claim ledger from supplied Nimi evidence; do not infer facts beyond it.
@@ -79,7 +79,7 @@ Application validation uses the exact supplied ID sets and normalized source tex
 - final-copy alternatives, approval decisions, publishing/scheduling statements, effect commands, receipts, URLs not supplied as context, or credentials;
 - invalid revision lineage, unaddressed required Dara issues, and confidence outside the strict enum.
 
-Textual support validation remains deliberately conservative and fail-closed. When evidence is insufficient, Noni must omit the claim or express a clearly labeled non-factual creative assumption; it may not compensate with Memory Bank or general model knowledge.
+Textual support validation remains deliberately conservative and fail-closed. When evidence is insufficient, Noni must omit the claim or express a clearly labeled non-factual creative assumption; it may not compensate with AgentCore Memory or general model knowledge.
 
 ## Dara Loop Contract
 
@@ -94,7 +94,7 @@ Deterministic code ends immediately on acceptance. One revision is allowed; Noni
 
 ## Persistence and Handoff
 
-Firestore persists the original draft, every review, the one optional revision, validation results, immutable lineage, and the final accepted candidate. Draft completion and editorial-item lifecycle changes are atomic and idempotent. The dashboard renders original versus revised text, claim provenance, assumptions, confidence, constraints, Dara issues, and acceptance state from persisted truth.
+DynamoDB persists the original draft, every review, the one optional revision, validation results, immutable lineage, and the final accepted candidate. Draft completion and editorial-item lifecycle changes are atomic and idempotent. The dashboard renders original versus revised text, claim provenance, assumptions, confidence, constraints, Dara issues, and acceptance state from persisted truth.
 
 Only the accepted exact content becomes input to deterministic effect-proposal construction. Human approval remains bound to the exact final content/effect digest. Noni and Dara never construct or authorize publish commands.
 
@@ -112,6 +112,6 @@ Evaluation fixtures cover:
 - accepted original draft;
 - successful one-pass revision with every required issue addressed;
 - invalid revision lineage, ignored Dara issues, and attempted third pass;
-- Memory Bank or general knowledge treated as factual or authorization context.
+- AgentCore Memory or general knowledge treated as factual or authorization context.
 
 Verification uses focused Python and TypeScript tests during TDD, then complete agent and application suites, ESLint, `tsc --noEmit`, the production Next.js build, `git diff --check`, and independent final review. No paid model calls, deployments, publishing, authenticated evidence, mocks, placeholders, aliases, or migration adapters are introduced.

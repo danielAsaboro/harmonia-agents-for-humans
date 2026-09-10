@@ -2,7 +2,7 @@
 
 Maya is Harmonia's tool-free presentation specialist. It converts a bounded `UiContext` catalog
 into a small reference-only `SurfacePlan`; it never supplies domain truth, controls, effects, or
-workflow decisions. The authenticated host resolves every reference from Firestore-backed job
+workflow decisions. The authenticated host resolves every reference from DynamoDB-backed job
 state and emits trusted A2UI operations.
 
 The clean-cut output vocabulary contains only domain views: campaign brief, job progress, moment

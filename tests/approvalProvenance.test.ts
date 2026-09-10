@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { firebasePrincipal, requireProductionOperator, telegramPrincipal } from "@/lib/authority";
+import { cognitoPrincipal, requireProductionOperator, telegramPrincipal } from "@/lib/authority";
 import { approvalActor, assertApprovalPayload } from "@/lib/decisions";
 import { actionPayloadDigest } from "@/lib/idempotency";
 import type { PlannedAction } from "@/lib/types";
@@ -38,12 +38,12 @@ describe("approval provenance", () => {
   });
 
   it("derives dashboard and Telegram provenance from verified principals", () => {
-    expect(approvalActor(context(firebasePrincipal({
+    expect(approvalActor(context(cognitoPrincipal({
       subjectId: "firebase-1",
       workspaceRole: "member",
       authenticationId: "session-1",
     })))).toEqual({
-      actorType: "firebase_operator",
+      actorType: "cognito_operator",
       actorSubjectId: "firebase-1",
       authenticationId: "session-1",
       channel: "dashboard",
@@ -57,10 +57,10 @@ describe("approval provenance", () => {
   });
 
   it("permits paid-production approval only for administrators or allow-listed Telegram operators", () => {
-    expect(() => requireProductionOperator(context(firebasePrincipal({
+    expect(() => requireProductionOperator(context(cognitoPrincipal({
       subjectId: "member-1", workspaceRole: "member", authenticationId: "session-member",
     })))).toThrow(/administrator/i);
-    expect(requireProductionOperator(context(firebasePrincipal({
+    expect(requireProductionOperator(context(cognitoPrincipal({
       subjectId: "admin-1", workspaceRole: "admin", authenticationId: "session-admin",
     })))).toMatchObject({ subjectId: "admin-1" });
     expect(requireProductionOperator(context(telegramPrincipal({

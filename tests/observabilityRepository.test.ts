@@ -35,7 +35,7 @@ const item: AgentActivity = {
   toolCalls: 0,
   errorCategory: null,
   errorType: null,
-  backend: "google_cloud",
+  backend: "aws",
 };
 
 describe("agent activity repository helpers", () => {

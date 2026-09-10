@@ -1,20 +1,14 @@
-"""FastAPI entrypoint: Pub/Sub push receiver plus health endpoint.
-
-On Cloud Run the stage topic uses a push subscription with an OIDC service
-account; invocation is authenticated by Cloud Run IAM, so the handler trusts
-the platform. Locally (PUBSUB_EMULATOR_HOST set) a pull loop consumes the
-same topic so development exercises the identical dispatch path."""
+"""Private AWS worker: SQS dispatch, durable scheduler and authenticated APIs."""
 
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
 import os
 import secrets
-import threading
 from typing import Any
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -38,7 +32,39 @@ configure_telemetry()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("harmonia.worker")
 
-app = FastAPI(title="harmonia-agent", version="1.0.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    from .sqs_transport import consume
+    from .data_consumer import handle_data
+    tasks = []
+    for env, handler in (("SQS_STAGE_QUEUE_URL", _handle_stage),
+                         ("SQS_PRODUCTION_QUEUE_URL", _handle_production),
+                         ("SQS_CONTROL_QUEUE_URL", _handle_control),
+                         ("SQS_DATA_QUEUE_URL", handle_data)):
+        queue = os.environ.get(env)
+        if queue and os.environ.get("HARMONIA_ENABLE_QUEUE_CONSUMERS") == "true":
+            tasks.append(asyncio.create_task(consume(queue, handler, region=settings().aws_region)))
+    try:
+        yield
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+app = FastAPI(title="harmonia-worker", version="2.0.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def authenticate_internal(request: Request, call_next):
+    if request.url.path == "/healthz":
+        return await call_next(request)
+    expected = "Bearer " + settings().internal_api_token
+    supplied = request.headers.get("authorization", "")
+    if not secrets.compare_digest(supplied, expected):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return await call_next(request)
+
 app.include_router(a2ui_router)
 app.include_router(ask_router)
 app.include_router(intent_router)
@@ -58,13 +84,13 @@ async def healthz() -> dict[str, Any]:
     return {
         "ok": True,
         "service": "harmonia-agent",
-        "project": config.gcp_project,
+        "region": config.aws_region,
         "model": config.model_id,
         "stages": sorted(HANDLERS.keys()),
         "durableRuntime": {
             "protocolVersion": 1,
-            "stateStore": "firestore",
-            "wakeTransport": "pubsub",
+            "stateStore": "dynamodb",
+            "wakeTransport": "sqs",
             "contextCompiler": "harmonia-context/v1",
             "recovery": {
                 "limit": config.durable_recovery_limit,
@@ -79,8 +105,11 @@ async def healthz() -> dict[str, Any]:
 async def durable_recover() -> dict[str, Any]:
     """OIDC/IAM-protected, model-free recovery wake with deployment bounds."""
     from .recovery import recover_missed
-    from .web_client import get_workspaces
+    from .web_client import get_workspaces, recover_blob_erasures
 
+    from .knowledge_index import recover_knowledge_erasures
+    await asyncio.to_thread(recover_knowledge_erasures)
+    await asyncio.to_thread(recover_blob_erasures)
     config = settings()
     results = []
     action_count = 0
@@ -109,12 +138,16 @@ async def durable_tick() -> dict[str, Any]:
     from .recovery import recover_missed
     from .web_client import (
         claim_tick,
+        recover_blob_erasures,
         get_workspaces,
         run_production_outbox_tick,
         run_retention_tick,
         run_stage_outbox_tick,
     )
 
+    from .knowledge_index import recover_knowledge_erasures
+    await asyncio.to_thread(recover_knowledge_erasures)
+    await asyncio.to_thread(recover_blob_erasures)
     workspaces = await asyncio.to_thread(get_workspaces)
     claim_id = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
     return {
@@ -180,42 +213,6 @@ async def production_execute(request: Request) -> JSONResponse:
     return JSONResponse(await _run_production_wake(body))
 
 
-@app.post("/pubsub/production")
-async def production_pubsub_push(request: Request) -> JSONResponse:
-    """OIDC-authenticated Pub/Sub wake; the durable operation claim is the dedupe fence."""
-    try:
-        envelope = await request.json()
-        message = envelope["message"]
-        body = _valid_production_wake(json.loads(base64.b64decode(message["data"])))
-        attributes = message.get("attributes") or {}
-        expected_attributes = {
-            "workspaceId": body["workspaceId"] if body else None,
-            "brandId": body["brandId"] if body else None,
-            "planId": body["planId"] if body else None,
-            "planRevision": str(body["planRevision"]) if body else None,
-            "planDigest": body["planDigest"] if body else None,
-            "operationId": body["operationId"] if body else None,
-            "internalRun": str(body["internalRun"]) if body else None,
-        }
-        if body is None or any(attributes.get(key) != value for key, value in expected_attributes.items()):
-            raise ValueError("production wake scope mismatch")
-    except Exception as exc:  # noqa: BLE001 - poison message must not redeliver forever
-        logger.error("malformed production push envelope: %s", exc)
-        return JSONResponse({"ack": True, "error": "malformed production envelope"})
-    try:
-        result = await _run_production_wake(body)
-    except WebApiError as exc:
-        if exc.permanent:
-            logger.warning("production operation wake permanently rejected: %s", exc)
-            return JSONResponse({"ack": True, "permanent": True, "error": "production operation rejected"})
-        logger.exception("production operation execution failed")
-        return JSONResponse({"ack": False, "retryable": True}, status_code=503)
-    except Exception:  # noqa: BLE001 - transient/uncertain state is durably fenced by the claim
-        logger.exception("production operation execution failed")
-        return JSONResponse({"ack": False, "retryable": True}, status_code=503)
-    return JSONResponse({"ack": True, **result})
-
-
 @app.post("/durable/heartbeat")
 async def resident_heartbeat() -> dict[str, Any]:
     """OIDC/IAM-protected hourly wake; the controller itself is model-free by default."""
@@ -236,20 +233,14 @@ async def resident_heartbeat() -> dict[str, Any]:
 
 @app.post("/durable/dream")
 async def resident_dream() -> dict[str, Any]:
-    """Authenticated nightly wake. Persistence/model adapters remain fail-closed until eligible evidence exists."""
-    from datetime import datetime, timezone
-    return {"ok": True, "status": "deferred", "reason": "eligible observation feed not yet materialized for this wake", "scheduledAt": datetime.now(timezone.utc).isoformat()}
+    from .resident_runtime import run_resident_cycle
+    return await run_resident_cycle("dream")
 
 
 @app.post("/durable/wakeup")
 async def resident_wakeup() -> dict[str, Any]:
-    """Authenticated morning wake; never invents a briefing without persisted Dream results."""
-    from datetime import datetime, timezone
-    return {"ok": True, "status": "deferred", "reason": "no persisted Dream result available", "scheduledAt": datetime.now(timezone.utc).isoformat()}
-
-
-class PushEnvelope(dict):
-    pass
+    from .resident_runtime import run_resident_cycle
+    return await run_resident_cycle("wakeup")
 
 
 def _stage_delivery(
@@ -291,7 +282,7 @@ async def _process_stage_event(
     delivery_attempt: int,
 ) -> tuple[bool, dict[str, Any]]:
     workspace_id, brand_id, job_id, stage, source_attempt = _stage_delivery(data, carrier)
-    # Pub/Sub delivery attempts are transport retries, not cognitive-stage
+    # SQS delivery attempts are transport retries, not cognitive-stage
     # generations. Advancing the stage retry budget on redelivery can turn a
     # recoverable provider interruption into a false terminal failure.
     attempt = source_attempt
@@ -300,7 +291,7 @@ async def _process_stage_event(
     with tenant_scope(workspace_id, brand_id):
         event_claim = await asyncio.to_thread(claim_event_inbox, {
             "envelope": data,
-            "pubsubMessageId": message_id,
+            "transportMessageId": message_id,
             "claimToken": event_token,
         })
         if event_claim["outcome"] != "execute":
@@ -346,153 +337,33 @@ async def _process_stage_event(
         return True, {"ack": True, "retryable": False, "attempt": attempt, **({"failed": True} if failed else {})}
 
 
-@app.post("/pubsub/push")
-async def pubsub_push(request: Request) -> JSONResponse:
-    envelope = await request.json()
-    try:
-        message = envelope["message"]
-        data = json.loads(base64.b64decode(message["data"]))
-        delivery_attempt = max(int(envelope.get("deliveryAttempt", 1)) - 1, 0)
-        carrier = {str(k): str(v) for k, v in (message.get("attributes") or {}).items()}
-        _stage_delivery(data, carrier)
-        message_id = str(message["messageId"])
-    except Exception as exc:  # noqa: BLE001 - malformed delivery: ack to stop poison redelivery
-        logger.error("malformed push envelope: %s", exc)
-        return JSONResponse({"ack": True, "error": "malformed envelope"})
-
+async def _handle_stage(data, carrier, message_id, delivery_attempt):
+    _stage_delivery(data, carrier)
     token = otel_context.attach(extract_context(carrier))
     try:
-        try:
-            acknowledge, result = await _process_stage_event(
-                data, carrier, message_id, delivery_attempt
-            )
-        except Exception:  # noqa: BLE001 - leave durable claims for bounded recovery
-            logger.exception("durable stage event processing failed")
-            return JSONResponse({"ack": False, "retryable": True}, status_code=503)
+        acknowledge, _ = await _process_stage_event(data, carrier, message_id, delivery_attempt)
+        return acknowledge
     finally:
         otel_context.detach(token)
-    if not acknowledge:
-        return JSONResponse(result, status_code=503)
-    return JSONResponse(result)
 
 
-def _pubsub_project() -> str:
-    return os.environ.get("PUBSUB_EMULATOR_PROJECT", settings().gcp_project)
+async def _handle_production(data, carrier, _message_id, _delivery_attempt):
+    body = _valid_production_wake(data)
+    if body is None or any(carrier.get(key) != str(body[key]) for key in body):
+        raise ValueError("production wake scope mismatch")
+    result = await _run_production_wake(body)
+    return not result.get("retryable", False)
 
 
-def _run_pull_loop() -> None:
-    from google.cloud import pubsub_v1
-
-    # Local Pub/Sub may intentionally use an emulator namespace while Gemini
-    # authenticates against the real Vertex AI project.
-    project = _pubsub_project()
-    topic_name = os.environ.get("PUBSUB_STAGE_TOPIC", "harmonia-stages")
-    subscriber = pubsub_v1.SubscriberClient()
-    subscription_path = subscriber.subscription_path(project, f"{topic_name}-local-pull")
-
-    def ensure_subscription() -> None:
-        from google.cloud import pubsub_v1 as ps
-
-        publisher = ps.PublisherClient()
-        topic_path = publisher.topic_path(project, topic_name)
-        try:
-            publisher.create_topic(name=topic_path)
-        except Exception:  # noqa: BLE001 - already exists
-            pass
-        try:
-            subscriber.create_subscription(
-                name=subscription_path, topic=topic_path, ack_deadline_seconds=120
-            )
-        except Exception:  # noqa: BLE001 - already exists
-            pass
-
-    ensure_subscription()
-    logger.info("local pull loop started on %s", subscription_path)
-
-    while True:
-        response = subscriber.pull(subscription=subscription_path, max_messages=1, timeout=15)
-        if not response.received_messages:
-            continue
-        for msg in response.received_messages:
-            try:
-                data = json.loads(msg.message.data.decode("utf-8"))
-                delivery_attempt = max(int(getattr(msg, "delivery_attempt", 1) or 1) - 1, 0)
-                carrier = {str(k): str(v) for k, v in msg.message.attributes.items()}
-                _stage_delivery(data, carrier)
-                token = otel_context.attach(extract_context(carrier))
-                try:
-                    acknowledge, _result = asyncio.run(_process_stage_event(
-                        data,
-                        carrier,
-                        str(msg.message.message_id),
-                        delivery_attempt,
-                    ))
-                finally:
-                    otel_context.detach(token)
-                if acknowledge:
-                    subscriber.acknowledge(subscription=subscription_path, ack_ids=[msg.ack_id])
-                else:
-                    subscriber.modify_ack_deadline(
-                        subscription=subscription_path, ack_ids=[msg.ack_id], ack_deadline_seconds=0
-                    )
-                    logger.warning("transient failure; nacked for redelivery")
-            except Exception:  # noqa: BLE001 - keep looping
-                logger.exception("pull processing error")
-                subscriber.acknowledge(subscription=subscription_path, ack_ids=[msg.ack_id])
-
-
-def _run_production_pull_loop() -> None:
-    from google.cloud import pubsub_v1
-
-    project = settings().gcp_project
-    topic_name = os.environ.get("PUBSUB_PRODUCTION_TOPIC", "harmonia-production")
-    subscriber = pubsub_v1.SubscriberClient()
-    subscription_path = subscriber.subscription_path(project, f"{topic_name}-local-pull")
-    publisher = pubsub_v1.PublisherClient()
-    topic_path = publisher.topic_path(project, topic_name)
-    try:
-        publisher.create_topic(name=topic_path)
-    except Exception:  # noqa: BLE001 - already exists
-        pass
-    try:
-        subscriber.create_subscription(
-            name=subscription_path, topic=topic_path, ack_deadline_seconds=300
-        )
-    except Exception:  # noqa: BLE001 - already exists
-        pass
-    logger.info("local production pull loop started on %s", subscription_path)
-
-    while True:
-        response = subscriber.pull(subscription=subscription_path, max_messages=1, timeout=15)
-        if not response.received_messages:
-            continue
-        for msg in response.received_messages:
-            try:
-                body = _valid_production_wake(json.loads(msg.message.data.decode("utf-8")))
-                attributes = msg.message.attributes
-                if body is None or any(
-                    attributes.get(key) != body[key] for key in ("workspaceId", "brandId")
-                ):
-                    raise ValueError("production wake scope mismatch")
-            except ValueError:
-                logger.exception("malformed local production message")
-                subscriber.acknowledge(subscription=subscription_path, ack_ids=[msg.ack_id])
-            else:
-                try:
-                    asyncio.run(_run_production_wake(body))
-                except Exception:  # noqa: BLE001 - retry behind the durable claim fence
-                    logger.exception("local production processing failed")
-                    subscriber.modify_ack_deadline(
-                        subscription=subscription_path, ack_ids=[msg.ack_id], ack_deadline_seconds=0
-                    )
-                else:
-                    subscriber.acknowledge(subscription=subscription_path, ack_ids=[msg.ack_id])
-
-
-def _start_pull_loop_if_emulator() -> None:
-    if os.environ.get("PUBSUB_EMULATOR_HOST"):
-        threading.Thread(target=_run_pull_loop, daemon=True).start()
-        threading.Thread(target=_run_production_pull_loop, daemon=True).start()
-
-
-_start_pull_loop_if_emulator()
+async def _handle_control(data, _carrier, _message_id, _delivery_attempt):
+    kind = data.get("kind")
+    handlers = {"tick": durable_tick, "recover": durable_recover,
+                "heartbeat": resident_heartbeat, "dream": resident_dream,
+                "wakeup": resident_wakeup}
+    handler = handlers.get(kind)
+    if handler is None:
+        raise ValueError("unknown scheduler wake")
+    if kind in {"heartbeat", "dream", "wakeup"} and os.environ.get("HARMONIA_ENABLE_RESIDENT_AUTONOMY") != "true":
+        return True
+    result = await handler()
+    return result.get("ok") is True

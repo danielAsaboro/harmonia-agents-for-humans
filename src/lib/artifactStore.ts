@@ -1,25 +1,25 @@
-import type { Firestore } from "@google-cloud/firestore";
+import { awsRepository,DynamoRepository,recordKey } from "./dynamo";
 
 import {
-  artifactObjectKey,
-  boundedArtifactRead,
-  boundedArtifactReadLines,
-  createArtifactRecord,
-  validateArtifactBytes,
-  type ArtifactBytePage,
-  type ArtifactLinePage,
-  type ArtifactProducer,
-  type ArtifactRecord,
-  type ArtifactRetentionClass,
-  type ArtifactTrust,
+artifactObjectKey,
+boundedArtifactRead,
+boundedArtifactReadLines,
+createArtifactRecord,
+validateArtifactBytes,
+type ArtifactBytePage,
+type ArtifactLinePage,
+type ArtifactProducer,
+type ArtifactRecord,
+type ArtifactRetentionClass,
+type ArtifactTrust,
 } from "./artifacts";
 import { newId } from "./idempotency";
 import {
-  durableArtifactUri,
-  getDurableArtifactObject,
-  putDurableArtifactObject,
+durableArtifactUri,
+getDurableArtifactObject,
+putDurableArtifactObject,
 } from "./storage";
-import { currentTenant, tenantCollectionPath } from "./tenancy";
+import { currentTenant,tenantCollectionPath } from "./tenancy";
 
 const ARTIFACTS = "artifacts";
 const ARTIFACT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -155,17 +155,17 @@ export class ArtifactStore {
   }
 }
 
-export class FirestoreArtifactMetadataStore implements ArtifactMetadataStore {
-  constructor(private readonly database: Firestore) {}
+export class DynamoArtifactMetadataStore implements ArtifactMetadataStore {
+  constructor(private readonly database: DynamoRepository) {}
   async create(path: string, record: ArtifactRecord): Promise<void> {
-    await this.database.doc(path).create(record);
+    await awsRepository().insert(recordKey(path), record);
   }
   async set(path: string, record: ArtifactRecord): Promise<void> {
-    await this.database.doc(path).set(record);
+    await awsRepository().put(recordKey(path), record);
   }
   async get(path: string): Promise<ArtifactRecord | null> {
-    const snapshot = await this.database.doc(path).get();
-    return snapshot.exists ? snapshot.data() as ArtifactRecord : null;
+    const snapshot = await awsRepository().read(recordKey(path));
+    return snapshot.present ? snapshot.value as unknown as ArtifactRecord : null;
   }
 }
 
@@ -181,9 +181,9 @@ export class DurableArtifactByteStore implements ArtifactByteStore {
   }
 }
 
-export function createArtifactStore(database: Firestore): ArtifactStore {
+export function createArtifactStore(database: DynamoRepository): ArtifactStore {
   return new ArtifactStore(
-    new FirestoreArtifactMetadataStore(database),
+    new DynamoArtifactMetadataStore(database),
     new DurableArtifactByteStore(),
   );
 }

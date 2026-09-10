@@ -1,6 +1,6 @@
 # GEAR Project C: Tool and Skill Contracts
 
-**Goal:** Make every ADK-exposed Harmonia tool discoverable, least-privilege, consistently observable, and incapable of hiding errors or causing external effects.
+**Goal:** Make every Strands-exposed Harmonia tool discoverable, least-privilege, consistently observable, and incapable of hiding errors or causing external effects.
 
 ## Task 1 — Contract registry and uniform envelope
 
@@ -8,7 +8,7 @@ Add a strict `ToolContract` model declaring verb-noun name, purpose, input/retur
 
 ## Task 2 — Normalize all liaison tools
 
-Wrap trend fetch/search, engagement insight, operator feed, job status, and posting-window derivation. Preserve real data paths and offline development fixtures, but mark mock provenance in the envelope. Map validation, not-found, authorization, provider-transient, provider-permanent, dependency, and protocol errors without provider bodies or credentials. No tool may publish, approve, retry a job, change credentials/budgets, or mutate Firestore.
+Wrap trend fetch/search, engagement insight, operator feed, job status, and posting-window derivation. Preserve real data paths and offline development fixtures, but mark mock provenance in the envelope. Map validation, not-found, authorization, provider-transient, provider-permanent, dependency, and protocol errors without provider bodies or credentials. No tool may publish, approve, retry a job, change credentials/budgets, or mutate DynamoDB.
 
 ## Task 3 — Skill guidance and evaluation
 

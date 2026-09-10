@@ -1,14 +1,15 @@
-"""Typed contracts shared by Harmonia's ADK specialists and stage handlers."""
+"""Typed contracts shared by Harmonia's Strands specialists and stage handlers."""
 
 from __future__ import annotations
 
 import re
+import json
 from datetime import datetime, timezone
 from typing import Annotated, Any, Callable, Literal
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, field_validator, model_validator, model_serializer
 
 
 class StrictModel(BaseModel):
@@ -260,6 +261,15 @@ class Moment(StrictModel):
         "sourceSegmentRefs", "visualEvidenceIds", "assumptions", mode="before",
     )(_require_json_list)
 
+    @model_serializer(mode="wrap")
+    def serialize_optional_visual_fields(self, handler):
+        value = handler(self)
+        # These optional wire fields are omitted, never serialized as explicit null.
+        for key in ("visualHook", "cropSuitability", "captionSafeRegion"):
+            if value.get(key) is None:
+                value.pop(key, None)
+        return value
+
     @model_validator(mode="after")
     def validate_moment_shape(self) -> "Moment":
         if self.endSec < self.startSec:
@@ -349,14 +359,14 @@ class AnalystEvidenceSegment(StrictModel):
 class AnalystPerformanceObservation(StrictModel):
     id: StrictIdentifier
     summary: StrictStr = Field(min_length=1, max_length=1_000)
-    firestoreEvidenceRef: StrictStr = Field(min_length=1, max_length=500)
+    durableEvidenceRef: StrictStr = Field(min_length=1, max_length=500)
 
 
 class AnalystMemoryFact(StrictModel):
     id: StrictIdentifier
     kind: Literal["operator_decision", "verified_outcome", "learning", "preference"]
     content: StrictStr = Field(min_length=1, max_length=1_000)
-    firestoreEvidenceRef: StrictStr = Field(min_length=1, max_length=500)
+    durableEvidenceRef: StrictStr = Field(min_length=1, max_length=500)
 
 
 class AnalystResearchRequest(StrictModel):
@@ -431,13 +441,13 @@ class CampaignContext(StrictModel):
 class PerformanceObservation(StrictModel):
     id: str = Field(min_length=1, max_length=100)
     summary: str = Field(min_length=1, max_length=600)
-    firestoreEvidenceRef: str = Field(min_length=1, max_length=500)
+    durableEvidenceRef: str = Field(min_length=1, max_length=500)
 
 
 class MemoryFact(StrictModel):
     id: str = Field(min_length=1, max_length=100)
     content: str = Field(min_length=1, max_length=600)
-    firestoreEvidenceRef: str = Field(min_length=1, max_length=500)
+    durableEvidenceRef: str = Field(min_length=1, max_length=500)
 
 
 class StrategyResearchRequest(StrictModel):
@@ -1129,6 +1139,18 @@ class LiaisonInput(StrictModel):
     """Operator question routed to the skill-enabled insight liaison."""
 
     question: StrictStr = Field(min_length=1, max_length=2000)
+    contextRecord: dict[str, Any] | None = None
+
+    @field_validator("contextRecord")
+    @classmethod
+    def bound_context(cls, value):
+        if value is not None and len(json.dumps(value, ensure_ascii=False, allow_nan=False).encode()) > 60000:
+            raise ValueError("contextRecord exceeds 60000 UTF-8 bytes")
+        return value
+
+
+class ContextRecordAnswer(StrictModel):
+    answer: StrictStr = Field(min_length=1, max_length=4000)
 
 
 class LiaisonClaim(StrictModel):

@@ -10,12 +10,12 @@ describe("studio canvas", () => {
     const html = renderToStaticMarkup(createElement(MediaWorkspace, {
       kind: "audio",
       jobId: "job-1",
-      assets: [{ actionId: "sound", kind: "audio", mime: "audio/mpeg", title: "Launch score", sizeBytes: 2400, digest: "d", provider: "lyria" }],
+      assets: [{ actionId: "sound", kind: "audio", mime: "audio/mpeg", title: "Launch score", sizeBytes: 2400, digest: "d", provider: "elevenlabs" }],
       selectedArtifactId: null,
       onSelect: () => {},
     }));
     expect(html).toContain("<audio");
-    expect(html).toContain("Lyria");
+    expect(html).toContain("ElevenLabs");
     expect(html).toContain("/api/jobs/job-1/assets/sound");
   });
 
@@ -24,7 +24,7 @@ describe("studio canvas", () => {
       kind: "motion", jobId: "job-1", assets: [], selectedArtifactId: null, onSelect: () => {},
     }));
     expect(html).toContain("No motion asset exists for this working set");
-    expect(html).not.toContain("Veo generated");
+    expect(html).not.toContain("Nova Reel generated");
   });
 
   it("mounts a generated canvas without a collapsed appendix label", () => {

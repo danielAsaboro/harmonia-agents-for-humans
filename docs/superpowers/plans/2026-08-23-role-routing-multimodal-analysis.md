@@ -6,21 +6,21 @@
 
 **Goal:** Replace Harmonia's global-model team with explicit per-role models, run Nimi through a configured Gemma 3 endpoint, and give Sophia direct video evidence while preserving every public and durable pipeline contract.
 
-**Architecture:** A strict `RoleModelCatalog` resolves one model per cognitive role and is injected into the existing ADK hierarchy. Gemini roles remain native ADK models; Nimi uses a `BaseLlm` adapter for a Vertex-hosted Gemma endpoint. The analyst contract gains additive `MediaEvidence`; an ADK before-model callback attaches the authorized public YouTube URI as a real video part, while the transcript remains typed grounding evidence.
+**Architecture:** A strict `RoleModelCatalog` resolves one model per cognitive role and is injected into the existing Strands hierarchy. Gemini roles remain native Strands models; Nimi uses a `BaseLlm` adapter for a Vertex-hosted Gemma endpoint. The analyst contract gains additive `MediaEvidence`; an Strands before-model callback attaches the authorized public YouTube URI as a real video part, while the transcript remains typed grounding evidence.
 
-**Tech Stack:** Python 3.12, Google ADK 2.7.x, Google Gen AI SDK, Vertex AI endpoints, Gemma 3 12B IT, Gemini 3.5 Flash/Flash-Lite, Pydantic 2, OpenTelemetry, pytest
+**Tech Stack:** Python 3.12, Strands Agents SDK 2.7.x, Google Gen AI SDK, Amazon Bedrock endpoints, Gemma 3 12B IT, Gemini 3.5 Flash/Flash-Lite, Pydantic 2, OpenTelemetry, pytest
 
 **Spec:** `docs/superpowers/specs/2026-08-23-managed-multimodel-agent-platform-design.md`
 
 ## Global Constraints
 
-- Keep Firestore and Pub/Sub as the durable workflow engine; role routing changes judgment only.
+- Keep DynamoDB and SQS as the durable workflow engine; role routing changes judgment only.
 - Preserve `analyze_with_team`, `strategize_with_team`, and `draft_with_team` result contracts.
 - No silent model fallback. Missing role configuration, endpoint failure, invalid JSON, and schema violations fail visibly.
 - Every configured model must have an explicit budget strategy before dispatch.
 - The coordinator, analyst, strategist, editor, and planner use the exact model IDs configured for their roles.
 - Nimi uses Gemma only when a concrete Vertex endpoint resource is configured; mock mode remains explicit and offline.
-- Multimodal inputs are authorized source references, never trace attributes or Firestore media bytes.
+- Multimodal inputs are authorized source references, never trace attributes or DynamoDB media bytes.
 - The planner still sees reviewed drafts only; no approval or publishing tools enter the agent hierarchy.
 - Authenticated model behavior remains unverified until separate live evidence is captured.
 
@@ -81,7 +81,7 @@ git commit -m "feat(agent): configure models by specialist role"
 
 ---
 
-### Task 2: Vertex Gemma ADK Adapter
+### Task 2: Vertex Gemma Strands Adapter
 
 **Files:**
 - Create: `agent/harmonia_agent/gemma_model.py`
@@ -90,7 +90,7 @@ git commit -m "feat(agent): configure models by specialist role"
 - Modify: `agent/harmonia_agent/usage.py`
 
 **Interfaces:**
-- Consumes: an ADK `LlmRequest`, a Vertex endpoint resource, and an injectable async prediction transport.
+- Consumes: an Strands `LlmRequest`, a Vertex endpoint resource, and an injectable async prediction transport.
 - Produces: `VertexGemmaModel(BaseLlm)` yielding one normalized `LlmResponse`; endpoint-second usage and a maximum-cost reservation strategy.
 
 - [ ] **Step 1: Write the failing adapter tests**
@@ -143,7 +143,7 @@ git commit -m "feat(agent): add Vertex Gemma model adapter"
 
 ---
 
-### Task 3: Wire Distinct Models into the ADK Hierarchy
+### Task 3: Wire Distinct Models into the Strands Hierarchy
 
 **Files:**
 - Modify: `agent/harmonia_agent/agents.py`
@@ -237,7 +237,7 @@ Add `media_evidence: MediaEvidence | None` to `AnalystInput`. Add optional `visu
 
 - [ ] **Step 4: Attach media only to Sophia's model request**
 
-Register `attach_media_evidence` as Sophia's `before_model_callback`. Append `types.Part(file_data=types.FileData(file_uri=evidence.video_uri, mime_type="video/mp4"))`; do not add media to coordinator, strategist, drafting, traces, or Firestore request bodies.
+Register `attach_media_evidence` as Sophia's `before_model_callback`. Append `types.Part(file_data=types.FileData(file_uri=evidence.video_uri, mime_type="video/mp4"))`; do not add media to coordinator, strategist, drafting, traces, or DynamoDB request bodies.
 
 - [ ] **Step 5: Seed evidence from the current job**
 
@@ -294,7 +294,7 @@ git commit -m "docs: map heterogeneous multimodal model routing"
 
 ## Phase Acceptance Criteria
 
-1. At least three distinct configured model targets are visible in the ADK hierarchy.
+1. At least three distinct configured model targets are visible in the Strands hierarchy.
 2. Nimi is backed by the configured Gemma endpoint and never silently falls back.
 3. Sophia receives a genuine video part plus the grounded transcript for YouTube jobs.
 4. Brief-only jobs and mock E2E behavior remain deterministic and contract-compatible.

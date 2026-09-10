@@ -11,7 +11,7 @@ export interface StudioAsset {
   title: string;
   sizeBytes: number;
   digest: string;
-  provider?: "veo" | "lyria";
+  provider?: "nova_reel" | "elevenlabs";
   momentId?: string;
   momentTitle?: string;
   startSec?: number;
@@ -51,8 +51,8 @@ export interface StudioWorkspaceModel {
 }
 
 function providerFor(type: PlannedAction["type"]): StudioAsset["provider"] {
-  if (type === "generate_video") return "veo";
-  if (type === "generate_music") return "lyria";
+  if (type === "generate_video") return "nova_reel";
+  if (type === "generate_music") return "elevenlabs";
   return undefined;
 }
 

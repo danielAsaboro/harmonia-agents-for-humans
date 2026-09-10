@@ -181,18 +181,18 @@
             "group": "Agents and AI",
             "root": "platform/agents/overview", "directory": "card",
             "pages": [
-              "platform/agents/google-adk",
-              "platform/agents/gemini",
+              "platform/agents/strands",
+              "platform/agents/bedrock",
               "platform/agents/noni-runtime",
-              "platform/agents/agent-engine",
-              "platform/agents/memory-bank"
+              "platform/agents/agentcore",
+              "platform/agents/agentcore-memory"
             ]
           },
           {
             "group": "Security and identity",
             "root": "platform/security/overview", "directory": "card",
             "pages": [
-              "platform/security/firebase-auth",
+              "platform/security/cognito",
               "platform/security/iam-service-accounts",
               "platform/security/secret-manager"
             ]
@@ -201,20 +201,20 @@
             "group": "Storage and messaging",
             "root": "platform/data/overview", "directory": "card",
             "pages": [
-              "platform/data/firestore",
-              "platform/data/pubsub",
-              "platform/data/cloud-storage"
+              "platform/data/dynamodb",
+              "platform/data/sqs",
+              "platform/data/s3"
             ]
           },
           {
             "group": "Runtime and automation",
             "root": "platform/runtime/overview", "directory": "card",
-            "pages": ["platform/runtime/cloud-run", "platform/runtime/cloud-scheduler"]
+            "pages": ["platform/runtime/fargate", "platform/runtime/eventbridge"]
           },
           {
             "group": "Media",
             "root": "platform/media/overview", "directory": "card",
-            "pages": ["platform/media/ffmpeg", "platform/media/vertex-generative-media"]
+            "pages": ["platform/media/ffmpeg", "platform/media/generated-media"]
           },
           {
             "group": "Integrations",
@@ -232,7 +232,7 @@
             "root": "platform/observability/overview", "directory": "card",
             "pages": [
               "platform/observability/opentelemetry",
-              "platform/observability/cloud-trace",
+              "platform/observability/cloudwatch",
               "platform/observability/structured-logging",
               "platform/observability/monitoring-metrics",
               "platform/observability/usage-budget"
@@ -293,7 +293,7 @@
               "reference/agent-contracts",
               "reference/effect-contracts",
               "reference/error-taxonomy",
-              "reference/firestore-data",
+              "reference/dynamodb-data",
               "reference/authority-matrix",
               "reference/pricing-budget",
               "reference/receipts-verification"

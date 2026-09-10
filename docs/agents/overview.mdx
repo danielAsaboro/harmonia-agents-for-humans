@@ -1,15 +1,21 @@
 ---
 title: "Agent team"
-description: "Reference for Harmonia's seven bounded Google ADK specialists."
+description: "Seven operational specialists under Harmonia's deterministic coordinator."
 ---
 
-Harmonia separates agentic judgment from deterministic workflow authority. Agents analyze,
-strategize, plan, write, review, compose interfaces, and answer read-only questions. Firestore and
-application code own stage transitions, approvals, scheduling effects, publishing, receipts, and
-verification.
+Harmonia's host coordinator owns workflow control. Seven named specialists supply bounded judgment: Nimi, Ryan, Temi, Noni, Dara, Maya and Nova. Dedicated routing, research, artifact and Dream registrations reuse the appropriate model policy without gaining workflow authority.
 
-Use [Agent skills, tools, prompts, and traces](/reference/agent-runtime-inventory) for the canonical
-runtime inventory and [Agent contracts](/reference/agent-contracts) for exact handoff boundaries.
+| Role | Purpose | Default model |
+|---|---|---|
+| [Nimi](/agents/nimi) | Evidence analysis and authorized research | Amazon Nova 2 Lite |
+| [Ryan](/agents/ryan) | Strategy proposals | Claude Sonnet 4.6 |
+| [Temi](/agents/temi) | Editorial planning from a host snapshot | Claude Sonnet 4.6 |
+| [Noni](/agents/noni) | Drafts and semantic artifacts | Claude Sonnet 4.6 |
+| [Dara](/agents/dara) | Editorial review | Claude Sonnet 4.6 |
+| [Maya](/agents/maya) | A2UI reference plans | Claude Haiku 4.5 |
+| [Nova](/agents/nova) | Scoped read-only answers | Claude Haiku 4.5 |
+
+Method skills are preloaded. The model never loads files to activate a skill. Tool registrations are explicit: Temi receives its snapshot in the request; Noni's draft variant can read verified prior publications; Nimi and Ryan receive research tools only in host-selected research variants. Nova has six bounded reads.
 
 ```mermaid
 flowchart LR
@@ -20,18 +26,10 @@ flowchart LR
   NONI --> DARA[Dara: review]
   DARA -->|one bounded revision| NONI
   DARA --> FINAL[Human effect approval]
-  MAYA[Maya: presentation] -. reads bounded context .-> GATE
-  NOVA[Nova: read-only liaison] -. reads bounded tools .-> GATE
+  MAYA[Maya: presentation] -. supplied context .-> GATE
+  NOVA[Nova: read-only liaison] -. evidence-bound answers .-> GATE
 ```
 
-| Agent | Runtime role | Output | Filesystem skills | Separate runtime tools |
-|---|---|---|---|---|
-| [Nimi](/agents/nimi) | Evidence analyst | `SourceAnalysis` | `nimi-analysis-skills` | Isolated Google Search; optional isolated Vertex AI Search |
-| [Ryan](/agents/ryan) | Content strategist | `StrategistResult` / `ContentStrategy` | `ryan-strategy-skills` | Isolated request-bound Google Search |
-| [Temi](/agents/temi) | Editorial planner | `EditorialPlan` | `temi-editorial-planning-skills` | Six immutable planning-snapshot reads |
-| [Noni](/agents/noni) | Copywriter | `ContentDraft` | `noni-writing-skills` | Verified-publication read; isolated Google Search |
-| [Dara](/agents/dara) | Editor | `EditorialAssessment` | `dara-editing-skills` | None |
-| [Maya](/agents/maya) | A2UI presenter | `SurfacePlan` | None | None |
-| [Nova](/agents/nova) | Read-only liaison | `LiaisonAnswer` | Five routing skills | Six bounded read-only tools |
+Every transition, budget reservation, approval, provider claim and verification receipt belongs to host code. AgentCore sessions contain invocation context, while DynamoDB owns durable workflow state. No authenticated AWS deployment or provider rehearsal is claimed.
 
-<Warning>Memory Bank provides eligible context only. It never grants approval, permissions, policy exceptions, or authority to cause an external effect.</Warning>
+See [runtime inventory](/reference/agent-runtime-inventory) for all fourteen registrations and [Strands](/platform/agents/strands) for the request lifecycle.

@@ -3,7 +3,7 @@ import {
   getAgentState,
   claimAgentTick,
   setAgentState,
-} from "@/lib/firestore";
+} from "@/lib/repository";
 import { internalRoute } from "@/lib/internalHandler";
 import { internalTenantHandler, isInternalAuthorized, unauthorized, withInternalTenant } from "@/lib/internalAuth";
 

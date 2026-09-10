@@ -7,12 +7,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from google.adk.tools import skill_toolset
 
 from harmonia_agent.dara_skills import (
     DARA_SKILL_NAME,
     DARA_SKILL_REFERENCES,
-    build_dara_editing_skillset,
     guard_dara_skill_tool,
     reset_dara_skill_trace,
     validate_dara_skill_trace,
@@ -37,12 +35,13 @@ def _trace(*resources: str) -> list[dict]:
 
 
 def test_dara_skillset_exposes_only_skill_and_resource_loaders():
-    toolset = build_dara_editing_skillset()
-    assert isinstance(toolset, skill_toolset.SkillToolset)
-    assert [skill.frontmatter.name for skill in toolset.skills] == [DARA_SKILL_NAME]
-    assert {tool.name for tool in asyncio.run(toolset.get_tools())} == {
-        "load_skill", "load_skill_resource",
-    }
+    from harmonia_agent.agents import build_agent_team
+    from harmonia_agent.dara_skills import DARA_SKILL_ROOT
+    specialist = build_agent_team().find_sub_agent("dara_editor")
+    assert DARA_SKILL_NAME in specialist.instruction
+    assert all((DARA_SKILL_ROOT / path).read_text().strip() for path in DARA_SKILL_REFERENCES)
+    assert not any(tool.tool_name in {"load_skill", "load_skill_resource"} for tool in specialist.tools)
+
 
 
 def test_dara_reference_allow_list_is_small_complete_and_loadable():
@@ -111,9 +110,8 @@ def test_source_coverage_ledger_accounts_for_every_selected_piece():
 def test_dara_runtime_is_wired_to_bounded_skill_callbacks():
     team = build_agent_team(model="gemini-test")
     dara = next(agent for agent in team.sub_agents if agent.name == "dara_editor")
-    assert len(dara.tools) == 1
-    assert isinstance(dara.tools[0], skill_toolset.SkillToolset)
-    assert dara.before_agent_callback is reset_dara_skill_trace
+    assert dara.tools == []
+    assert dara.before_agent_callback.__name__ == "activate_dara_skill"
     assert dara.before_tool_callback is guard_dara_skill_tool
     assert dara.after_tool_callback.__name__ == "record_dara_skill_tool"
 

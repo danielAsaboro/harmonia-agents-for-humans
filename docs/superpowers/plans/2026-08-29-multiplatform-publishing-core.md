@@ -4,9 +4,9 @@
 
 **Goal:** Extend Harmonia's deterministic effect boundary with workspace-scoped provider connections, explicit destinations, typed publish commands, durable uploads, and verified receipts.
 
-**Architecture:** Google/Firebase remains the tenant root while each social authorization is an independent encrypted workspace connection. A provider-neutral command and adapter protocol centralizes approval binding, claims, receipts, token lifecycle, and verification; provider plans implement only provider-specific OAuth discovery and API behavior.
+**Architecture:** Google/Cognito remains the tenant root while each social authorization is an independent encrypted workspace connection. A provider-neutral command and adapter protocol centralizes approval binding, claims, receipts, token lifecycle, and verification; provider plans implement only provider-specific OAuth discovery and API behavior.
 
-**Tech Stack:** Next.js 16, TypeScript, Zod, Firestore, Firebase Auth/Identity Platform, Python 3.12, FastAPI worker, pytest, Vitest
+**Tech Stack:** Next.js 16, TypeScript, Zod, DynamoDB, Cognito Auth/Identity Platform, Python 3.12, FastAPI worker, pytest, Vitest
 
 **Spec:** `docs/superpowers/specs/2026-08-29-multiplatform-publishing-design.md`
 
@@ -97,7 +97,7 @@ git commit -m "feat(publishing): define multiplatform effect contracts"
 
 **Files:**
 - Create: `src/lib/publishing/connections.ts`
-- Modify: `src/lib/firestore.ts`
+- Modify: `src/lib/repository.ts`
 - Modify: `src/app/api/settings/connections/route.ts`
 - Modify: `src/app/api/settings/connections/[platform]/route.ts`
 - Test: `tests/publishingConnections.test.ts`
@@ -145,7 +145,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/lib/publishing/connections.ts src/lib/firestore.ts src/app/api/settings/connections tests/publishingConnections.test.ts tests/tenantIsolation.test.ts
+git add src/lib/publishing/connections.ts src/lib/repository.ts src/app/api/settings/connections tests/publishingConnections.test.ts tests/tenantIsolation.test.ts
 git commit -m "feat(publishing): persist tenant-scoped destinations"
 ```
 

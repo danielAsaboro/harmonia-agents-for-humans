@@ -1,7 +1,7 @@
 """Host-owned evidence for compiled skills and authoritative reads.
 
-These records deliberately do not resemble ADK tool traces. A record says what
-the coordinator compiled or read; an ADK after-tool callback remains the only
+These records deliberately do not resemble Strands tool traces. A record says what
+the coordinator compiled or read; an Strands after-tool callback remains the only
 place that may claim a tool was called.
 """
 

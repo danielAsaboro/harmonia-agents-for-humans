@@ -20,14 +20,14 @@ def _operation() -> dict:
         "type": "generate_video",
         "dependsOn": [],
         "payload": {
-            "modelCapability": "veo-3.1-fast",
+            "modelCapability": "nova-reel",
             "mode": "text_to_video",
             "prompt": "calm blue network",
-            "durationSec": 4,
-            "aspectRatio": "9:16",
-            "resolution": "1080p",
-            "generateAudio": False,
-            "enhancePrompt": True,
+            "durationSec": 6,
+            "aspectRatio": "16:9",
+            "resolution": "720p",
+
+
             "outputCount": 1,
         },
         "requestDigest": "a" * 64,
@@ -51,7 +51,7 @@ def _claim(*, provider_operation_id: str | None = None) -> dict:
         "inputDigests": [],
     }
     if provider_operation_id:
-        claim.update(provider="veo", providerOperationId=provider_operation_id)
+        claim.update(provider="nova_reel", providerOperationId=provider_operation_id)
     return {"outcome": "execute", "claim": claim, "operation": _operation(), "inputs": []}
 
 
@@ -94,26 +94,26 @@ def test_executor_claims_sealed_operation_before_provider_and_uploads_verified_b
     inspected: list[tuple[bytes, str]] = []
 
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: order.append("claim") or _claim())
-    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
-    monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: object())
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(aws_region="us-east-1", allow_paid_aws=True, generative_media_enabled=True, media_output_bucket="media-bucket"))
+    monkeypatch.setattr(production_executor, "AwsMediaTransport", lambda **_kwargs: object())
 
-    def generate(_self, *, request, existing_operation, persist_operation, authorized_output_prefix, conditioning_media):
+    def generate(_self, *, request, existing_operation, persist_operation, authorized_output_prefix, conditioning_media, estimated_cost_usd):
         assert order == ["claim", "budget:0.320000", "submission"]
         assert existing_operation is None
         assert conditioning_media == {}
-        assert authorized_output_prefix == "gs://media-bucket/workspaces/workspace-1/brands/brand-1/jobs/job-1/plans/plan-1/claims/claim-1/"
-        persist_operation("projects/p/locations/us-central1/operations/veo-1")
+        assert authorized_output_prefix == "s3://media-bucket/workspaces/workspace-1/brands/brand-1/jobs/job-1/plans/plan-1/claims/claim-1/"
+        persist_operation("projects/p/locations/us-central1/operations/nova_reel-1")
         return GeneratedMedia(
             data=b"real-video-bytes",
             mime="video/mp4",
-            model="veo-3.1-fast-generate-001",
-            provider_id="projects/p/locations/us-central1/operations/veo-1",
+            model="amazon.nova-reel-v1:1",
+            provider_id="projects/p/locations/us-central1/operations/nova_reel-1",
             duration_sec=4,
             estimated_cost_usd="999.000000",
             provider_metadata={"gcsUri": authorized_output_prefix + "123/sample_0.mp4", "raiMediaFilteredCount": 0},
         )
 
-    monkeypatch.setattr(production_executor.VeoGenerator, "generate", generate)
+    monkeypatch.setattr(production_executor.NovaReelGenerator, "generate", generate)
     monkeypatch.setattr(production_executor, "record_production_provider_operation", lambda *args, **kwargs: provider_records.append(kwargs))
     monkeypatch.setattr(production_executor, "upload_production_artifact", lambda *args, **kwargs: uploads.append(kwargs) or {"state": "succeeded"})
     def reserve(payload):
@@ -125,19 +125,19 @@ def test_executor_claims_sealed_operation_before_provider_and_uploads_verified_b
 
     monkeypatch.setattr(production_executor, "reserve_budget", reserve)
     monkeypatch.setattr(production_executor, "report_usage", lambda _payload: None)
-    monkeypatch.setattr(production_executor, "inspect_generated_media_bytes", lambda data, mime: inspected.append((data, mime)) or {"durationSec": 4.0, "video": {"codec": "h264"}})
+    monkeypatch.setattr(production_executor, "inspect_generated_media_bytes", lambda data, mime: inspected.append((data, mime)) or {"durationSec": 6.0, "video": {"codec": "h264"}})
     monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: order.append("submission"))
 
     result = production_executor.execute_production_operation("plan-1", _operation()["id"], claim_token="worker-1")
 
     assert result["outcome"] == "succeeded"
     assert order[:3] == ["claim", "budget:0.320000", "submission"]
-    assert provider_records[0]["provider_operation_id"].endswith("veo-1")
+    assert provider_records[0]["provider_operation_id"].endswith("nova_reel-1")
     assert uploads[0]["data"] == b"real-video-bytes"
     assert uploads[0]["operation_metadata"]["estimatedCostUsd"] == "0.320000"
     assert uploads[0]["operation_metadata"]["inspection"]["video"]["codec"] == "h264"
     assert uploads[0]["operation_metadata"]["providerResponse"] == {
-        "gcsUri": "gs://media-bucket/workspaces/workspace-1/brands/brand-1/jobs/job-1/plans/plan-1/claims/claim-1/123/sample_0.mp4",
+        "gcsUri": "s3://media-bucket/workspaces/workspace-1/brands/brand-1/jobs/job-1/plans/plan-1/claims/claim-1/123/sample_0.mp4",
         "raiMediaFilteredCount": 0,
     }
     assert inspected == [(b"real-video-bytes", "video/mp4")]
@@ -154,13 +154,13 @@ def test_executor_materializes_exact_conditioning_input_before_budget_and_provid
     generated_inputs: list[dict] = []
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _conditioned_claim())
     monkeypatch.setattr(production_executor, "download_production_artifact", lambda *_args: order.append("download") or (b"first", "image/png", "3" * 64))
-    monkeypatch.setattr(production_executor, "inspect_conditioning_image_bytes", lambda data, mime: order.append(f"inspect:{mime}:{len(data)}") or {"video": {"width": 1080, "height": 1920}} , raising=False)
-    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
+    monkeypatch.setattr(production_executor, "inspect_conditioning_image_bytes", lambda data, mime: order.append(f"inspect:{mime}:{len(data)}") or {"video": {"width": 1280, "height": 720}} , raising=False)
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(aws_region="us-east-1", allow_paid_aws=True, generative_media_enabled=True, media_output_bucket="media-bucket"))
     monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: order.append("budget"))
     monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: order.append("submission"))
-    monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: object())
+    monkeypatch.setattr(production_executor, "AwsMediaTransport", lambda **_kwargs: object())
     monkeypatch.setattr(production_executor, "record_production_provider_operation", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(production_executor, "inspect_generated_media_bytes", lambda *_args: {"durationSec": 4, "video": {"codec": "h264"}})
+    monkeypatch.setattr(production_executor, "inspect_generated_media_bytes", lambda *_args: {"durationSec": 6, "video": {"codec": "h264"}})
     monkeypatch.setattr(production_executor, "upload_production_artifact", lambda *_args, **_kwargs: {"state": "succeeded"})
     monkeypatch.setattr(production_executor, "report_usage", lambda _payload: None)
 
@@ -169,11 +169,11 @@ def test_executor_materializes_exact_conditioning_input_before_budget_and_provid
         assert order == ["download", "inspect:image/png:5", "budget", "submission"]
         persist_operation("operations/conditioned")
         return GeneratedMedia(
-            data=b"video", mime="video/mp4", model="veo-3.1-fast-generate-001",
+            data=b"video", mime="video/mp4", model="amazon.nova-reel-v1:1",
             provider_id="operations/conditioned", duration_sec=4, estimated_cost_usd="0.320000",
         )
 
-    monkeypatch.setattr(production_executor.VeoGenerator, "generate", generate)
+    monkeypatch.setattr(production_executor.NovaReelGenerator, "generate", generate)
 
     result = production_executor.execute_production_operation(
         "plan-1", _operation()["id"], claim_token="conditioned-worker",
@@ -202,10 +202,10 @@ def test_executor_fails_conditioning_identity_mismatch_before_budget_or_provider
     assert "sealed identity" in failures[0]["reason"]
 
 
-def test_executor_resumes_persisted_veo_identity_without_duplicate_submission(monkeypatch):
+def test_executor_resumes_persisted_nova_reel_identity_without_duplicate_submission(monkeypatch):
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim(provider_operation_id="operations/existing"))
-    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
-    monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: object())
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(aws_region="us-east-1", allow_paid_aws=True, generative_media_enabled=True, media_output_bucket="media-bucket"))
+    monkeypatch.setattr(production_executor, "AwsMediaTransport", lambda **_kwargs: object())
     monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: None)
     monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("resume must not start a new submission")))
 
@@ -214,7 +214,7 @@ def test_executor_resumes_persisted_veo_identity_without_duplicate_submission(mo
         persist_operation("operations/existing")
         raise MediaOperationPending("operations/existing")
 
-    monkeypatch.setattr(production_executor.VeoGenerator, "generate", pending)
+    monkeypatch.setattr(production_executor.NovaReelGenerator, "generate", pending)
     monkeypatch.setattr(production_executor, "record_production_provider_operation", lambda *_args, **_kwargs: None)
 
     result = production_executor.execute_production_operation("plan-1", _operation()["id"], claim_token="worker-2")
@@ -222,11 +222,11 @@ def test_executor_resumes_persisted_veo_identity_without_duplicate_submission(mo
     assert result == {"outcome": "waiting_provider", "providerOperationId": "operations/existing"}
 
 
-def test_executor_resumes_conditioned_veo_without_redownloading_inputs(monkeypatch):
+def test_executor_resumes_conditioned_nova_reel_without_redownloading_inputs(monkeypatch):
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _conditioned_claim(provider_operation_id="operations/existing"))
     monkeypatch.setattr(production_executor, "download_production_artifact", lambda *_args: (_ for _ in ()).throw(AssertionError("resume must not rematerialize conditioning")))
-    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
-    monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: object())
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(aws_region="us-east-1", allow_paid_aws=True, generative_media_enabled=True, media_output_bucket="media-bucket"))
+    monkeypatch.setattr(production_executor, "AwsMediaTransport", lambda **_kwargs: object())
     monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: None)
     monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("resume must not start a new submission")))
     monkeypatch.setattr(production_executor, "record_production_provider_operation", lambda *_args, **_kwargs: None)
@@ -236,7 +236,7 @@ def test_executor_resumes_conditioned_veo_without_redownloading_inputs(monkeypat
         assert existing_operation == "operations/existing"
         raise MediaOperationPending("operations/existing")
 
-    monkeypatch.setattr(production_executor.VeoGenerator, "generate", pending)
+    monkeypatch.setattr(production_executor.NovaReelGenerator, "generate", pending)
 
     result = production_executor.execute_production_operation(
         "plan-1", _operation()["id"], claim_token="conditioned-resume-worker",
@@ -250,7 +250,7 @@ def test_executor_returns_terminal_duplicate_without_invoking_provider(monkeypat
     duplicate["outcome"] = "already_succeeded"
     duplicate["claim"].update(state="succeeded", artifact={"digest": "b" * 64})
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: duplicate)
-    monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("provider must not run")))
+    monkeypatch.setattr(production_executor, "AwsMediaTransport", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("provider must not run")))
 
     result = production_executor.execute_production_operation("plan-1", _operation()["id"], claim_token="worker-3")
 
@@ -261,11 +261,11 @@ def test_executor_quarantines_ambiguous_provider_failure_without_resubmission(mo
     failures: list[dict] = []
     resolutions: list[dict] = []
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim())
-    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
-    monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: object())
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(aws_region="us-east-1", allow_paid_aws=True, generative_media_enabled=True, media_output_bucket="media-bucket"))
+    monkeypatch.setattr(production_executor, "AwsMediaTransport", lambda **_kwargs: object())
     monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: None)
     monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(production_executor.VeoGenerator, "generate", lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("provider timeout")))
+    monkeypatch.setattr(production_executor.NovaReelGenerator, "generate", lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("provider timeout")))
     monkeypatch.setattr(production_executor, "record_production_operation_failure", lambda *args, **kwargs: failures.append(kwargs))
     monkeypatch.setattr(production_executor, "resolve_budget_reservation", resolutions.append)
 
@@ -285,37 +285,37 @@ def test_executor_quarantines_ambiguous_provider_failure_without_resubmission(mo
     assert resolutions[0]["outcome"] == "uncertain"
 
 
-def test_executor_requeues_transient_veo_poll_failure_after_provider_identity_is_durable(monkeypatch):
+def test_executor_requeues_transient_nova_reel_poll_failure_after_provider_identity_is_durable(monkeypatch):
     provider_records: list[dict] = []
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim())
-    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
-    monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: object())
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(aws_region="us-east-1", allow_paid_aws=True, generative_media_enabled=True, media_output_bucket="media-bucket"))
+    monkeypatch.setattr(production_executor, "AwsMediaTransport", lambda **_kwargs: object())
     monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: None)
     monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(production_executor, "record_production_provider_operation", lambda *args, **kwargs: provider_records.append(kwargs))
     monkeypatch.setattr(production_executor, "record_production_operation_failure", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("resumable poll must not be failed")))
 
     def transient_poll(_self, *, persist_operation, **_kwargs):
-        persist_operation("operations/veo-durable")
+        persist_operation("operations/nova_reel-durable")
         raise MediaProviderError("HTTP 503")
 
-    monkeypatch.setattr(production_executor.VeoGenerator, "generate", transient_poll)
+    monkeypatch.setattr(production_executor.NovaReelGenerator, "generate", transient_poll)
 
     result = production_executor.execute_production_operation(
         "plan-1", _operation()["id"], claim_token="worker-transient",
     )
 
-    assert result == {"outcome": "waiting_provider", "providerOperationId": "operations/veo-durable"}
+    assert result == {"outcome": "waiting_provider", "providerOperationId": "operations/nova_reel-durable"}
     assert len(provider_records) == 2
 
 
 def test_executor_persists_budget_rejection_as_terminal_failure_before_provider(monkeypatch):
     failures: list[dict] = []
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim())
-    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(aws_region="us-east-1", allow_paid_aws=True, generative_media_enabled=True, media_output_bucket="media-bucket"))
     monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: (_ for _ in ()).throw(WebApiError("budget rejected", 409)))
     monkeypatch.setattr(production_executor, "record_production_operation_failure", lambda *args, **kwargs: failures.append(kwargs) or {"state": "failed"})
-    monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("provider must not run")))
+    monkeypatch.setattr(production_executor, "AwsMediaTransport", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("provider must not run")))
 
     result = production_executor.execute_production_operation(
         "plan-1", _operation()["id"], claim_token="worker-budget-rejected",
@@ -330,11 +330,11 @@ def test_executor_persists_budget_rejection_as_terminal_failure_before_provider(
     }]
 
 
-def test_executor_fails_closed_before_budget_when_veo_output_bucket_is_missing(monkeypatch):
+def test_executor_fails_closed_before_budget_when_nova_reel_output_bucket_is_missing(monkeypatch):
     failures: list[dict] = []
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim())
     monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(
-        gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket=None,
+        aws_region="us-east-1", allow_paid_aws=True, generative_media_enabled=True, media_output_bucket=None,
     ))
     monkeypatch.setattr(
         production_executor, "reserve_budget",
@@ -353,12 +353,12 @@ def test_executor_fails_closed_before_budget_when_veo_output_bucket_is_missing(m
         "plan-1", _operation()["id"], claim_token="worker-no-bucket",
     )
 
-    assert result == {"outcome": "failed", "reason": "authorized Veo output storage unavailable"}
+    assert result == {"outcome": "failed", "reason": "authorized Nova Reel output storage unavailable"}
     assert failures == [{
         "claim_id": "claim-1",
         "claim_token": "worker-no-bucket",
         "outcome": "failed",
-        "reason": "MEDIA_OUTPUT_BUCKET is required for authorized Veo output",
+        "reason": "MEDIA_OUTPUT_BUCKET is required for authorized Nova Reel output",
     }]
 
 
@@ -366,12 +366,12 @@ def test_executor_releases_budget_when_predispatch_authorization_is_revoked(monk
     failures: list[dict] = []
     resolutions: list[dict] = []
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim())
-    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(aws_region="us-east-1", allow_paid_aws=True, generative_media_enabled=True, media_output_bucket="media-bucket"))
     monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: None)
     monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: (_ for _ in ()).throw(WebApiError("revision superseded", 409)))
     monkeypatch.setattr(production_executor, "record_production_operation_failure", lambda *args, **kwargs: failures.append(kwargs) or {"state": "failed"})
     monkeypatch.setattr(production_executor, "resolve_budget_reservation", resolutions.append)
-    monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("provider must not run")))
+    monkeypatch.setattr(production_executor, "AwsMediaTransport", lambda **_kwargs: (_ for _ in ()).throw(AssertionError("provider must not run")))
 
     result = production_executor.execute_production_operation(
         "plan-1", _operation()["id"], claim_token="worker-revoked",
@@ -387,12 +387,12 @@ def test_executor_releases_budget_when_predispatch_authorization_is_revoked(monk
     }]
 
 
-def test_executor_surfaces_failed_veo_poll_rearm_for_pubsub_retry(monkeypatch):
+def test_executor_surfaces_failed_nova_reel_poll_rearm_for_pubsub_retry(monkeypatch):
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim(provider_operation_id="operations/existing"))
-    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(gcp_project="project-1", vertex_media_location="us-central1", media_output_bucket="media-bucket"))
-    monkeypatch.setattr(production_executor, "GoogleMediaTransport", lambda **_kwargs: object())
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(aws_region="us-east-1", allow_paid_aws=True, generative_media_enabled=True, media_output_bucket="media-bucket"))
+    monkeypatch.setattr(production_executor, "AwsMediaTransport", lambda **_kwargs: object())
     monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: None)
-    monkeypatch.setattr(production_executor.VeoGenerator, "generate", lambda *_args, **_kwargs: (_ for _ in ()).throw(MediaProviderError("poll unavailable")))
+    monkeypatch.setattr(production_executor.NovaReelGenerator, "generate", lambda *_args, **_kwargs: (_ for _ in ()).throw(MediaProviderError("poll unavailable")))
     monkeypatch.setattr(production_executor, "record_production_provider_operation", lambda *_args, **_kwargs: (_ for _ in ()).throw(WebApiError("re-arm unavailable", 503)))
     monkeypatch.setattr(production_executor, "record_production_operation_failure", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("transient persisted poll must not be terminal")))
 
@@ -439,7 +439,7 @@ def test_internal_resolve_media_materializes_only_the_sealed_source_claim(monkey
     monkeypatch.setattr(
         production_executor,
         "inspect_generated_media_bytes",
-        lambda data, mime: {"durationSec": 4.0, "video": {"codec": "h264"}},
+        lambda data, mime: {"durationSec": 6.0, "video": {"codec": "h264"}},
     )
     monkeypatch.setattr(
         production_executor,
@@ -458,7 +458,7 @@ def test_internal_resolve_media_materializes_only_the_sealed_source_claim(monkey
         "artifactId": reference["artifactId"],
         "artifactDigest": reference["digest"],
         "rightsAuthorizationId": "license-source-1",
-        "inspection": {"durationSec": 4.0, "video": {"codec": "h264"}},
+        "inspection": {"durationSec": 6.0, "video": {"codec": "h264"}},
     }
 
 
@@ -589,11 +589,11 @@ def test_internal_build_composes_verified_source_and_narration_with_voiceover_ca
         },
         "plan": {
             "id": "plan-1", "jobId": "job-1",
-            "target": {"durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p", "frameRate": 30},
+            "target": {"durationSec": 6, "aspectRatio": "16:9", "resolution": "720p", "frameRate": 30},
             "scenes": [{
-                "id": "scene-1", "order": 1, "startSec": 0, "durationSec": 4,
+                "id": "scene-1", "order": 1, "startSec": 0, "durationSec": 6,
                 "purpose": "Operator footage",
-                "sourceWindow": {"startSec": 88.25, "durationSec": 4},
+                "sourceWindow": {"startSec": 88.25, "durationSec": 6},
                 "sourceSegmentRefs": ["segment-1"],
                 "preserveSourceAudio": True,
                 "reframe": {"xPercent": 48, "yPercent": 42, "scale": 1.3},
@@ -627,7 +627,7 @@ def test_internal_build_composes_verified_source_and_narration_with_voiceover_ca
     downloaded = {
         source_operation_id: (b"verified-source-video", "video/mp4", "a" * 64),
         narration_operation_id: (b"verified-narration-wav", "audio/wav", "b" * 64),
-        "plan-1:generate_music": (b"verified-lyria-music", "audio/mpeg", "c" * 64),
+        "plan-1:generate_music": (b"verified-elevenlabs-music", "audio/mpeg", "c" * 64),
     }
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: decision)
     monkeypatch.setattr(production_executor, "download_production_artifact", lambda _plan, op: downloaded[op])
@@ -671,9 +671,9 @@ def test_internal_build_compiles_verified_inputs_to_a_durable_composition_archiv
         },
         "plan": {
             "id": "plan-1",
-            "target": {"durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p", "frameRate": 30},
+            "target": {"durationSec": 6, "aspectRatio": "16:9", "resolution": "720p", "frameRate": 30},
             "scenes": [{
-                "id": "scene-1", "order": 1, "startSec": 0, "durationSec": 4,
+                "id": "scene-1", "order": 1, "startSec": 0, "durationSec": 6,
                 "purpose": "Launch", "video": _operation()["payload"],
             }],
         },
@@ -757,7 +757,7 @@ def test_internal_repair_consumes_sealed_final_and_qa_inputs_once(monkeypatch):
             ],
         },
         "operation": {"id": operation_id, "type": "repair_media", "executionAuthority": "internal"},
-        "plan": {"target": {"durationSec": 4, "aspectRatio": "9:16", "resolution": "1080p", "frameRate": 30}},
+        "plan": {"target": {"durationSec": 6, "aspectRatio": "16:9", "resolution": "720p", "frameRate": 30}},
         "inputs": [
             {"operationId": final_id, "artifact": {"mime": "video/mp4", "digest": "a" * 64}},
             {"operationId": qa_id, "artifact": {"mime": "application/json", "digest": "b" * 64}},
@@ -792,7 +792,7 @@ def test_internal_repair_consumes_sealed_final_and_qa_inputs_once(monkeypatch):
     assert result["outcome"] == "succeeded"
     assert repairs == [{
         "source": b"final-video",
-        "target": {"durationSec": 4, "width": 1080, "height": 1920, "frameRate": 30},
+        "target": {"durationSec": 6, "width": 1920, "height": 1080, "frameRate": 30},
         "issues": ["integrated_loudness_out_of_range"],
     }]
     assert uploads[0]["data"] == b"repaired-video"

@@ -25,7 +25,7 @@ prompt is durable state.
 The scheduled wake does not reopen an immortal chat session. It enters a versioned event inbox with a
 stable source ID, payload digest, trust label, correlation ID, and optional causal parent.
 
-Inbox acceptance and operation creation happen together in Firestore. If Pub/Sub delivers the same
+Inbox acceptance and operation creation happen together in DynamoDB. If SQS delivers the same
 message twice, both deliveries converge on the same event and operation identities. There is now an
 authoritative answer to the first recovery question—*did Harmonia begin this work?*—before a model is
 called.
@@ -35,13 +35,13 @@ may claim it for a bounded lease. Every mutation after that claim must carry the
 epoch. If another worker later takes over, its newer epoch fences the first worker out.
 
 <Info>
-Pub/Sub, Cloud Scheduler, Telegram, and approved provider webhooks can all wake Harmonia. They provide
+SQS, EventBridge Scheduler, Telegram, and approved provider webhooks can all wake Harmonia. They provide
 work signals, not memory and not permission to publish.
 </Info>
 
 ## 2. Harmonia rebuilds the present instead of replaying the past
 
-The new worker does not stuff the complete event history into Gemini. It asks Firestore for current
+The new worker does not stuff the complete event history into Bedrock. It asks DynamoDB for current
 durable state and compiles a fresh, deterministic context projection.
 
 The distinction matters. A chronological transcript tells the model everything that happened,
@@ -58,7 +58,7 @@ The compiler orders information by consequence rather than recency:
 4. the current strategy, plan, draft, and evidence revision digests;
 5. trusted durable observations;
 6. clearly delimited external or model-produced material; and
-7. bounded Memory Bank facts, labeled non-authoritative.
+7. bounded AgentCore Memory facts, labeled non-authoritative.
 
 These authority fields cannot be compacted away. A polished summary cannot replace an approval. A
 retrieved memory cannot select the current draft. A model assertion cannot manufacture a receipt.
@@ -72,18 +72,18 @@ changes with it.
 flowchart LR
     E[Durable event] --> O[Operation + epoch]
     O --> C[Context compiler]
-    F[(Firestore current truth)] --> C
-    M[(Scoped Memory Bank facts)] -->|advisory| C
+    F[(DynamoDB current truth)] --> C
+    M[(Scoped AgentCore Memory facts)] -->|advisory| C
     A[(Artifact store)] -->|digest-verified ranges| C
     C --> P[Bounded projection]
-    P --> G[Gemini / ADK turn]
+    P --> G[Bedrock / Strands turn]
     G --> T[Typed result]
     T --> F
 ```
 
 The matching contracts live in `src/lib/contextProjections.ts`,
 `src/lib/contextProjectionStore.ts`, and `agent/harmonia_agent/context_projection.py`. Every
-stage-level ADK invocation and managed chat run enters through this projection boundary.
+stage-level Strands invocation and managed chat run enters through this projection boundary.
 
 ## 3. The transcript is too large, but the evidence is not lost
 
@@ -118,34 +118,34 @@ The worker may now retrieve a fact learned from an earlier campaign: perhaps the
 prefers evidence-led openings over hype. That can improve the next draft, but only if it belongs to the
 same workspace and brand and points back to eligible durable evidence.
 
-This is Harmonia's defense against Memory rot. Memory Bank writes are allowlisted and typed. Eligible
+This is Harmonia's defense against Memory rot. AgentCore Memory writes are allowlisted and typed. Eligible
 facts come from explicit operator preferences, approved decisions, independently verified outcomes,
 or measured learnings with durable record IDs. Raw transcripts, prompts, draft copy, credentials,
 provider bodies, errors, unverified claims, and facts without lineage are rejected.
 
 Retrieval is bounded by count and characters. Wrong-scope or malformed memories fail visibly instead
-of entering the projection. Even a valid result carries less authority than current Firestore state.
+of entering the projection. Even a valid result carries less authority than current DynamoDB state.
 
 <Warning>
-Memory Bank is advisory. It can influence judgment; it cannot approve an effect, advance an operation,
-choose the current revision, repair a receipt, or reconstruct Firestore after a crash.
+AgentCore Memory is advisory. It can influence judgment; it cannot approve an effect, advance an operation,
+choose the current revision, repair a receipt, or reconstruct DynamoDB after a crash.
 </Warning>
 
 This is why Harmonia keeps four different kinds of continuity instead of calling all of them “memory”:
 
 | Layer | What it preserves | What it cannot do |
 |---|---|---|
-| ADK invocation state | typed handoffs inside one cognitive turn | survive as workflow truth |
-| Agent Engine session | continuity for one scoped operation | own leases or authorize effects |
-| Firestore | current workflow, authority, receipts, and failures | provide generative judgment |
-| Memory Bank | evidence-linked lessons across sessions | override current durable state |
+| Strands invocation state | typed handoffs inside one cognitive turn | survive as workflow truth |
+| AgentCore Runtime session | continuity for one scoped operation | own leases or authorize effects |
+| DynamoDB | current workflow, authority, receipts, and failures | provide generative judgment |
+| AgentCore Memory | evidence-linked lessons across sessions | override current durable state |
 
 The detailed eligibility and retention boundaries are documented in
 [Sessions, history, and memory](/session-memory).
 
 ## 5. The model proposes an action, but does not perform it yet
 
-With its bounded projection assembled, Gemini and the ADK team can decide what content work is needed.
+With its bounded projection assembled, Bedrock and the Strands team can decide what content work is needed.
 Their output still crosses a typed validation boundary before deterministic workflow code accepts it.
 
 When an approved external action is ready, Harmonia writes **intent before effect**. The effect command
@@ -245,12 +245,12 @@ response, receipt commit, and verification.
 | Artifact digest checks | 2 |
 | Prompt projection characters in the fixed benchmark | 178 |
 
-Two independent benchmark executions produce byte-identical JSON. Firestore integration tests cover
+Two independent benchmark executions produce byte-identical JSON. DynamoDB integration tests cover
 concurrent claims, recurring recovery attempts, artifact integrity, stale epochs, effect ambiguity,
 and operator resolution.
 
 <Info>
-This does not prove multi-week uptime, authenticated Memory Bank behavior, cloud IAM correctness,
+This does not prove multi-week uptime, authenticated AgentCore Memory behavior, cloud IAM correctness,
 provider availability, or successful external publication. Those claims require a deployed soak run,
 real elapsed time, and independent provider read-back. The benchmark proves the implemented state
 transitions and reconstruction contract—not the availability of systems outside it.

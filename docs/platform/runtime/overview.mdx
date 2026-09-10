@@ -1,15 +1,15 @@
 ---
 title: "Runtime and automation platform"
-description: "How Cloud Run and Cloud Scheduler host and wake Harmonia's durable workflow."
+description: "How ECS Fargate and EventBridge Scheduler host and wake Harmonia's durable workflow."
 ---
 
 ## How Harmonia uses it
 
-Cloud Run hosts the web application and worker. Cloud Scheduler invokes authenticated maintenance and heartbeat endpoints; those ticks claim durable work rather than holding in-memory timers.
+ECS Fargate hosts the web application and worker. EventBridge Scheduler invokes authenticated maintenance and heartbeat endpoints; those ticks claim durable work rather than holding in-memory timers.
 
 <CardGroup cols={2}>
-  <Card title="Cloud Run" href="/platform/runtime/cloud-run">Stateless web and worker services.</Card>
-  <Card title="Cloud Scheduler" href="/platform/runtime/cloud-scheduler">Authenticated durable wakeups.</Card>
+  <Card title="ECS Fargate" href="/platform/runtime/fargate">Stateless web and worker services.</Card>
+  <Card title="EventBridge Scheduler" href="/platform/runtime/eventbridge">Authenticated durable wakeups.</Card>
 </CardGroup>
 
 ## Evidence status

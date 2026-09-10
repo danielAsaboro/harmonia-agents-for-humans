@@ -6,7 +6,7 @@ import { loadActiveStrategyContext } from "../strategy/context";
 import { hasRightsAttestation, sourceRightsAuthorization, sourceRightsAuthorizationId } from "../sourceRights";
 import { requireContentOperator } from "../authority";
 import { strategyDigest } from "../strategyApproval";
-import { evaluateIntake, intakeAdviceSchema, intakeSourceKey, intakeRequirementApplies, type IntakeAdvice, type IntakeDraft, type IntakeTarget, type IntakeSourceHandle, type IntakeMissingField } from "./contracts";
+import { evaluateIntake, intakeAdviceSchema, intakeSourceKey, intakeRequirementApplies, intakeClarificationApplies, type IntakeAdvice, type IntakeDraft, type IntakeTarget, type IntakeSourceHandle, type IntakeMissingField } from "./contracts";
 
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const turnDigest = (message: string, attachmentIds: string[]) => hash([message, [...attachmentIds].sort()]);
@@ -105,7 +105,7 @@ export async function submitIntakeTurn(input: IntakeTurn): Promise<IntakeDraft> 
       && (field !== "requestedOutputs" || merged.requestedOutputs.length > 0)
       && (field !== "strategyContext" || Boolean(merged.strategyContext))
       && (field !== "activeStrategy" || Boolean(active));
-    const unresolvedPriorQuestion = priorQuestion && intakeRequirementApplies(priorQuestion.field, merged)
+    const unresolvedPriorQuestion = priorQuestion && intakeClarificationApplies(priorQuestion.field, prior!, merged)
       && !(advice.resolvedField === priorQuestion.field && fieldSatisfied(priorQuestion.field));
     merged.clarification = unresolvedPriorQuestion ? priorQuestion : advice.clarification ?? null;
     if (merged.clarification) {

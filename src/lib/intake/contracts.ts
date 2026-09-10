@@ -44,18 +44,31 @@ export interface IntakeDraft extends IntakeAdvice {
   createdAt: string; updatedAt: string;
 }
 
-/** Reassess stored questions against the operator's validated current work request. */
+/** Applicability of the host's unconditional intake prerequisites. */
 export function intakeRequirementApplies(field: IntakeMissingField, input: IntakeAdvice): boolean {
   switch (field) {
     case "expectedOutcome": return true;
-    // Explicit evidence questions may apply to factual claims in any action.
-    case "sources": return true;
+    case "sources": return input.disposition === "knowledge_only";
     case "target": return input.disposition === "existing_plan_item";
     case "rights": return input.sourceHandles.some(source => source.kind === "upload" || source.kind === "youtube");
     case "requestedOutputs": return input.disposition !== "knowledge_only" && input.action === "create_job";
     case "strategyContext": return input.disposition !== "knowledge_only" && ["establish_strategy", "revise_strategy"].includes(input.action);
     case "activeStrategy": return input.disposition !== "knowledge_only" && input.action === "revise_strategy";
   }
+}
+
+/** A conditional router question is not disproved by the absence of a blanket prerequisite. */
+export function intakeClarificationApplies(field: IntakeMissingField, previous: IntakeAdvice, current: IntakeAdvice): boolean {
+  const currentSources = new Set(current.sourceHandles.map(intakeSourceKey));
+  const sameSources = previous.sourceHandles.length === currentSources.size
+    && previous.sourceHandles.every(source => currentSources.has(intakeSourceKey(source)));
+  if (previous.action === current.action && previous.disposition === current.disposition && sameSources) return true;
+  // Explicit evidence questions may apply to factual claims in any action.
+  if (field === "sources") return true;
+  if (field === "strategyContext" && current.action === "create_job") {
+    return current.disposition !== "knowledge_only" && current.sourceHandles.length > 0;
+  }
+  return intakeRequirementApplies(field, current);
 }
 
 /** Classification is advisory. Only authorized records passed by the host resolve a target. */

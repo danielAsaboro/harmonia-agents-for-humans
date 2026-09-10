@@ -30,6 +30,57 @@ async function send(conversationId: string, surface: "dashboard" | "telegram", m
 }
 describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("action-aware durable clarification recovery", () => {
   for (const surface of ["dashboard", "telegram"] as const) {
+    it(`retains a conditional source-backed context question until a valid answer on ${surface}`, () => scoped(surface, async () => {
+      const conversationId = randomUUID();
+      const content: ParsedIntent = { ...routed, strategyContext: undefined, desiredOutputs: ["x_post"], sources: [{ kind: "web", url: "https://example.com/source" }] };
+      const first = await send(conversationId, surface, "Create a post from https://example.com/source", { ...content, needsClarification: true, missingField: "strategyContext", clarifyingQuestion: "Which company and audience should this address?" });
+      expect(first.intakeDraft.state).toBe("clarifying");
+      const acknowledgement = await send(conversationId, surface, "Thanks", content);
+      expect(acknowledgement.intakeDraft.state).toBe("clarifying");
+      expect(acknowledgement.intakeDraft.clarification).toEqual(first.intakeDraft.clarification);
+      expect(acknowledgement.intakeDraft.missingFields).toContain("strategyContext");
+      expect(await listJobs()).toHaveLength(0);
+      const incomplete = await send(conversationId, surface, "The audience is founders", { ...content, resolvedField: "strategyContext" });
+      expect(incomplete.intakeDraft.state).toBe("clarifying");
+      expect(await listJobs()).toHaveLength(0);
+      const requestId = randomUUID();
+      const answer: ParsedIntent = { ...content, strategyContext, resolvedField: "strategyContext" };
+      const next = await send(conversationId, surface, "Harmonia helps founders run evidence-backed content operations", answer, requestId);
+      expect(next.intakeDraft.id).toBe(first.intakeDraft.id);
+      expect(next.intakeDraft.state).toBe("dispatched");
+      expect((await getJob(next.jobId)).config.strategyContext).toEqual(strategyContext);
+      const replay = await send(conversationId, surface, "Harmonia helps founders run evidence-backed content operations", answer, requestId);
+      expect(replay.jobId).toBe(next.jobId);
+      expect(await listJobs()).toHaveLength(1);
+      vi.mocked(parseIntent).mockReset();
+    }));
+    it(`does not require blanket context for source-free planning on ${surface}`, () => scoped(surface, async () => {
+      const next = await send(randomUUID(), surface, "Write an independent post to educate founders", { ...routed, strategyContext: undefined, desiredOutputs: ["x_post"] });
+      expect(next.intakeDraft.state).toBe("ready_for_planning");
+      expect(next.intakeDraft.missingFields).toEqual([]);
+      expect(await listJobs()).toHaveLength(0);
+    }));
+    it(`clears a production-context question when the source becomes knowledge-only on ${surface}`, () => scoped(surface, async () => {
+      const conversationId = randomUUID();
+      const content: ParsedIntent = { ...routed, strategyContext: undefined, desiredOutputs: ["x_post"], sources: [{ kind: "web", url: "https://example.com/source" }] };
+      const first = await send(conversationId, surface, "Create a post from https://example.com/source", { ...content, needsClarification: true, missingField: "strategyContext", clarifyingQuestion: "Which company and audience should this address?" });
+      const next = await send(conversationId, surface, "Only retain this source as knowledge", { ...content, workPlacement: "knowledge_only" });
+      expect(next.intakeDraft.id).toBe(first.intakeDraft.id);
+      expect(next.intakeDraft.state).toBe("retained");
+      expect(next.intakeDraft.clarification).toBeNull();
+      expect(next.intakeDraft.missingFields).toEqual([]);
+      expect(await listJobs()).toHaveLength(0);
+    }));
+    it(`keeps missing context when strategy changes to source-backed content on ${surface}`, () => scoped(surface, async () => {
+      const conversationId = randomUUID();
+      const content: ParsedIntent = { ...routed, strategyContext: undefined, desiredOutputs: ["x_post"], sources: [{ kind: "web", url: "https://example.com/source" }] };
+      const first = await send(conversationId, surface, "Establish a strategy from https://example.com/source", { ...content, intent: "establish_strategy", needsClarification: true, missingField: "strategyContext", clarifyingQuestion: "Which company and audience should this address?" });
+      const next = await send(conversationId, surface, "Make one post instead", content);
+      expect(next.intakeDraft.id).toBe(first.intakeDraft.id);
+      expect(next.intakeDraft.state).toBe("clarifying");
+      expect(next.intakeDraft.missingFields).toContain("strategyContext");
+      expect(await listJobs()).toHaveLength(0);
+    }));
     for (const field of ["activeStrategy", "requestedOutputs"] as const) {
       it(`clears obsolete ${field} when switching to establish_strategy on ${surface}`, () => scoped(surface, async () => {
         const conversationId = randomUUID();

@@ -3,6 +3,8 @@ import { awsRepository,limited,ordered,partition,recordKey,where } from "./dynam
 import { newId } from "./idempotency";
 import { db } from "./repository";
 import { assertResourceWorkspace,currentTenant,tenantCollectionPath,tenantSubjectId } from "./tenancy";
+import { initialUIChunkProjectionState, projectDurableEvent } from "./ai-sdk/uiStream";
+import type { UIMessageChunk } from "ai";
 
 export type UnsequencedChatStreamEvent = ChatStreamEvent extends infer Event
   ? Event extends { runId: string; sequence: number }
@@ -19,6 +21,8 @@ export interface ChatRunDoc {
   attachmentIds: string[];
   status: "running" | "complete" | "failed" | "cancelled";
   lastSequence: number;
+  lastChunkSequence: number;
+  textStarted: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -39,6 +43,8 @@ export async function createChatRun(message: string, attachmentIds: string[]): P
     attachmentIds: [...new Set(attachmentIds)],
     status: "running",
     lastSequence: -1,
+    lastChunkSequence: -1,
+    textStarted: false,
     createdAt: now,
     updatedAt: now,
   };
@@ -64,12 +70,31 @@ export async function appendChatRunEvent(runId: string, input: UnsequencedChatSt
     if (run.status !== "running" && input.type !== "run_failed") throw new Error("chat run is terminal");
     const sequence = run.lastSequence + 1;
     const event = parseChatStreamEvent({ ...input, runId, sequence });
+    const projection = initialUIChunkProjectionState();
+    projection.textStarted = run.textStarted;
+    const chunks = projectDurableEvent(event, projection);
+    let chunkSequence = run.lastChunkSequence;
+    for (const chunk of chunks) {
+      chunkSequence += 1;
+      transaction.put(recordKey(partition(runRef.path + "/chunks").partition + "/" + String(chunkSequence).padStart(12, "0")), {
+        runId, sequence: chunkSequence, sourceEventSequence: sequence, chunk,
+      });
+    }
     const terminal = event.type === "run_completed" ? "complete" : event.type === "run_failed" ? "failed" : run.status;
     const updatedAt = new Date().toISOString();
     transaction.put(recordKey(partition(runRef.path + "/" + "events").partition + "/" + String(sequence).padStart(12, "0")), event);
-    transaction.patch(runRef, { lastSequence: sequence, status: terminal, updatedAt });
+    transaction.patch(runRef, { lastSequence: sequence, lastChunkSequence: chunkSequence, textStarted: projection.textStarted, status: terminal, updatedAt });
     return event;
   });
+}
+
+export interface DurableUIMessageChunk { runId: string; sequence: number; sourceEventSequence: number; chunk: UIMessageChunk }
+
+export async function listChatRunChunks(runId: string, afterSequence = -1): Promise<DurableUIMessageChunk[]> {
+  const run = await getChatRun(runId);
+  if (!run) throw new Error("chat run not found");
+  const snaps = await awsRepository().query(limited(ordered(where(partition(recordKey(collection().partition + "/" + runId).path + "/chunks"), "sequence", ">", afterSequence), "sequence", "asc"), 2_000));
+  return snaps.rows.map((doc) => doc.value as unknown as DurableUIMessageChunk);
 }
 
 export async function listChatRunEvents(runId: string, afterSequence = -1): Promise<ChatStreamEvent[]> {

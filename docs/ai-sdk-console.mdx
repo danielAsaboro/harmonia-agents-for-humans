@@ -34,7 +34,7 @@ Unknown components, wrong-job or invented entity references, duplicate reference
 GET /api/chat/runs/{runId}/events?after=-1&stream=1
 ```
 
-The stable assistant message and data-part IDs make replay replace the in-flight message without duplicating text or surfaces. Persisted UI message history is validated with `validateUIMessages` plus Harmonia's strict surface schema before use. This is durable transport streaming. It does not claim direct provider-token streaming when the bounded provider invocation returns a complete result.
+Each projected `UIMessageChunk` is stored directly with its own monotonic chunk sequence before delivery. The stable assistant message and data-part IDs make replay replace the in-flight message without duplicating text or surfaces. Persisted UI message history is validated with `validateUIMessages` plus Harmonia's strict surface schema before use. This is durable transport streaming. It does not claim direct provider-token streaming when the bounded provider invocation returns a complete result.
 
 ## Upload boundary
 

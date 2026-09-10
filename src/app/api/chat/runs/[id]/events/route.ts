@@ -1,7 +1,6 @@
 import { tenantHandler } from "@/lib/auth";
-import { listChatRunEvents } from "@/lib/chatRuns";
+import { listChatRunChunks, listChatRunEvents } from "@/lib/chatRuns";
 import { createUIMessageStreamResponse, type UIMessageChunk } from "ai";
-import { initialUIChunkProjectionState, projectDurableEvent } from "@/lib/ai-sdk/uiStream";
 
 async function get(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -11,9 +10,8 @@ async function get(req: Request, { params }: { params: Promise<{ id: string }> }
   try {
     const events = await listChatRunEvents(id, after);
     if (new URL(req.url).searchParams.get("stream") === "1") {
-      const projection = initialUIChunkProjectionState();
-      if (after >= 0) projection.textStarted = (await listChatRunEvents(id, -1)).some((event) => event.sequence <= after && event.type === "text_delta");
-      const stream = new ReadableStream<UIMessageChunk>({ start(controller) { controller.enqueue({ type: "start", messageId: id }); for (const event of events) for (const chunk of projectDurableEvent(event, projection)) controller.enqueue(chunk); controller.close(); } });
+      const chunks = await listChatRunChunks(id, after);
+      const stream = new ReadableStream<UIMessageChunk>({ start(controller) { for (const record of chunks) controller.enqueue(record.chunk); controller.close(); } });
       return createUIMessageStreamResponse({ stream, headers: { "cache-control": "no-store" } });
     }
     return Response.json({ events });

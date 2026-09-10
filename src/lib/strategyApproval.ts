@@ -71,6 +71,7 @@ export function validatePersistedStrategy(job: { config: JobConfig; sourceAnalys
     ...invocation.sourceIds, ...invocation.operatorContextIds,
     ...invocation.performance.map((item) => item.id), ...invocation.memoryFacts.map((item) => item.id),
     ...invocation.searchEvidence.map((item) => item.evidenceId),
+    ...(invocation.learningEvidence ?? []).map(item => item.id),
   ]);
   const invalidRefs = references.filter((ref) => !exactEvidenceIds.has(ref));
   if (invalidRefs.length) throw new Error(`unknown persisted evidence references: ${[...new Set(invalidRefs)].join(", ")}`);

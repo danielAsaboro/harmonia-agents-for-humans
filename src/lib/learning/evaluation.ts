@@ -25,6 +25,7 @@ export function evaluateObservations(observations: PerformanceObservation[]): Ev
   return { id: `evaluation-${strategyDigest(unique.map(o => o.id).sort()).slice(0, 48)}`, observationIds: unique.map(o => o.id), measurement: first.measurement, strategyRef: first.strategyRef,
     campaignRefs: refs(unique.flatMap(o => o.campaignRef ? [o.campaignRef] : [])), planRefs: refs(unique.map(o => o.planRef)), itemRefs: refs(unique.map(o => o.itemRef)), pillars: [...new Set(unique.flatMap(o => o.pillar ? [o.pillar] : []))],
     sampleCount: measured.length, value: measured.length ? measured.reduce((sum, o) => sum + o.value!, 0) / measured.length : null,
+    cohortCount: unique.length, missingCounts: { pending_window: unique.filter(o => o.availability === "pending_window").length, unavailable: unique.filter(o => o.availability === "unavailable").length, failed: unique.filter(o => o.availability === "failed").length, revoked: unique.filter(o => o.availability === "revoked").length },
     baseline: m.baseline, supportingObservationIds: support.map(o => o.id), contradictingObservationIds: contradictions.map(o => o.id),
     confidence: measured.length === 0 ? "insufficient" : measured.length < 5 || contradictions.length > 0 ? "low" : "moderate", causalClaim: false,
     outcome: first.kind === "delivery_verification" ? "delivery_only" : measured.length ? "observational" : "unmeasured", limitations };

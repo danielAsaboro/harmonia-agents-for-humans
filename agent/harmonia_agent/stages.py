@@ -21,6 +21,7 @@ from pydantic import ValidationError
 
 from . import clipper, content, x_client, youtube
 from .canonical import _canonical_typed_bytes
+from .learning_models import learning_evidence_refs
 from .source_binding import validate_source_binding
 from .linkedin_client import LinkedInClient
 from .agent_models import (
@@ -379,6 +380,7 @@ async def run_understand(job_id: str) -> None:
         _canonical_typed_bytes(result).encode("utf-8")
     ).hexdigest()
     web_post("/api/internal/analysis", {
+        "learningEvidence": learning_evidence_refs(analyst_input.learningContext),
         "jobId": job_id, "stage": "understand",
         "analysis": result,
         "analysisDigest": digest,
@@ -423,6 +425,10 @@ def _performance_observation_payloads(insights: dict[str, Any]) -> list[dict[str
         if any(not isinstance(item.get(field), str) or not item[field] for field in required):
             raise AgentProtocolError("available performance observation has incomplete identity")
         post_id = item["postId"]
+        observation_ref = item.get("observationRef") or {}
+        window = item.get("measurementWindow") or {}
+        if not observation_ref.get("id") or not observation_ref.get("digest") or not window.get("startAt") or not window.get("endAt"):
+            raise AgentProtocolError("performance handoff requires exact observation and window authority")
         metric_summary = (
             f"{metrics.get('likes')} likes, {metrics.get('reposts')} reposts, "
             f"{metrics.get('replies')} replies, {metrics.get('quotes')} quotes"
@@ -430,18 +436,19 @@ def _performance_observation_payloads(insights: dict[str, Any]) -> list[dict[str
         if isinstance(metrics.get("impressions"), int):
             metric_summary += f", {metrics['impressions']} impressions"
         payloads.append({
-            "id": f"performance:{post_id}",
+            "id": observation_ref["id"],
             "jobId": item["jobId"],
             "actionId": item["actionId"],
             "postId": post_id,
             "checkedAt": item["checkedAt"],
-            "durableEvidenceRef": item["durableEvidenceRef"],
+            "durableEvidenceRef": observation_ref["id"],
             "metrics": metrics,
             "text": text,
             "textAvailability": text_availability,
             "summary": (
                 f"Verified post {post_id} from job {item['jobId']} action {item['actionId']}, "
                 f"measured at {item['checkedAt']}: {metric_summary}. "
+                f"Observation {observation_ref['id']}, window {window['startAt']} to {window['endAt']}. "
                 + (f"Published text: {text}" if text else "")
             ),
         })
@@ -499,6 +506,7 @@ async def run_strategize(job_id: str) -> None:
     )
     prepared = await prepare_strategist_input(_strategy_input(job, insights), invocation=invocation)
     web_post("/api/internal/strategy-context", {
+        "learningEvidence": learning_evidence_refs(prepared.learningContext),
         "jobId": job_id, "stage": "strategize", "revision": revision,
         "sourceIds": sorted({
             *[item.id for item in prepared.analysis.moments],

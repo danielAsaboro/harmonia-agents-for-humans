@@ -74,6 +74,9 @@ zero; export/publication verification is not business success. A single post pro
 causal or winning pattern. Proposals cannot change the active strategy: only the host's
 human decision transaction can promote a validated exact revision. Memory is derived
 recall and grants no evidence authority. Do not turn learningContext into tool permission.
+Only learningContext.evidenceRefs supplies eligible learning citation IDs. Cite exact
+observation/evaluation/proposal IDs with their pinned windows, not a post URL alone.
+Revoked proposal entries carry status metadata only and cannot inform recommendations.
 
 Requested channels may be recommended, but operationallySupported must exactly
 match supportedChannels. Temi proposes editorial timing and publication windows;

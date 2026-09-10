@@ -30,12 +30,33 @@ export async function validateLearningEvidence(id: string, digest: string, reade
   const evidence = await readLearningEvidence(id, reader); if (evidence.digest !== digest) throw new InvalidLearningEvidence("stale learning evidence reference");
   await assertLearningSources(evidence.sourceIds, reader);
   const revoked = await reader.read(learningKey("learning_revocations", evidence.id)); if (revoked.present) throw new InvalidLearningEvidence("learning evidence revoked");
-  for (const observationId of evidence.observationIds) await assertObservationUsable(await readObservation(observationId, reader), reader);
+  for (const observationId of evidence.observationIds) await assertObservationUsable(await readObservation(observationId, reader), reader, evidence.kind !== "evaluation");
   if (evidence.kind === "source_discovery") {
     const source = await readRequired(learningKey("sources", evidence.sourceIds[0]), reader);
     if (strategyDigest(source) !== evidence.sourceDigest) throw new InvalidLearningEvidence("source discovery evidence changed or revoked");
   }
   return evidence;
+}
+/** Resolve exact host records, including their original window and observation lineage. */
+export async function validateLearningReference(id: string, expectedDigest?: string, reader: StrategyReader = awsRepository()): Promise<{ id: string; digest: string }> {
+  let digest: string;
+  if (id.startsWith("observation-")) {
+    const observation = await readObservation(id, reader); await assertObservationUsable(observation, reader);
+    if (observation.kind !== "performance") throw new InvalidLearningEvidence("delivery receipt is not performance evidence");
+    digest = observation.digest;
+  } else if (id.startsWith("change-")) {
+    const proposal = await readChangeProposal(id, reader);
+    if (proposal.evidenceStatus === "revoked") throw new InvalidLearningEvidence("proposal evidence revoked");
+    await readStrategyRevision(proposal.baseStrategyRef, reader);
+    for (const ref of [...proposal.evidenceRefs, ...proposal.contradictionRefs]) await validateLearningEvidence(ref.id, ref.digest, reader);
+    digest = proposal.digest;
+  } else {
+    const evidence = await readLearningEvidence(id, reader);
+    if (evidence.evaluation && (evidence.evaluation.outcome !== "observational" || !evidence.evaluation.sampleCount)) throw new InvalidLearningEvidence("unmeasured evaluation is not performance evidence");
+    await validateLearningEvidence(id, evidence.digest, reader); digest = evidence.digest;
+  }
+  if (expectedDigest !== undefined && expectedDigest !== digest) throw new InvalidLearningEvidence("learning evidence digest mismatch");
+  return { id, digest };
 }
 export async function recordOperatorFeedback(input: { requestId: string; text: string; sourceIds: string[] }) {
   requireContentOperator(currentTenant()); if (!input.text.trim() || input.text.length > 10000 || input.sourceIds.length > 24) throw new Error("bounded operator feedback required");
@@ -57,7 +78,7 @@ export async function recordSourceDiscovery(sourceId: string) {
 export async function recordEvaluation(evaluation: Evaluation) {
   return awsRepository().atomic(async tx => {
     const observations = await Promise.all(evaluation.observationIds.map(id => readObservation(id, tx)));
-    for (const observation of observations) await assertObservationUsable(observation, tx);
+    for (const observation of observations) await assertObservationUsable(observation, tx, false);
     const { evaluateObservations } = await import("./evaluation"); const actual = evaluateObservations(observations);
     if (strategyDigest(actual) !== strategyDigest(evaluation)) throw new Error("evaluation does not match immutable observations");
     const t = currentTenant();

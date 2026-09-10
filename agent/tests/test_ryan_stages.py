@@ -83,6 +83,8 @@ def test_strategize_receives_typed_analysis_context_and_performance(monkeypatch)
     monkeypatch.setattr(stages, "get_insights", lambda: {"topPosts": [{
         "availability": "available", "jobId": "job-prior", "actionId": "action-prior",
         "postId": "post-1", "checkedAt": "2026-09-09T10:15:00.000Z",
+        "observationRef": {"id": "observation-prior", "digest": "a" * 64},
+        "measurementWindow": {"startAt": "2026-09-08T10:15:00.000Z", "endAt": "2026-09-09T10:15:00.000Z"},
         "durableEvidenceRef": "https://api.x.com/2/tweets/post-1",
         "metrics": {"likes": 12, "replies": 4, "reposts": 3, "quotes": 1, "impressions": 240},
         "text": "Proof post", "textAvailability": "verified_action_payload_digest",
@@ -97,7 +99,7 @@ def test_strategize_receives_typed_analysis_context_and_performance(monkeypatch)
     assert request.analysis.moments[0].id == "m1"
     assert request.company.company == "Harmonia"
     assert request.campaign.horizonWeeks == 4
-    assert request.performance[0].id == "performance:post-1"
+    assert request.performance[0].id == "observation-prior"
     assert invocation.stage == "strategize"
     assert posts[0][0] == "/api/internal/strategy-context"
     assert posts[0][1]["sourceIds"] == ["a1", "m1", "segment-1"]

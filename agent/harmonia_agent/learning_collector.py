@@ -6,10 +6,16 @@ import httpx
 from . import x_client
 from .web_client import _client, get_connection, WebApiError
 
+def _future(value: str | None) -> bool:
+    return bool(value) and datetime.fromisoformat(value.replace("Z", "+00:00")) > datetime.now(timezone.utc)
+
 
 def collect_observation(collection: dict, *, fetch: Callable[[str], dict | None]) -> dict:
     result = {"collectionId": collection["id"], "token": collection["token"], "metrics": None, "outcome": "unavailable"}
-    if not collection.get("costAuthorization") or not collection.get("postId"):
+    permit = collection.get("dispatch") or {}
+    if not _future(permit.get("expiresAt")) or not _future(collection.get("expiresAt")):
+        result["reason"] = "expired_before_provider_dispatch"
+    elif permit.get("token") != collection["token"] or not collection.get("costAuthorization") or not collection.get("postId"):
         result["reason"] = "missing_host_collection_authority"
     else:
         try:
@@ -31,15 +37,44 @@ def collect_observation(collection: dict, *, fetch: Callable[[str], dict | None]
 
 def tick_learning() -> None:
     with _client() as client:
-        response = client.get("/api/internal/learning/collections")
-        if response.status_code != 200:
-            raise WebApiError("learning collection claim failed", response.status_code)
         failures = []
-        for collection in response.json()["collections"]:
-            def fetch(post_id: str) -> dict | None:
+        for _ in range(20):
+            response = client.get("/api/internal/learning/collections")
+            if response.status_code != 200:
+                raise WebApiError("learning collection claim failed", response.status_code)
+            collections = response.json()["collections"]
+            if not collections:
+                break
+            if len(collections) != 1:
+                raise WebApiError("host must claim one collection near dispatch", 409)
+            collection = collections[0]
+            identity = {"collectionId": collection["id"], "token": collection["token"]}
+            def cancel(reason: str) -> None:
+                response = client.patch("/api/internal/learning/collections", json={**identity, "action": "cancel", "reason": reason})
+                if response.status_code != 200:
+                    failures.append(response.status_code)
+            if not _future(collection.get("leaseUntil")) or not _future(collection.get("expiresAt")):
+                cancel("expired_before_provider_dispatch")
+                continue
+            try:
                 connection = get_connection("x")
-                return x_client.get_post_metrics(post_id, connection.get("accessToken"))
-            result = collect_observation(collection, fetch=fetch)
+            except (WebApiError, httpx.TransportError):
+                cancel("missing_connection_before_dispatch")
+                continue
+            if not connection.get("accessToken"):
+                cancel("missing_connection_before_dispatch")
+                continue
+            permit = client.patch("/api/internal/learning/collections", json={**identity, "action": "dispatch"})
+            if permit.status_code != 200:
+                failures.append(permit.status_code)
+                continue
+            collection = permit.json().get("collection")
+            if not collection:
+                continue
+            result = collect_observation(collection, fetch=lambda post_id: x_client.get_post_metrics(post_id, connection["accessToken"]))
+            if result.get("reason") in {"expired_before_provider_dispatch", "missing_host_collection_authority"}:
+                cancel(result["reason"])
+                continue
             # An ambiguous write is never followed by another provider call. The
             # durable lease becomes reconciliation_required on the next tick.
             try:

@@ -391,6 +391,13 @@ function connectionGuidance(platforms: string[] | undefined): string {
 }
 
 async function buildResponse(req: Request, message: string, surface: "dashboard" | "telegram", conversationId: string, context?: { kind: "job" | "content_item" | "proposal"; id: string }, attachments: ChatAttachment[] = [], requestId?: string): Promise<HandlerResult> {
+  if (message.startsWith("/measurement ")) {
+    const { configureMeasurementSchema } = await import("./learning/contracts");
+    const { configurePlannedMeasurement } = await import("./planning/commands");
+    const input = configureMeasurementSchema.parse({ ...JSON.parse(message.slice(13)), requestId });
+    const result = await configurePlannedMeasurement(input);
+    return { payload: { intent: "configure_measurement", reply: result.outcome === "applied" ? `Measurement pinned to item ${result.itemRef!.id} revision ${result.itemRef!.revision}. Review it in Learning.` : `Measurement change proposal ${result.proposalId} requires execution disposition: ${result.reasons.join("; ")}.` } };
+  }
 
   // Grounded Q&A about a specific record ("chat with any item").
   if (context && isValidContext(context)) {

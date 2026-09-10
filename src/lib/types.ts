@@ -303,6 +303,7 @@ export interface Job {
   analysisResearchRequest?: AnalysisResearchRequest | null;
   analysisSearchEvidence?: AnalysisSearchEvidence[];
   analysisGroundingMetadata?: Record<string, unknown> | null;
+  analysisLearningEvidence?: Array<{ id: string; digest: string }>;
   contentStrategy?: ContentStrategy;
   strategyRef?: import("./strategy/contracts").StrategyRef;
   strategyProposalId?: string;
@@ -343,6 +344,8 @@ export interface Job {
 }
 
 export interface JobBudget {
+  /** Settled provider upper bounds, explicitly estimated rather than observed billing. */
+  settledEstimatedUsd?: string;
   estimatedUsd: string;
   observedUsd: string;
   reservedUsd: string;

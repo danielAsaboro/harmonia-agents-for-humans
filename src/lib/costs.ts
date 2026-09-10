@@ -19,6 +19,7 @@ export function microsToUsd(value: bigint): string {
 
 export function canReserve(budget: JobBudget, requestedUsd: string): boolean {
   return usdToMicros(budget.observedUsd)
+    + usdToMicros(budget.settledEstimatedUsd ?? "0.00")
     + usdToMicros(budget.reservedUsd)
     + usdToMicros(requestedUsd)
     <= usdToMicros(budget.limitUsd);

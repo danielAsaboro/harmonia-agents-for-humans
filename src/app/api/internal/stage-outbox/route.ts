@@ -10,7 +10,7 @@ async function post(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) return Response.json({ error: "invalid stage outbox tick" }, { status: 400 });
   await recoverPlannedWork();
-  await recoverLearning();
+  try { await recoverLearning(); } catch (error) { console.error("Learning recovery requires attention", error); }
   return Response.json({ results: await dispatchStageOutbox(parsed.data.limit) });
 }
 

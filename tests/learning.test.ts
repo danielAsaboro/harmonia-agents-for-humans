@@ -18,6 +18,8 @@ describe("measurement learning authority", () => {
     const observation = (id: string, value: number | null, availability = "available") => ({ id, measurement: definition, kind: "performance", availability, value, itemRef: { id, revision: 1 }, planRef: { id: "plan", revision: 1 }, campaignRef: null, strategyRef: { digest: "a" }, window: { startAt: "2026-09-01T00:00:00Z", endAt: "2026-09-02T00:00:00Z" }, sourceIds: [], evidenceRefs: [] });
     const pending = evaluation!.evaluateObservations([observation("one", null, "pending_window")] as never);
     expect(pending).toMatchObject({ sampleCount: 0, value: null, confidence: "insufficient", causalClaim: false });
+    const cohort = evaluation!.evaluateObservations([observation("one", 3), observation("two", null, "unavailable"), observation("three", null, "pending_window")] as never);
+    expect(cohort).toMatchObject({ sampleCount: 1, cohortCount: 3, missingCounts: { unavailable: 1, pending_window: 1, failed: 0, revoked: 0 } });
     const one = evaluation!.evaluateObservations([observation("one", 3)] as never);
     expect(one).toMatchObject({ sampleCount: 1, confidence: "low", causalClaim: false });
     expect(one.limitations.join(" ")).toContain("single");

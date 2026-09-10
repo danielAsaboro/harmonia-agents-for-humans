@@ -1199,6 +1199,7 @@ function requireJobDoc(snap: StoredRecord): Job & {
     analysisResearchRequest: data.analysisResearchRequest,
     analysisSearchEvidence: data.analysisSearchEvidence,
     analysisGroundingMetadata: data.analysisGroundingMetadata,
+    analysisLearningEvidence: data.analysisLearningEvidence,
     actions: data.actions ?? [],
     verifications: data.verifications ?? [],
     packet: data.packet,
@@ -1839,14 +1840,22 @@ export async function saveAnalysis(
   analysisResearchRequest: import("./types").AnalysisResearchRequest | null,
   analysisSearchEvidence: import("./types").AnalysisSearchEvidence[],
   analysisGroundingMetadata: Record<string, unknown> | null,
+  learningEvidence: Array<{ id: string; digest: string }> = [],
 ) {
-  await awsRepository().patch(jobRef(jobId), {
+  await awsRepository().atomic(async tx => {
+    const { validateLearningReference } = await import("./learning/proposals");
+    for (const ref of learningEvidence) await validateLearningReference(ref.id, ref.digest, tx);
+    const allowed = new Set(learningEvidence.map(ref => ref.id));
+    for (const angle of sourceAnalysis.angles) if (angle.evidenceKind === "performance" && angle.evidenceRefs.some(id => !allowed.has(id))) throw new Error("unknown authoritative learning evidence in analysis");
+    tx.patch(jobRef(jobId), {
     sourceAnalysis,
     analysisDigest,
     analysisResearchRequest,
     analysisSearchEvidence,
     analysisGroundingMetadata,
+    analysisLearningEvidence: learningEvidence,
     updatedAt: new Date().toISOString(),
+    });
   });
 }
 
@@ -1908,6 +1917,13 @@ export async function saveStrategyInvocationContext(jobId: string, context: impo
     if (context.horizonWeeks !== (configured.horizonWeeks ?? 4)) throw new Error("strategy horizon mismatch");
     if (JSON.stringify(context.researchRequest) !== JSON.stringify(configured.researchRequest ?? null)) throw new Error("strategy research request mismatch");
     if (context.searchEvidence.length) throw new Error("strategy search evidence cannot exist before Ryan runs");
+    const { validateLearningReference } = await import("./learning/proposals");
+    for (const evidence of context.learningEvidence ?? []) await validateLearningReference(evidence.id, evidence.digest, tx);
+    for (const performance of context.performance) if (!(context.learningEvidence ?? []).some(ref => ref.id === performance.id && performance.durableEvidenceRef === ref.id)) throw new Error("performance context must pin exact observation evidence");
+    for (const evidence of job.analysisLearningEvidence ?? []) {
+      await validateLearningReference(evidence.id, evidence.digest, tx);
+      if (!(context.learningEvidence ?? []).some(ref => ref.id === evidence.id && ref.digest === evidence.digest)) throw new Error("strategy must retain exact analysis learning lineage");
+    }
     tx.patch(ref, { strategyInvocationContext: context, updatedAt: new Date().toISOString() });
   });
 }

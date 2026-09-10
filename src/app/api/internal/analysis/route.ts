@@ -17,6 +17,7 @@ export async function POST(req: Request) {
     await saveAnalysis(
       body.jobId, body.analysis, body.analysisDigest,
       body.researchRequest, body.searchEvidence, body.groundingMetadata,
+      body.learningEvidence,
     );
     const job = await getJob(body.jobId);
     await saveCampaignOutputPlan(body.jobId, proposeOutputPlan(body.jobId, job.config.desiredOutputs, job.config.allowedOutputs, body.analysis));

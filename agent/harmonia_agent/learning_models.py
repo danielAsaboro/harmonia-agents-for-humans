@@ -100,6 +100,8 @@ class Evaluation(Record):
     itemRefs: list[AuthorityRef]
     pillars: list[StrictStr]
     sampleCount: StrictInt = Field(ge=0)
+    cohortCount: StrictInt = Field(ge=0)
+    missingCounts: dict[Literal["pending_window", "unavailable", "failed", "revoked"], StrictInt]
     value: float | None
     baseline: Baseline | None
     supportingObservationIds: list[StrictStr]
@@ -162,9 +164,30 @@ class StrategyChangeProposal(Record):
     feedback: StrictStr | None = None
     approvedStrategyRef: StrategyRef | None = None
 
+class RevokedProposal(Record):
+    id: StrictStr
+    revision: StrictInt
+    status: Literal["pending", "approved", "rejected", "superseded"]
+    evidenceStatus: Literal["revoked"]
+
 class LearningContext(Record):
     authority: Literal["host_persisted"] = "host_persisted"
     memoryAuthority: Literal["derived_recall_only"] = "derived_recall_only"
     observations: list[PerformanceObservation] = Field(default_factory=list, max_length=100)
     evaluations: list[Evaluation] = Field(default_factory=list, max_length=50)
-    proposals: list[StrategyChangeProposal] = Field(default_factory=list, max_length=50)
+    proposals: list[StrategyChangeProposal | RevokedProposal] = Field(default_factory=list, max_length=50)
+    evidenceRefs: list[EvidenceRef] = Field(default_factory=list, max_length=200)
+
+    @model_validator(mode="after")
+    def redact_revoked(self):
+        self.proposals = [RevokedProposal(id=p.id, revision=p.revision, status=p.status, evidenceStatus="revoked") if p.evidenceStatus == "revoked" else p for p in self.proposals]
+        self.observations = [o for o in self.observations if o.availability != "revoked"]
+        return self
+
+def learning_evidence_refs(context: LearningContext) -> list[dict[str, str]]:
+    eligible = {o.id for o in context.observations if o.availability == "available" and o.kind == "performance"}
+    eligible.update(e.id for e in context.evaluations if e.outcome == "observational" and e.sampleCount > 0)
+    eligible.update(p.id for p in context.proposals if p.evidenceStatus == "valid")
+    if any(ref.id not in eligible for ref in context.evidenceRefs):
+        raise ValueError("unknown or revoked learning evidence reference")
+    return [ref.model_dump(mode="json") for ref in context.evidenceRefs]

@@ -9,6 +9,7 @@ import { sourceAnalysisDigest } from "../sourceAnalysis";
 import { authorityKey, campaignRoot, currentPlan, listCurrentPlans, pointerKey, readItemState, readPlannedItem, readPlanningPolicy, scopedRef, writeCampaign, withItemProductionContext, assertItemProductionContext, readCampaign } from "../campaigns/repository";
 import { readPlannedExecutionAuthority } from "./executionAuthority";
 import type { AuthorityRef, PlannedItem, PlannedItemState, PlanningMaterialization, PlanningPolicy, PlanRevision } from "../campaigns/contracts";
+import { configureMeasurementSchema, pinMeasurement } from "../learning/contracts";
 
 const digest = (value: unknown) => strategyDigest(value);
 export function localWeek(instant: string, timezone: string): string {
@@ -187,7 +188,15 @@ export async function addPlannedDeliverable(input: { planId: string; expectedRev
     tx.insert(receiptKey, { workspaceId: ref.workspaceId, brandId: ref.brandId, digest: digest(input), result, at: now, actor: tenantSubjectId(currentTenant()) }); return result;
   });
 }
-export async function replanItem(input: { itemRef: AuthorityRef; scheduledFor: string; requestId: string }, transaction?: DynamoTransaction): Promise<{ outcome: "applied" | "proposal"; itemRef?: AuthorityRef; reasons: string[]; proposalId?: string }> {
+export async function configurePlannedMeasurement(raw: import("zod").z.infer<typeof configureMeasurementSchema>) {
+  requireContentOperator(currentTenant());
+  const input = configureMeasurementSchema.parse(raw);
+  return awsRepository().atomic(async tx => {
+    const item = await readPlannedItem(input.itemRef, tx);
+    return replanItem({ itemRef: input.itemRef, scheduledFor: item.scheduledFor, requestId: input.requestId, measurementChange: input }, tx);
+  });
+}
+export async function replanItem(input: { itemRef: AuthorityRef; scheduledFor: string; requestId: string; measurementChange?: import("zod").z.infer<typeof configureMeasurementSchema> }, transaction?: DynamoTransaction): Promise<{ outcome: "applied" | "proposal"; itemRef?: AuthorityRef; reasons: string[]; proposalId?: string }> {
   requireContentOperator(currentTenant());
   if (!Number.isFinite(Date.parse(input.scheduledFor))) throw new Error("explicit timestamp with offset required");
   if (!/(Z|[+-]\d\d:\d\d)$/.test(input.scheduledFor)) throw new Error("explicit timestamp with offset required");
@@ -198,9 +207,11 @@ export async function replanItem(input: { itemRef: AuthorityRef; scheduledFor: s
     if (prior.present) { if (prior.value?.digest !== digest(input)) throw new Error("planning command identity reused"); return prior.value!.result as Awaited<ReturnType<typeof replanItem>>; }
     const item = await readPlannedItem(input.itemRef, tx); const state = await readItemState(input.itemRef, tx); const plan = await currentPlan(item.planRef.id, tx);
     if (!plan.itemRefs.some(ref => digest(ref) === digest(input.itemRef))) throw new Error("stale planned item revision");
+    if (input.measurementChange && (digest(input.measurementChange.expectedPlanRef) !== digest(plan.ref) || digest(input.measurementChange.strategyRef) !== digest(item.strategyRef))) throw new Error("stale measurement plan or strategy revision");
     const policy = await readPlanningPolicy(tx); const active = await readActiveStrategyRef(tx);
     const shift = Date.parse(input.scheduledFor) - Date.parse(item.scheduledFor);
     const candidate = { ...item, scheduledFor: new Date(input.scheduledFor).toISOString(),
+      ...(input.measurementChange ? { measurements: [...item.measurements.filter(m => m.definition.id !== input.measurementChange!.measurement.id), pinMeasurement(input.measurementChange.measurement)] } : {}),
       ...(item.publicationWindowEndAt ? { publicationWindowEndAt: new Date(Date.parse(item.publicationWindowEndAt) + shift).toISOString() } : {}),
       ...(item.productionDeadlineAt ? { productionDeadlineAt: new Date(Date.parse(item.productionDeadlineAt) + shift).toISOString() } : {}),
     };
@@ -238,7 +249,7 @@ export async function replanItem(input: { itemRef: AuthorityRef; scheduledFor: s
     let result: Awaited<ReturnType<typeof replanItem>>;
     if (reasons.length) {
       result = { outcome: "proposal", reasons, proposalId: commandId };
-      tx.insert(recordKey(`${campaignRoot()}/planning_proposals/${commandId}`), { workspaceId: item.workspaceId, brandId: item.brandId, type: "calendar_change", input, reasons, guarded, state: "pending_approval", at: now, actor: tenantSubjectId(currentTenant()) });
+      tx.insert(recordKey(`${campaignRoot()}/planning_proposals/${commandId}`), { workspaceId: item.workspaceId, brandId: item.brandId, type: input.measurementChange ? "measurement_change" : "calendar_change", input, reasons, guarded, state: "pending_approval", at: now, actor: tenantSubjectId(currentTenant()) });
       for (const guard of guarded) {
         const priorState = await readItemState(guard.itemRef, tx);
         tx.put(authorityKey("planned_item_states", guard.itemRef), { ...priorState, dispositionProposalId: commandId, reason: reasons.join("; "), updatedAt: now });
@@ -259,7 +270,7 @@ export async function replanItem(input: { itemRef: AuthorityRef; scheduledFor: s
       tx.insert(authorityKey("plan_revisions", planRef), { ...plan, ref: planRef, itemRefs: plan.itemRefs.map(old => replacements.get(digest(old)) ?? old), reason: "Operator calendar change", createdAt: now, createdBy: tenantSubjectId(currentTenant()) });
       tx.put(pointerKey("plans", planRef.id), planRef); result = { outcome: "applied", itemRef: ref, reasons: [] };
     }
-    tx.insert(receiptKey, { workspaceId: item.workspaceId, brandId: item.brandId, digest: digest(input), result, at: now }); return result;
+    tx.insert(receiptKey, { workspaceId: item.workspaceId, brandId: item.brandId, digest: digest(input), result, at: now, actor: tenantSubjectId(currentTenant()) }); return result;
   });
 }
 
@@ -273,7 +284,7 @@ export async function disposePlanningProposal(input: { proposalId: string; expec
     if (prior.present) { if (prior.value?.digest !== digest(input)) throw new Error("planning disposition identity reused"); return prior.value.result; }
     const key = recordKey(`${campaignRoot()}/planning_proposals/${input.proposalId}`); const row = await tx.read(key);
     const proposal = row.value;
-    if (!proposal || proposal.type !== "calendar_change" || proposal.state !== "pending_approval") throw new Error("pending calendar disposition required");
+    if (!proposal || !["calendar_change", "measurement_change"].includes(String(proposal.type)) || proposal.state !== "pending_approval") throw new Error("pending planning disposition required");
     assertResourceWorkspace(currentTenant(), proposal as { workspaceId: string; brandId: string });
     const guarded = proposal.guarded as Array<{ itemRef: AuthorityRef; authorityDigest: string }>;
     if (!guarded.length || digest(guarded) !== input.expectedAuthorityDigest) throw new Error("planning disposition authority mismatch");

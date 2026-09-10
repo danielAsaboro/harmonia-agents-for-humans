@@ -109,7 +109,7 @@ def test_understand_written_source_routes_through_nimi_without_fake_timestamps(m
     assert path == "/api/internal/analysis"
     assert set(payload) == {
         "jobId", "stage", "analysis", "analysisDigest", "modelUsed",
-        "researchRequest", "searchEvidence", "groundingMetadata",
+        "researchRequest", "searchEvidence", "groundingMetadata", "learningEvidence",
     }
     assert payload["researchRequest"] is None
     assert payload["searchEvidence"] == []

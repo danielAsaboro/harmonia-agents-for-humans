@@ -306,6 +306,7 @@ export const sourceAnalysisSchema = z.object({
 });
 
 export const analysisSubmissionSchema = z.object({
+  learningEvidence: z.array(z.object({ id: z.string().min(1).max(180), digest: z.string().regex(/^[a-f0-9]{64}$/) }).strict()).max(200).default([]),
   jobId: z.string().min(1),
   stage: z.literal("understand"),
   analysis: sourceAnalysisSchema,
@@ -521,8 +522,9 @@ export const editorialPlanSubmissionSchema = z.object({
 }).strict();
 
 export const strategyInvocationContextSchema = z.object({
+  learningEvidence: z.array(z.object({ id: z.string().min(1).max(180), digest: z.string().regex(/^[a-f0-9]{64}$/) }).strict()).max(200).default([]),
   jobId: z.string().min(1), stage: z.literal("strategize"), revision: z.number().int().min(1).max(2),
-  sourceIds: z.array(z.string().min(1).max(100)).min(1).max(MAX_STRATEGY_SOURCE_IDS),
+  sourceIds: z.array(z.string().min(1).max(100)).max(MAX_STRATEGY_SOURCE_IDS),
   operatorContextIds: z.array(z.string().min(1).max(100)).length(2),
   performance: z.array(z.object({ id: z.string().min(1).max(100), durableEvidenceRef: z.string().min(1).max(500) }).strict()).max(12),
   memoryFacts: z.array(z.object({ id: z.string().min(1).max(100), durableEvidenceRef: z.string().min(1).max(500) }).strict()).max(5),

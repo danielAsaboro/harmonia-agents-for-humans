@@ -17,7 +17,7 @@ import { loadWorkspaceContentContext } from "@/lib/workspaceContentContext";
 import { campaignWorkerBridge } from "./fixtures/campaignWorkerBridge";
 import { buildStageMessage } from "@/lib/queue";
 import type { StageOutboxRecord } from "@/lib/stageOutbox";
-import { defaultMeasurements, pinMeasurement, learningContextSchema } from "@/lib/learning/contracts";
+import { learningInferenceContextSchema } from "@/lib/learning/contracts";
 
 const tenant = (): TenantContext => ({ workspaceId: `campaign-${randomUUID()}`, brandId: "a", principal: { kind: "cognito_user", subjectId: "operator", authenticationId: "auth", workspaceRole: "owner" } });
 async function setup() {
@@ -49,7 +49,8 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("persistent campaign calendar",
     try {
       await setup(); const api = await import("@/lib/planning/commands"); const repo = await import("@/lib/campaigns/repository"); const selection = await import("@/lib/planning/selection");
       const draft = await request(); const base = await api.materializeIntake({ draftId: draft.id, expectedDraftRevision: 1, requestId: draft.answers.at(-1)!.requestId });
-      const appended = await api.addPlannedDeliverable({ planId: base.planRef.id, expectedRevision: 1, requestId: randomUUID(), name: "Second invitation", operatorBrief: "Imagine a different creative workflow; no factual claims", requestedOutputs: ["x_post"], channel: "x", scheduledFor: "2026-09-03T12:00:00Z", dependencies: base.itemRefs, requiredAssetIds: [], measurements: [...defaultMeasurements("x"), pinMeasurement({ id: "operator_quality", revision: 1, metricId: "operator.review_score", kind: "performance", unit: "count", comparator: "gte", target: 4, baseline: null, window: { anchor: "completion", startOffsetSeconds: 0, endOffsetSeconds: 0, collectionToleranceSeconds: 86400 }, collectionMethod: "operator" })] });
+      const appended = await api.addPlannedDeliverable({ planId: base.planRef.id, expectedRevision: 1, requestId: randomUUID(), name: "Second invitation", operatorBrief: "Imagine a different creative workflow; no factual claims", requestedOutputs: ["x_post"], channel: "x", scheduledFor: "2026-09-03T12:00:00Z", dependencies: base.itemRefs, requiredAssetIds: [] });
+      await api.configurePlannedMeasurement({ itemRef: appended.itemRef, expectedPlanRef: appended.planRef, strategyRef: (await repo.readPlannedItem(appended.itemRef)).strategyRef, requestId: "configure-campaign-review", measurement: { id: "operator_quality", revision: 1, metricId: "operator.review_score", kind: "performance", unit: "count", comparator: "gte", target: 4, baseline: null, window: { anchor: "completion", startOffsetSeconds: 0, endOffsetSeconds: 0, collectionToleranceSeconds: 86400 }, collectionMethod: "operator" } });
       const revised = await api.replanItem({ itemRef: base.itemRefs[0], scheduledFor: "2026-09-01T12:00:00Z", requestId: randomUUID() });
       expect(revised.outcome).toBe("applied");
       const plan = await repo.currentPlan(base.planRef.id);
@@ -92,11 +93,11 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("persistent campaign calendar",
       expect(observations.filter(o => o.kind === "delivery_verification").every(o => o.availability === "available")).toBe(true);
       const manual = observations.find(o => o.measurement.definition.metricId === "operator.review_score")!;
       await learning.recordOperatorObservation({ collectionId: manual.collectionId, requestId: "completed-campaign-review", value: 4, evidenceText: "I reviewed the two exported invitations; the second meets my four-point creative brief rubric." });
-      const context = await learning.listLearningContext();
+      const context = (await learning.learningInsights()).learningContext;
       expect(context.evaluations).toHaveLength(1); expect(context.proposals).toHaveLength(1);
-      expect(context.proposals[0].baseStrategyRef).toEqual(plan.strategyRef);
+      expect(context.proposals[0]).toMatchObject({ baseStrategyRef: plan.strategyRef });
       const serialized = JSON.parse(execFileSync(resolve("agent/.venv/bin/python"), ["-c", "import json,sys; from harmonia_agent.learning_models import LearningContext; print(LearningContext.model_validate(json.load(sys.stdin)).model_dump_json(exclude_none=False))"], { cwd: resolve("agent"), input: JSON.stringify(context), encoding: "utf8" }));
-      const roundtrip = learningContextSchema.parse(serialized);
+      const roundtrip = learningInferenceContextSchema.parse(serialized);
       expect(roundtrip.evaluations[0]).toMatchObject({ sampleCount: 1, value: 4, causalClaim: false });
       expect(strategyDigest(roundtrip.observations.find(o => o.id === manual.id)?.measurement ?? roundtrip.evaluations[0].measurement)).toBe(strategyDigest(context.evaluations[0].measurement));
     } finally { await bridge.close(); vi.unstubAllEnvs(); }

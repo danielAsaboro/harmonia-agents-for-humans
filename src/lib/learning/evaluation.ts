@@ -23,6 +23,7 @@ export function evaluateObservations(observations: PerformanceObservation[]): Ev
   if (first.kind === "delivery_verification") limitations.push("Delivery verification proves an effect receipt only; it does not prove audience or business success.");
   const refs = <T>(items: T[]) => [...new Map(items.map(item => [strategyDigest(item), item])).values()];
   return { id: `evaluation-${strategyDigest(unique.map(o => o.id).sort()).slice(0, 48)}`, observationIds: unique.map(o => o.id), measurement: first.measurement, strategyRef: first.strategyRef,
+    cohortMembers: unique.map(({ id, digest, collectionId, itemRef, availability, window }) => ({ id, digest, collectionId, itemRef, availability, window })),
     campaignRefs: refs(unique.flatMap(o => o.campaignRef ? [o.campaignRef] : [])), planRefs: refs(unique.map(o => o.planRef)), itemRefs: refs(unique.map(o => o.itemRef)), pillars: [...new Set(unique.flatMap(o => o.pillar ? [o.pillar] : []))],
     sampleCount: measured.length, value: measured.length ? measured.reduce((sum, o) => sum + o.value!, 0) / measured.length : null,
     cohortCount: unique.length, missingCounts: { pending_window: unique.filter(o => o.availability === "pending_window").length, unavailable: unique.filter(o => o.availability === "unavailable").length, failed: unique.filter(o => o.availability === "failed").length, revoked: unique.filter(o => o.availability === "revoked").length },

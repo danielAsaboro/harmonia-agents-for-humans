@@ -5,10 +5,12 @@ Verified outcomes or eligible Memory Bank facts may qualify an observation.
 
 ## Questions and required inputs
 What was verified before, how comparable is it, and what is only a prior belief or preference?
-Requires tenant-scoped verified performance IDs or eligible fact IDs with Firestore provenance.
+Requires tenant-scoped verified performance IDs or eligible fact IDs with host-persisted provenance.
 
 ## Method
 1. Confirm the exact performance or memory ID and its evidence kind.
+   Only `learningContext.performanceEvidenceRefs` can support a performance angle.
+   Advisory proposals and feedback are recommendation lineage, never measured outcomes.
 2. Describe the observed association without inventing causality.
 3. Check whether the prior context actually matches the current source.
 4. Use memory as a prior learning or preference, never as source proof.

@@ -38,13 +38,125 @@ async function publishedCase() {
   const base = await setup(), claim = (await claimNextPlannedItem(base.planRef.id))!;
   const key = recordKey(`workspaces/${currentTenant().workspaceId}/jobs/${claim.jobId}`);
   await awsRepository().patch(key, { stage: "complete", status: "complete", terminalOutcome: "succeeded", updatedAt: "2026-09-01T00:00:00Z", actions: [{ id: "action", type: "publish_x_post", state: "executed", payload: { text: "Authorized post" } }], verifications: [{ id: "verify", actionId: "action", receiptId: "receipt", target: "x:42", verified: true, method: "official_api_readback", checkedAt: "2026-09-01T00:00:00Z", evidence: { url: "https://x.com/i/web/status/42", digest: "a".repeat(64) } }] });
-  await awsRepository().put(recordKey(`${key.path}/receipts/receipt`), { id: "receipt", actionId: "action", outcome: "applied", performedAt: "2026-09-01T00:00:00Z" });
+  await awsRepository().put(recordKey(`${key.path}/receipts/receipt`), { id: "receipt", jobId: claim.jobId, actionType: "publish_x_post", actionId: "action", outcome: "applied", performedAt: "2026-09-01T00:00:00Z" });
   await reconcilePlannedExecution(claim.jobId);
   const api = await import("@/lib/learning/repository"); const collection = (await api.scheduleCompletedJob(claim.jobId)).find(c => c.measurement.definition.collectionMethod === "official_x")!;
   return { ...base, key, claim, api, collection };
 }
 
 describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("durable learning", () => {
+  it.each(["confirmed_not_dispatched", "confirmed_dispatched_with_estimated_cost", "confirmed_provider_result", "still_unknown"])("reconciles unknown reads explicitly: %s", async outcome => runWithTenant(tenant(), async () => {
+    const { api, collection, key } = await publishedCase(), token = "a".repeat(64);
+    await api.claimObservation(collection.id, token, "2026-09-02T00:00:00Z");
+    const permit = await api.authorizeObservationDispatch(collection.id, token, "2026-09-02T00:00:00Z");
+    const originalInput = { collectionId: collection.id, token, checkedAt: "2026-09-02T00:00:10Z", metrics: null, outcome: "unknown" as const };
+    await api.completeProviderObservation(originalInput, "2026-09-02T00:00:10Z");
+    const receiptKey = api.learningKey("observation_collection_receipts", `${collection.id}:${token}`), original = (await awsRepository().read(receiptKey)).value!;
+    const reconciliation = await import("@/lib/learning/reconciliation");
+    const input = { collectionId: collection.id, token, dispatchDigest: strategyDigest(permit!.dispatch), originalReceiptDigest: strategyDigest(original), expectedReconciliationDigest: null, requestId: "resolve", outcome,
+      evidence: { kind: outcome === "confirmed_provider_result" ? "provider_response" : "operator_attestation", reference: "provider-support-case:123", detail: "Operator inspected the provider request audit and attached this disposition", checkedAt: "2026-09-02T00:02:00Z" },
+      providerResult: outcome === "confirmed_provider_result" ? { ...originalInput, outcome: "available", metrics: { likes: 7, replies: 1, reposts: 0, quotes: 0 } } : null };
+    const scope = currentTenant();
+    const route = await import("@/app/api/learning/reconciliation/route");
+    expect((await route.POST(new Request("http://localhost/api/learning/reconciliation", { method: "POST", body: JSON.stringify(input) }))).status).toBe(401);
+    for (const principal of [{ ...scope.principal, workspaceRole: "member" }, { kind: "service", subjectId: "harmonia-worker", workspaceRole: "service", authenticationId: "test" }]) await expect(runWithTenant({ ...scope, principal } as TenantContext, () => reconciliation.reconcileObservation(input))).rejects.toThrow("administrator");
+    await expect(runWithTenant({ ...scope, brandId: "other" }, () => reconciliation.reconcileObservation(input))).rejects.toThrow();
+    for (const change of [{ dispatchDigest: "b".repeat(64) }, { originalReceiptDigest: "b".repeat(64) }, { token: "b".repeat(64) }, { expectedReconciliationDigest: "b".repeat(64) }]) await expect(reconciliation.reconcileObservation({ ...input, ...change })).rejects.toThrow();
+    const receipt = await reconciliation.reconcileObservation(input);
+    expect(await reconciliation.reconcileObservation(input)).toEqual(receipt);
+    await expect(reconciliation.reconcileObservation({ ...input, evidence: { ...input.evidence, detail: "Changed evidence" } })).rejects.toThrow("identity reused");
+    expect((await awsRepository().read(receiptKey)).value).toEqual(original);
+    expect(await api.completeProviderObservation(originalInput)).toMatchObject({ availability: "failed" });
+    expect(await api.claimObservation(collection.id, "b".repeat(64), "2026-09-02T00:03:00Z")).toBeNull();
+    const reserved = outcome === "still_unknown" ? "0.001" : "0.00";
+    for (const row of [await awsRepository().read(key), await awsRepository().read(recordKey(`workspaces/${scope.workspaceId}`))]) expect(row.value?.budget).toMatchObject({ reservedUsd: reserved, observedUsd: "0.00" });
+    const cost = (await awsRepository().read(api.learningKey("observation_cost_reservations", permit!.costAuthorization!.reservationId))).value;
+    expect(cost).toMatchObject({ state: outcome === "still_unknown" ? "reserved" : outcome === "confirmed_not_dispatched" ? "released" : "settled", observedCostUsd: null });
+    if (outcome === "confirmed_provider_result") expect(await api.readObservation(receipt.observationId)).toMatchObject({ availability: "available", value: 7 });
+    if (outcome !== "still_unknown") await expect(reconciliation.reconcileObservation({ ...input, requestId: "conflict", outcome: "still_unknown", providerResult: null })).rejects.toThrow(/resolved|stale/);
+    else {
+      await expect(reconciliation.reconcileObservation({ ...input, requestId: "stale" })).rejects.toThrow("stale");
+      await reconciliation.reconcileObservation({ ...input, requestId: "resolved-later", expectedReconciliationDigest: receipt.digest, outcome: "confirmed_not_dispatched" });
+      expect((await awsRepository().read(key)).value?.budget).toMatchObject({ reservedUsd: "0.00" });
+    }
+  }));
+  it("blocks unknown read reconciliation after publication evidence is withdrawn", async () => runWithTenant(tenant(), async () => {
+    const { api, collection, key } = await publishedCase(), token = "a".repeat(64);
+    await api.claimObservation(collection.id, token, "2026-09-02T00:00:00Z");
+    await api.authorizeObservationDispatch(collection.id, token, "2026-09-02T00:00:00Z");
+    await api.claimObservation(collection.id, "b".repeat(64), "2026-09-02T00:01:01Z");
+    const r = await import("@/lib/learning/reconciliation"), pending = (await r.pendingObservationReconciliations())[0];
+    expect(pending.originalReceipt.outcome).toBe("unknown");
+    const input = { collectionId: pending.collectionId, token, dispatchDigest: pending.dispatchDigest, originalReceiptDigest: pending.originalReceiptDigest, expectedReconciliationDigest: null, requestId: "recover-expired", outcome: "confirmed_not_dispatched", evidence: { kind: "operator_attestation", reference: "request-audit:expired", detail: "Provider audit shows no dispatched request", checkedAt: "2026-09-02T00:02:00Z" }, providerResult: null };
+    const old = (await awsRepository().read(key)).value!;
+    const reservationKey = api.learningKey("observation_cost_reservations", `metrics-${collection.id}`), reservation = (await awsRepository().read(reservationKey)).value!;
+    await awsRepository().patch(reservationKey, { state: "released" });
+    await expect(r.reconcileObservation(input)).rejects.toThrow("reservation");
+    await awsRepository().put(reservationKey, reservation);
+    await awsRepository().patch(key, { verifications: [] });
+    await expect(r.reconcileObservation(input)).rejects.toThrow(/publication|effect|verification/);
+    await awsRepository().patch(key, { verifications: old.verifications });
+    await api.revokeLearningObservations({ jobId: collection.jobId }, "Evidence withdrawn");
+    await expect(r.reconcileObservation(input)).rejects.toThrow(/resolved|revoked/);
+  }));
+  it("does not grant rejected or advisory proposals performance authority", async () => runWithTenant(tenant(), async () => {
+    const { strategyRef } = await setup(), p = await import("@/lib/learning/proposals"), api = await import("@/lib/learning/repository");
+    const feedback = await p.recordOperatorFeedback({ requestId: "advice", text: "Try a clearer invitation", sourceIds: [] });
+    const proposal = await p.createStrategyChangeProposal({ requestId: "advice", baseStrategyRef: strategyRef, changes: [{ type: "assumption", value: "Test a clearer invitation" }], rationale: "Operator suggestion", evidenceRefs: [{ id: feedback.id, digest: feedback.digest }], contradictionRefs: [] });
+    const insights = await api.learningInsights();
+    expect(insights.learningContext.performanceEvidenceRefs).toEqual([]);
+    expect(insights.learningContext.advisoryEvidenceRefs.map(r => r.id)).toContain(proposal.id);
+    const base = await readStrategyRevision(strategyRef), measured = structuredClone(base.strategy); measured.objectives[0].text = "Measured engagement improved"; measured.objectives[0].evidenceRefs = [proposal.id];
+    await expect(awsRepository().atomic(tx => insertStrategyProposal(tx, { jobId: "invalid-measured-advice", attempt: 1, strategy: measured, digest: strategyDigest(measured), evidenceLineage: [proposal.id], invocationContext: { ...base.invocationContext, learningEvidence: insights.learningContext.advisoryEvidenceRefs }, proposedAt: new Date().toISOString(), expiresAt: "2099-01-01T00:00:00Z" }))).rejects.toThrow("performance claim");
+    const script = `import json,sys
+from harmonia_agent.learning_models import LearningContext
+from harmonia_agent.agent_models import AnalystInput, StrategistInput
+from harmonia_agent.agents import _materialize_nimi_analysis, validate_strategy_grounding
+from tests.test_nimi_contracts import analyst_input, source_analysis
+from tests.test_ryan_strategy import strategist_input, strategy
+wire=json.load(sys.stdin); pid=wire['proposals'][0]['id']; rejected=wire['proposals'][0]['status']=='rejected'; c=LearningContext.model_validate(wire)
+if rejected: assert c.proposals==[] and c.performanceEvidenceRefs==[]
+n=analyst_input(); n['learningContext']=c.model_dump(); n['performanceObservations']=[]; a=source_analysis(); a['angles'][0].update(angleType='performance_learning', evidenceKind='performance', evidenceRefs=[pid], title='Measured engagement improved')
+result=_materialize_nimi_analysis(AnalystInput.model_validate(n),a)
+assert not any(x.evidenceKind=='performance' for x in result.angles)
+r=strategist_input().model_dump(); r['learningContext']=c.model_dump(); r['performance']=[]; s=strategy(); s.objectives[0].text='Measured engagement improved'; s.objectives[0].evidenceRefs=[pid]
+for item in [*s.pillars, *s.channelRoles]: item.evidenceRefs=[ref for ref in item.evidenceRefs if ref!='perf-1']
+try: validate_strategy_grounding(StrategistInput.model_validate(r),s)
+except Exception as error:
+ assert ("unknown evidence references" if rejected else "performance claim") in str(error)
+else: raise AssertionError('advisory proposal accepted as performance')
+print('ok')`;
+    expect(execFileSync(resolve("agent/.venv/bin/python"), ["-c", script], { cwd: resolve("agent"), input: JSON.stringify(insights.learningContext), encoding: "utf8" }).trim()).toBe("ok");
+    const rejected = await p.decideStrategyChange({ id: proposal.id, revision: proposal.revision, digest: proposal.digest, decision: "rejected", feedback: "Not approved" });
+    expect(execFileSync(resolve("agent/.venv/bin/python"), ["-c", script], { cwd: resolve("agent"), input: JSON.stringify({ ...insights.learningContext, proposals: [rejected], advisoryEvidenceRefs: [] }), encoding: "utf8" }).trim()).toBe("ok");
+    expect((await api.learningInsights()).learningContext.advisoryEvidenceRefs).toEqual([]);
+    await expect(p.validateLearningReference(proposal.id, proposal.digest)).rejects.toThrow(/rejected|ineligible/);
+  }));
+  it("preserves historical pending cohorts after arrival but detects replacement and revocation", async () => runWithTenant(tenant(), async () => {
+    const { api, collection, planRef, key } = await publishedCase(), token = "a".repeat(64);
+    await addPlannedDeliverable({ planId: planRef.id, expectedRevision: planRef.revision, requestId: "pending", name: "Second post", operatorBrief: "Imagine an invitation", requestedOutputs: ["x_post"], channel: "x", scheduledFor: "2026-09-01T00:00:00Z", dependencies: [], requiredAssetIds: [] });
+    const claim = (await claimNextPlannedItem(planRef.id))!, secondKey = recordKey(`workspaces/${currentTenant().workspaceId}/jobs/${claim.jobId}`), firstJob = (await awsRepository().read(key)).value!;
+    await awsRepository().patch(secondKey, { stage: "complete", status: "complete", terminalOutcome: "succeeded", updatedAt: firstJob.updatedAt, actions: firstJob.actions, verifications: firstJob.verifications });
+    await awsRepository().put(recordKey(`${secondKey.path}/receipts/receipt`), { id: "receipt", jobId: claim.jobId, actionType: "publish_x_post", actionId: "action", outcome: "applied", performedAt: "2026-09-01T00:00:00Z" });
+    await reconcilePlannedExecution(claim.jobId);
+    const second = (await api.scheduleCompletedJob(claim.jobId)).find(c => c.measurement.definition.collectionMethod === "official_x")!;
+    const collect = async (id: string) => { await api.claimObservation(id, token, "2026-09-02T00:00:00Z"); await api.authorizeObservationDispatch(id, token, "2026-09-02T00:00:00Z"); await api.completeProviderObservation({ collectionId: id, token, checkedAt: "2026-09-02T00:00:10Z", metrics: { likes: 4, replies: 1, reposts: 0, quotes: 0 }, outcome: "available" }, "2026-09-02T00:00:10Z"); };
+    await collect(collection.id);
+    const p = await import("@/lib/learning/proposals"), before = await api.listLearningContext(), evaluation = before.evaluations.find(e => e.missingCounts.pending_window === 1)!;
+    expect(evaluation.cohortMembers).toContainEqual(expect.objectContaining({ id: second.observationId, availability: "pending_window", window: second.window }));
+    const proposal = before.proposals.find(p => p.evidenceRefs.some(r => r.id === evaluation.id))!;
+    const decision = await p.decideStrategyChange({ id: proposal.id, revision: proposal.revision, digest: proposal.digest, decision: "approved" });
+    await collect(second.id);
+    await expect(readStrategyRevision(decision.approvedStrategyRef!)).resolves.toBeDefined();
+    expect((await p.readLearningEvidence(evaluation.id)).evaluation).toEqual(evaluation);
+    const historicalKey = api.learningKey("performance_observations", second.observationId), original = (await awsRepository().read(historicalKey)).value!, { digest: _digest, ...body } = original; void _digest;
+    await awsRepository().put(historicalKey, { ...body, reason: "tampered", digest: strategyDigest({ ...body, reason: "tampered" }) });
+    await expect(readStrategyRevision(decision.approvedStrategyRef!)).rejects.toThrow(/digest|lineage|cohort/);
+    await awsRepository().put(historicalKey, original);
+    await p.revokeLearningEvidence(evaluation.id, "Withdraw underlying evidence");
+    await expect(readStrategyRevision(decision.approvedStrategyRef!)).rejects.toThrow("revoked");
+    expect((await p.listStrategyChangeProposals()).find(p => p.id === proposal.id)).toMatchObject({ status: "approved", evidenceStatus: "revoked" });
+  }));
   it("pins operator measurements through the shipped command with exact revisions and protected-work disposition", async () => runWithTenant(tenant(), async () => {
     const base = await setup(), commands = await import("@/lib/planning/commands");
     const configure = (commands as unknown as { configurePlannedMeasurement: (input: unknown) => Promise<{ outcome: string; itemRef: typeof base.itemRefs[0]; proposalId?: string }> }).configurePlannedMeasurement;
@@ -84,7 +196,7 @@ from tests.test_nimi_contracts import analyst_input, source_analysis
 from tests.test_ryan_strategy import strategist_input, strategy
 wire=json.load(sys.stdin); c=LearningContext.model_validate(wire['learningContext']); eid=c.evaluations[0].id
 performance=_performance_observations_for_nimi(wire)
-assert all(p.id in {ref.id for ref in c.evidenceRefs} for p in performance)
+assert all(p.id in {ref.id for ref in c.performanceEvidenceRefs} for p in performance)
 n=analyst_input(); n['learningContext']=c.model_dump(); a=source_analysis(); a['angles'][0].update(angleType='performance_learning', evidenceKind='performance', evidenceRefs=[eid], assumptions=['Descriptive only'], confidence='low')
 n['performanceObservations']=[p.model_dump() for p in performance]
 a=_materialize_nimi_analysis(AnalystInput.model_validate(n), a).model_dump(mode='json', exclude_none=True)
@@ -96,6 +208,8 @@ print(json.dumps({'refs': learning_evidence_refs(c), 'analysis': a}))`;
     const jobs = await import("@/lib/repository");
     await jobs.saveAnalysis(collection.jobId, wire.analysis, strategyDigest(wire.analysis), null, [], null, refs);
     expect((await awsRepository().read(key)).value?.analysisLearningEvidence).toEqual(refs);
+    const feedback = await (await import("@/lib/learning/proposals")).recordOperatorFeedback({ requestId: "analysis-advice", text: "Try another post", sourceIds: [] });
+    await expect(jobs.saveAnalysis(collection.jobId, { ...wire.analysis, angles: [{ ...wire.analysis.angles[0], evidenceRefs: [feedback.id] }] }, "a".repeat(64), null, [], null, [{ id: feedback.id, digest: feedback.digest }])).rejects.toThrow("unknown authoritative");
     await expect(jobs.saveAnalysis(collection.jobId, { ...wire.analysis, angles: [{ ...wire.analysis.angles[0], evidenceRefs: ["evaluation-unknown"] }] }, "a".repeat(64), null, [], null, refs)).rejects.toThrow("unknown authoritative");
     const base = await readStrategyRevision(strategyRef), strategy = structuredClone(base.strategy); strategy.objectives[0].evidenceRefs = [context.evaluations[0].id];
     const exact = await awsRepository().atomic(tx => insertStrategyProposal(tx, { jobId: "learned-strategy", attempt: 1, strategy, digest: strategyDigest(strategy), evidenceLineage: [context.evaluations[0].id], invocationContext: { ...base.invocationContext, learningEvidence: refs }, proposedAt: new Date().toISOString(), expiresAt: "2099-01-01T00:00:00Z" }));
@@ -147,7 +261,7 @@ print(json.dumps({'refs': learning_evidence_refs(c), 'analysis': a}))`;
     await completed(); const api = await import("@/lib/learning/repository"), p = await import("@/lib/learning/proposals");
     const evaluation = (await import("@/lib/learning/evaluation")).evaluateObservations((await api.listLearningObservations()).filter(o => o.kind === "performance"));
     const evidence = await p.recordEvaluation(evaluation);
-    expect((await api.learningInsights()).learningContext.evidenceRefs.map(ref => ref.id)).not.toContain(evidence.id);
+    expect((await api.learningInsights()).learningContext.performanceEvidenceRefs.map(ref => ref.id)).not.toContain(evidence.id);
     await expect(p.validateLearningReference(evidence.id, evidence.digest)).rejects.toThrow("unmeasured");
   }));
   it.each(["missing_connection_before_dispatch", "expired_before_provider_dispatch"])("releases confirmed %s exactly once", async reason => runWithTenant(tenant(), async () => {
@@ -291,7 +405,7 @@ print(json.dumps({'refs': learning_evidence_refs(c), 'analysis': a}))`;
     const original = await readPlannedItem(base.itemRefs[0]);
     const text = "Authorized post", digest = (await import("node:crypto")).createHash("sha256").update(text).digest("hex");
     await awsRepository().patch(base.jobKey, { actions: [{ id: "post-action", type: "publish_x_post", state: "executed", payload: { text } }], verifications: [{ id: "verify", actionId: "post-action", receiptId: "receipt", target: "x:42", verified: true, method: "official_api_readback", checkedAt: "2026-09-01T00:00:00Z", evidence: { url: "https://x.com/i/web/status/42", digest } }], receipts: [{ id: "receipt", actionId: "post-action", performedAt: "2026-09-01T00:00:00Z" }] });
-    await awsRepository().put(recordKey(`${base.jobKey.path}/receipts/receipt`), { id: "receipt", actionId: "post-action", outcome: "applied", performedAt: "2026-09-01T00:00:00Z" });
+    await awsRepository().put(recordKey(`${base.jobKey.path}/receipts/receipt`), { id: "receipt", jobId: base.claim.jobId, actionType: "publish_x_post", actionId: "post-action", outcome: "applied", performedAt: "2026-09-01T00:00:00Z" });
     // New exact revision for this independently prepared provider case.
     const next = { ...original, ref: { ...original.ref, revision: 2 } };
     const r = await import("@/lib/campaigns/repository");

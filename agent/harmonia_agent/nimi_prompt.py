@@ -35,7 +35,9 @@ Evidence-first method:
    failed/revoked values are never zero. Delivery is not audience/business performance.
    A single post proves no causal or winning pattern. Change proposals are pending advice,
    never active strategy or permission. Memory is derived recall, never evidence authority.
-   Cite exact IDs from learningContext.evidenceRefs. Revoked proposal entries contain
+   Only learningContext.performanceEvidenceRefs can support performance angles or claims.
+   advisoryEvidenceRefs identifies recommendation lineage, never measured outcomes or
+   engagement. Nimi has no advisory evidence angle kind. Revoked proposal entries contain
    status metadata only and cannot supply content or evidence. Keep the pinned window
    and observation lineage when discussing an evaluation; a post URL is not that lineage.
 5. If `researchRequest` is absent, do not search. If present, execute exactly one isolated

@@ -30,7 +30,12 @@ export async function validateLearningEvidence(id: string, digest: string, reade
   const evidence = await readLearningEvidence(id, reader); if (evidence.digest !== digest) throw new InvalidLearningEvidence("stale learning evidence reference");
   await assertLearningSources(evidence.sourceIds, reader);
   const revoked = await reader.read(learningKey("learning_revocations", evidence.id)); if (revoked.present) throw new InvalidLearningEvidence("learning evidence revoked");
-  for (const observationId of evidence.observationIds) await assertObservationUsable(await readObservation(observationId, reader), reader, evidence.kind !== "evaluation");
+  const observations = await Promise.all(evidence.observationIds.map(id => readObservation(id, reader)));
+  for (const observation of observations) await assertObservationUsable(observation, reader, evidence.kind !== "evaluation");
+  if (evidence.evaluation) {
+    const { evaluateObservations } = await import("./evaluation");
+    if (strategyDigest(evaluateObservations(observations)) !== strategyDigest(evidence.evaluation)) throw new InvalidLearningEvidence("historical cohort digest mismatch");
+  }
   if (evidence.kind === "source_discovery") {
     const source = await readRequired(learningKey("sources", evidence.sourceIds[0]), reader);
     if (strategyDigest(source) !== evidence.sourceDigest) throw new InvalidLearningEvidence("source discovery evidence changed or revoked");
@@ -38,15 +43,18 @@ export async function validateLearningEvidence(id: string, digest: string, reade
   return evidence;
 }
 /** Resolve exact host records, including their original window and observation lineage. */
-export async function validateLearningReference(id: string, expectedDigest?: string, reader: StrategyReader = awsRepository()): Promise<{ id: string; digest: string }> {
+export async function validateLearningReference(id: string, expectedDigest?: string, reader: StrategyReader = awsRepository()): Promise<{ id: string; digest: string; capability: "performance" | "advisory" }> {
   let digest: string;
+  let capability: "performance" | "advisory" = "advisory";
   if (id.startsWith("observation-")) {
     const observation = await readObservation(id, reader); await assertObservationUsable(observation, reader);
     if (observation.kind !== "performance") throw new InvalidLearningEvidence("delivery receipt is not performance evidence");
     digest = observation.digest;
+    capability = "performance";
   } else if (id.startsWith("change-")) {
     const proposal = await readChangeProposal(id, reader);
     if (proposal.evidenceStatus === "revoked") throw new InvalidLearningEvidence("proposal evidence revoked");
+    if (!["pending", "approved"].includes(proposal.status)) throw new InvalidLearningEvidence("rejected or superseded proposal is ineligible evidence");
     await readStrategyRevision(proposal.baseStrategyRef, reader);
     for (const ref of [...proposal.evidenceRefs, ...proposal.contradictionRefs]) await validateLearningEvidence(ref.id, ref.digest, reader);
     digest = proposal.digest;
@@ -54,9 +62,10 @@ export async function validateLearningReference(id: string, expectedDigest?: str
     const evidence = await readLearningEvidence(id, reader);
     if (evidence.evaluation && (evidence.evaluation.outcome !== "observational" || !evidence.evaluation.sampleCount)) throw new InvalidLearningEvidence("unmeasured evaluation is not performance evidence");
     await validateLearningEvidence(id, evidence.digest, reader); digest = evidence.digest;
+    if (evidence.evaluation) capability = "performance";
   }
   if (expectedDigest !== undefined && expectedDigest !== digest) throw new InvalidLearningEvidence("learning evidence digest mismatch");
-  return { id, digest };
+  return { id, digest, capability };
 }
 export async function recordOperatorFeedback(input: { requestId: string; text: string; sourceIds: string[] }) {
   requireContentOperator(currentTenant()); if (!input.text.trim() || input.text.length > 10000 || input.sourceIds.length > 24) throw new Error("bounded operator feedback required");
@@ -67,6 +76,17 @@ export async function recordOperatorFeedback(input: { requestId: string; text: s
     if (prior.present) { const evidence = await readLearningEvidence(id, tx); if (evidence.text !== input.text || strategyDigest(evidence.sourceIds) !== strategyDigest(input.sourceIds)) throw new Error("feedback identity reused"); return evidence; }
     const t = currentTenant(); return insertEvidence(tx, { id, workspaceId: t.workspaceId, brandId: t.brandId, kind: "operator_feedback", sourceIds: input.sourceIds, observationIds: [], actor: tenantSubjectId(t), text: input.text, createdAt: new Date().toISOString() });
   });
+}
+/** Advisory lineage can explain a recommendation; only measured records can support a performance claim. */
+export async function validateStrategyLearningGrounding(strategy: import("../types").ContentStrategy, invocation: import("../types").StrategyInvocationContext, reader: StrategyReader) {
+  const references = await Promise.all((invocation.learningEvidence ?? []).map(ref => validateLearningReference(ref.id, ref.digest, reader)));
+  const measured = new Set(references.filter(ref => ref.capability === "performance").map(ref => ref.id));
+  for (const performance of invocation.performance) if (!measured.has(performance.id)) throw new InvalidLearningEvidence("performance context requires exact measured observation authority");
+  const language = /\b(?:high-performing|outperform(?:ed|ing)?|prior winner)\b|\b(?:prior|past|historical|observed|measured)\b.{0,80}\b(?:performance|engagement|likes?|reposts?|replies)\b|\b(?:earned|received|generated|drove|achieved)\b.{0,80}\b(?:engagement|likes?|reposts?|replies)\b/i;
+  for (const item of [...strategy.objectives, ...strategy.audiencePriorities, ...strategy.pillars, ...strategy.campaignThemes, ...strategy.channelRoles, ...strategy.kpis, ...strategy.briefs, ...strategy.assumptions]) {
+    const text = Object.entries(item).filter(([key]) => key !== "evidenceRefs").map(([, value]) => String(value)).join(" ");
+    if (language.test(text) && !item.evidenceRefs.some(id => measured.has(id))) throw new InvalidLearningEvidence("performance claim requires verified performance evidence");
+  }
 }
 export async function recordSourceDiscovery(sourceId: string) {
   return awsRepository().atomic(async tx => {

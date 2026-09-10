@@ -23,7 +23,7 @@ export async function assertLearningSources(sourceIds: string[], reader: Strateg
     if (source.state !== "ready") throw new InvalidLearningEvidence("learning evidence source revoked or unavailable");
   }
 }
-async function validBinding(collection: Collection, reader: StrategyReader) {
+export async function validBinding(collection: Collection, reader: StrategyReader) {
   assertResourceWorkspace(currentTenant(), collection);
   const item = await readPlannedItem(collection.itemRef, reader); const state = await readItemState(item.ref, reader);
   if (state.jobId !== collection.jobId || state.status !== "completed" || !item.measurements.some(m => strategyDigest(m) === strategyDigest(collection.measurement))) throw new InvalidLearningEvidence("observation item/job/measurement binding changed");
@@ -31,6 +31,14 @@ async function validBinding(collection: Collection, reader: StrategyReader) {
   if (tombstone.present) throw new InvalidLearningEvidence("learning job evidence revoked");
   const job = await readRequired<LearningJob>(jobKey(collection.jobId), reader);
   if (strategyDigest(job.plannedItemRef) !== strategyDigest(item.ref) || strategyDigest(job.strategyRef) !== strategyDigest(collection.strategyRef)) throw new InvalidLearningEvidence("observation strategy binding changed");
+  if (collection.measurement.definition.collectionMethod === "official_x" && collection.postId) {
+    const verification = job.verifications?.find(v => v.verified && v.method === "official_api_readback" && v.actionId === collection.actionId && v.target === `x:${collection.postId}` && v.evidence?.digest && v.evidence?.url);
+    if (!verification || !job.actions?.some(a => a.id === collection.actionId && a.type === "publish_x_post" && a.state === "executed")) throw new InvalidLearningEvidence("publication verification authority withdrawn");
+    // Effect receipts are scoped by the already-authorized job's child partition.
+    const row = await reader.read(recordKey(`${jobKey(collection.jobId).path}/receipts/${verification.receiptId}`));
+    const receipt = row.value as unknown as Receipt | undefined;
+    if (!receipt || receipt.jobId !== collection.jobId || receipt.actionId !== collection.actionId || receipt.actionType !== "publish_x_post" || !["applied", "already_applied"].includes(receipt.outcome) || Date.parse(receipt.performedAt) !== Date.parse(collection.window.startAt)) throw new InvalidLearningEvidence("publication effect receipt binding changed");
+  }
   await assertLearningSources(collection.sourceIds, reader); return job;
 }
 export async function readObservation(id: string, reader: StrategyReader = awsRepository()): Promise<PerformanceObservation> {
@@ -43,18 +51,34 @@ export async function assertObservationUsable(observation: PerformanceObservatio
   if (observation.availability === "revoked" || (requireAvailable && observation.availability !== "available")) throw new InvalidLearningEvidence("observation evidence unavailable or revoked");
   const collection = await readRequired<Collection>(learningKey("observation_outbox", observation.collectionId), reader);
   await validBinding(collection, reader);
-  if (collection.observationId !== observation.id || (requireAvailable && collection.state !== "completed")) throw new InvalidLearningEvidence("observation superseded, revoked or unresolved");
+  const current = await readObservation(collection.observationId, reader);
+  if (current.availability === "revoked" || (requireAvailable && collection.state !== "completed")) throw new InvalidLearningEvidence("observation revoked or unresolved");
+  let successor = current;
+  const visited = new Set<string>();
+  while (true) {
+    if (successor.collectionId !== collection.id || visited.has(successor.id)) throw new InvalidLearningEvidence("observation lineage mismatch");
+    visited.add(successor.id);
+    const lineage = await readRequired<{ observation: { id: string; digest: string }; previous: { id: string; digest: string } | null }>(learningKey("observation_lineage", successor.id), reader);
+    if (lineage.observation.id !== successor.id || lineage.observation.digest !== successor.digest) throw new InvalidLearningEvidence("observation lineage digest mismatch");
+    if (successor.id === observation.id) break;
+    if (!lineage.previous) throw new InvalidLearningEvidence("observation is not an authorized historical cohort member");
+    successor = await readObservation(lineage.previous.id, reader);
+    if (successor.digest !== lineage.previous.digest) throw new InvalidLearningEvidence("historical observation digest mismatch");
+  }
 }
-function buildObservation(collection: Collection, result: ObservationValue, now: string, attribution: { provider: PerformanceObservation["provider"]; actor?: string; evidenceRefs?: string[] }): PerformanceObservation {
+export function buildObservation(collection: Collection, result: ObservationValue, now: string, attribution: { provider: PerformanceObservation["provider"]; actor?: string; evidenceRefs?: string[] }): PerformanceObservation {
   observationValueSchema.parse(result);
   const id = `observation-${strategyDigest({ collectionId: collection.id, result, now, attribution }).slice(0, 48)}`;
   const body = { id, collectionId: collection.id, workspaceId: collection.workspaceId, brandId: collection.brandId, itemRef: collection.itemRef, planRef: collection.planRef, campaignRef: collection.campaignRef, strategyRef: collection.strategyRef, pillar: collection.pillar, jobId: collection.jobId, actionId: collection.actionId, artifactId: collection.artifactId, postId: collection.postId, sourceIds: collection.sourceIds, measurement: collection.measurement, kind: collection.measurement.definition.kind, window: collection.window, observedAt: now, ...result, provider: attribution.provider, actor: attribution.actor ?? null, evidenceRefs: attribution.evidenceRefs ?? [] };
   return { ...body, digest: strategyDigest(body) };
 }
-async function insertObservation(tx: DynamoTransaction, observation: PerformanceObservation) {
+export async function insertObservation(tx: DynamoTransaction, observation: PerformanceObservation) {
   const key = learningKey("performance_observations", observation.id), old = await tx.read(key);
   if (old.present) { if (old.value?.digest !== observation.digest) throw new Error("observation identity reused"); return; }
+  const collection = await tx.read(learningKey("observation_outbox", observation.collectionId));
+  const previous = collection.present ? await readObservation(String(collection.value!.observationId), tx) : null;
   tx.insert(key, observation);
+  tx.insert(learningKey("observation_lineage", observation.id), { workspaceId: observation.workspaceId, brandId: observation.brandId, collectionId: observation.collectionId, observation: { id: observation.id, digest: observation.digest }, previous: previous ? { id: previous.id, digest: previous.digest } : null });
 }
 /** Recovery calls this for completed items. Definition, anchor and provider target are frozen once. */
 export async function scheduleCompletedJob(jobId: string, now = new Date().toISOString()): Promise<Collection[]> {
@@ -117,6 +141,7 @@ export async function claimObservation(id: string, token: string, now = new Date
     if (c.state === "collecting") {
       if (!c.dispatch) await settleCollectionCost(tx, c, "released", now);
       const observation = buildObservation(c, { availability: c.dispatch ? "failed" : "unavailable", value: null, reason: c.dispatch ? "collector_response_unknown_requires_reconciliation" : "claim_expired_before_dispatch" }, now, { provider: "host" });
+      if (c.dispatch) insertCollectionReceipt(tx, c, { collectionId: c.id, token: c.token!, checkedAt: now, metrics: null, outcome: "unknown", reason: "collector_lease_expired_after_dispatch" }, observation, now);
       await insertObservation(tx, observation); tx.put(key, { ...c, state: c.dispatch ? "reconciliation_required" : "completed", observationId: observation.id }); return null;
     }
     if (Date.parse(now) > Date.parse(c.expiresAt)) {
@@ -149,7 +174,7 @@ export async function dueObservationCollections(now = new Date().toISOString()):
 }
 export async function claimDueObservations() { for (const c of await dueObservationCollections()) { const claimed = await claimObservation(c.id, randomBytes(32).toString("hex")); if (claimed) return [claimed]; } return []; }
 
-async function settleCollectionCost(tx: DynamoTransaction, c: Collection, disposition: "released" | "settled", now: string) {
+export async function settleCollectionCost(tx: DynamoTransaction, c: Collection, disposition: "released" | "settled", now: string) {
   if (!c.costAuthorization) return;
   const key = learningKey("observation_cost_reservations", c.costAuthorization.reservationId), row = await tx.read(key);
   if (!row.present || row.value?.state !== "reserved") return;
@@ -197,6 +222,30 @@ export async function cancelObservationDispatch(id: string, token: string, reaso
     return cancelUndispatched(tx, c, reason, now);
   });
 }
+export function collectionAuthorityDigest(c: Collection) {
+  return strategyDigest({ id: c.id, workspaceId: c.workspaceId, brandId: c.brandId, itemRef: c.itemRef, planRef: c.planRef, campaignRef: c.campaignRef, strategyRef: c.strategyRef, sourceIds: c.sourceIds, jobId: c.jobId, actionId: c.actionId, postId: c.postId, artifactId: c.artifactId, measurement: c.measurement, window: c.window, dueAt: c.dueAt, expiresAt: c.expiresAt, costAuthorization: c.costAuthorization });
+}
+function insertCollectionReceipt(tx: DynamoTransaction, c: Collection, input: z.infer<typeof providerObservationInputSchema>, observation: PerformanceObservation, now: string) {
+  tx.insert(learningKey("observation_collection_receipts", `${c.id}:${input.token}`), { workspaceId: c.workspaceId, brandId: c.brandId, collectionId: c.id, token: input.token, outcome: input.outcome, inputDigest: strategyDigest(input), observationId: observation.id, observationDigest: observation.digest, dispatchDigest: strategyDigest(c.dispatch), collectionAuthorityDigest: collectionAuthorityDigest(c), actor: tenantSubjectId(currentTenant()), recordedAt: now });
+}
+/** Persist an already received provider result; this function never dispatches a read. */
+export async function persistProviderResult(tx: DynamoTransaction, c: Collection, input: z.infer<typeof providerObservationInputSchema>, now: string, additionalEvidence: string[] = []) {
+  const job = await validBinding(c, tx);
+  if (input.collectionId !== c.id || input.token !== c.dispatch?.token || c.measurement.definition.collectionMethod !== "official_x") throw new Error("provider result dispatch binding mismatch");
+  if (input.outcome === "available" && (Date.parse(input.checkedAt) < Date.parse(c.dueAt) || Date.parse(input.checkedAt) < Date.parse(c.dispatch.issuedAt) || Date.parse(input.checkedAt) > Date.parse(c.expiresAt) || Date.parse(input.checkedAt) > Date.parse(now) + 5000)) throw new Error("provider observation outside pinned window");
+  let result: ObservationValue = { availability: input.outcome === "failed" || input.outcome === "unknown" ? "failed" : "unavailable", value: null, reason: input.reason || input.outcome };
+  if (input.outcome === "available") {
+    if (!input.metrics) throw new Error("available provider observation requires metrics");
+    const insight = priorInsightsFromJob(c.jobId, { ...job, engagement: [{ ...input.metrics, postId: c.postId!, actionId: c.actionId!, checkedAt: input.checkedAt }] })[0];
+    if (insight.availability !== "available") throw new Error(`unverified X metric: ${insight.unavailableReason}`);
+    const metric = c.measurement.definition.metricId.slice(2) as keyof typeof input.metrics, value = input.metrics[metric];
+    result = value === undefined ? { availability: "unavailable", value: null, reason: "metric_not_returned" } : { availability: "available", value, reason: null };
+  }
+  const evidenceId = `provider-${strategyDigest({ input, additionalEvidence }).slice(0, 48)}`;
+  const observed = buildObservation(c, result, input.checkedAt, { provider: "x", actor: additionalEvidence.length ? tenantSubjectId(currentTenant()) : undefined, evidenceRefs: [evidenceId, `verification:${c.jobId}:${c.actionId}`, ...additionalEvidence] });
+  tx.insert(learningKey("observation_provider_evidence", evidenceId), { workspaceId: c.workspaceId, brandId: c.brandId, input, digest: strategyDigest(input), actor: tenantSubjectId(currentTenant()), receivedAt: now, postId: c.postId, actionId: c.actionId, jobId: c.jobId });
+  await insertObservation(tx, observed); return observed;
+}
 export async function completeProviderObservation(raw: z.infer<typeof providerObservationInputSchema>, now = new Date().toISOString()) {
   const input = providerObservationInputSchema.parse(raw);
   const observation = await awsRepository().atomic(async tx => {
@@ -204,23 +253,10 @@ export async function completeProviderObservation(raw: z.infer<typeof providerOb
     const receiptKey = learningKey("observation_collection_receipts", `${c.id}:${input.token}`), old = await tx.read(receiptKey);
     if (old.present) { if (old.value?.inputDigest !== strategyDigest(input)) throw new Error("provider observation identity reused"); return readObservation(String(old.value!.observationId), tx); }
     if (!["collecting", "reconciliation_required"].includes(c.state) || c.token !== input.token || c.dispatch?.token !== input.token) throw new Error("stale observation dispatch authority");
-    const job = await validBinding(c, tx);
-    if (input.outcome === "available" && (Date.parse(input.checkedAt) < Date.parse(c.dueAt) || Date.parse(input.checkedAt) > Date.parse(c.expiresAt) || Date.parse(input.checkedAt) > Date.parse(now) + 5000)) throw new Error("provider observation outside pinned window");
-    let result: ObservationValue = { availability: input.outcome === "failed" || input.outcome === "unknown" ? "failed" : "unavailable", value: null, reason: input.reason || input.outcome };
-    if (input.outcome === "available" && input.metrics) {
-      const insight = priorInsightsFromJob(c.jobId, { ...job, engagement: [{ ...input.metrics, postId: c.postId!, actionId: c.actionId!, checkedAt: input.checkedAt }] })[0];
-      if (insight.availability !== "available") throw new Error(`unverified X metric: ${insight.unavailableReason}`);
-      const metric = c.measurement.definition.metricId.slice(2) as keyof typeof input.metrics;
-      const value = input.metrics[metric];
-      result = value === undefined ? { availability: "unavailable", value: null, reason: "metric_not_returned" } : { availability: "available", value, reason: null };
-    }
-    const evidenceId = `provider-${strategyDigest(input).slice(0, 48)}`;
-    const observed = buildObservation(c, result, input.checkedAt, { provider: "x", evidenceRefs: [evidenceId, `verification:${c.jobId}:${c.actionId}`] });
-    tx.insert(learningKey("observation_provider_evidence", evidenceId), { workspaceId: c.workspaceId, brandId: c.brandId, input, digest: strategyDigest(input), actor: tenantSubjectId(currentTenant()), receivedAt: now, postId: c.postId, actionId: c.actionId, jobId: c.jobId });
-    await insertObservation(tx, observed);
+    const observed = await persistProviderResult(tx, c, input, now);
     if (input.outcome !== "unknown") await settleCollectionCost(tx, c, "settled", now);
     tx.put(key, { ...c, state: input.outcome === "unknown" ? "reconciliation_required" : "completed", observationId: observed.id });
-    tx.insert(receiptKey, { workspaceId: c.workspaceId, brandId: c.brandId, inputDigest: strategyDigest(input), observationId: observed.id }); return observed;
+    insertCollectionReceipt(tx, c, input, observed, now); return observed;
   });
   await persistEvaluationForObservation(observation); return observation;
 }
@@ -301,14 +337,14 @@ export async function listLearningContext() {
 export async function learningInsights() {
   const history = await listLearningContext();
   const { validateLearningReference } = await import("./proposals");
-  const proposals = history.proposals.map(p => p.evidenceStatus === "revoked" ? { id: p.id, revision: p.revision, status: p.status, evidenceStatus: "revoked" as const } : p);
+  const proposals = history.proposals.filter(p => !["rejected", "superseded"].includes(p.status)).map(p => p.evidenceStatus === "revoked" ? { id: p.id, revision: p.revision, status: p.status, evidenceStatus: "revoked" as const } : p);
   const observations = history.observations.filter(o => o.availability !== "revoked");
-  const evidenceRefs: Array<{ id: string; digest: string }> = [];
-  for (const record of [...observations.filter(o => o.availability === "available" && o.kind === "performance"), ...history.evaluations.filter(e => e.outcome === "observational" && e.sampleCount > 0), ...history.proposals.filter(p => p.evidenceStatus === "valid")]) {
+  const performanceEvidenceRefs: Array<{ id: string; digest: string }> = [], advisoryEvidenceRefs: Array<{ id: string; digest: string }> = [];
+  for (const record of [...observations.filter(o => o.availability === "available" && o.kind === "performance"), ...history.evaluations.filter(e => e.outcome === "observational" && e.sampleCount > 0), ...history.proposals.filter(p => p.evidenceStatus === "valid" && ["pending", "approved"].includes(p.status))]) {
     const resolved = await validateLearningReference(record.id);
-    evidenceRefs.push({ id: resolved.id, digest: resolved.digest });
+    (resolved.capability === "performance" ? performanceEvidenceRefs : advisoryEvidenceRefs).push({ id: resolved.id, digest: resolved.digest });
   }
-  const learningContext = { ...history, observations, proposals, evidenceRefs };
+  const learningContext = { ...history, observations, proposals, performanceEvidenceRefs, advisoryEvidenceRefs };
   const topPosts: Array<import("../repository").PriorInsight & { observationRef: { id: string; digest: string }; measurementWindow: PerformanceObservation["window"] }> = [];
   for (const observation of learningContext.observations.filter(o => o.provider === "x" && o.availability === "available").slice(-5)) {
     const evidence = await readRequired<{ workspaceId: string; brandId: string; input: z.infer<typeof providerObservationInputSchema> }>(learningKey("observation_provider_evidence", observation.evidenceRefs[0]));

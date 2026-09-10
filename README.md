@@ -84,6 +84,8 @@ flowchart LR
 
 Duplicate suppression returns `already_applied` with the original receipt identity; it does not invent a new execution receipt. Unknown external outcomes require reconciliation. Only explicit operator replay persists a replay observation.
 
+Unknown observation reads retain their reservation until an administrator records an evidence-bound resolution through the [learning reconciliation API](docs/learning-reconciliation.md).
+
 The console uses Vercel AI SDK 7 (`ai` 7.0.97 and `@ai-sdk/react` 4.0.100). Maya proposes reference-only layouts; the server hydrates them from authoritative records into validated `data-harmonia-surface` UI message parts. Durable DynamoDB event sequences support replay and reconnect, while approval controls remain server-owned. Telegram routes ordinary allow-listed messages through the canonical chat router and the same decision service. This AWS edition is not live-evidenced yet.
 
 ## License

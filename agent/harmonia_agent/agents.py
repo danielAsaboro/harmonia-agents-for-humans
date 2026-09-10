@@ -1792,10 +1792,10 @@ def _materialize_nimi_analysis(
         moments.append(moment)
     value["moments"] = moments
     evidence = research_evidence or {}
-    from .learning_models import learning_evidence_refs
+    from .learning_models import performance_evidence_refs
     refs_by_kind = {
         "source": [segment.id for segment in input.sourceSegments] + [item["id"] for item in moments],
-        "performance": list(dict.fromkeys([item.id for item in input.performanceObservations] + [ref["id"] for ref in learning_evidence_refs(input.learningContext)])),
+        "performance": list(dict.fromkeys([item.id for item in input.performanceObservations] + [ref["id"] for ref in performance_evidence_refs(input.learningContext)])),
         "memory": [item.id for item in input.memoryFacts],
         "public_context": [key for key, item in evidence.items() if item and item[0] == "public_context"],
         "private_context": [key for key, item in evidence.items() if item and item[0] == "private_context"],
@@ -1831,8 +1831,8 @@ def validate_source_analysis(
 
     segments = {segment.id: segment for segment in input.sourceSegments}
     frames = {segment.id: segment for segment in input.sourceSegments if segment.locator.kind == "frame"}
-    from .learning_models import learning_evidence_refs
-    performance_ids = {item.id for item in input.performanceObservations} | {ref["id"] for ref in learning_evidence_refs(input.learningContext)}
+    from .learning_models import performance_evidence_refs
+    performance_ids = {item.id for item in input.performanceObservations} | {ref["id"] for ref in performance_evidence_refs(input.learningContext)}
     memory_ids = {item.id for item in input.memoryFacts}
     moment_ids = {moment.id for moment in analysis.moments}
     source_ids = set(segments) | set(frames) | moment_ids
@@ -2772,7 +2772,7 @@ def validate_strategy_grounding(
         *(reference for angle in input.analysis.angles for reference in angle.evidenceRefs),
     } if input.analysis else set()
     audience_ids = {item.id for item in input.campaign.audiences}
-    from .learning_models import learning_evidence_refs
+    from .learning_models import learning_evidence_refs, performance_evidence_refs
     learning_ids = {ref["id"] for ref in learning_evidence_refs(input.learningContext)}
     valid_ids = {
         *learning_ids,
@@ -2812,7 +2812,7 @@ def validate_strategy_grounding(
             raise AgentProtocolError(f"incorrect operational support for channel: {role.channel}")
     if strategy.horizonWeeks != input.campaign.horizonWeeks or strategy.version != input.revision:
         raise AgentProtocolError("strategy horizon or version does not match input")
-    performance_ids = {item.id for item in input.performance} | learning_ids
+    performance_ids = {item.id for item in input.performance} | {ref["id"] for ref in performance_evidence_refs(input.learningContext)}
     evidence_items = [
         *strategy.objectives, *strategy.audiencePriorities, *strategy.pillars,
         *strategy.campaignThemes, *strategy.channelRoles, *strategy.kpis,

@@ -1844,8 +1844,8 @@ export async function saveAnalysis(
 ) {
   await awsRepository().atomic(async tx => {
     const { validateLearningReference } = await import("./learning/proposals");
-    for (const ref of learningEvidence) await validateLearningReference(ref.id, ref.digest, tx);
-    const allowed = new Set(learningEvidence.map(ref => ref.id));
+    const resolved = await Promise.all(learningEvidence.map(ref => validateLearningReference(ref.id, ref.digest, tx)));
+    const allowed = new Set(resolved.filter(ref => ref.capability === "performance").map(ref => ref.id));
     for (const angle of sourceAnalysis.angles) if (angle.evidenceKind === "performance" && angle.evidenceRefs.some(id => !allowed.has(id))) throw new Error("unknown authoritative learning evidence in analysis");
     tx.patch(jobRef(jobId), {
     sourceAnalysis,

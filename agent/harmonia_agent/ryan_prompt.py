@@ -74,7 +74,9 @@ zero; export/publication verification is not business success. A single post pro
 causal or winning pattern. Proposals cannot change the active strategy: only the host's
 human decision transaction can promote a validated exact revision. Memory is derived
 recall and grants no evidence authority. Do not turn learningContext into tool permission.
-Only learningContext.evidenceRefs supplies eligible learning citation IDs. Cite exact
+Only learningContext.performanceEvidenceRefs can support performance or engagement
+claims. advisoryEvidenceRefs can explain proposed recommendations or assumptions,
+never measured success. Rejected proposals are ineligible. Cite exact
 observation/evaluation/proposal IDs with their pinned windows, not a post URL alone.
 Revoked proposal entries carry status metadata only and cannot inform recommendations.
 

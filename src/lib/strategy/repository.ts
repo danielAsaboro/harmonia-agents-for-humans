@@ -34,8 +34,8 @@ export async function readStrategyRevision(ref: StrategyRef, reader: StrategyRea
   if (strategyDigest(storedRef) !== strategyDigest(ref) || record.strategy.strategyId !== ref.strategyId || strategyDigest(record.strategy) !== ref.digest || record.approval?.decision !== "approved" || record.approval.payloadDigest !== ref.digest || record.approval.revision !== record.strategy.version) throw new Error("immutable strategy reference mismatch");
   contentStrategySchema.parse(record.strategy);
   if (record.invocationContext.learningEvidence?.length) {
-    const { validateLearningReference } = await import("../learning/proposals");
-    for (const evidence of record.invocationContext.learningEvidence) await validateLearningReference(evidence.id, evidence.digest, reader);
+    const { validateStrategyLearningGrounding } = await import("../learning/proposals");
+    await validateStrategyLearningGrounding(record.strategy, record.invocationContext, reader);
   }
   return record;
 }
@@ -46,13 +46,13 @@ export async function getActiveStrategy(reader: StrategyReader = awsRepository()
 }
 
 export async function insertStrategyProposal(tx: DynamoTransaction, input: Omit<StrategyProposal, "id" | "workspaceId" | "brandId" | "expectedActiveRevision" | "baseStrategyRef" | "approval" | "strategyRef">, expectedBase?: StrategyRef | null): Promise<StrategyProposal> {
-  const { validateLearningReference } = await import("../learning/proposals");
-  for (const evidence of input.invocationContext.learningEvidence ?? []) await validateLearningReference(evidence.id, evidence.digest, tx);
+  const { validateStrategyLearningGrounding } = await import("../learning/proposals");
   const strategy = contentStrategySchema.parse(input.strategy);
   if (strategyDigest(strategy) !== input.digest) throw new Error("strategy payload changed");
   if (![1, 2].includes(input.attempt) || strategy.version !== input.attempt) throw new Error("invalid strategy proposal attempt");
   const active = await readActiveStrategyRef(tx);
   if (expectedBase !== undefined && strategyDigest(expectedBase) !== strategyDigest(active)) throw new Error("strategy base changed before proposal");
+  await validateStrategyLearningGrounding(strategy, input.invocationContext, tx);
   const tenant = currentTenant();
   const proposal: StrategyProposal = { ...input, strategy, id: `${input.jobId}-${input.attempt}`, workspaceId: tenant.workspaceId, brandId: tenant.brandId, expectedActiveRevision: active?.revision ?? 0, baseStrategyRef: active };
   tx.insert(proposalKey(proposal.id), proposal);
@@ -70,8 +70,8 @@ export async function readStrategyProposal(id: string, reader: StrategyReader = 
 
 export async function decideStrategyProposal(tx: DynamoTransaction, id: string, input: StrategyDecisionInput) {
   const proposal = await readStrategyProposal(id, tx);
-  const { validateLearningReference } = await import("../learning/proposals");
-  for (const evidence of proposal.invocationContext.learningEvidence ?? []) await validateLearningReference(evidence.id, evidence.digest, tx);
+  const { validateStrategyLearningGrounding } = await import("../learning/proposals");
+  await validateStrategyLearningGrounding(proposal.strategy, proposal.invocationContext, tx);
   if (input.expectedActiveRevision !== proposal.expectedActiveRevision) throw new Error("strategy expected active revision mismatch");
   if (strategyDigest(proposal.strategy) !== proposal.digest || input.payloadDigest !== proposal.digest) throw new Error("strategy payload changed");
   const actorSubjectId = tenantSubjectId(currentTenant());

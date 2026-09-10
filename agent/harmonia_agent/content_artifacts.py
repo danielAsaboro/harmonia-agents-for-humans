@@ -4,7 +4,7 @@ import hashlib
 import json
 from typing import Annotated, Literal
 from pydantic import Field, field_validator, model_validator
-from .agent_models import StrictModel, StrategyRef
+from .agent_models import StrictModel, StrategyRef, StrategySourceBinding, EditorialPlanItem
 
 
 class Section(StrictModel):
@@ -402,6 +402,8 @@ def assemble_content_pack_draft(
 
 class ArtifactProductionInput(StrictModel):
     strategyRef: StrategyRef
+    sourceBinding: StrategySourceBinding
+    editorialItem: EditorialPlanItem
     operatorBrief: str | None = Field(default=None, min_length=1, max_length=2000)
     outputPlanId: str = Field(min_length=1)
     outputPlanDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -415,7 +417,11 @@ class ArtifactProductionInput(StrictModel):
 
     @model_validator(mode="after")
     def validate_authority(self):
+        if self.sourceBinding.strategyRef != self.strategyRef or not set(self.editorialItem.evidenceRefs) <= set(self.sourceBinding.evidenceIds):
+            raise ValueError("artifact production source binding mismatch")
         evidence = {item.id for item in self.evidence}
+        if not evidence <= set(self.sourceBinding.evidenceIds):
+            raise ValueError("artifact evidence is outside the job source binding")
         if any(ref not in evidence for request in self.requests for ref in request.evidenceRefs):
             raise ValueError("artifact request references evidence outside supplied evidence")
         if len({item.id for item in self.requests}) != len(self.requests):

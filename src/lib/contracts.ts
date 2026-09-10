@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { strategyRefSchema } from "./strategy/contracts";
+import { strategyRefSchema, strategySourceBindingSchema } from "./strategy/contracts";
 
 export const sourceInputSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("youtube"), url: z.string().url(), rightsAuthorizationId: z.string().min(1) }).strict(),
@@ -423,6 +423,7 @@ const postingWindowObservationSchema = z.object({
 }).strict();
 
 export const editorialPlanningSnapshotSchema = z.object({
+  sourceBinding: strategySourceBindingSchema,
   snapshotId: z.string().min(1).max(100), asOf: utcTimestampSchema,
   horizonStartAt: utcTimestampSchema, horizonEndAt: utcTimestampSchema,
   timezone: ianaTimezoneSchema,

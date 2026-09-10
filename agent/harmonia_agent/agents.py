@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
+from .source_binding import validate_source_binding
 
 from .agent_models import (
     SourceAnalysis,
@@ -2939,6 +2940,10 @@ def validate_editorial_plan(
     """Fail closed when Temi exceeds the approved strategy or planning boundary."""
     input = EditorialPlannerInput.model_validate(input)
     plan = EditorialPlan.model_validate(plan)
+    try:
+        validate_source_binding(input.planningSnapshot.sourceBinding.model_dump(mode="json"), input.planningSnapshot.sourceBinding.jobId, input.strategyRef.model_dump(mode="json"), input.analysis.model_dump(mode="json", exclude_none=True), [item.model_dump(mode="json") for item in plan.items])
+    except ValueError as error:
+        raise AgentProtocolError(str(error)) from error
 
     if input.strategyDigest != input.strategyApproval.payloadDigest:
         raise AgentProtocolError("strategy approval digest does not match strategy digest")
@@ -3005,8 +3010,6 @@ def validate_editorial_plan(
                 raise AgentProtocolError(
                     f"editorial item {field_name} does not match brief {brief.id}"
                 )
-        if set(item.evidenceRefs) != set(brief.evidenceRefs):
-            raise AgentProtocolError(f"editorial evidence is outside brief {brief.id}")
         if item.campaignTheme not in themes:
             raise AgentProtocolError(f"unknown campaign theme: {item.campaignTheme}")
         if item.contentPillar not in pillars:

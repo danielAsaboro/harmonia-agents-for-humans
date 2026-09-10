@@ -1,7 +1,11 @@
+import { buildStrategySourceBinding } from "@/lib/strategy/sourceBinding";
 import { describe, expect, it } from "vitest";
 import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialDraftCompletionPatch, editorialPlanDigest, editorialPlanEvidenceLineage, editorialPlanningSnapshotDigest, isMatchingActiveProduction, isMatchingCompletedProduction } from "@/lib/editorialPlan";
 
+const sourceAnalysis = { sourceDigest: "c".repeat(64), summary: "Source proof", moments: [{ id: "m1", title: "Proof", startSec: 0, endSec: 1, hook: "Proof", quote: "Source proof", sourceSegmentRefs: ["source-1:seg-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" as const }], angles: [], assumptions: [], confidence: "high" as const };
+const strategyRef = { workspaceId: "w", brandId: "b", strategyId: "strategy-job-1-v1", revision: 8, digest: "a".repeat(64) };
 const snapshot = {
+  sourceBinding: buildStrategySourceBinding({ id: "job-1", strategyRef, sourceAnalysis }),
   snapshotId: "planning-job-1-v1", asOf: "2026-08-30T00:00:00Z",
   horizonStartAt: "2026-08-31T00:00:00Z", horizonEndAt: "2026-09-28T00:00:00Z", timezone: "UTC",
   channelCapabilities: [{ channel: "x", formats: ["text_post"] }], existingCommitments: [],
@@ -15,7 +19,7 @@ const item = {
   id: "item-1", briefId: "brief-1", campaignTheme: "Proof", contentPillar: "Operations",
   objective: "Show proof", audienceId: "founders", funnelStage: "consideration" as const,
   intendedConversion: "request demo", ctaIntent: "request demo", kpi: "qualified demos",
-  channel: "x", format: "text_post", evidenceRefs: ["m1", "context:campaign"],
+  channel: "x", format: "text_post", evidenceRefs: ["m1"],
   publicationWindowStartAt: "2026-09-01T16:00:00Z", publicationWindowEndAt: "2026-09-01T18:00:00Z",
   productionDeadlineAt: "2026-08-31T18:00:00Z", priority: 1, selectionScore: 0.9,
   dependencies: [], productionStatus: "planned" as const, constraints: [], requiredAssets: [],
@@ -31,6 +35,7 @@ const plan = {
 };
 
 const job = {
+  id: "job-1", sourceAnalysis,
   strategyRef: { workspaceId: "w", brandId: "b", strategyId: "strategy-job-1-v1", revision: 8, digest: "a".repeat(64) },
   stage: "plan", strategyDigest: "a".repeat(64), strategyRevision: 1,
   contentStrategy: { strategyId: "strategy-job-1-v1", version: 1 },
@@ -85,7 +90,7 @@ describe("editorial plan persistence boundary", () => {
   });
 
   it("records sorted unique evidence lineage", () => {
-    expect(editorialPlanEvidenceLineage(plan)).toEqual(["context:campaign", "m1"]);
+    expect(editorialPlanEvidenceLineage(plan)).toEqual(["m1"]);
   });
 
   it("builds one atomic reviewed-to-approval transition patch", () => {
@@ -109,11 +114,15 @@ describe("editorial plan persistence boundary", () => {
 describe("selected production authority", () => {
   it("requires the exact persisted plan, digest, item, brief, and lifecycle state", () => {
     const authority = { editorialPlanId: plan.planId, editorialPlanDigest: editorialPlanDigest(plan), editorialItemId: item.id, briefId: item.briefId };
-    const productionJob = { stage: "draft", editorialPlan: plan, editorialPlanDigest: authority.editorialPlanDigest, selectedNextItemId: item.id,
+    const productionJob = { ...job, stage: "draft", editorialPlan: plan, editorialPlanDigest: authority.editorialPlanDigest, selectedNextItemId: item.id,
       strategyDigest: "a".repeat(64), strategyApproval: { revision: 1 },
       strategyRef: job.strategyRef, contentStrategy: { ...job.contentStrategy, briefs: [{ id: item.briefId }] },
       editorialItemStates: { [item.id]: { status: "selected", updatedAt: "2026-08-30T00:00:00Z" } } };
     expect(assertSelectedProductionAuthority(productionJob, authority, "selected").id).toBe(item.id);
+    const changedAnalysis = structuredClone(sourceAnalysis);
+    changedAnalysis.moments[0].quote = "Changed source proof";
+    const changedSnapshot = { ...snapshot, sourceBinding: buildStrategySourceBinding({ ...job, sourceAnalysis: changedAnalysis }) };
+    expect(() => assertSelectedProductionAuthority({ ...productionJob, sourceAnalysis: changedAnalysis, editorialPlanningSnapshot: changedSnapshot, editorialPlanningSnapshotDigest: editorialPlanningSnapshotDigest(changedSnapshot) }, authority, "selected")).toThrow("planning snapshot digest");
     expect(() => assertSelectedProductionAuthority({ ...productionJob, editorialPlanDigest: "b".repeat(64) }, authority, "selected")).toThrow("digest");
     expect(() => assertSelectedProductionAuthority(productionJob, { ...authority, briefId: "other" }, "selected")).toThrow("brief");
     expect(() => assertSelectedProductionAuthority({ ...productionJob, strategyRef: undefined }, authority, "selected")).toThrow("strategy reference");

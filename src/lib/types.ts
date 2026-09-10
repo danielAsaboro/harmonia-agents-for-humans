@@ -247,6 +247,7 @@ export interface EditorialPlan {
 }
 
 export interface EditorialPlanningSnapshot {
+  sourceBinding: import("./strategy/contracts").StrategySourceBinding;
   snapshotId: string;
   asOf: string;
   horizonStartAt: string;

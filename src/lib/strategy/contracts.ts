@@ -11,6 +11,13 @@ export const strategyRefSchema = z.object({
 
 /** Lifetime approved revision; unrelated to the bounded proposal attempt. */
 export type StrategyRef = z.infer<typeof strategyRefSchema>;
+export const strategySourceBindingSchema = z.object({
+  jobId: z.string().min(1).max(100),
+  strategyRef: strategyRefSchema,
+  analysisDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  evidenceIds: z.array(z.string().min(1).max(100)).min(1).max(12168),
+}).strict();
+export type StrategySourceBinding = z.infer<typeof strategySourceBindingSchema>;
 export interface ApprovedStrategyRevision {
   workspaceId: string;
   brandId: string;

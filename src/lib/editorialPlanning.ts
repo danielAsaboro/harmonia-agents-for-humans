@@ -1,4 +1,5 @@
 import type { ContentItem, EditorialPlanningSnapshot, Job } from "./types";
+import { buildStrategySourceBinding } from "./strategy/sourceBinding";
 
 const POLICY_ID = "policy:editorial-planning-v1";
 const HOUR_MS = 60 * 60 * 1000;
@@ -32,6 +33,7 @@ export function buildEditorialPlanningSnapshot(
   for (const item of relevant) provenanceIds.add(`content-item:${item.id}`);
 
   return {
+    sourceBinding: buildStrategySourceBinding(job),
     snapshotId: `planning-${job.id}-v${revision}`,
     asOf,
     horizonStartAt: start.toISOString(),

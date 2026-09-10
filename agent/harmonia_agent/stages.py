@@ -9,11 +9,9 @@ import os
 import re
 import uuid
 import secrets
-import struct
 from contextvars import ContextVar
 from pathlib import Path
 import asyncio
-import math
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
@@ -22,6 +20,8 @@ from opentelemetry.trace import Status, StatusCode
 from pydantic import ValidationError
 
 from . import clipper, content, x_client, youtube
+from .canonical import _canonical_typed_bytes
+from .source_binding import validate_source_binding
 from .linkedin_client import LinkedInClient
 from .agent_models import (
     SourceAnalysis,
@@ -106,32 +106,6 @@ def _invocation_operation_id(legacy_operation_id: str, active_suffix: str | None
 
 class ClipRenderError(RuntimeError):
     pass
-
-
-def _canonical_typed_bytes(value: Any) -> str:
-    """Typed canonical encoding with IEEE-754 numbers shared with TypeScript."""
-    if value is None:
-        return "n;"
-    if isinstance(value, bool):
-        return "b1;" if value else "b0;"
-    if isinstance(value, (int, float)):
-        numeric = float(value)
-        if not math.isfinite(numeric):
-            raise ValueError("typed digest requires finite numbers")
-        if numeric == 0:
-            numeric = 0.0
-        return f"d{struct.pack('>d', numeric).hex()};"
-    if isinstance(value, str):
-        return f"s{len(value.encode('utf-8'))}:{value}"
-    if isinstance(value, list):
-        return f"a{len(value)}[{''.join(_canonical_typed_bytes(item) for item in value)}]"
-    if isinstance(value, dict):
-        entries = "".join(
-            _canonical_typed_bytes(key) + _canonical_typed_bytes(value[key])
-            for key in sorted(value)
-        )
-        return f"o{len(value)}{{{entries}}}"
-    raise ValueError("typed digest contains an unsupported value")
 
 
 def editorial_plan_digest(plan: dict[str, Any]) -> str:
@@ -586,6 +560,10 @@ async def run_plan(job_id: str) -> None:
     })
     if planner_input.strategyRef.workspaceId != job["workspaceId"] or planner_input.strategyRef.brandId != job["brandId"]:
         raise AgentProtocolError("strategy reference tenant mismatch")
+    try:
+        validate_source_binding(snapshot["sourceBinding"], job_id, job["strategyRef"], job["sourceAnalysis"], [])
+    except ValueError as error:
+        raise AgentProtocolError(str(error)) from error
     result = await plan_with_team(planner_input, invocation=InvocationContext(
         job_id=job_id, workspace_id=job["workspaceId"], brand_id=job["brandId"],
         user_id=job["createdByUserId"], stage="plan",
@@ -643,6 +621,13 @@ async def run_draft(job_id: str) -> None:
     evidence_ids = set(selected.evidenceRefs)
     source_analysis = SourceAnalysis.model_validate(job.get("sourceAnalysis"))
     analysis_json = source_analysis.model_dump(mode="json", exclude_none=True)
+    snapshot = job.get("editorialPlanningSnapshot") or {}
+    if not snapshot or editorial_plan_digest(snapshot) != job.get("editorialPlanningSnapshotDigest") or editorial_plan.planningSnapshotDigest != job.get("editorialPlanningSnapshotDigest"):
+        raise AgentProtocolError("persisted job source planning snapshot required")
+    try:
+        validate_source_binding(snapshot.get("sourceBinding") or {}, job_id, strategy_ref, analysis_json, [selected.model_dump(mode="json")])
+    except ValueError as error:
+        raise AgentProtocolError(str(error)) from error
     moments = [item for item in analysis_json["moments"] if item["id"] in evidence_ids]
     angles = [item for item in analysis_json["angles"] if item["id"] in evidence_ids]
     source_ids = {item["id"] for item in [*moments, *angles]}
@@ -674,6 +659,8 @@ async def run_draft(job_id: str) -> None:
         if missing: raise AgentProtocolError(f"artifact output plan references unknown normalized evidence: {missing}")
         production_input = ArtifactProductionInput.model_validate({
             "strategyRef": strategy_ref,
+            "sourceBinding": snapshot["sourceBinding"],
+            "editorialItem": selected.model_dump(mode="json"),
             "operatorBrief": (job.get("config") or {}).get("operatorBrief"),
             "outputPlanId": output_plan["id"], "outputPlanDigest": output_plan["digest"],
             "requests": [{"id": item["id"], "outputType": item["outputType"], "evidenceRefs": item["evidenceRefs"]} for item in requested],

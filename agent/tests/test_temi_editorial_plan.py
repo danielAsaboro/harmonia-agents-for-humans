@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from tests.strategy_fixtures import source_binding
 
 import pytest
 from pydantic import ValidationError
@@ -70,7 +71,7 @@ def plan() -> dict:
             "id": "item-1", "briefId": "brief-1", "campaignTheme": "From delay to flow", "contentPillar": "operational proof",
             "objective": "Show operational proof", "audienceId": "aud-founders", "funnelStage": "consideration",
             "intendedConversion": "qualified demo request", "ctaIntent": "request a demo", "kpi": "qualified demo requests",
-            "channel": "x", "format": "text_post", "evidenceRefs": ["m1", "ctx-campaign"],
+            "channel": "x", "format": "text_post", "evidenceRefs": ["m1"],
             "publicationWindowStartAt": "2026-09-01T16:00:00Z", "publicationWindowEndAt": "2026-09-01T18:00:00Z",
             "productionDeadlineAt": "2026-08-31T18:00:00Z", "priority": 1, "selectionScore": 0.9,
             "dependencies": [], "productionStatus": "planned", "constraints": ["Quote the source exactly"],
@@ -87,6 +88,7 @@ def planner_input() -> dict:
         "strategyApproval": {"decision": "approved", "payloadDigest": "a" * 64, "revision": 1, "actorSubjectId": "operator-1", "decidedAt": "2026-08-30T00:00:00Z", "expiresAt": "2026-08-31T00:00:00Z"},
         "analysis": analysis(),
         "planningSnapshot": {
+            "sourceBinding": source_binding("job-1", {"workspaceId": "w1", "brandId": "b1", "strategyId": strategy()["strategyId"], "revision": 8, "digest": "a" * 64}, analysis()),
             "snapshotId": "planning-job-1-v1", "asOf": "2026-08-30T00:00:00Z",
             "horizonStartAt": "2026-08-31T00:00:00Z", "horizonEndAt": "2026-09-28T00:00:00Z", "timezone": "America/Los_Angeles",
             "channelCapabilities": [{"channel": "x", "formats": ["text_post"]}],
@@ -117,7 +119,7 @@ def production_input() -> dict:
         "planId": "plan-job-1-v1", "planDigest": "b" * 64,
         "strategyDigest": "a" * 64, "editorialItemId": "item-1", "briefId": "brief-1",
         "editorialItem": plan()["items"][0],
-        "brief": strategy()["briefs"][0], "referencedMoments": analysis()["moments"],
+        "brief": {**strategy()["briefs"][0], "evidenceRefs": ["m1"]}, "referencedMoments": analysis()["moments"],
         "referencedAngles": [], "brandContext": "Use a direct, evidence-led voice.",
         "constraints": ["Quote the source exactly", "Never imply autonomous approval"],
         "platform": "x", "format": "text_post", "passType": "original",
@@ -257,7 +259,7 @@ def test_complete_grounded_editorial_plan_is_validated():
 
 @pytest.mark.parametrize(("mutation", "message"), [
     (lambda value: value["items"][0].update(briefId="brief-invented"), "unknown brief"),
-    (lambda value: value["items"][0].update(evidenceRefs=["a1"]), "outside brief"),
+    (lambda value: value["items"][0].update(evidenceRefs=["origin-only"]), "outside authoritative job sources"),
     (lambda value: value["items"][0].update(campaignTheme="Invented theme"), "campaign theme"),
     (lambda value: value["items"][0].update(contentPillar="Invented pillar"), "content pillar"),
     (lambda value: value["items"][0].update(audienceId="aud-invented"), "does not match brief"),
@@ -409,7 +411,7 @@ def test_selected_item_must_be_unblocked_and_highest_scoring_eligible_item():
 
 
 @pytest.mark.parametrize(("input_mutation", "plan_mutation", "message"), [
-    (lambda value: (value.update(strategyDigest="b" * 64), value["strategyRef"].update(digest="b" * 64)), lambda value: None, "strategy digest"),
+    (lambda value: (value.update(strategyDigest="b" * 64), value["strategyRef"].update(digest="b" * 64), value["planningSnapshot"]["sourceBinding"]["strategyRef"].update(digest="b" * 64)), lambda value: None, "strategy digest"),
     (lambda value: value["strategyApproval"].update(payloadDigest="b" * 64), lambda value: None, "approval digest"),
     (lambda value: value.update(strategyVersion=2), lambda value: None, "strategy version"),
     (lambda value: None, lambda value: value.update(approvedStrategyDigest="b" * 64), "approved strategy digest"),

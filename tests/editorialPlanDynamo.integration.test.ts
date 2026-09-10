@@ -1,3 +1,4 @@
+import { buildStrategySourceBinding } from "@/lib/strategy/sourceBinding";
 import { recordKey, awsRepository } from "../src/lib/dynamo";
 import { afterAll, describe, expect, it } from "vitest";
 
@@ -16,7 +17,10 @@ const otherScope = { workspaceId: "temi-plan-other", brandId: "brand-test", prin
 const jobId = `temi-plan-${Date.now()}`;
 const strategy = strategyFixture("strategy-1");
 const strategyDigest = calculateStrategyDigest(strategy);
+const sourceAnalysis = { sourceDigest: "c".repeat(64), summary: "Source proof", moments: [{ id: "moment-1", title: "Proof", startSec: 0, endSec: 1, hook: "Proof", quote: "Source proof", sourceSegmentRefs: ["source-1:seg-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" as const }], angles: [], assumptions: [], confidence: "high" as const };
+const strategyRef = { workspaceId: scope.workspaceId, brandId: scope.brandId, strategyId: strategy.strategyId, revision: 1, digest: strategyDigest };
 const snapshot = {
+  sourceBinding: buildStrategySourceBinding({ id: jobId, strategyRef, sourceAnalysis }),
   snapshotId: `planning-${jobId}-v1`, asOf: "2026-08-27T00:00:00Z",
   horizonStartAt: "2026-08-31T00:00:00Z", horizonEndAt: "2026-09-28T00:00:00Z", timezone: "UTC",
   channelCapabilities: [{ channel: "x", formats: ["thread"] }], existingCommitments: [],
@@ -32,7 +36,7 @@ const campaignOutputPlan = {
 const item = {
   id: "item-1", briefId: "brief-1", campaignTheme: "Proof", contentPillar: "Outcomes", objective: "Earn consideration",
   audienceId: "founders", funnelStage: "consideration" as const, intendedConversion: "Request demo", ctaIntent: "See workflow", kpi: "Qualified demos",
-  channel: "x", format: "thread", evidenceRefs: ["moment-1", "context:campaign"],
+  channel: "x", format: "thread", evidenceRefs: ["moment-1"],
   publicationWindowStartAt: "2026-09-01T16:00:00Z", publicationWindowEndAt: "2026-09-01T18:00:00Z", productionDeadlineAt: "2026-08-31T18:00:00Z",
   priority: 1, selectionScore: 0.9, dependencies: [], productionStatus: "planned" as const, constraints: ["No unsupported metrics"], requiredAssets: [],
   planningRationale: "Lead with proof.", selectionRationale: "Highest priority eligible item.", confidence: "high" as const,
@@ -57,14 +61,14 @@ describe.skipIf(!emulator)("Temi editorial plan DynamoDB boundary", () => {
       createdAt: "2026-08-27T00:00:00Z", updatedAt: "2026-08-27T00:00:00Z", status: "running", stage: "plan",
       config: { sourceManifestId: "manifest-1", desiredOutputs: ["x_post"], allowedOutputs: ["x_post"], platforms: ["x"] }, strategyRef: result.strategyRef,
       editorialPlanningSnapshot: snapshot, editorialPlanningSnapshotDigest: snapshotDigest,
-      campaignOutputPlan,
+      campaignOutputPlan, sourceAnalysis,
     });
 
     const accepted = await runWithTenant(scope, () => acceptEditorialPlan(jobId, plan, 1));
     const stored = await runWithTenant(scope, () => getJob(jobId));
     expect(stored.editorialPlan).toEqual(plan);
     expect(stored.editorialPlanDigest).toBe(editorialPlanDigest(plan));
-    expect(stored.editorialPlanEvidenceLineage).toEqual(["context:campaign", "moment-1"]);
+    expect(stored.editorialPlanEvidenceLineage).toEqual(["moment-1"]);
     expect(stored.editorialPlanHistory?.v1.plan).toEqual(plan);
     expect(stored.editorialPlanHistory?.v1.strategyDigest).toBe(strategyDigest);
     expect(stored.editorialItemStates).toEqual({ [item.id]: expect.objectContaining({ status: "selected" }) });

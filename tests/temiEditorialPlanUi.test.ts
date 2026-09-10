@@ -38,6 +38,7 @@ const job: JobFull = {
   },
   editorialPlanDigest: "b".repeat(64), editorialPlanRevision: 1,
   editorialPlanningSnapshot: {
+    sourceBinding: { jobId: "job-1", strategyRef: { workspaceId: "w", brandId: "b", strategyId: "s", revision: 1, digest: "a".repeat(64) }, analysisDigest: "c".repeat(64), evidenceIds: ["moment-proof", "angle-how"] },
     snapshotId: "planning-job-1-v1", asOf: "2026-08-30T12:00:00Z",
     horizonStartAt: "2026-08-31T00:00:00Z", horizonEndAt: "2026-09-28T00:00:00Z", timezone: "Africa/Lagos",
     channelCapabilities: [{ channel: "x", formats: ["thread"] }], existingCommitments: [],

@@ -4,7 +4,10 @@ Load when converting approved Ryan briefs into executable plan items.
 
 1. Filter to briefs with at least one currently supported channel and format.
 2. Preserve objective, audience, funnel stage, conversion, CTA, KPI,
-   constraints, and evidence references exactly.
+   and constraints exactly. Preserve the approved strategy and its origin
+   evidence unchanged; select each production item's evidence from the current
+   job's analysis and snapshot `sourceBinding.evidenceIds`, including at least
+   one current moment or angle.
 3. Map each item to one approved pillar and campaign theme that best advances
    the brief; do not create new strategy.
 4. Add only production requirements supported by the snapshot or declared as a

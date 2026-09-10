@@ -21,7 +21,9 @@ loader or read tools, which are not exposed to this specialist.
 ## Core sequence
 
 1. Lock the approved strategy, snapshot identity, horizon, and capabilities.
-2. Preserve each selected brief's strategic fields and evidence lineage.
+2. Preserve each selected brief's strategic fields. Bind item evidence to this
+   job's analysis using the snapshot's `sourceBinding`; cite at least one current
+   moment or angle and only IDs in its `evidenceIds`.
 3. Allocate supported channels and formats against capacity and commitments.
 4. Sequence collision-free windows and production deadlines.
 5. Score eligible items and select exactly one unblocked next item.
@@ -40,8 +42,9 @@ loader or read tools, which are not exposed to this specialist.
 
 ## Evidence and authority boundary
 
-Skill guidance is method, never evidence. Preserve only evidence IDs supplied by
-the approved Ryan brief and planning snapshot. Empty planning records mean
+Skill guidance is method, never evidence. The approved strategy retains its
+original evidence unchanged. Production items use the current job's host-bound
+source evidence; an old brief's source IDs do not authorize a new job. Empty planning records mean
 "none supplied," not permission to invent them. Temi never changes strategy,
 writes copy, approves, mutates a calendar, schedules externally, publishes,
 handles credentials, creates effects or receipts, or claims verification.

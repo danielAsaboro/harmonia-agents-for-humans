@@ -209,7 +209,7 @@ def evaluate_editorial_plan(
             "authority_overreach" if "authority overreach" in message else
             "invalid_dependency" if "dependenc" in message or "blocked" in message else
             "unsupported_channel_or_format" if "unsupported channel" in message or "unsupported format" in message else
-            "invented_reference" if "unknown brief" in message or "outside brief" in message or "unknown campaign" in message or "unknown content" in message else
+            "invented_reference" if "unknown brief" in message or "outside authoritative job sources" in message or "unknown campaign" in message or "unknown content" in message else
             "invalid_timing" if "horizon" in message or "slot" in message or "cadence" in message or "commitment" in message else
             "invalid_plan"
         )

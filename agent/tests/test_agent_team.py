@@ -24,6 +24,7 @@ from harmonia_agent.agent_models import (
     StrategistInput,
     StrategistResult,
 )
+from tests.strategy_fixtures import artifact_authority
 from harmonia_agent.content_artifacts import ArtifactProductionInput, ArtifactReviewBatch, ProductionBatch
 from harmonia_agent.agents import (
     AgentProtocolError,
@@ -245,7 +246,7 @@ def test_noni_is_a_focused_skill_backed_typed_specialist():
 
 
 def test_multiformat_noni_validated_state_accepts_authority_free_semantics():
-    supplied = ArtifactProductionInput.model_validate({"strategyRef": {"workspaceId": "w1", "brandId": "b1", "strategyId": "s1", "revision": 8, "digest": "a" * 64}, "outputPlanId": "plan-1", "outputPlanDigest": "a" * 64, "requests": [{"id": "output-1-newsletter", "outputType": "newsletter", "evidenceRefs": ["source-1:seg-1"]}], "evidence": [{"id": "source-1:seg-1", "text": "Proof"}], "brandContext": "Concise and factual", "constraints": [], "passType": "original", "priorBatch": None, "priorReview": None})
+    supplied = ArtifactProductionInput.model_validate({**artifact_authority(), "strategyRef": {"workspaceId": "w1", "brandId": "b1", "strategyId": "s1", "revision": 8, "digest": "a" * 64}, "outputPlanId": "plan-1", "outputPlanDigest": "a" * 64, "requests": [{"id": "output-1-newsletter", "outputType": "newsletter", "evidenceRefs": ["source-1:seg-1"]}], "evidence": [{"id": "source-1:seg-1", "text": "Proof"}], "brandContext": "Concise and factual", "constraints": [], "passType": "original", "priorBatch": None, "priorReview": None})
     state = {
         "semantic_artifact_draft": {"title": "Launch", "sourceSegmentRefs": ["source-1:seg-1"], "payloadJson": '{"kind":"newsletter","subject":"Launch","preheader":"Proof","introduction":"Intro","sections":[{"id":"s1","heading":"Proof","body":"Proof","sourceSegmentRefs":["source-1:seg-1"]}],"cta":"Try it"}'},
         "noni_writing_skill_trace": [

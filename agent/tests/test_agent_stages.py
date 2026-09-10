@@ -142,6 +142,11 @@ def test_draft_stage_persists_reviewed_drafts_and_deterministic_actions(monkeypa
         "selectedNextItemId": persisted_plan["selectedNextItemId"],
         "editorialItemStates": {persisted_plan["selectedNextItemId"]: {"status": "selected"}},
     }
+    from tests.strategy_fixtures import bind_job_plan
+    from tests.test_temi_editorial_plan import planner_input
+    job["sourceAnalysis"]["moments"][0]["sourceSegmentRefs"] = ["source-1:seg-1"]
+    bind_job_plan("job-1", job, planner_input()["planningSnapshot"])
+
     async def fake_produce(*_args, **kwargs):
         assert _args[0].operatorBrief == "Credit NASA; use a small-team analogy; export only."
         invocations.append(kwargs["invocation"])

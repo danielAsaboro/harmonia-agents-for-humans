@@ -46,6 +46,7 @@ import { deleteArtifactUri,deleteWorkspaceArtifactUri } from "./storage";
 import { assertStrategyProposalRevision,strategySourceEvidenceIds,validatePersistedStrategy,validateStrategySearchGrounding,type StrategyDecisionInput } from "./strategyApproval";
 import { decideStrategyProposal, insertStrategyProposal, readActiveStrategyRef } from "./strategy/repository";
 import { resolveJobStrategy } from "./strategy/context";
+import { assertJobSourceBinding } from "./strategy/sourceBinding";
 import { decideTelegramNonceClaim,telegramDigest,type TelegramWebhookRoute } from "./telegramWebhook";
 import { currentTraceId } from "./telemetry";
 import {
@@ -446,6 +447,7 @@ export async function getOrCreateEditorialPlanningSnapshot(jobId: string) {
   const revision = job.editorialPlanRevision ?? 1;
   const expectedId = `planning-${jobId}-v${revision}`;
   if (job.editorialPlanningSnapshot?.snapshotId === expectedId && job.editorialPlanningSnapshotDigest) {
+    assertJobSourceBinding(job, job.editorialPlanningSnapshot);
     if (editorialPlanningSnapshotDigest(job.editorialPlanningSnapshot) !== job.editorialPlanningSnapshotDigest) {
       throw new Error("persisted editorial planning snapshot digest mismatch");
     }
@@ -457,10 +459,12 @@ export async function getOrCreateEditorialPlanningSnapshot(jobId: string) {
     const ref = jobRef(jobId);
     const snap = await tx.read(ref);
     const current = await resolveJobStrategy(requireJobDoc(snap), tx);
+    assertJobSourceBinding(current, candidate);
     if ((current.editorialPlanRevision ?? 1) !== revision || current.strategyDigest !== job.strategyDigest) {
       throw new Error("editorial planning authority changed while snapshot was assembled");
     }
     if (current.editorialPlanningSnapshot?.snapshotId === expectedId && current.editorialPlanningSnapshotDigest) {
+      assertJobSourceBinding(current, current.editorialPlanningSnapshot);
       if (editorialPlanningSnapshotDigest(current.editorialPlanningSnapshot) !== current.editorialPlanningSnapshotDigest) {
         throw new Error("persisted editorial planning snapshot digest mismatch");
       }

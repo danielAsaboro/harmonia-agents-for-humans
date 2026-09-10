@@ -37,6 +37,7 @@ export interface PendingOperation {
   decidedAt?: string;
   decidedByUserId?: string;
   pendingDecision?: PendingOperationDecision;
+  decisionFeedback?: string;
   decisionLeaseExpiresAt?: string;
   failureReason?: string;
 }
@@ -89,9 +90,13 @@ export function claimOperationDecisionRecord(
   decision: PendingOperationDecision,
   now: Date,
   userId: string,
+  feedback?: string,
 ): PendingOperation {
   assertPayloadBoundOperation(operation);
-  if (Date.parse(operation.expiresAt) <= now.getTime()) throw new Error("operation expired");
+  const exactRecovery = operation.handler === "decide_strategy" && operation.pendingDecision !== undefined;
+  if (exactRecovery && (operation.pendingDecision !== decision || operation.decidedByUserId !== userId || (operation.decisionFeedback ?? "") !== (feedback?.trim() ?? ""))) throw new Error("operation decision intent mismatch");
+  if (exactRecovery && operation.state === decision) return operation;
+  if (!exactRecovery && Date.parse(operation.expiresAt) <= now.getTime()) throw new Error("operation expired");
   if (operation.state === "processing") {
     if (operation.pendingDecision !== decision) throw new Error("operation decision mismatch");
     if (Date.parse(operation.decisionLeaseExpiresAt ?? "") > now.getTime()) throw new Error("operation is already processing");
@@ -102,6 +107,7 @@ export function claimOperationDecisionRecord(
     ...operation,
     state: "processing",
     pendingDecision: decision,
+    ...(feedback?.trim() ? { decisionFeedback: feedback.trim() } : {}),
     decidedByUserId: userId,
     decisionLeaseExpiresAt: new Date(now.getTime() + 60_000).toISOString(),
     failureReason: undefined,
@@ -113,6 +119,7 @@ export function finalizeOperationDecisionRecord(
   decision: PendingOperationDecision,
   now: Date,
 ): PendingOperation {
+  if (operation.handler === "decide_strategy" && operation.state === decision && operation.pendingDecision === decision) return operation;
   if (operation.state !== "processing" || operation.pendingDecision !== decision) {
     throw new Error("operation decision claim mismatch");
   }
@@ -181,7 +188,7 @@ export async function decidePendingOperation(id: string, decision: PendingOperat
   });
 }
 
-export async function claimPendingOperationDecision(id: string, decision: PendingOperationDecision): Promise<PendingOperation> {
+export async function claimPendingOperationDecision(id: string, decision: PendingOperationDecision, feedback?: string): Promise<PendingOperation> {
   const tenant = currentTenant();
   const ref = recordKey(collection().partition + "/" + id);
   return db().atomic(async (transaction) => {
@@ -189,8 +196,8 @@ export async function claimPendingOperationDecision(id: string, decision: Pendin
     if (!snap.present) throw new Error("operation not found");
     const operation = snap.value as unknown as PendingOperation;
     assertResourceWorkspace(tenant, operation);
-    const claimed = claimOperationDecisionRecord(operation, decision, new Date(), tenantSubjectId(tenant));
-    transaction.put(ref, claimed);
+    const claimed = claimOperationDecisionRecord(operation, decision, new Date(), tenantSubjectId(tenant), feedback);
+    if (claimed !== operation) transaction.put(ref, claimed);
     return claimed;
   });
 }
@@ -203,8 +210,9 @@ export async function finalizePendingOperationDecision(id: string, decision: Pen
     if (!snap.present) throw new Error("operation not found");
     const operation = snap.value as unknown as PendingOperation;
     assertResourceWorkspace(tenant, operation);
+    if (operation.handler === "decide_strategy" && operation.decidedByUserId !== tenantSubjectId(tenant)) throw new Error("operation decision actor mismatch");
     const finalized = finalizeOperationDecisionRecord(operation, decision, new Date());
-    transaction.put(ref, finalized);
+    if (finalized !== operation) transaction.put(ref, finalized);
     return finalized;
   });
 }

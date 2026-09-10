@@ -13,7 +13,8 @@ from harmonia_agent.agent_models import ContentDraft, DraftWorkflowResult, Edito
 from harmonia_agent.operation_context import operation_scope
 from tests.test_ryan_stages import job as ryan_job
 from tests.test_ryan_strategy import strategy
-from tests.test_temi_editorial_plan import plan
+from tests.test_temi_editorial_plan import plan, planner_input
+from tests.strategy_fixtures import source_binding, bind_job_plan
 from tests.test_noni_contracts import editorial_checks
 
 
@@ -52,6 +53,7 @@ def drafting_job() -> dict:
             for item in persisted_plan["items"]
         },
     })
+    bind_job_plan("job-1", source, planner_input()["planningSnapshot"])
     return source
 
 
@@ -116,6 +118,7 @@ def test_plan_runs_temi_and_persists_complete_plan_before_any_draft(monkeypatch)
     monkeypatch.setattr(stages, "get_job", lambda _id: approved_job())
     monkeypatch.setattr(stages, "get_editorial_planning_snapshot", lambda _id, **_kwargs: {
         "snapshot": {
+            "sourceBinding": source_binding("job-1", approved_job()["strategyRef"], approved_job()["sourceAnalysis"]),
             "snapshotId": "planning-job-1-v1", "asOf": "2026-08-30T00:00:00Z",
             "horizonStartAt": "2026-08-31T00:00:00Z", "horizonEndAt": "2026-09-28T00:00:00Z",
             "timezone": "UTC", "channelCapabilities": [{"channel": "x", "formats": ["text_post"]}],
@@ -155,6 +158,7 @@ def test_planning_failure_prevents_persistence_and_draft_dispatch(monkeypatch):
     monkeypatch.setattr(stages, "get_job", lambda _id: approved_job())
     monkeypatch.setattr(stages, "get_editorial_planning_snapshot", lambda _id: {
         "snapshot": {
+            "sourceBinding": source_binding("job-1", approved_job()["strategyRef"], approved_job()["sourceAnalysis"]),
             "snapshotId": "planning-job-1-v1", "asOf": "2026-08-30T00:00:00Z",
             "horizonStartAt": "2026-08-31T00:00:00Z", "horizonEndAt": "2026-09-28T00:00:00Z",
             "timezone": "UTC", "channelCapabilities": [{"channel": "x", "formats": ["text_post"]}],

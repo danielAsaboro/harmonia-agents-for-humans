@@ -16,7 +16,7 @@ async function post(req: Request, { params }: { params: Promise<{ id: string }> 
   if (!parsed.success) return Response.json({ error: "invalid strategy decision" }, { status: 400 });
   try {
     const result = await decideStrategy(id, parsed.data);
-    await appendEvent(id, "awaiting_strategy_approval", result.approval.decision === "approved" ? "operator approved Ryan strategy" : "operator rejected Ryan strategy", "operator");
+    if (!result.replayed) await appendEvent(id, "awaiting_strategy_approval", result.approval.decision === "approved" ? "operator approved Ryan strategy" : "operator rejected Ryan strategy", "operator");
     if (result.outboxId) {
       try { await dispatchStageOutboxRecord(result.outboxId); } catch { /* durable dispatcher retries */ }
     }

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { assertJobSourceBinding } from "./strategy/sourceBinding";
 import type { EditorialPlan } from "./types";
 
 function canonicalBytes(value: unknown): string {
@@ -89,6 +90,7 @@ export function isMatchingActiveProduction(
 
 export function assertSelectedProductionAuthority(
   job: {
+    id: string; sourceAnalysis?: import("./types").SourceAnalysis; editorialPlanningSnapshot?: import("./types").EditorialPlanningSnapshot; editorialPlanningSnapshotDigest?: string;
     stage: string; editorialPlan?: EditorialPlan; editorialPlanDigest?: string;
     selectedNextItemId?: string;
     strategyDigest?: string; strategyApproval?: { revision: number };
@@ -107,6 +109,9 @@ export function assertSelectedProductionAuthority(
   const revision = job.strategyApproval?.revision;
   const strategy = job.contentStrategy;
   if (!job.strategyRef || job.strategyRef.digest !== job.strategyDigest || job.strategyRef.strategyId !== strategy?.strategyId || strategy.version !== revision) throw new Error("immutable approved strategy reference mismatch");
+  if (!job.editorialPlanningSnapshot) throw new Error("persisted editorial planning snapshot required");
+  if (plan.planningSnapshotId !== job.editorialPlanningSnapshot.snapshotId || plan.planningSnapshotDigest !== job.editorialPlanningSnapshotDigest || editorialPlanningSnapshotDigest(job.editorialPlanningSnapshot) !== job.editorialPlanningSnapshotDigest) throw new Error("editorial plan planning snapshot digest mismatch");
+  assertJobSourceBinding(job, job.editorialPlanningSnapshot, plan);
   if (job.selectedNextItemId !== authority.editorialItemId || plan.selectedNextItemId !== authority.editorialItemId) throw new Error("selected editorial item mismatch");
   const item = plan.items.find((candidate) => candidate.id === authority.editorialItemId);
   if (!item || item.briefId !== authority.briefId) throw new Error("selected editorial brief mismatch");
@@ -117,6 +122,7 @@ export function assertSelectedProductionAuthority(
 
 export function assertEditorialPlanSubmission(
   job: {
+    id: string; sourceAnalysis?: import("./types").SourceAnalysis;
     stage: string;
     strategyDigest?: string;
     strategyRevision?: number;
@@ -141,6 +147,7 @@ export function assertEditorialPlanSubmission(
   if (!job.editorialPlanningSnapshot || !job.editorialPlanningSnapshotDigest) throw new Error("persisted editorial planning snapshot required");
   if (plan.planningSnapshotId !== job.editorialPlanningSnapshot.snapshotId) throw new Error("editorial plan planning snapshot mismatch");
   if (plan.planningSnapshotDigest !== job.editorialPlanningSnapshotDigest || editorialPlanningSnapshotDigest(job.editorialPlanningSnapshot) !== job.editorialPlanningSnapshotDigest) throw new Error("editorial plan planning snapshot digest mismatch");
+  assertJobSourceBinding(job, job.editorialPlanningSnapshot, plan);
   const approval = job.strategyApproval;
   if (job.strategyApprovalState !== "approved" || approval?.decision !== "approved") throw new Error("approved strategy required for editorial planning");
   if (approval.payloadDigest !== job.strategyDigest || approval.revision !== job.strategyRevision) throw new Error("editorial plan strategy approval binding mismatch");

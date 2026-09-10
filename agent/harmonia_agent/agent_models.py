@@ -703,7 +703,23 @@ class CalendarProjection(StrictModel):
     evidenceRefs: list[Identifier] = Field(min_length=1, max_length=12)
 
 
+class StrategyRef(StrictModel):
+    workspaceId: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
+    brandId: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
+    strategyId: str = Field(min_length=1, max_length=100)
+    revision: int = Field(ge=1, le=9007199254740991)
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class StrategySourceBinding(StrictModel):
+    jobId: str = Field(min_length=1, max_length=100)
+    strategyRef: StrategyRef
+    analysisDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    evidenceIds: list[Identifier] = Field(min_length=1, max_length=12168)
+
+
 class EditorialPlanningSnapshot(StrictModel):
+    sourceBinding: StrategySourceBinding
     snapshotId: str = Field(min_length=1, max_length=100)
     asOf: datetime
     horizonStartAt: datetime
@@ -734,14 +750,6 @@ class EditorialPlanningSnapshot(StrictModel):
         if self.horizonStartAt >= self.horizonEndAt:
             raise ValueError("editorial horizon must increase")
         return self
-
-
-class StrategyRef(StrictModel):
-    workspaceId: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
-    brandId: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
-    strategyId: str = Field(min_length=1, max_length=100)
-    revision: int = Field(ge=1, le=9007199254740991)
-    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class EditorialPlannerInput(StrictModel):

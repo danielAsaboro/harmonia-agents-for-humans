@@ -622,23 +622,23 @@ async def run_draft(job_id: str) -> None:
     if selected is None or brief is None:
         raise AgentProtocolError("selected editorial item has no exact approved brief")
     evidence_ids = set(selected.evidenceRefs)
-    source_analysis = SourceAnalysis.model_validate(job.get("sourceAnalysis"))
-    analysis_json = source_analysis.model_dump(mode="json", exclude_none=True)
+    source_analysis = SourceAnalysis.model_validate(job["sourceAnalysis"]) if job.get("sourceAnalysis") else None
+    analysis_json = source_analysis.model_dump(mode="json", exclude_none=True) if source_analysis else None
     snapshot = job.get("editorialPlanningSnapshot") or {}
     if not snapshot or editorial_plan_digest(snapshot) != job.get("editorialPlanningSnapshotDigest") or editorial_plan.planningSnapshotDigest != job.get("editorialPlanningSnapshotDigest"):
         raise AgentProtocolError("persisted job source planning snapshot required")
     try:
-        validate_source_binding(snapshot.get("sourceBinding") or {}, job_id, strategy_ref, analysis_json, [selected.model_dump(mode="json")])
+        validate_source_binding(snapshot.get("sourceBinding") or {}, job_id, strategy_ref, analysis_json, [selected.model_dump(mode="json")], operator_context=job.get("operatorPlanningContext"))
     except ValueError as error:
         raise AgentProtocolError(str(error)) from error
-    moments = [item for item in analysis_json["moments"] if item["id"] in evidence_ids]
-    angles = [item for item in analysis_json["angles"] if item["id"] in evidence_ids]
+    moments = [item for item in analysis_json["moments"] if item["id"] in evidence_ids] if analysis_json else []
+    angles = [item for item in analysis_json["angles"] if item["id"] in evidence_ids] if analysis_json else []
     source_ids = {item["id"] for item in [*moments, *angles]}
     expected_source_ids = evidence_ids & {
-        *(item["id"] for item in analysis_json["moments"]),
-        *(item["id"] for item in analysis_json["angles"]),
+        *(item["id"] for item in (analysis_json or {}).get("moments", [])),
+        *(item["id"] for item in (analysis_json or {}).get("angles", [])),
     }
-    if source_ids != expected_source_ids or not source_ids:
+    if analysis_json and (source_ids != expected_source_ids or not source_ids):
         raise AgentProtocolError("selected brief source evidence is missing")
     artifact_output_types = {"x_post", "x_thread", "linkedin_post", "blog_article", "newsletter", "caption", "carousel_spec", "quote_card", "diagram", "editorial_calendar", "content_pack"}
     output_plan = job.get("campaignOutputPlan")
@@ -649,7 +649,7 @@ async def run_draft(job_id: str) -> None:
         raise AgentProtocolError("campaign output plan recovery did not return a plan")
     requested = [item for item in (output_plan.get("outputs") or []) if item.get("outputType") in artifact_output_types]
     if requested:
-        source_package = get_source_manifest(job_id); evidence_by_id: dict[str, str] = {}
+        source_package = get_source_manifest(job_id) if analysis_json else {}; evidence_by_id: dict[str, str] = {}
         for source in source_package.get("normalizedSources") or []:
             for index, segment in enumerate(source.get("segments") or [], start=1):
                 # Nimi receives position-derived segment identities because provider

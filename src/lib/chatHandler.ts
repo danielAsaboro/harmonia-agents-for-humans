@@ -443,7 +443,12 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
     return { __http: Response.json({ error: `intent parsing failed: ${e instanceof Error ? e.message : String(e)}` }, { status: 502 }) };
   }
 
-  if (["create_job", "establish_strategy", "revise_strategy", "advance_plan"].includes(intent.intent)
+  if (intent.intent === "advance_plan" || intent.intent === "manage_calendar") {
+    const { executePlanningChat } = await import("./planning/commands");
+    const result = await executePlanningChat({ action: intent.intent, message, requestId: requestId ?? "", targetName: intent.targetName });
+    return { payload: { intent: intent.intent, reply: result.reply } satisfies ChatResponse };
+  }
+  if (["create_job", "establish_strategy", "revise_strategy"].includes(intent.intent)
       || intent.workPlacement === "knowledge_only"
       || (pending && intent.intent === "unknown")
       || ((pending?.state === "clarifying" || pending?.state === "ready") && hasRightsAttestation(message))) {
@@ -471,9 +476,6 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
   if (intent.needsClarification && intent.clarifyingQuestion) return { payload: { intent: intent.intent, reply: intent.clarifyingQuestion } };
 
   switch (intent.intent) {
-    case "manage_calendar":
-      return { payload: { intent: intent.intent, reply: `${intent.workspaceContext?.planReady ? `Your plan is active with ${intent.workspaceContext.upcomingItemCount} upcoming item(s). Tell me the date, cadence, or priority change you want; external calendar sync will still require its normal confirmation.` : "There is no active editorial plan to schedule yet. Start with the company strategy, then Harmonia will build the plan and calendar in context."}${connectionGuidance(intent.connectionSuggestions)}` } satisfies ChatResponse };
-
     case "effect_request":
       return { payload: { intent: intent.intent, reply: "I can prepare that effect, but routing a request does not authorize it. Open the pending work, review the exact digest-bound action, and confirm only the action you want executed." } satisfies ChatResponse };
 

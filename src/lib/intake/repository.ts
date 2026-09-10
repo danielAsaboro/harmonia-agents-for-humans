@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { awsRepository, recordKey, type DynamoTransaction } from "../dynamo";
 import { currentTenant, tenantSubjectId, assertResourceWorkspace } from "../tenancy";
 import { readActiveStrategyRef, type StrategyReader } from "../strategy/repository";
-import { loadActiveStrategyContext } from "../strategy/context";
+import { listCurrentPlans, readPlannedItem, readItemState } from "../campaigns/repository";
 import { hasRightsAttestation, sourceRightsAuthorization, sourceRightsAuthorizationId } from "../sourceRights";
 import { requireContentOperator } from "../authority";
 import { strategyDigest } from "../strategyApproval";
@@ -22,7 +22,7 @@ function checkedDraft(value: unknown): IntakeDraft {
   if (draft.subjectId !== tenantSubjectId(currentTenant())) throw new Error("intake operator access denied");
   return draft;
 }
-export async function readIntakeDraft(id: string, reader = awsRepository()): Promise<IntakeDraft | null> {
+export async function readIntakeDraft(id: string, reader: StrategyReader = awsRepository()): Promise<IntakeDraft | null> {
   const row = await reader.read(intakeDraftKey(id));
   return row.present ? checkedDraft(row.value) : null;
 }
@@ -41,8 +41,15 @@ export async function replayIntakeTurn(input: { surface: string; conversationId:
   return readIntakeDraft(String(row.value?.draftId));
 }
 export async function authorizedIntakeTargets(reader?: StrategyReader): Promise<IntakeTarget[]> {
-  const { strategyPlan } = await loadActiveStrategyContext(reader);
-  return strategyPlan?.items.map(item => ({ campaignId: strategyPlan.planId, itemId: item.id, name: item.campaignTheme })) ?? [];
+  const active = await readActiveStrategyRef(reader); const targets: IntakeTarget[] = [];
+  for (const plan of await listCurrentPlans(reader)) {
+    if (strategyDigest(plan.strategyRef) !== strategyDigest(active)) continue;
+    for (const ref of plan.itemRefs) {
+      const item = await readPlannedItem(ref, reader); const state = await readItemState(ref, reader);
+      if (["planned", "blocked"].includes(state.status)) targets.push({ campaignId: plan.campaignRef?.id ?? null, planId: plan.ref.id, itemId: ref.id, name: item.name });
+    }
+  }
+  return targets;
 }
 export interface IntakeTurn {
   requestId: string; conversationId: string; surface: "dashboard" | "telegram";
@@ -117,7 +124,7 @@ export async function submitIntakeTurn(input: IntakeTurn): Promise<IntakeDraft> 
       subjectId: tenantSubjectId(tenant), conversationId: input.conversationId, operationId: prior?.operationId ?? input.requestId,
       surface: input.surface, originalOperatorBrief: prior?.originalOperatorBrief ?? input.message,
       answers: [...(prior?.answers ?? []), { requestId: input.requestId, message: input.message, at: now }],
-      sourceRights, state: assessment.missingFields.length ? "clarifying" : merged.disposition === "knowledge_only" ? "retained" : !sourceHandles.length && !["establish_strategy", "revise_strategy"].includes(merged.action) ? "ready_for_planning" : "ready",
+      sourceRights, state: assessment.missingFields.length ? "clarifying" : merged.disposition === "knowledge_only" ? "retained" : merged.disposition === "existing_plan_item" || (!sourceHandles.length && !["establish_strategy", "revise_strategy"].includes(merged.action)) ? "ready_for_planning" : "ready",
       revision: (prior?.revision ?? 0) + 1, idempotencyKey: id,
       strategyBaseRef: prior ? prior.strategyBaseRef : active,
       createdAt: prior?.createdAt ?? now, updatedAt: now,
@@ -139,7 +146,7 @@ export async function bindIntakeJob(tx: DynamoTransaction, draft: IntakeDraft, j
   const active = await readActiveStrategyRef(tx);
   if (current.disposition === "existing_plan_item") {
     const targets = await authorizedIntakeTargets(tx);
-    if (!current.target || !targets.some(target => target.campaignId === current.target?.campaignId && target.itemId === current.target?.itemId)) throw new Error("planned intake target is no longer authorized");
+    if (!current.target || !targets.some(target => target.campaignId === current.target?.campaignId && target.planId === current.target?.planId && target.itemId === current.target?.itemId)) throw new Error("planned intake target is no longer authorized");
   }
   if ((["establish_strategy", "revise_strategy"].includes(current.action) || current.disposition === "existing_plan_item") && strategyDigest(active) !== strategyDigest(current.strategyBaseRef)) throw new Error("active strategy changed; revise the intake against its current revision");
   tx.put(intakeDraftKey(draft.id), { ...current, state: "dispatched", jobId, revision: current.revision + 1, updatedAt: new Date().toISOString() });

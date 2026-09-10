@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildEditorialPlanningSnapshot, EDITORIAL_PLANNING_POLICY_ID } from "@/lib/editorialPlanning";
+import { buildEditorialPlanningSnapshot } from "@/lib/editorialPlanning";
 import type { ContentItem, Job } from "@/lib/types";
 import { sourceAnalysisDigest } from "@/lib/sourceAnalysis";
 import { strategyFixture } from "./fixtures/strategy";
@@ -14,6 +14,7 @@ const job = {
   contentStrategy: strategyFixture("strategy-1"),
   sourceAnalysis: { sourceDigest: "c".repeat(64), summary: "Second source", moments: [{ id: "second-moment", title: "Proof", startSec: 0, endSec: 1, hook: "Proof", quote: "Proof", sourceSegmentRefs: ["second-source:seg-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }], angles: [], assumptions: [], confidence: "high" },
 } as Job;
+const configured = { policy: { ref: { workspaceId: "w1", brandId: "b1", id: "policy", revision: 1 }, configuredBy: "u1", configuredAt: "2026-08-30T00:00:00Z", timezone: "America/New_York", productionCapacity: { maxItems: 9, maxItemsPerWeek: 3 }, cadenceConstraints: { minimumHoursBetweenItems: 36, maxItemsPerChannelPerWeek: 3 }, maxConcurrentItems: 1 }, assetReadiness: [], blockedDependencies: [] };
 
 const item = {
   id: "content-1", jobId: "older-job", text: "persisted", platforms: ["x"], status: "scheduled",
@@ -23,26 +24,35 @@ const item = {
 } as ContentItem;
 
 describe("deterministic Temi planning snapshot", () => {
+  it("includes already planned work as real commitments before generating another plan", () => {
+    const commitment = { id: "planned:item-1", channel: "x", publicationWindowStartAt: "2026-09-03T12:00:00Z", publicationWindowEndAt: "2026-09-03T13:00:00Z" };
+    const snapshot = buildEditorialPlanningSnapshot(job, [], undefined, { ...configured, plannedCommitments: [commitment] });
+    expect(snapshot.existingCommitments).toContainEqual(commitment);
+  });
+  it("requires configured timezone, cadence and capacity instead of silently inventing a policy", () => {
+    expect(() => buildEditorialPlanningSnapshot(job, [])).toThrow("configured planning policy");
+  });
   it("binds the pinned direction to this job's exact disjoint source evidence", () => {
-    const snapshot = buildEditorialPlanningSnapshot(job, []);
+    const snapshot = buildEditorialPlanningSnapshot(job, [], undefined, configured);
     expect(snapshot.sourceBinding).toEqual({ jobId: job.id, strategyRef: job.strategyRef, analysisDigest: sourceAnalysisDigest(job.sourceAnalysis), evidenceIds: ["second-moment", "second-source:seg-1"] });
   });
   it("projects tenant-scoped commitments and calendar state without granting mutation authority", () => {
-    const snapshot = buildEditorialPlanningSnapshot(job, [item], "2026-08-30T12:00:00Z");
+    const snapshot = buildEditorialPlanningSnapshot(job, [item], "2026-08-30T12:00:00Z", configured);
     expect(snapshot.snapshotId).toBe("planning-job-1-v1");
     expect(snapshot.existingCommitments).toEqual([expect.objectContaining({ id: "commitment:content-1:x", channel: "x" })]);
     expect(snapshot.calendarProjection).toEqual([expect.objectContaining({ state: "synced", externalEventId: "event-1" })]);
-    expect(snapshot.provenanceIds).toEqual([EDITORIAL_PLANNING_POLICY_ID, `strategy:${"a".repeat(64)}`, "content-item:content-1"].sort());
+    expect(snapshot.provenanceIds).toEqual(["policy:policy:v1", `strategy:${"a".repeat(64)}`, "content-item:content-1"].sort());
+    expect(snapshot.timezone).toBe("America/New_York"); expect(snapshot.productionCapacity.maxItems).toBe(9);
     expect(snapshot).not.toHaveProperty("credentials");
     expect(snapshot).not.toHaveProperty("calendarWriteToken");
   });
 
   it("rejects missing or mismatched approved strategy authority", () => {
-    expect(() => buildEditorialPlanningSnapshot({ ...job, strategyApproval: undefined }, [])).toThrow("approved strategy");
-    expect(() => buildEditorialPlanningSnapshot({ ...job, strategyApproval: { ...job.strategyApproval!, payloadDigest: "b".repeat(64) } }, [])).toThrow("binding mismatch");
+    expect(() => buildEditorialPlanningSnapshot({ ...job, strategyApproval: undefined }, [], undefined, configured)).toThrow("approved strategy");
+    expect(() => buildEditorialPlanningSnapshot({ ...job, strategyApproval: { ...job.strategyApproval!, payloadDigest: "b".repeat(64) } }, [], undefined, configured)).toThrow("binding mismatch");
   });
 
   it("binds each replan to a new snapshot revision", () => {
-    expect(buildEditorialPlanningSnapshot({ ...job, editorialPlanRevision: 2 }, []).snapshotId).toBe("planning-job-1-v2");
+    expect(buildEditorialPlanningSnapshot({ ...job, editorialPlanRevision: 2 }, [], undefined, configured).snapshotId).toBe("planning-job-1-v2");
   });
 });

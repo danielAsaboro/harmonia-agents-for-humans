@@ -10,7 +10,19 @@ def source_evidence_ids(analysis: dict) -> list[str]:
     })
 
 
-def validate_source_binding(binding: dict, job_id: str, strategy_ref: dict, analysis: dict, items: list[dict]) -> None:
+def validate_source_binding(binding: dict, job_id: str, strategy_ref: dict, analysis: dict | None, items: list[dict], *, operator_context: dict | None = None) -> None:
+    if analysis is None:
+        if not operator_context or operator_context.get("mode") != "operator_context":
+            raise ValueError("host no-source context authority required")
+        if operator_context.get("contextDigest") != typed_digest(operator_context.get("operatorBrief")):
+            raise ValueError("operator context digest mismatch")
+        if operator_context.get("evidenceIds") != [] or operator_context.get("factualClaimsAllowed") is not False:
+            raise ValueError("operator context cannot grant factual evidence")
+        if binding != {**operator_context, "jobId": job_id, "strategyRef": strategy_ref}:
+            raise ValueError("operator context binding mismatch")
+        if any(item.get("evidenceRefs") for item in items):
+            raise ValueError("operator context cannot invent factual evidence")
+        return
     expected = {"jobId": job_id, "strategyRef": strategy_ref, "analysisDigest": typed_digest(analysis), "evidenceIds": source_evidence_ids(analysis)}
     if binding != expected:
         raise ValueError("editorial job source binding mismatch")

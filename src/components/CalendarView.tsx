@@ -33,6 +33,8 @@ export default function CalendarView() {
   const [view, setView] = useState<"month" | "agenda">("month");
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [items, setItems] = useState<CalendarItem[]>([]);
+  const [plannedItems, setPlannedItems] = useState<Array<import("@/lib/campaigns/contracts").PlannedItem & { state: import("@/lib/campaigns/contracts").PlannedItemState }>>([]);
+  const [planningTimezone, setPlanningTimezone] = useState<string | null>(null);
   const [goals, setGoals] = useState<{ weeklyPostTarget?: number } | null>(null);
   const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
@@ -62,6 +64,8 @@ export default function CalendarView() {
       const calendar = await calendarResponse.json();
       setEvents(calendar.events ?? []);
       setItems(calendar.items ?? []);
+      setPlannedItems(calendar.plannedItems ?? []);
+      setPlanningTimezone(calendar.planningPolicy?.timezone ?? null);
       if (goalsResponse.ok) {
         const body = await goalsResponse.json();
         setGoals(body.goals ?? null);
@@ -133,6 +137,15 @@ export default function CalendarView() {
 
   return (
     <DashboardPage title="Content calendar" description="Plan, review, and verify every scheduled post without losing the approval boundary." eyebrow="Publishing schedule">
+      {plannedItems.length > 0 && <section className="dash-panel" aria-label="Planned production">
+        <h2>Planned production · {planningTimezone}</h2>
+        <ul>{plannedItems.map(item => <li key={`${item.ref.id}:${item.ref.revision}`}>
+          <strong>{item.name}</strong> · {new Date(item.scheduledFor).toLocaleString([], { timeZone: planningTimezone! })} · {item.channel} · {item.state.status.replaceAll("_", " ")}
+          <p>{item.campaignRef ? `Campaign ${item.campaignRef.id}` : "Independent work"} · Plan {item.planRef.id} · Revision {item.ref.revision}</p>
+          {item.state.reason && <p>{item.state.reason}</p>}
+          {item.state.jobId && <Link href={`/dashboard?job=${encodeURIComponent(item.state.jobId)}`}>Open execution</Link>}
+        </li>)}</ul>
+      </section>}
       <AlertBanner
         tone={googleCalendar?.connected ? "success" : "info"}
         title={googleCalendar?.connected ? "Google Calendar connected" : "Keep the external calendar in sync"}

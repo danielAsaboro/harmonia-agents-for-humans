@@ -9,7 +9,8 @@ Tenant paths are constructed by `src/lib/tenancy.ts`. Workspace membership is re
 |---|---|
 | `workspaces`, `members`, `brands` | Tenant identity, membership, and brand context |
 | `jobs`, events, stage outbox, stage executions | Workflow state, history, delivery, and claims |
-| strategy and editorial-plan fields on jobs | Versioned proposals, digests, approvals, and lineage |
+| strategy proposals, approved strategy revisions and active pointer | Immutable approved brand direction and revision-bound authority |
+| campaigns, plan revisions and planned items | Durable production calendar, pinned source/strategy references and execution bindings |
 | `pending_operations`, `chat_runs`, `chat_attachments` | Conversational commands, streams, and uploads |
 | `content_items`, `effect_commands` | Calendar items and digest-bound execution commands |
 | approvals, claims, receipts, verifications | Human authority and effect evidence chain |
@@ -18,6 +19,8 @@ Tenant paths are constructed by `src/lib/tenancy.ts`. Workspace membership is re
 | `data_batches`, nested `work_items` | GCS-manifest fan-out, leases, dead letters, and fan-in state |
 
 Binary media belongs in the asset store; DynamoDB records identifiers, URIs, digests, rights, and lineage. SQS delivers triggers, while DynamoDB transactions decide whether a trigger is current and claimable. See [State ownership](/state-ownership).
+
+See [Campaigns and production planning](/reference/campaign-planning) for policy configuration and plan/item command records.
 
 ## Operational feed records
 

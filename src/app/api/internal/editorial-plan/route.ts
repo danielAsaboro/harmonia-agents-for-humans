@@ -16,8 +16,8 @@ export async function POST(req: Request) {
         kind: "handoff", status: "succeeded", role: "temi_editorial_planner",
         fromRole: "temi_editorial_planner", toRole: "noni_copywriter", publicMessage: message,
       } });
-      try { await dispatchStageOutboxRecord(accepted.outboxId); } catch { /* durable tick retries */ }
-      return Response.json({ ok: true, digest, selectedNextItemId: accepted.selectedNextItemId, triggered: "draft" });
+      try { if (accepted.outboxId) await dispatchStageOutboxRecord(accepted.outboxId); } catch { /* durable tick retries */ }
+      return Response.json({ ok: true, digest, planRef: accepted.planRef, executionJobId: accepted.executionJobId, selectedNextItemId: accepted.selectedNextItemId, triggered: accepted.outboxId ? "draft" : null });
     } catch (error) {
       return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 409 });
     }

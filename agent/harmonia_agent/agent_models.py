@@ -718,8 +718,18 @@ class StrategySourceBinding(StrictModel):
     evidenceIds: list[Identifier] = Field(min_length=1, max_length=12168)
 
 
+class OperatorSourceBinding(StrictModel):
+    mode: Literal["operator_context"]
+    jobId: str = Field(min_length=1, max_length=100)
+    strategyRef: StrategyRef
+    operatorBrief: str = Field(min_length=1, max_length=20000)
+    contextDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    evidenceIds: list[str] = Field(max_length=0)
+    factualClaimsAllowed: Literal[False]
+
+
 class EditorialPlanningSnapshot(StrictModel):
-    sourceBinding: StrategySourceBinding
+    sourceBinding: StrategySourceBinding | OperatorSourceBinding
     snapshotId: str = Field(min_length=1, max_length=100)
     asOf: datetime
     horizonStartAt: datetime
@@ -801,7 +811,7 @@ class EditorialPlanItem(StrictModel):
     kpi: str = Field(min_length=1, max_length=200)
     channel: str = Field(min_length=1, max_length=100)
     format: str = Field(min_length=1, max_length=100)
-    evidenceRefs: list[Identifier] = Field(min_length=1, max_length=12)
+    evidenceRefs: list[Identifier] = Field(max_length=12)
     publicationWindowStartAt: datetime
     publicationWindowEndAt: datetime
     productionDeadlineAt: datetime

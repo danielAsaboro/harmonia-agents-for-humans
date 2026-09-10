@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { strategyRefSchema, strategySourceBindingSchema } from "./strategy/contracts";
+import { strategyRefSchema, planningSourceBindingSchema } from "./strategy/contracts";
 
 export const sourceInputSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("youtube"), url: z.string().url(), rightsAuthorizationId: z.string().min(1) }).strict(),
@@ -423,7 +423,7 @@ const postingWindowObservationSchema = z.object({
 }).strict();
 
 export const editorialPlanningSnapshotSchema = z.object({
-  sourceBinding: strategySourceBindingSchema,
+  sourceBinding: planningSourceBindingSchema,
   snapshotId: z.string().min(1).max(100), asOf: utcTimestampSchema,
   horizonStartAt: utcTimestampSchema, horizonEndAt: utcTimestampSchema,
   timezone: ianaTimezoneSchema,
@@ -469,7 +469,7 @@ export const editorialPlanItemSchema = z.object({
   id: z.string().min(1).max(100), briefId: z.string().min(1).max(100),
   campaignTheme: z.string().min(1).max(200), contentPillar: z.string().min(1).max(200), objective: z.string().min(1).max(600),
   audienceId: z.string().min(1).max(100), funnelStage, intendedConversion: z.string().min(1).max(300), ctaIntent: z.string().min(1).max(300), kpi: z.string().min(1).max(200),
-  channel: z.string().min(1).max(100), format: z.string().min(1).max(100), evidenceRefs,
+  channel: z.string().min(1).max(100), format: z.string().min(1).max(100), evidenceRefs: z.array(z.string().min(1).max(100)).max(12),
   publicationWindowStartAt: utcTimestampSchema, publicationWindowEndAt: utcTimestampSchema, productionDeadlineAt: utcTimestampSchema,
   priority: z.number().int().min(1).max(5), selectionScore: z.number().min(0).max(1), dependencies: z.array(z.string().min(1).max(100)).max(8).default([]),
   productionStatus: z.literal("planned"), constraints: z.array(z.string().min(1).max(300)).max(12).default([]), requiredAssets: z.array(z.string().min(1).max(300)).max(12).default([]),

@@ -8,8 +8,11 @@ import { markReservationFinalized,markReservationReleased,markReservationUncerta
 import { applyFinalizedUsage,applyReleasedReservation,applyReservation,canReserve,exceedsApprovalThreshold } from "./costs";
 import type { ApprovalActor } from "./decisions";
 import { awsRepository,DynamoTransaction,field,limited,newRecordId,ordered,partition,recordKey,REMOVE_FIELD,StoredRecord,where } from "./dynamo";
-import { assertEditorialPlanSubmission,assertSelectedProductionAuthority,editorialDraftCompletionPatch,editorialPlanDigest,editorialPlanEvidenceLineage,editorialPlanningSnapshotDigest,isMatchingActiveProduction } from "./editorialPlan";
+import { assertEditorialPlanSubmission,assertSelectedProductionAuthority,editorialPlanDigest,editorialPlanEvidenceLineage,editorialPlanningSnapshotDigest,isMatchingActiveProduction } from "./editorialPlan";
 import { buildEditorialPlanningSnapshot } from "./editorialPlanning";
+import { authorityKey, listPlanningAssets, readItemState, readPlan, readPlanningPolicy } from "./campaigns/repository";
+import { persistEditorialPlan } from "./campaigns/editorial";
+import { claimNextPlannedItem, reconcilePlannedExecution } from "./planning/selection";
 import { decideEffectClaim,decideEffectFinalization } from "./effectClaims";
 import type { EventInboxClaimResult,EventInboxRecord } from "./eventInbox";
 import { EventInboxStore,type DurableEventClaimInput } from "./eventInboxStore";
@@ -43,7 +46,7 @@ releaseStageOutboxClaim,
 type StageOutboxRecord,
 } from "./stageOutbox";
 import { deleteArtifactUri,deleteWorkspaceArtifactUri } from "./storage";
-import { assertStrategyProposalRevision,strategySourceEvidenceIds,validatePersistedStrategy,validateStrategySearchGrounding,type StrategyDecisionInput } from "./strategyApproval";
+import { assertStrategyProposalRevision,strategyDigest,strategySourceEvidenceIds,validatePersistedStrategy,validateStrategySearchGrounding,type StrategyDecisionInput } from "./strategyApproval";
 import { decideStrategyProposal, insertStrategyProposal, readActiveStrategyRef } from "./strategy/repository";
 import { resolveJobStrategy } from "./strategy/context";
 import { assertJobSourceBinding } from "./strategy/sourceBinding";
@@ -453,12 +456,28 @@ export async function getOrCreateEditorialPlanningSnapshot(jobId: string) {
     }
     return { snapshot: job.editorialPlanningSnapshot, digest: job.editorialPlanningSnapshotDigest };
   }
-  const candidate = buildEditorialPlanningSnapshot(job, await listContentItems());
+  const policy = await readPlanningPolicy();
+  const assets = await listPlanningAssets();
+  const { plannedCalendar } = await import("./planning/commands");
+  const { readItemState } = await import("./campaigns/repository");
+  const planned = await plannedCalendar();
+  const blockedDependencies: import("./types").EditorialPlanningSnapshot["blockedDependencies"] = [];
+  for (const item of planned) for (const dependency of item.dependencies) {
+    const state = await readItemState(dependency);
+    if (state.status !== "completed") blockedDependencies.push({ id: dependency.id, briefId: item.editorialItemId ?? item.ref.id, reason: `Dependency is ${state.status}`, evidenceRefs: [`planned-item:${dependency.id}:v${dependency.revision}`] });
+  }
+  const plannedExecutionIds = new Set(planned.map(item => item.lifecycle.jobId).filter(Boolean));
+  const candidate = buildEditorialPlanningSnapshot(job, (await listContentItems()).filter(item => !plannedExecutionIds.has(item.jobId)), new Date().toISOString(), {
+    policy, assetReadiness: assets.map(({ id, briefId, assetType, status, evidenceRefs }) => ({ id, briefId, assetType, status, evidenceRefs })), blockedDependencies,
+    plannedCommitments: planned.map(item => ({ id: `planned:${item.ref.id}`, channel: item.channel, publicationWindowStartAt: item.scheduledFor, publicationWindowEndAt: item.publicationWindowEndAt ?? new Date(Date.parse(item.scheduledFor) + 3600000).toISOString() })),
+  });
   const digest = editorialPlanningSnapshotDigest(candidate);
   return db().atomic(async (tx) => {
     const ref = jobRef(jobId);
     const snap = await tx.read(ref);
     const current = await resolveJobStrategy(requireJobDoc(snap), tx);
+    const currentPolicy = await readPlanningPolicy(tx);
+    if (strategyDigest(currentPolicy.ref) !== strategyDigest(policy.ref) || strategyDigest(await listPlanningAssets(tx)) !== strategyDigest(assets) || strategyDigest(await plannedCalendar(tx)) !== strategyDigest(planned)) throw new Error("planning calendar or policy changed while snapshot was assembled");
     assertJobSourceBinding(current, candidate);
     if ((current.editorialPlanRevision ?? 1) !== revision || current.strategyDigest !== job.strategyDigest) {
       throw new Error("editorial planning authority changed while snapshot was assembled");
@@ -1139,6 +1158,9 @@ function requireJobDoc(snap: StoredRecord): Job & {
   assertResourceWorkspace(currentTenant(), data);
   return {
     id: snap.id,
+    planRef: data.planRef,
+    plannedItemRef: data.plannedItemRef,
+    operatorPlanningContext: data.operatorPlanningContext,
     workspaceId: data.workspaceId,
     brandId: data.brandId,
     createdByUserId: data.createdByUserId,
@@ -1162,14 +1184,8 @@ function requireJobDoc(snap: StoredRecord): Job & {
     strategyRevision: data.strategyRevision,
     strategyRevisionFeedback: data.strategyRevisionFeedback,
     strategyInvocationContext: data.strategyInvocationContext,
-    editorialPlan: data.editorialPlan,
-    editorialPlanDigest: data.editorialPlanDigest,
     editorialPlanRevision: data.editorialPlanRevision,
-    editorialPlanEvidenceLineage: data.editorialPlanEvidenceLineage,
-    selectedNextItemId: data.selectedNextItemId,
-    editorialItemStates: data.editorialItemStates,
     activeProductionLineage: data.activeProductionLineage,
-    editorialPlanHistory: data.editorialPlanHistory,
     editorialPlanningSnapshot: data.editorialPlanningSnapshot,
     editorialPlanningSnapshotDigest: data.editorialPlanningSnapshotDigest,
     editorialPlanningSnapshotHistory: data.editorialPlanningSnapshotHistory,
@@ -1322,6 +1338,16 @@ export async function eraseWorkspaceData(
   }, { merge: true });
 }
 
+export async function insertExecutionJob(tx: DynamoTransaction, id: string, config: JobConfig, stage: Stage, context: Partial<Job> = {}) {
+  const tenant = currentTenant(); const now = new Date().toISOString();
+  const row = await tx.read(jobRef(id));
+  if (row.present) throw new Error("planned execution already exists without item binding");
+  const doc = { workspaceId: tenant.workspaceId, brandId: tenant.brandId, createdByUserId: tenantSubjectId(tenant), createdAt: now, updatedAt: now, status: "running", stage, config, controlEpoch: 0, controlState: "running", budget: initialJobBudget(), ...context };
+  tx.insert(jobRef(id), doc);
+  const outboxId = createStageOutboxInTransaction(tx, id, stage, 0);
+  return { id, outboxId };
+}
+
 export async function createJob(
   config: JobConfig,
   initialStage: Stage,
@@ -1393,6 +1419,11 @@ export async function retryFailedJobWithOutbox(
     const id = stageOutboxId(jobId, stage, generation);
     const ref = stageOutboxRef(id);
     const existing = await tx.read(ref);
+    if (job.plannedItemRef) {
+      const state = await readItemState(job.plannedItemRef, tx);
+      if (state.jobId !== jobId) throw new Error("planned execution binding mismatch");
+      tx.put(authorityKey("planned_item_states", job.plannedItemRef), { ...state, status: "running", outboxId: id, reason: "", updatedAt: new Date().toISOString() });
+    }
     tx.patch(jobRef(jobId), {
       stage,
       status: "running",
@@ -1789,41 +1820,28 @@ export async function acceptEditorialPlan(
   plan: import("./types").EditorialPlan,
   revision: number,
 ) {
-  const tenant = currentTenant();
-  return db().atomic(async (tx) => {
+  const accepted = await db().atomic(async (tx) => {
     const ref = jobRef(jobId);
-    const outboxId = stageOutboxId(jobId, "draft", 0);
-    const outboxRef = stageOutboxRef(outboxId);
-    const [snap, existingOutbox] = await Promise.all([tx.read(ref), tx.read(outboxRef)]);
+    const snap = await tx.read(ref);
     const job = await resolveJobStrategy(requireJobDoc(snap), tx);
-    assertEditorialPlanSubmission(job, plan, revision);
-    if (existingOutbox.present) throw new Error("editorial plan draft dispatch already exists");
     const digest = editorialPlanDigest(plan);
     const evidenceLineage = editorialPlanEvidenceLineage(plan);
+    if (job.planRef) {
+      const prior = await readPlan(job.planRef, tx);
+      if (revision !== prior.ref.revision || !prior.editorial || editorialPlanDigest(prior.editorial.plan) !== digest) throw new Error("editorial plan already accepted; use an audited planning revision command");
+      return { digest, evidenceLineage, selectedNextItemId: plan.selectedNextItemId, planRef: prior.ref };
+    }
+    assertEditorialPlanSubmission(job, plan, revision);
     const acceptedAt = new Date().toISOString();
-    const itemStates = Object.fromEntries(plan.items.map((item) => [item.id, {
-      status: item.id === plan.selectedNextItemId ? "selected" : "planned", updatedAt: acceptedAt,
-    }]));
+    const authority = await persistEditorialPlan(tx, job, plan);
     tx.patch(ref, {
-      editorialPlan: plan, editorialPlanDigest: digest, editorialPlanRevision: revision,
-      editorialPlanEvidenceLineage: evidenceLineage, selectedNextItemId: plan.selectedNextItemId,
-      editorialItemStates: itemStates,
-      [`editorialPlanHistory.v${revision}`]: {
-        plan, digest, revision, strategyId: job.contentStrategy!.strategyId,
-        strategyDigest: job.strategyDigest!, evidenceLineage,
-        selectedNextItemId: plan.selectedNextItemId, acceptedAt,
-      },
-      stage: "draft", status: "running", updatedAt: acceptedAt,
+      planRef: authority.ref, stage: "complete", status: "complete", terminalOutcome: "succeeded", updatedAt: acceptedAt,
+      editorialPlanningSnapshot: REMOVE_FIELD, editorialPlanningSnapshotDigest: REMOVE_FIELD, editorialPlanningSnapshotHistory: REMOVE_FIELD,
     });
-    tx.insert(outboxRef, {
-      id: outboxId, workspaceId: tenant.workspaceId, brandId: tenant.brandId,
-      jobId, stage: "draft", attempt: 0, completedStage: "plan",
-      note: `editorial plan ${digest} accepted; selected ${plan.selectedNextItemId}`,
-      ...stageOutboxDurability(outboxId, jobId, "draft", 0, "plan"),
-      state: "pending", createdAt: acceptedAt,
-    } satisfies StageOutboxRecord);
-    return { digest, evidenceLineage, selectedNextItemId: plan.selectedNextItemId, outboxId };
+    return { digest, evidenceLineage, selectedNextItemId: plan.selectedNextItemId, planRef: authority.ref };
   });
+  const claim = await claimNextPlannedItem(accepted.planRef.id);
+  return { ...accepted, executionJobId: claim?.jobId, outboxId: claim?.outboxId };
 }
 
 export async function claimSelectedEditorialItem(
@@ -1834,13 +1852,13 @@ export async function claimSelectedEditorialItem(
     const ref = jobRef(jobId);
     const snap = await tx.read(ref);
     const job = await resolveJobStrategy(requireJobDoc(snap), tx);
+    if (!job.plannedItemRef || !job.planRef) throw new Error("durable planned item authority required for production");
     if (isMatchingActiveProduction(job, authority)) {
       return { outcome: "execute" as const, resumed: true, ...authority };
     }
     assertSelectedProductionAuthority(job, authority, "selected");
     const updatedAt = new Date().toISOString();
     tx.patch(ref, {
-      [`editorialItemStates.${authority.editorialItemId}`]: { status: "drafting", updatedAt },
       activeProductionLineage: authority,
       updatedAt,
     });
@@ -1859,12 +1877,15 @@ export async function finalizeArtifactProduction(
   const traceDigest = createHash("sha256").update(canonicalJson(productionResult), "utf8").digest("hex");
   return db().atomic(async (tx) => {
     const ref = jobRef(jobId); const snap = await tx.read(ref); const job = await resolveJobStrategy(requireJobDoc(snap), tx);
+    if (!job.plannedItemRef || !job.planRef) throw new Error("durable planned item authority required for production");
     if (job.artifactProductionResult && job.artifactProductionDigest === traceDigest) return { outcome: "already_applied" as const };
     assertSelectedProductionAuthority(job, lineage, "drafting");
     const active = job.activeProductionLineage;
     if (!active || active.editorialPlanId !== lineage.editorialPlanId || active.editorialPlanDigest !== lineage.editorialPlanDigest || active.editorialItemId !== lineage.editorialItemId || active.briefId !== lineage.briefId) throw new Error("production lineage mismatch");
     const linkedActions = actions.map((action) => ({ ...action, ...lineage })); const updatedAt = new Date().toISOString();
-    tx.patch(ref, { artifactProductionResult: productionResult, contentArtifacts: artifacts, artifactProductionDigest: traceDigest, actions: linkedActions, ...editorialDraftCompletionPatch(lineage.editorialItemId, updatedAt, needsApproval) });
+    tx.patch(ref, { artifactProductionResult: productionResult, contentArtifacts: artifacts, artifactProductionDigest: traceDigest, actions: linkedActions, ...(needsApproval ? { stage: "awaiting_approval", status: "waiting_for_approval" } : {}), updatedAt });
+    const itemState = await readItemState(job.plannedItemRef, tx);
+    tx.put(authorityKey("planned_item_states", job.plannedItemRef), { ...itemState, status: needsApproval ? "awaiting_approval" : "running", updatedAt });
     for (const artifact of artifacts) {
       const revisionRef = recordKey(partition(recordKey(partition(ref.path + "/" + "content_artifacts").partition + "/" + artifact.id).path + "/" + "revisions").partition + "/" + String(artifact.revision));
       tx.insert(revisionRef, artifact);
@@ -2268,6 +2289,7 @@ export async function saveLearnings(
     retentionDeleteAfter: retentionDeadline(),
     updatedAt: new Date().toISOString(),
   });
+  await reconcilePlannedExecution(jobId);
 }
 
 export interface PriorInsight {
@@ -2419,6 +2441,7 @@ export async function markFailed(
     updatedAt: new Date().toISOString(),
     ...(!failure.retryable ? { retentionDeleteAfter: retentionDeadline() } : {}),
   });
+  await reconcilePlannedExecution(failure.jobId);
 }
 
 /** Critical notification for permanent pipeline failures (fire-and-forget). */

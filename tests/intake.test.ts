@@ -6,13 +6,13 @@ describe("host intake validation", () => {
   it("accepts independent work without a campaign", () => expect(evaluateIntake(input, []).missingFields).toEqual([]));
   it("requires purpose rather than campaign for independent work", () => expect(evaluateIntake({ ...input, expectedOutcome: "" }, []).missingFields).toEqual(["expectedOutcome"]));
   it("asks one focused question for ambiguous authorized targets", () => {
-    const result = evaluateIntake({ ...input, disposition: "existing_plan_item", targetName: "Launch" }, [{ campaignId: "c1", itemId: "i1", name: "Launch" }, { campaignId: "c2", itemId: "i2", name: "Launch" }]);
+    const result = evaluateIntake({ ...input, disposition: "existing_plan_item", targetName: "Launch" }, [{ campaignId: "c1", planId: "p1", itemId: "i1", name: "Launch" }, { campaignId: "c2", planId: "p2", itemId: "i2", name: "Launch" }]);
     expect(result.missingFields).toEqual(["target"]);
-    expect(result.question).toContain("c1/i1");
+    expect(result.question).toContain("c1/p1/i1");
   });
   it("resolves exact item IDs and ignores model supplied unauthorized IDs", () => {
-    const targets = [{ campaignId: "c1", itemId: "i1", name: "Launch" }];
-    expect(evaluateIntake({ ...input, disposition: "existing_plan_item", targetName: "c1/i1" }, targets).target).toEqual(targets[0]);
+    const targets = [{ campaignId: "c1", planId: "p1", itemId: "i1", name: "Launch" }];
+    expect(evaluateIntake({ ...input, disposition: "existing_plan_item", targetName: "p1/i1" }, targets).target).toEqual(targets[0]);
     expect(evaluateIntake({ ...input, disposition: "existing_plan_item", targetName: "other/i1" }, targets).missingFields).toEqual(["target"]);
   });
   it("requires attachment rights and preserves selected outputs", () => {

@@ -1,7 +1,7 @@
 import type { Job } from "../types";
-import { awsRepository, recordKey } from "../dynamo";
-import { editorialPlanDigest } from "../editorialPlan";
-import { assertResourceWorkspace, currentTenant } from "../tenancy";
+import { awsRepository } from "../dynamo";
+import { listCurrentPlans } from "../campaigns/repository";
+import { resolvePlannedJob } from "../campaigns/editorial";
 import { strategyDigest } from "../strategyApproval";
 import { getActiveStrategy, readStrategyProposal, readStrategyRevision, type StrategyReader } from "./repository";
 
@@ -18,22 +18,15 @@ export async function resolveJobStrategy<T extends Job>(job: T, reader?: Strateg
       strategyInvocationContext: proposal.invocationContext };
   }
   const revision = await readStrategyRevision(job.strategyRef, reader);
-  return { ...job, contentStrategy: revision.strategy, strategyDigest: revision.ref.digest,
+  return resolvePlannedJob({ ...job, contentStrategy: revision.strategy, strategyDigest: revision.ref.digest,
     strategyApprovalState: "approved", strategyApproval: revision.approval,
     strategyRevision: revision.strategy.version, strategyEvidenceLineage: revision.evidenceLineage,
-    strategyInvocationContext: revision.invocationContext };
+    strategyInvocationContext: revision.invocationContext }, reader);
 }
 
 export async function loadActiveStrategyContext(reader: StrategyReader = awsRepository()) {
   const activeStrategy = await getActiveStrategy(reader);
-  if (!activeStrategy) return { activeStrategy: null, strategyPlan: null };
-  const row = await reader.read(recordKey(`workspaces/${currentTenant().workspaceId}/jobs/${activeStrategy.jobId}`));
-  if (!row.present) return { activeStrategy, strategyPlan: null };
-  const origin = row.value as unknown as Job;
-  assertResourceWorkspace(currentTenant(), origin);
-  const plan = origin.editorialPlan;
-  const bound = origin.strategyRef && strategyDigest(origin.strategyRef) === strategyDigest(activeStrategy.ref)
-    && plan?.approvedStrategyDigest === activeStrategy.ref.digest
-    && origin.editorialPlanDigest === editorialPlanDigest(plan);
-  return { activeStrategy, strategyPlan: bound ? plan : null };
+  if (!activeStrategy) return { activeStrategy: null, plans: [] };
+  const plans = (await listCurrentPlans(reader)).filter(plan => strategyDigest(plan.strategyRef) === strategyDigest(activeStrategy.ref)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return { activeStrategy, plans };
 }

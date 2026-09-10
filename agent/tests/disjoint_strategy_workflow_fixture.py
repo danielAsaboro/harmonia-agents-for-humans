@@ -31,6 +31,8 @@ def exercise(payload):
             item.update(briefId=brief["id"], campaignTheme=job["contentStrategy"]["campaignThemes"][0]["name"], contentPillar=job["contentStrategy"]["pillars"][0]["name"], evidenceRefs=["second-moment"], requiredAssets=[], publicationWindowStartAt=stamp(24), publicationWindowEndAt=stamp(25), productionDeadlineAt=stamp(12))
             return {"editorial_plan": candidate}
         if role == "noni_artifact_producer":
+            if payload.get("source_free"):
+                return {"semantic_artifact_draft": {"title": "Imagine a workflow", "sourceSegmentRefs": [], "payloadJson": json.dumps({"kind": "x_post", "text": "Imagine your next great workflow. What would you create?"})}}
             return {"semantic_artifact_draft": {"title": "Second job proof", "sourceSegmentRefs": ["second-source:seg-1"], "payloadJson": json.dumps({"kind": "x_post", "text": "Second source proof. Request a demo."})}}
         if role == "dara_artifact_editor":
             return {"semantic_artifact_review": {"decision": "accept", "checks": [{"kind": kind, "passed": True, "note": "Grounded in the supplied second source."} for kind in ("grounding", "brief", "brand", "format", "cta", "safety", "clarity")], "issues": []}}

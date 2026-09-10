@@ -18,6 +18,13 @@ export const strategySourceBindingSchema = z.object({
   evidenceIds: z.array(z.string().min(1).max(100)).min(1).max(12168),
 }).strict();
 export type StrategySourceBinding = z.infer<typeof strategySourceBindingSchema>;
+export const operatorSourceBindingSchema = z.object({
+  mode: z.literal("operator_context"), jobId: z.string().min(1).max(100), strategyRef: strategyRefSchema,
+  operatorBrief: z.string().trim().min(1).max(20000), contextDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  evidenceIds: z.array(z.never()).length(0), factualClaimsAllowed: z.literal(false),
+}).strict();
+export const planningSourceBindingSchema = z.union([strategySourceBindingSchema, operatorSourceBindingSchema]);
+export type PlanningSourceBinding = z.infer<typeof planningSourceBindingSchema>;
 export interface ApprovedStrategyRevision {
   workspaceId: string;
   brandId: string;

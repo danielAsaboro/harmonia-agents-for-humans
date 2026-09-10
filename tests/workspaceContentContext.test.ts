@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { projectWorkspaceContentContext } from "@/lib/workspaceContentContext";
 import type { Job, ContentItem } from "@/lib/types";
 import type { ApprovedStrategyRevision } from "@/lib/strategy/contracts";
+import type { PlanRevision } from "@/lib/campaigns/contracts";
 
 describe("workspace content context", () => {
   it("never treats approved job fields or operator goals as active authority", () => {
@@ -12,7 +13,7 @@ describe("workspace content context", () => {
   });
 
   it("keeps strategy visible beyond 25 jobs and refuses a plan from a different strategy", () => {
-    const result = projectWorkspaceContentContext({ goals: { topics: [] }, items: [], jobs: Array.from({ length: 30 }, (_, i) => ({ id: `new-${i}`, strategyApprovalState: "approved", editorialPlan: { summary: "Unrelated plan", approvedStrategyDigest: "b".repeat(64) } })) as unknown as Job[], activeStrategy: { ref: { digest: "a".repeat(64) }, strategy: { thesis: "Durable approved strategy", channelRoles: [] } }, strategyPlan: null } as never);
+    const result = projectWorkspaceContentContext({ goals: { topics: [] }, items: [], jobs: Array.from({ length: 30 }, (_, i) => ({ id: `new-${i}`, strategyApprovalState: "approved", editorialPlan: { summary: "Unrelated plan", approvedStrategyDigest: "b".repeat(64) } })) as unknown as Job[], activeStrategy: { ref: { digest: "a".repeat(64) }, strategy: { thesis: "Durable approved strategy", channelRoles: [] } }, plans: [{ strategyRef: { digest: "b".repeat(64) }, reason: "Unrelated plan" }] } as never);
     expect(result.strategySummary).toBe("Durable approved strategy");
     expect(result.strategyReady).toBe(true);
     expect(result.planReady).toBe(false);
@@ -27,7 +28,7 @@ describe("workspace content context", () => {
     }] as unknown as Job[];
     const items = [{ id: "item-1", status: "scheduled", scheduledFor: "2026-09-08T09:00:00Z", platforms: ["linkedin"] }] as ContentItem[];
     const activeStrategy = { ref: { digest: "a".repeat(64) }, strategy: jobs[0].contentStrategy } as ApprovedStrategyRevision;
-    const result = projectWorkspaceContentContext({ goals: { topics: ["agent reliability"], audience: "startup founders" }, jobs, items, activeStrategy, strategyPlan: { ...jobs[0].editorialPlan!, approvedStrategyDigest: activeStrategy.ref.digest }, now: new Date("2026-09-01T00:00:00Z") });
+    const result = projectWorkspaceContentContext({ goals: { topics: ["agent reliability"], audience: "startup founders" }, jobs, items, activeStrategy, plans: [{ strategyRef: activeStrategy.ref, reason: "Four weeks of founder proof" }] as PlanRevision[], now: new Date("2026-09-01T00:00:00Z") });
     expect(result).toMatchObject({ strategyReady: true, planReady: true, calendarReady: true, pendingApprovalCount: 1, upcomingItemCount: 1, channels: ["linkedin"] });
     expect(result.strategySummary).toContain("reliable-agent");
     expect(result.goals).toContain("Audience: startup founders");

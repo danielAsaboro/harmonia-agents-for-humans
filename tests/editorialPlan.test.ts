@@ -1,6 +1,6 @@
 import { buildStrategySourceBinding } from "@/lib/strategy/sourceBinding";
 import { describe, expect, it } from "vitest";
-import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialDraftCompletionPatch, editorialPlanDigest, editorialPlanEvidenceLineage, editorialPlanningSnapshotDigest, isMatchingActiveProduction, isMatchingCompletedProduction } from "@/lib/editorialPlan";
+import { assertEditorialPlanSubmission, assertSelectedProductionAuthority, editorialPlanDigest, editorialPlanEvidenceLineage, editorialPlanningSnapshotDigest, isMatchingActiveProduction, isMatchingCompletedProduction } from "@/lib/editorialPlan";
 
 const sourceAnalysis = { sourceDigest: "c".repeat(64), summary: "Source proof", moments: [{ id: "m1", title: "Proof", startSec: 0, endSec: 1, hook: "Proof", quote: "Source proof", sourceSegmentRefs: ["source-1:seg-1"], visualEvidenceIds: [], assumptions: [], confidence: "high" as const }], angles: [], assumptions: [], confidence: "high" as const };
 const strategyRef = { workspaceId: "w", brandId: "b", strategyId: "strategy-job-1-v1", revision: 8, digest: "a".repeat(64) };
@@ -40,7 +40,6 @@ const job = {
   stage: "plan", strategyDigest: "a".repeat(64), strategyRevision: 1,
   contentStrategy: { strategyId: "strategy-job-1-v1", version: 1 },
   strategyApprovalState: "approved", strategyApproval: { decision: "approved", payloadDigest: "a".repeat(64), revision: 1 },
-  editorialPlanHistory: undefined,
   editorialPlanningSnapshot: snapshot, editorialPlanningSnapshotDigest: snapshotDigest,
 };
 
@@ -84,21 +83,12 @@ describe("editorial plan persistence boundary", () => {
   });
 
   it("rejects replay and requires an eligible planned selected item", () => {
-    const history = { v1: { digest: editorialPlanDigest(plan) } };
-    expect(() => assertEditorialPlanSubmission({ ...job, editorialPlanHistory: history }, plan, 1)).toThrow("already exists");
+    expect(() => assertEditorialPlanSubmission({ ...job, planRef: { workspaceId: "w", brandId: "b", id: "plan", revision: 1 } }, plan, 1)).toThrow("already accepted");
     expect(() => assertEditorialPlanSubmission(job, { ...plan, items: [{ ...item, productionStatus: "selected" as never }] }, 1)).toThrow("selected item");
   });
 
   it("records sorted unique evidence lineage", () => {
     expect(editorialPlanEvidenceLineage(plan)).toEqual(["m1"]);
-  });
-
-  it("builds one atomic reviewed-to-approval transition patch", () => {
-    const patch = editorialDraftCompletionPatch("item-1", "2026-08-30T01:00:00Z", true);
-    expect(patch).toEqual({
-      "editorialItemStates.item-1": { status: "awaiting_approval", updatedAt: "2026-08-30T01:00:00Z" },
-      stage: "awaiting_approval", status: "waiting_for_approval", updatedAt: "2026-08-30T01:00:00Z",
-    });
   });
 
   it("recognizes only an exact idempotent awaiting-approval completion", () => {

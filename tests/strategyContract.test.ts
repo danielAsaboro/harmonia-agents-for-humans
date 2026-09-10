@@ -12,7 +12,7 @@ describe("Python to TypeScript pinned strategy contract", () => {
     expect(input.strategyRef.revision).toBe(37);
     expect(input.strategyRef.digest).toBe(input.strategyDigest);
     expect(input.planningSnapshot.sourceBinding.strategyRef).toEqual(input.strategyRef);
-    expect(input.planningSnapshot.sourceBinding.analysisDigest).toBe(sourceAnalysisDigest(input.analysis));
+    expect("analysisDigest" in input.planningSnapshot.sourceBinding && input.planningSnapshot.sourceBinding.analysisDigest).toBe(sourceAnalysisDigest(input.analysis));
     expect(input.planningSnapshot.sourceBinding.evidenceIds).toEqual(["a1", "m1", "segment-1"]);
     expect(editorialPlannerInputSchema.safeParse({ ...serialized, strategyRef: { ...serialized.strategyRef, digest: "0".repeat(64) } }).success).toBe(false);
     expect(strategyRefSchema.safeParse({ ...serialized.strategyRef, workspaceId: "../another" }).success).toBe(false);

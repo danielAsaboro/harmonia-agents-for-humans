@@ -5,7 +5,7 @@ import { contentArtifactPayloadSchema } from "./contracts";
 
 export const contentArtifactDraftSchema = z.object({
   id: z.string().min(1), outputPlanItemId: z.string().min(1), outputType: outputKindSchema,
-  title: z.string().min(1).max(300), sourceSegmentRefs: z.array(z.string().min(3)).min(1).max(100), payload: contentArtifactPayloadSchema,
+  title: z.string().min(1).max(300), sourceSegmentRefs: z.array(z.string().min(3)).max(100), payload: contentArtifactPayloadSchema,
 }).strict().superRefine((value, context) => {
   if (value.outputType !== value.payload.kind) context.addIssue({ code: "custom", path: ["payload", "kind"], message: "payload kind must match output type" });
   if (value.payload.kind === "content_pack" && value.payload.artifacts.some((item) => item.digest !== "0".repeat(64))) context.addIssue({ code: "custom", path: ["payload", "artifacts"], message: "draft content-pack digests must use the host-seal marker" });

@@ -4,7 +4,7 @@ import hashlib
 import json
 from typing import Annotated, Literal
 from pydantic import Field, field_validator, model_validator
-from .agent_models import StrictModel, StrategyRef, StrategySourceBinding, EditorialPlanItem
+from .agent_models import StrictModel, StrategyRef, StrategySourceBinding, OperatorSourceBinding, EditorialPlanItem
 
 
 class Section(StrictModel):
@@ -143,7 +143,7 @@ class SemanticArtifactDraft(StrictModel):
     """Model-authored meaning only; identity and digests are host authority."""
 
     title: str = Field(min_length=1, max_length=300)
-    sourceSegmentRefs: list[str] = Field(min_length=1, max_length=100)
+    sourceSegmentRefs: list[str] = Field(max_length=100)
     payload: GenerativeArtifactPayload
 
 
@@ -151,7 +151,7 @@ class SemanticArtifactWireDraft(StrictModel):
     """Provider-compatible envelope; payload is parsed by the host's exact schema."""
 
     title: str = Field(min_length=1, max_length=300)
-    sourceSegmentRefs: list[str] = Field(min_length=1, max_length=100)
+    sourceSegmentRefs: list[str] = Field(max_length=100)
     payloadJson: str = Field(min_length=2, max_length=30_000)
 
 
@@ -160,7 +160,7 @@ class ContentArtifactDraft(StrictModel):
     outputPlanItemId: str = Field(min_length=1, max_length=200)
     outputType: Literal["x_post", "x_thread", "linkedin_post", "blog_article", "newsletter", "caption", "carousel_spec", "quote_card", "diagram", "editorial_calendar", "content_pack"]
     title: str = Field(min_length=1, max_length=300)
-    sourceSegmentRefs: list[str] = Field(min_length=1, max_length=100)
+    sourceSegmentRefs: list[str] = Field(max_length=100)
     payload: ArtifactPayload
 
     @model_validator(mode="after")
@@ -196,7 +196,7 @@ class ContentArtifactRecord(StrictModel):
     outputType: Literal["x_post", "x_thread", "linkedin_post", "blog_article", "newsletter", "caption", "carousel_spec", "quote_card", "diagram", "editorial_calendar", "content_pack"]
     revision: int = Field(gt=0)
     title: str = Field(min_length=1, max_length=300)
-    sourceSegmentRefs: list[str] = Field(min_length=1, max_length=100)
+    sourceSegmentRefs: list[str] = Field(max_length=100)
     producer: ArtifactProducer
     review: ArtifactReviewIdentity
     mimeType: Literal["text/markdown", "application/json"]
@@ -324,7 +324,7 @@ class ArtifactEvidence(StrictModel):
 class ArtifactRequest(StrictModel):
     id: str = Field(min_length=1)
     outputType: Literal["x_post", "x_thread", "linkedin_post", "blog_article", "newsletter", "caption", "carousel_spec", "quote_card", "diagram", "editorial_calendar", "content_pack"]
-    evidenceRefs: list[str] = Field(min_length=1, max_length=100)
+    evidenceRefs: list[str] = Field(max_length=100)
 
 
 _GENERATIVE_PAYLOAD_MODELS = {
@@ -402,13 +402,13 @@ def assemble_content_pack_draft(
 
 class ArtifactProductionInput(StrictModel):
     strategyRef: StrategyRef
-    sourceBinding: StrategySourceBinding
+    sourceBinding: StrategySourceBinding | OperatorSourceBinding
     editorialItem: EditorialPlanItem
     operatorBrief: str | None = Field(default=None, min_length=1, max_length=2000)
     outputPlanId: str = Field(min_length=1)
     outputPlanDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
     requests: list[ArtifactRequest] = Field(min_length=1, max_length=30)
-    evidence: list[ArtifactEvidence] = Field(min_length=1, max_length=500)
+    evidence: list[ArtifactEvidence] = Field(max_length=500)
     brandContext: str = Field(min_length=1, max_length=4_000)
     constraints: list[str] = Field(default_factory=list, max_length=30)
     passType: Literal["original", "revision"]
@@ -417,6 +417,15 @@ class ArtifactProductionInput(StrictModel):
 
     @model_validator(mode="after")
     def validate_authority(self):
+        if isinstance(self.sourceBinding, OperatorSourceBinding):
+            if self.evidence or any(request.evidenceRefs for request in self.requests):
+                raise ValueError("operator context cannot manufacture factual evidence")
+            if any(request.outputType not in {"x_post", "linkedin_post", "caption", "content_pack"} for request in self.requests):
+                raise ValueError("this output requires authoritative source evidence")
+            if self.operatorBrief != self.sourceBinding.operatorBrief:
+                raise ValueError("operator context brief mismatch")
+        elif not self.evidence or any(not request.evidenceRefs for request in self.requests):
+            raise ValueError("source-backed production requires factual evidence")
         if self.sourceBinding.strategyRef != self.strategyRef or not set(self.editorialItem.evidenceRefs) <= set(self.sourceBinding.evidenceIds):
             raise ValueError("artifact production source binding mismatch")
         evidence = {item.id for item in self.evidence}

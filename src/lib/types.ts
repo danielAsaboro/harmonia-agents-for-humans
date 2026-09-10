@@ -248,7 +248,7 @@ export interface EditorialPlan {
 }
 
 export interface EditorialPlanningSnapshot {
-  sourceBinding: import("./strategy/contracts").StrategySourceBinding;
+  sourceBinding: import("./strategy/contracts").PlanningSourceBinding;
   snapshotId: string;
   asOf: string;
   horizonStartAt: string;
@@ -276,6 +276,9 @@ export interface StrategyInvocationContext {
 }
 
 export interface Job {
+  plannedItemRef?: import("./campaigns/contracts").AuthorityRef;
+  planRef?: import("./campaigns/contracts").AuthorityRef;
+  operatorPlanningContext?: import("./campaigns/contracts").PlannedEvidence;
   id: string;
   workspaceId: string;
   brandId: string;
@@ -322,7 +325,6 @@ export interface Job {
   editorialItemStates?: Record<string, { status: "planned" | "selected" | "drafting" | "reviewed" | "awaiting_approval"; updatedAt: string }>;
   activeProductionLineage?: { editorialPlanId: string; editorialPlanDigest: string; editorialItemId: string; briefId: string };
   artifactProductionDigest?: string;
-  editorialPlanHistory?: Record<string, { plan: EditorialPlan; digest: string; revision: number; strategyId: string; strategyDigest: string; evidenceLineage: string[]; selectedNextItemId: string; acceptedAt: string }>;
   budget?: JobBudget;
   failure?: {
     stage: Stage;

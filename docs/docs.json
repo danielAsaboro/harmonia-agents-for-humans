@@ -294,6 +294,7 @@
               "reference/effect-contracts",
               "reference/error-taxonomy",
               "reference/dynamodb-data",
+              "reference/campaign-planning",
               "reference/authority-matrix",
               "reference/pricing-budget",
               "reference/receipts-verification"

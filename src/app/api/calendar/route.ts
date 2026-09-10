@@ -1,6 +1,8 @@
 import { listContentItems, listJobs } from "@/lib/repository";
 import type { ContentItem } from "@/lib/types";
 import { tenantHandler } from "@/lib/auth";
+import { plannedCalendar } from "@/lib/planning/commands";
+import { readItemState, readPlanningPolicy } from "@/lib/campaigns/repository";
 
 export interface CalendarEvent {
   date: string; // YYYY-MM-DD
@@ -19,6 +21,9 @@ export interface CalendarItem extends Omit<ContentItem, "updatedAt"> {
  */
 async function get(_req: Request) {
   const [jobs, items] = await Promise.all([listJobs(100), listContentItems()]);
+  const planned = await plannedCalendar();
+  const plannedItems = await Promise.all(planned.map(async item => ({ ...item, state: await readItemState(item.ref) })));
+  const planningPolicy = planned.length ? await readPlanningPolicy() : null;
   const events: CalendarEvent[] = jobs.map((job) => ({
     date: (job.createdAt ?? "").slice(0, 10),
     kind: "job_created" as const,
@@ -29,6 +34,8 @@ async function get(_req: Request) {
   return Response.json({
     events,
     items,
+    plannedItems,
+    planningPolicy,
     jobTitles: Object.fromEntries(jobs.map((j) => [j.id, j.sourceAnalysis?.summary ?? `Source bundle ${(j.config.sourceManifestId?.slice(0, 8) ?? "strategy")}`])),
   });
 }

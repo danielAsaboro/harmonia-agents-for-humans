@@ -26,7 +26,7 @@ export type IntakeAdvice = Omit<z.infer<typeof intakeAdviceSchema>, "strategyCon
 export type IntakeSourceHandle = z.infer<typeof sourceHandleSchema>;
 export const intakeSourceKey = (source: IntakeSourceHandle) => strategyDigest(sourceHandleSchema.parse(source));
 export type WorkPlacement = z.infer<typeof workPlacementSchema>;
-export interface IntakeTarget { campaignId: string; itemId: string; name: string }
+export interface IntakeTarget { campaignId: string | null; planId: string; itemId: string; name: string }
 export type IntakeMissingField = z.infer<typeof intakeMissingFieldSchema>;
 export interface IntakeDraft extends IntakeAdvice {
   id: string; workspaceId: string; brandId: string; subjectId: string;
@@ -41,6 +41,8 @@ export interface IntakeDraft extends IntakeAdvice {
   revision: number; idempotencyKey: string;
   strategyBaseRef: z.infer<typeof strategyRefSchema> | null;
   jobId?: string;
+  planning?: import("../campaigns/contracts").PlanningMaterialization;
+  materializedFromRevision?: number;
   createdAt: string; updatedAt: string;
 }
 
@@ -80,9 +82,9 @@ export function evaluateIntake(input: IntakeAdvice & { rightsAttested: boolean }
   if (!input.expectedOutcome.trim()) missing("expectedOutcome", "What purpose or expected outcome should this work serve?");
   if (input.disposition === "existing_plan_item") {
     const name = input.targetName?.trim().toLocaleLowerCase();
-    const matches = name ? targets.filter(item => [item.name, item.campaignId, item.itemId, `${item.campaignId}/${item.itemId}`].some(value => value.toLocaleLowerCase() === name)) : [];
+    const matches = name ? targets.filter(item => [item.name, item.campaignId, item.planId, item.itemId, `${item.planId}/${item.itemId}`, `${item.campaignId}/${item.planId}/${item.itemId}`].some(value => value?.toLocaleLowerCase() === name)) : [];
     if (matches.length === 1) target = matches[0];
-    else missing("target", matches.length > 1 ? `Which planned item do you mean: ${matches.map(item => `${item.campaignId}/${item.itemId}`).join(", ")}?` : "Which authorized campaign and planned item should this work belong to?");
+    else missing("target", matches.length > 1 ? `Which planned item do you mean: ${matches.map(item => `${item.campaignId ? `${item.campaignId}/` : ""}${item.planId}/${item.itemId}`).join(", ")}?` : "Which authorized plan and item should this work belong to?");
   }
   if (intakeRequirementApplies("rights", input) && !input.rightsAttested) missing("rights", "Please confirm: I confirm I have rights to use this source.");
   if (input.disposition === "knowledge_only") {

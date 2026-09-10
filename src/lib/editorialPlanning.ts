@@ -1,14 +1,19 @@
 import type { ContentItem, EditorialPlanningSnapshot, Job } from "./types";
 import { buildStrategySourceBinding } from "./strategy/sourceBinding";
+import { planningPolicySchema, type PlanningPolicy } from "./campaigns/contracts";
 
-const POLICY_ID = "policy:editorial-planning-v1";
 const HOUR_MS = 60 * 60 * 1000;
 
 export function buildEditorialPlanningSnapshot(
   job: Job,
   items: ContentItem[],
   asOf = new Date().toISOString(),
+  configured?: { policy: PlanningPolicy; assetReadiness: EditorialPlanningSnapshot["assetReadiness"]; blockedDependencies: EditorialPlanningSnapshot["blockedDependencies"]; plannedCommitments?: EditorialPlanningSnapshot["existingCommitments"] },
 ): EditorialPlanningSnapshot {
+  if (!configured) throw new Error("configured planning policy required");
+  const policy = configured.policy;
+  planningPolicySchema.parse({ timezone: policy.timezone, productionCapacity: policy.productionCapacity, cadenceConstraints: policy.cadenceConstraints, maxConcurrentItems: policy.maxConcurrentItems });
+  if (policy.ref.workspaceId !== job.workspaceId || policy.ref.brandId !== job.brandId) throw new Error("planning policy tenant mismatch");
   const strategy = job.contentStrategy;
   const approval = job.strategyApproval;
   const revision = job.editorialPlanRevision ?? 1;
@@ -29,8 +34,10 @@ export function buildEditorialPlanningSnapshot(
     const at = Date.parse(item.scheduledFor);
     return at >= start.getTime() && at < end.getTime();
   });
-  const provenanceIds = new Set<string>([POLICY_ID, `strategy:${job.strategyDigest}`]);
+  const provenanceIds = new Set<string>([`policy:${policy.ref.id}:v${policy.ref.revision}`, `strategy:${job.strategyDigest}`]);
   for (const item of relevant) provenanceIds.add(`content-item:${item.id}`);
+  const plannedCommitments = (configured.plannedCommitments ?? []).filter(item => Date.parse(item.publicationWindowStartAt) >= start.getTime() && Date.parse(item.publicationWindowStartAt) < end.getTime());
+  for (const item of plannedCommitments) provenanceIds.add(item.id);
 
   return {
     sourceBinding: buildStrategySourceBinding(job),
@@ -38,19 +45,19 @@ export function buildEditorialPlanningSnapshot(
     asOf,
     horizonStartAt: start.toISOString(),
     horizonEndAt: end.toISOString(),
-    timezone: "UTC",
+    timezone: policy.timezone,
     channelCapabilities: supported.map((role) => ({ channel: role.channel, formats: role.formats })),
-    existingCommitments: relevant.flatMap((item) => item.platforms.map((channel) => ({
+    existingCommitments: [...plannedCommitments, ...relevant.flatMap((item) => item.platforms.map((channel) => ({
       id: `commitment:${item.id}:${channel}`,
       channel,
       publicationWindowStartAt: new Date(item.scheduledFor!).toISOString(),
       publicationWindowEndAt: new Date(Date.parse(item.scheduledFor!) + HOUR_MS).toISOString(),
-    }))),
-    productionCapacity: { maxItems: 8, maxItemsPerWeek: 2 },
-    cadenceConstraints: { minimumHoursBetweenItems: 24, maxItemsPerChannelPerWeek: 2 },
+    })))],
+    productionCapacity: policy.productionCapacity,
+    cadenceConstraints: policy.cadenceConstraints,
     postingWindowObservations: [],
-    assetReadiness: [],
-    blockedDependencies: [],
+    assetReadiness: configured.assetReadiness,
+    blockedDependencies: configured.blockedDependencies,
     calendarProjection: relevant.map((item) => ({
       id: `calendar:${item.id}`,
       contentItemId: item.id,
@@ -61,5 +68,3 @@ export function buildEditorialPlanningSnapshot(
     provenanceIds: [...provenanceIds].sort(),
   };
 }
-
-export const EDITORIAL_PLANNING_POLICY_ID = POLICY_ID;

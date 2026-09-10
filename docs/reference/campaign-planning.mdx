@@ -1,0 +1,58 @@
+---
+title: "Campaigns and production planning"
+description: "Durable campaign, plan, item, policy, command and execution records."
+---
+
+## Authority records
+
+Campaign records live below `workspaces/{workspaceId}/brands/{brandId}`. Every reference contains the workspace, brand, stable ID and immutable revision. Every plan and item pins an exact approved `StrategyRef`.
+
+| Record | Fields and behavior |
+|---|---|
+| `campaign_revisions`, `campaigns` | Immutable campaign name, objective and strategy; current pointer updated with an expected revision |
+| `plan_revisions`, `plans` | Immutable campaign reference, strategy reference, policy reference and exact item references; current pointer updated transactionally |
+| `planned_item_revisions` | Operator brief, exact requested outputs, schedule, dependencies, required assets and source binding |
+| `planned_item_states` | Current execution status, bound job/outbox, retryability and blocking reason |
+| `planning_policy_revisions`, `planning_policy/active` | Explicit operator configuration and revision pointer |
+| `planning_intake_receipts`, `planning_commands`, `planning_chat_receipts` | Exact message/request identity, actor and committed result |
+| `planning_proposals` | Unapplied changes requiring details or approval |
+
+Independent work has a null `campaignRef`. A new initiative creates a campaign and its first plan revision. Existing-work placement resolves `planId/itemId`, or `campaignId/planId/itemId`, against current authorized records. Completed item revisions remain in plan history.
+
+## Planning policy API
+
+`GET /api/settings/planning` reads the active policy. `PUT /api/settings/planning` requires an authenticated workspace administrator and this body:
+
+```json
+{
+  "expectedRevision": 0,
+  "policy": {
+    "timezone": "America/New_York",
+    "productionCapacity": { "maxItems": 24, "maxItemsPerWeek": 6 },
+    "cadenceConstraints": { "minimumHoursBetweenItems": 24, "maxItemsPerChannelPerWeek": 4 },
+    "maxConcurrentItems": 1
+  }
+}
+```
+
+These values are an example, not defaults. Planning requires a stored policy. Initial creation uses expected revision zero; updates require the current revision. A stale revision is rejected.
+
+The timezone is an IANA name. Calendar weeks begin on local Monday and observe daylight-saving transitions. Total production capacity counts unfinished work; weekly capacity and channel cadence retain completed commitments. Required assets resolve from the authoritative artifact store. Dependencies pin exact item revisions and must be completed before selection.
+
+## Commands and execution
+
+`ready_for_planning` intake materialization checks the expected draft revision, final message identity and unchanged active strategy. One transaction stores the campaign when applicable, plan, item, receipt and dispatched intake state. An uncertain commit is resolved by reading that exact receipt.
+
+Chat `advance_plan` claims eligible work through the planning command transaction. Chat `manage_calendar` accepts an exact current item and an ISO timestamp with an explicit offset. Ambiguous requests and changes outside strategy, capacity or approved work create durable proposals. Proposals do not authorize execution. External Google Calendar changes still use the normal effect confirmation.
+
+Selection creates the execution job, binds the exact item revision and creates its stage outbox in one transaction. Recovery reuses that binding. Completion permits the next eligible item; failures retain retry or dependency state. A retry reuses the job and creates a new outbox generation. Calendar changes create new immutable item and plan revisions; changing approved or running work requires disposition.
+
+The calendar feed includes `plannedItems` and `planningPolicy`. Workspace chat context and the production panel read those same authority records. Execution-job editorial fields are projections rebuilt from the pinned plan and item.
+
+## Source-free production
+
+Source-free work carries `operator_context`, the exact operator brief and its context digest. It has no evidence IDs, analysis digest or permission to assert factual claims. The host currently permits creative `x_post`, `linkedin_post`, `caption` and compatible `content_pack` requests. Other output selections remain blocked until source evidence is provided and bound. Source-backed work retains the job-specific source binding and sealed source manifest.
+
+## Verification boundary
+
+Local integration tests exercise DynamoDB Local transactions, MinIO artifact readiness, replay/recovery and actual Python-serialized drafting payloads through TypeScript validators. They do not establish live model quality or authenticated cloud/effect execution.

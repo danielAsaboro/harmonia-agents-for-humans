@@ -24,7 +24,7 @@ export const contentArtifactPayloadSchema = z.discriminatedUnion("kind", [
 
 export const contentArtifactSchema = z.object({
   id: z.string().min(1), jobId: z.string().min(1), outputPlanId: z.string().min(1), outputPlanDigest: z.string().regex(/^[0-9a-f]{64}$/),
-  outputType: outputKindSchema, revision: z.number().int().positive(), title: z.string().min(1).max(300), sourceSegmentRefs: refs,
+  outputType: outputKindSchema, revision: z.number().int().positive(), title: z.string().min(1).max(300), sourceSegmentRefs: z.array(z.string().min(3)).max(100),
   producer: z.object({ role: z.string().min(1), model: z.string().min(1), traceId: z.string().regex(/^[0-9a-f]{32}$/) }).strict(),
   review: z.object({ role: z.string().min(1), traceId: z.string().regex(/^[0-9a-f]{32}$/), decision: z.literal("accept") }).strict(),
   mimeType: z.enum(["text/markdown", "application/json"]), createdAt: z.string().datetime(), payload: contentArtifactPayloadSchema,

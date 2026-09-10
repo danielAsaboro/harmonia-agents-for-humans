@@ -40,19 +40,6 @@ export type ProductionAuthority = {
   briefId: string;
 };
 
-export function editorialDraftCompletionPatch(
-  editorialItemId: string,
-  updatedAt: string,
-  needsApproval: boolean,
-) {
-  const itemStatus = needsApproval ? "awaiting_approval" : "reviewed";
-  return {
-    [`editorialItemStates.${editorialItemId}`]: { status: itemStatus, updatedAt },
-    ...(needsApproval ? { stage: "awaiting_approval", status: "waiting_for_approval" } : {}),
-    updatedAt,
-  };
-}
-
 export function isMatchingCompletedProduction(
   job: {
     stage: string; activeProductionLineage?: ProductionAuthority;
@@ -131,13 +118,14 @@ export function assertEditorialPlanSubmission(
     strategyApprovalState?: string;
     strategyApproval?: { decision: string; payloadDigest: string; revision: number };
     editorialPlanRevision?: number;
-    editorialPlanHistory?: Record<string, unknown>;
+    planRef?: import("./campaigns/contracts").AuthorityRef;
     editorialPlanningSnapshot?: import("./types").EditorialPlanningSnapshot;
     editorialPlanningSnapshotDigest?: string;
   },
   plan: EditorialPlan,
   revision: number,
 ): void {
+  if (job.planRef) throw new Error("editorial plan already accepted");
   if (job.stage !== "plan") throw new Error(`job stage is '${job.stage}'`);
   if (!job.strategyRef || job.strategyRef.digest !== job.strategyDigest || job.strategyRef.strategyId !== job.contentStrategy?.strategyId) throw new Error("pinned strategy reference required");
   const expectedRevision = job.editorialPlanRevision ?? 1;
@@ -151,7 +139,6 @@ export function assertEditorialPlanSubmission(
   const approval = job.strategyApproval;
   if (job.strategyApprovalState !== "approved" || approval?.decision !== "approved") throw new Error("approved strategy required for editorial planning");
   if (approval.payloadDigest !== job.strategyDigest || approval.revision !== job.strategyRevision) throw new Error("editorial plan strategy approval binding mismatch");
-  if (job.editorialPlanHistory?.[`v${revision}`]) throw new Error(`editorial plan history v${revision} already exists`);
   const selected = plan.items.filter((item) => item.id === plan.selectedNextItemId);
   if (selected.length !== 1 || selected[0].productionStatus !== "planned" || selected[0].dependencies.length > 0) {
     throw new Error("selected item is not eligible for production");

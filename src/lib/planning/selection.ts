@@ -1,15 +1,36 @@
 import { awsRepository, recordKey, UnknownCommitOutcome, type DynamoTransaction } from "../dynamo";
 import { currentTenant } from "../tenancy";
-import { authorityKey, currentPlan, listPlanningAssets, readItemState, readPlan, readPlannedItem, readPlanningPolicy } from "../campaigns/repository";
+import { authorityKey, currentPlan, listPlanningAssets, readItemState, readPlannedItem, readPlanningPolicy } from "../campaigns/repository";
 import { readActiveStrategyRef } from "../strategy/repository";
 import { strategyDigest } from "../strategyApproval";
 import { calendarConflicts, plannedCalendar } from "./commands";
-import { insertExecutionJob } from "../repository";
+import { insertExecutionJob, retryFailedJobWithOutbox } from "../repository";
 import { proposeOutputPlan, sealOutputPlan } from "../outputPlanning";
 import { OUTPUT_CAPABILITIES } from "../outputCapabilities";
 import { sealManifest } from "../sourceRegistry";
 import type { JobConfig, JobSourceManifest } from "../types";
-import type { AuthorityRef, PlannedItemState } from "../campaigns/contracts";
+import type { AuthorityRef, PlannedItem, PlannedItemState } from "../campaigns/contracts";
+import { readPlannedExecutionAuthority } from "./executionAuthority";
+
+export async function plannedItemAdmission(tx: DynamoTransaction, item: PlannedItem, asOf: string): Promise<string[]> {
+  const plan = await currentPlan(item.planRef.id, tx); const policy = await readPlanningPolicy(tx);
+  const active = await readActiveStrategyRef(tx); const assets = await listPlanningAssets(tx); const calendar = await plannedCalendar(tx);
+  const state = await readItemState(item.ref, tx);
+  const reasons = calendarConflicts(item, calendar, policy);
+  if (!plan.itemRefs.some(ref => strategyDigest(ref) === strategyDigest(item.ref))) reasons.push("planned item binding is no longer current");
+  if (calendar.filter(other => other.ref.id !== item.ref.id && ["running", "awaiting_approval"].includes(other.lifecycle.status)).length >= policy.maxConcurrentItems) reasons.push("production concurrency occupied");
+  if (Date.parse(item.productionReadyAt ?? item.scheduledFor) > Date.parse(asOf)) reasons.push("production schedule is not due");
+  if (strategyDigest(active) !== strategyDigest(item.strategyRef)) reasons.push("active strategy changed; plan approval required");
+  for (const ref of item.dependencies) { const dependency = await readItemState(ref, tx); if (dependency.status !== "completed") reasons.push(`dependency ${ref.id} is ${dependency.status}`); }
+  for (const assetId of item.requiredAssetIds) if (assets.find(asset => asset.id === assetId)?.status !== "ready") reasons.push(`asset ${assetId} is not ready`);
+  if (item.evidence.mode === "operator_context" && item.requestedOutputs.some(output => !["x_post", "linkedin_post", "caption", "content_pack"].includes(output))) reasons.push("selected output requires factual source evidence");
+  if (state.dispositionProposalId) reasons.push(`execution disposition required: ${state.dispositionProposalId}`);
+  if (["completed", "cancelled", "requires_disposition"].includes(state.status)) reasons.push(`planned item is ${state.status}`);
+  const execution = await readPlannedExecutionAuthority(tx, item, state);
+  if (execution.unknown) reasons.push("unknown effect outcome requires reconciliation");
+  if (execution.claimed && !state.jobId) reasons.push("execution authority lacks its item binding; reconciliation required");
+  return reasons;
+}
 
 export type PlannedClaim = { itemRef: AuthorityRef; jobId: string; outboxId: string };
 export async function claimNextPlannedItem(planId: string, asOf = new Date().toISOString()): Promise<PlannedClaim | null> {
@@ -28,28 +49,22 @@ export async function claimNextPlannedItem(planId: string, asOf = new Date().toI
     throw error;
   }
 }
-export async function claimNextInTransaction(tx: DynamoTransaction, planId: string, asOf: string): Promise<PlannedClaim | null> {
+export async function claimNextInTransaction(tx: DynamoTransaction, planId: string, asOf: string, itemId?: string): Promise<PlannedClaim | null> {
   const plan = await currentPlan(planId, tx); const policy = await readPlanningPolicy(tx);
-  const active = await readActiveStrategyRef(tx); const assets = await listPlanningAssets(tx);
   const all = await plannedCalendar(tx);
   const running = all.filter(item => ["running", "awaiting_approval"].includes(item.lifecycle.status)).map(item => item.lifecycle);
-  const own = running.find(state => plan.itemRefs.some(ref => strategyDigest(ref) === strategyDigest(state.ref)));
+  const own = running.find(state => (!itemId || state.ref.id === itemId) && plan.itemRefs.some(ref => strategyDigest(ref) === strategyDigest(state.ref)));
   if (own?.jobId && own.outboxId) return { itemRef: own.ref, jobId: own.jobId, outboxId: own.outboxId };
   if (running.length >= policy.maxConcurrentItems) return null;
-  const items = all.filter(item => plan.itemRefs.some(ref => strategyDigest(ref) === strategyDigest(item.ref)));
+  const items = all.filter(item => (!itemId || item.ref.id === itemId) && plan.itemRefs.some(ref => strategyDigest(ref) === strategyDigest(item.ref)));
   for (const item of items.sort((a, b) => a.scheduledFor.localeCompare(b.scheduledFor) || a.ref.id.localeCompare(b.ref.id))) {
     const state = item.lifecycle;
     if (!["planned", "blocked"].includes(state.status) || state.jobId) continue;
     if (Date.parse(item.productionReadyAt ?? item.scheduledFor) > Date.parse(asOf)) continue;
-    const reasons: string[] = calendarConflicts(item, all, policy);
-    if (strategyDigest(active) !== strategyDigest(item.strategyRef)) reasons.push("active strategy changed; plan approval required");
-    for (const ref of item.dependencies) { const dependency = await readItemState(ref, tx); if (dependency.status !== "completed") reasons.push(`dependency ${ref.id} is ${dependency.status}`); }
-    for (const assetId of item.requiredAssetIds) if (assets.find(asset => asset.id === assetId)?.status !== "ready") reasons.push(`asset ${assetId} is not ready`);
-    if (item.evidence.mode === "operator_context" && item.requestedOutputs.some(output => !["x_post", "linkedin_post", "caption", "content_pack"].includes(output))) reasons.push("selected output requires factual source evidence");
+    const reasons = await plannedItemAdmission(tx, item, asOf);
     if (reasons.length) { tx.put(authorityKey("planned_item_states", item.ref), { ...state, status: "blocked", reason: reasons.join("; "), updatedAt: asOf }); continue; }
     const jobId = `planned-${strategyDigest(item.ref).slice(0, 56)}`;
-    const originPlan = await readPlan(item.planRef, tx);
-    const editorial = originPlan.editorial;
+    const editorial = item.productionContext.mode === "source_backed" ? item.productionContext : null;
     const config: JobConfig = {
       operatorBrief: item.operatorBrief, desiredOutputs: item.requestedOutputs, allowedOutputs: item.requestedOutputs, platforms: [item.channel],
       ...(editorial ? { ...editorial.config, operatorBrief: item.operatorBrief, desiredOutputs: item.requestedOutputs, allowedOutputs: item.requestedOutputs } : {}),
@@ -84,14 +99,22 @@ export async function reconcilePlannedExecution(jobId: string): Promise<void> {
     if (state.jobId !== jobId) throw new Error("planned execution binding mismatch");
     const job = row.value!;
     const status = job.controlState === "cancelled" ? "cancelled" : job.failure || job.status === "failed" ? "failed" : job.stage === "complete" ? job.terminalOutcome === "succeeded" ? "completed" : "blocked" : job.stage === "awaiting_approval" ? "awaiting_approval" : "running";
-    tx.put(authorityKey("planned_item_states", ref), { ...state, status, reason: status === "blocked" ? `execution outcome ${job.terminalOutcome}` : "", updatedAt: new Date().toISOString(), retryable: Boolean((job.failure as { retryable?: boolean })?.retryable) });
+    tx.put(authorityKey("planned_item_states", ref), { ...state, status, reason: state.retryPending || state.dispositionProposalId ? state.reason : status === "blocked" ? `execution outcome ${job.terminalOutcome}` : "", updatedAt: new Date().toISOString(), retryable: Boolean((job.failure as { retryable?: boolean })?.retryable) });
     if (status === "completed") planId = item.planRef.id;
   });
-  if (planId) await claimNextPlannedItem(planId);
+  if (planId) { await resumePendingPlannedRetries(); await claimNextPlannedItem(planId); }
+}
+export async function resumePendingPlannedRetries() {
+  for (const item of await plannedCalendar()) if (item.lifecycle.retryPending && item.lifecycle.jobId) {
+    const row = await awsRepository().read(recordKey(`workspaces/${item.workspaceId}/jobs/${item.lifecycle.jobId}`));
+    const failure = row.value?.failure as { stage: import("../types").Stage; retryable: boolean } | undefined;
+    if (failure?.retryable) await retryFailedJobWithOutbox(item.lifecycle.jobId, failure.stage);
+  }
 }
 export async function recoverPlannedWork() {
   const { listCurrentPlans } = await import("../campaigns/repository");
   const plans = await listCurrentPlans();
+  await resumePendingPlannedRetries();
   for (const plan of plans) {
     for (const ref of plan.itemRefs) { const state = await readItemState(ref); if (state.jobId && state.status !== "completed") await reconcilePlannedExecution(state.jobId); }
     await claimNextPlannedItem(plan.ref.id);

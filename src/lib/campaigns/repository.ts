@@ -1,6 +1,7 @@
 import { awsRepository, DynamoTransaction, partition, recordKey } from "../dynamo";
 import { assertResourceWorkspace, currentTenant, tenantSubjectId, tenantCollectionPath } from "../tenancy";
 import { requireContentOperator } from "../authority";
+import { sourceAnalysisDigest } from "../sourceAnalysis";
 import { readStrategyRevision, type StrategyReader } from "../strategy/repository";
 import { authorityRefSchema, planningPolicySchema, type AuthorityRef, type Campaign, type PlanRevision, type PlannedItem, type PlannedItemState, type PlanningAsset, type PlanningPolicy } from "./contracts";
 
@@ -14,7 +15,22 @@ export async function readRequired<T>(key: ReturnType<typeof recordKey>, reader:
 }
 export async function readCampaign(ref: AuthorityRef, reader?: StrategyReader) { return readRequired<Campaign>(authorityKey("campaign_revisions", ref), reader); }
 export async function readPlan(ref: AuthorityRef, reader?: StrategyReader) { return readRequired<PlanRevision>(authorityKey("plan_revisions", ref), reader); }
-export async function readPlannedItem(ref: AuthorityRef, reader?: StrategyReader) { return readRequired<PlannedItem>(authorityKey("planned_item_revisions", ref), reader); }
+export function assertItemProductionContext(item: PlannedItem) {
+  assertResourceWorkspace(currentTenant(), item.productionContext.policyRef);
+  if (item.productionContext.mode !== item.evidence.mode || item.productionContextDigest !== sourceAnalysisDigest({ evidence: item.evidence, context: item.productionContext })) throw new Error("planned item production context digest mismatch");
+  if (item.productionContext.mode === "source_backed" && item.evidence.mode === "source_backed") {
+    if (sourceAnalysisDigest(item.productionContext.sourceAnalysis) !== item.evidence.sourceBinding.analysisDigest || sourceAnalysisDigest(item.productionContext.snapshot.sourceBinding) !== sourceAnalysisDigest(item.evidence.sourceBinding)) throw new Error("planned item source context binding mismatch");
+    if (sourceAnalysisDigest(item.evidence.sourceBinding.strategyRef) !== sourceAnalysisDigest(item.strategyRef) || item.evidence.sourceBinding.jobId !== item.evidence.sourceJobId) throw new Error("planned item source strategy mismatch");
+  } else if (item.evidence.mode === "operator_context") {
+    if (item.operatorBrief !== item.evidence.operatorBrief || item.evidence.contextDigest !== sourceAnalysisDigest(item.operatorBrief)) throw new Error("planned item operator context mismatch");
+  }
+}
+export function withItemProductionContext(item: Omit<PlannedItem, "productionContextDigest">): PlannedItem {
+  return { ...item, productionContextDigest: sourceAnalysisDigest({ evidence: item.evidence, context: item.productionContext }) };
+}
+export async function readPlannedItem(ref: AuthorityRef, reader?: StrategyReader) {
+  const item = await readRequired<PlannedItem>(authorityKey("planned_item_revisions", ref), reader); assertItemProductionContext(item); return item;
+}
 export async function readItemState(ref: AuthorityRef, reader?: StrategyReader) { return readRequired<PlannedItemState>(authorityKey("planned_item_states", ref), reader); }
 export async function currentPlan(id: string, reader: StrategyReader = awsRepository()) { const ref = await readRequired<AuthorityRef>(pointerKey("plans", id), reader); return readPlan(ref, reader); }
 export async function listCurrentPlans(reader: StrategyReader = awsRepository()): Promise<PlanRevision[]> {

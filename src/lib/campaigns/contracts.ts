@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { strategyRefSchema, strategySourceBindingSchema } from "../strategy/contracts";
-import type { EditorialPlan, EditorialPlanningSnapshot, JobConfig, SourceAnalysis } from "../types";
+import type { EditorialPlan, EditorialPlanItem, EditorialPlanningSnapshot, JobConfig, SourceAnalysis } from "../types";
 
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/);
 const revision = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
@@ -23,24 +23,29 @@ export const plannedEvidenceSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("source_backed"), sourceJobId: id, sourceBinding: strategySourceBindingSchema }).strict(),
 ]);
 export type PlannedEvidence = z.infer<typeof plannedEvidenceSchema>;
+export type PlannedProductionContext =
+  | { mode: "operator_context"; policyRef: AuthorityRef }
+  | { mode: "source_backed"; policyRef: AuthorityRef; plan: Omit<EditorialPlan, "items" | "selectedNextItemId">; item: EditorialPlanItem; snapshot: EditorialPlanningSnapshot; config: JobConfig; sourceAnalysis: SourceAnalysis };
 export interface Campaign { ref: AuthorityRef; workspaceId: string; brandId: string; name: string; objective: string; strategyRef: z.infer<typeof strategyRefSchema>; createdAt: string; createdBy: string }
 export interface PlanRevision {
   ref: AuthorityRef; workspaceId: string; brandId: string; campaignRef: AuthorityRef | null;
   strategyRef: z.infer<typeof strategyRefSchema>; policyRef: AuthorityRef; itemRefs: AuthorityRef[];
   createdAt: string; createdBy: string; reason: string;
-  editorial?: { plan: EditorialPlan; snapshot: EditorialPlanningSnapshot; config: JobConfig; sourceAnalysis: SourceAnalysis };
+  acceptedEditorialDigest?: string;
 }
 export interface PlannedItem {
   ref: AuthorityRef; workspaceId: string; brandId: string; planRef: AuthorityRef; campaignRef: AuthorityRef | null;
   strategyRef: z.infer<typeof strategyRefSchema>; name: string; objective: string; operatorBrief: string;
   requestedOutputs: JobConfig["desiredOutputs"]; channel: string; scheduledFor: string; publicationWindowEndAt?: string; productionDeadlineAt?: string; productionReadyAt?: string;
   dependencies: AuthorityRef[]; requiredAssetIds: string[]; evidence: PlannedEvidence;
+  productionContext: PlannedProductionContext; productionContextDigest: string;
   editorialItemId?: string; createdAt: string;
 }
 export type ItemStatus = "planned" | "running" | "awaiting_approval" | "completed" | "failed" | "cancelled" | "blocked" | "requires_disposition";
 export interface PlannedItemState {
   ref: AuthorityRef; workspaceId: string; brandId: string; status: ItemStatus; updatedAt: string;
-  jobId?: string; outboxId?: string; reason?: string; approvedDigest?: string; retryable?: boolean;
+  jobId?: string; outboxId?: string; reason?: string; retryable?: boolean; retryPending?: boolean;
+  dispositionProposalId?: string;
 }
 export interface PlanningMaterialization { campaignRef: AuthorityRef | null; planRef: AuthorityRef; itemRefs: AuthorityRef[]; proposalId?: string }
 export interface PlanningAsset { id: string; workspaceId: string; brandId: string; briefId: string; assetType: string; status: "ready" | "missing" | "blocked"; evidenceRefs: string[] }

@@ -11,7 +11,7 @@ Campaign records live below `workspaces/{workspaceId}/brands/{brandId}`. Every r
 |---|---|
 | `campaign_revisions`, `campaigns` | Immutable campaign name, objective and strategy; current pointer updated with an expected revision |
 | `plan_revisions`, `plans` | Immutable campaign reference, strategy reference, policy reference and exact item references; current pointer updated transactionally |
-| `planned_item_revisions` | Operator brief, exact requested outputs, schedule, dependencies, required assets and source binding |
+| `planned_item_revisions` | Operator brief, exact requested outputs, schedule, dependencies, required assets, source binding and digest-bound production context |
 | `planned_item_states` | Current execution status, bound job/outbox, retryability and blocking reason |
 | `planning_policy_revisions`, `planning_policy/active` | Explicit operator configuration and revision pointer |
 | `planning_intake_receipts`, `planning_commands`, `planning_chat_receipts` | Exact message/request identity, actor and committed result |
@@ -45,7 +45,11 @@ The timezone is an IANA name. Calendar weeks begin on local Monday and observe d
 
 Chat `advance_plan` claims eligible work through the planning command transaction. Chat `manage_calendar` accepts an exact current item and an ISO timestamp with an explicit offset. Ambiguous requests and changes outside strategy, capacity or approved work create durable proposals. Proposals do not authorize execution. External Google Calendar changes still use the normal effect confirmation.
 
-Selection creates the execution job, binds the exact item revision and creates its stage outbox in one transaction. Recovery reuses that binding. Completion permits the next eligible item; failures retain retry or dependency state. A retry reuses the job and creates a new outbox generation. Calendar changes create new immutable item and plan revisions; changing approved or running work requires disposition.
+Selection creates the execution job, binds the exact item revision and creates its stage outbox in one transaction. Recovery reuses that binding. Completion permits the next eligible item; failures retain retry or dependency state. Retry admission rechecks current strategy, item binding, policy, concurrency, cadence, dependencies, assets and unresolved effects. An ineligible retry remains pending without a new outbox; completion or recovery can later resume the same job exactly once.
+
+Calendar changes before execution create new immutable item and plan revisions and revise unclaimed dependents in the same transaction. Claimed, completed or approved dependents hold the change as an unapplied disposition proposal. Any existing job, outbox, approval, receipt, effect claim or operation protects an item from acquiring a second executable revision. Source-backed editorial inputs live on each item's immutable production context, so appending an independent deliverable cannot change another item's sources or execution inputs.
+
+`GET /api/planning/proposals/{id}` returns the exact proposal and its disposition authority digest. An operator can POST `requestId`, `expectedAuthorityDigest` and `decision: "keep_existing_execution"` to decline that calendar change while retaining the existing execution. The transaction rereads job, action, approval, command, claim, receipt and operation authority. Changed authority requires reconciliation and a current proposal. A replay returns the original disposition receipt. This disposition does not authorize an unresolved effect or create replacement work.
 
 The calendar feed includes `plannedItems` and `planningPolicy`. Workspace chat context and the production panel read those same authority records. Execution-job editorial fields are projections rebuilt from the pinned plan and item.
 

@@ -4,7 +4,7 @@ import { strategyDigest } from "../strategyApproval";
 import { editorialPlanDigest, editorialPlanningSnapshotDigest } from "../editorialPlan";
 import { buildStrategySourceBinding } from "../strategy/sourceBinding";
 import { currentTenant, tenantSubjectId } from "../tenancy";
-import { authorityKey, pointerKey, readPlan, readPlannedItem, readItemState, readPlanningPolicy, readRequired, scopedRef, writeCampaign } from "./repository";
+import { authorityKey, pointerKey, readPlan, readPlannedItem, readItemState, readPlanningPolicy, readRequired, scopedRef, writeCampaign, withItemProductionContext } from "./repository";
 import type { PlanningPolicy } from "./contracts";
 import type { PlanRevision, PlannedItem, PlannedItemState } from "./contracts";
 import type { StrategyReader } from "../strategy/repository";
@@ -19,7 +19,7 @@ export async function persistEditorialPlan(tx: DynamoTransaction, job: Job, plan
   const existing = await tx.read(authorityKey("plan_revisions", ref));
   if (existing.present) {
     const prior = await readPlan(ref, tx);
-    if (strategyDigest(prior.editorial?.plan) !== strategyDigest(plan)) throw new Error("editorial plan revision already accepted"); return prior;
+    if (prior.acceptedEditorialDigest !== editorialPlanDigest(plan)) throw new Error("editorial plan revision already accepted"); return prior;
   }
   if (!job.strategyRef || !job.sourceAnalysis || !job.editorialPlanningSnapshot) throw new Error("editorial source and strategy authority required");
   if (!job.editorialPlanningSnapshot.provenanceIds.includes(`policy:${policy.ref.id}:v${policy.ref.revision}`)) throw new Error("planning policy changed; a new snapshot is required");
@@ -28,12 +28,14 @@ export async function persistEditorialPlan(tx: DynamoTransaction, job: Job, plan
   const committed = await plannedCalendar(tx);
   const proposed = plan.items.map(item => ({ ref: refs.get(item.id)!, channel: item.channel, scheduledFor: item.publicationWindowStartAt }));
   for (const item of proposed) { const conflicts = calendarConflicts(item, [...committed, ...proposed], policy); if (conflicts.length) throw new Error(`editorial plan capacity proposal required: ${conflicts.join("; ")}`); }
-  const record: PlanRevision = { ref, workspaceId: ref.workspaceId, brandId: ref.brandId, campaignRef: campaign?.ref ?? null, strategyRef: job.strategyRef, policyRef: policy.ref, itemRefs: [...refs.values()], createdAt: now, createdBy: tenantSubjectId(currentTenant()), reason: plan.summary, editorial: { plan, snapshot: job.editorialPlanningSnapshot, config: job.config, sourceAnalysis: job.sourceAnalysis } };
+  const record: PlanRevision = { ref, workspaceId: ref.workspaceId, brandId: ref.brandId, campaignRef: campaign?.ref ?? null, strategyRef: job.strategyRef, policyRef: policy.ref, itemRefs: [...refs.values()], createdAt: now, createdBy: tenantSubjectId(currentTenant()), reason: plan.summary, acceptedEditorialDigest: editorialPlanDigest(plan) };
+  const { items: _items, selectedNextItemId: _selected, ...planContext } = plan;
+  void _items; void _selected;
   for (const proposal of plan.items) {
     const itemRef = refs.get(proposal.id)!;
-    const item: PlannedItem = { ref: itemRef, workspaceId: ref.workspaceId, brandId: ref.brandId, planRef: ref, campaignRef: record.campaignRef, strategyRef: job.strategyRef, name: proposal.campaignTheme, objective: proposal.objective, operatorBrief: job.config.operatorBrief ?? proposal.objective, requestedOutputs: job.config.desiredOutputs, channel: proposal.channel, scheduledFor: proposal.publicationWindowStartAt,
+    const item: PlannedItem = withItemProductionContext({ ref: itemRef, workspaceId: ref.workspaceId, brandId: ref.brandId, planRef: ref, campaignRef: record.campaignRef, strategyRef: job.strategyRef, name: proposal.campaignTheme, objective: proposal.objective, operatorBrief: job.config.operatorBrief ?? proposal.objective, requestedOutputs: job.config.desiredOutputs, channel: proposal.channel, scheduledFor: proposal.publicationWindowStartAt,
       publicationWindowEndAt: proposal.publicationWindowEndAt, productionDeadlineAt: proposal.productionDeadlineAt, productionReadyAt: plan.horizonStartAt, dependencies: proposal.dependencies.map(id => { const dependency = refs.get(id); if (!dependency) throw new Error(`unknown planned dependency ${id}`); return dependency; }), requiredAssetIds: proposal.requiredAssets,
-      evidence: { mode: "source_backed", sourceJobId: job.id, sourceBinding: buildStrategySourceBinding({ ...job, sourceAnalysis: job.sourceAnalysis }) }, editorialItemId: proposal.id, createdAt: now };
+      evidence: { mode: "source_backed", sourceJobId: job.id, sourceBinding: buildStrategySourceBinding({ ...job, sourceAnalysis: job.sourceAnalysis }) }, productionContext: { mode: "source_backed", policyRef: policy.ref, plan: planContext, item: proposal, snapshot: job.editorialPlanningSnapshot, config: job.config, sourceAnalysis: job.sourceAnalysis }, editorialItemId: proposal.id, createdAt: now });
     tx.insert(authorityKey("planned_item_revisions", itemRef), item);
     tx.insert(authorityKey("planned_item_states", itemRef), { ref: itemRef, workspaceId: ref.workspaceId, brandId: ref.brandId, status: "planned", updatedAt: now } satisfies PlannedItemState);
   }
@@ -52,12 +54,14 @@ export async function resolvePlannedJob<T extends Job>(job: T, reader?: Strategy
     if (selected.evidence.mode === "operator_context" && strategyDigest(job.operatorPlanningContext) !== strategyDigest(selected.evidence)) throw new Error("planned item context binding mismatch");
     if (selected.evidence.mode === "source_backed" && (!job.sourceAnalysis || !("analysisDigest" in selected.evidence.sourceBinding) || sourceAnalysisDigest(job.sourceAnalysis) !== selected.evidence.sourceBinding.analysisDigest)) throw new Error("planned item source analysis binding mismatch");
   }
-  if (!plan.editorial) {
-    if (!selected || !job.contentStrategy || job.operatorPlanningContext?.mode !== "operator_context") return job;
+  if (!selected) return job;
+  const context = selected.productionContext;
+  if (context.mode === "operator_context") {
+    if (!job.contentStrategy || job.operatorPlanningContext?.mode !== "operator_context") throw new Error("operator planning context required");
     const strategy = job.contentStrategy;
     const brief = strategy.briefs.find(brief => brief.channelCandidates.includes(selected.channel));
     if (!brief) throw new Error("no approved brief for selected channel");
-    const policy = await readRequired<PlanningPolicy>(authorityKey("planning_policy_revisions", plan.policyRef), reader);
+    const policy = await readRequired<PlanningPolicy>(authorityKey("planning_policy_revisions", context.policyRef), reader);
     const state = await readItemState(selected.ref, reader);
     const start = new Date(selected.scheduledFor).toISOString();
     const end = new Date(Date.parse(start) + 3600000).toISOString();
@@ -68,15 +72,13 @@ export async function resolvePlannedJob<T extends Job>(job: T, reader?: Strategy
     const editorial: EditorialPlan = { planId: plan.ref.id, version: 1, approvedStrategyDigest: job.strategyRef!.digest, planningSnapshotId: snapshot.snapshotId, planningSnapshotDigest: snapshotDigest, horizonStartAt: start, horizonEndAt: horizonEnd, timezone: policy.timezone, summary: selected.objective, sequencingRationale: "Operator-selected planned work", cadenceRationale: "Configured production policy", assumptions: [], confidence: "high", items: [item], selectedNextItemId: item.id };
     return { ...job, editorialPlan: editorial, editorialPlanDigest: editorialPlanDigest(editorial), editorialPlanRevision: plan.ref.revision, editorialPlanningSnapshot: snapshot, editorialPlanningSnapshotDigest: snapshotDigest, selectedNextItemId: item.id, editorialItemStates: { [item.id]: { status: state.status === "awaiting_approval" ? "awaiting_approval" : job.activeProductionLineage ? "drafting" : "selected", updatedAt: state.updatedAt } } };
   }
-  const snapshot = { ...plan.editorial.snapshot, sourceBinding: buildStrategySourceBinding(job) };
+  const snapshot = { ...context.snapshot, sourceBinding: buildStrategySourceBinding(job) };
   const snapshotDigest = editorialPlanningSnapshotDigest(snapshot);
-  const editorial = { ...plan.editorial.plan, planningSnapshotDigest: snapshotDigest, selectedNextItemId: selected?.editorialItemId ?? plan.editorial.plan.selectedNextItemId };
+  if (!selected.publicationWindowEndAt || !selected.productionDeadlineAt) throw new Error("editorial item schedule authority missing");
+  const editorial: EditorialPlan = { ...context.plan, planningSnapshotDigest: snapshotDigest, selectedNextItemId: context.item.id, items: [{ ...context.item, publicationWindowStartAt: selected.scheduledFor, publicationWindowEndAt: selected.publicationWindowEndAt, productionDeadlineAt: selected.productionDeadlineAt, dependencies: [] }] };
   const states: NonNullable<Job["editorialItemStates"]> = {};
-  for (const ref of plan.itemRefs) {
+  for (const ref of [selected.ref]) {
     const item = await readPlannedItem(ref, reader); const state = await readItemState(ref, reader);
-    const proposal = editorial.items.find(proposal => proposal.id === item.editorialItemId);
-    if (!proposal || !item.publicationWindowEndAt || !item.productionDeadlineAt) throw new Error("editorial item schedule authority missing");
-    editorial.items = editorial.items.map(proposal => proposal.id === item.editorialItemId ? { ...proposal, publicationWindowStartAt: item.scheduledFor, publicationWindowEndAt: item.publicationWindowEndAt!, productionDeadlineAt: item.productionDeadlineAt! } : proposal);
     states[item.editorialItemId!] = { status: state.status === "running" ? job.activeProductionLineage ? "drafting" : "selected" : state.status === "awaiting_approval" ? "awaiting_approval" : state.status === "completed" ? "reviewed" : "planned", updatedAt: state.updatedAt };
   }
   return { ...job, editorialPlan: editorial, editorialPlanDigest: editorialPlanDigest(editorial), editorialPlanRevision: plan.ref.revision, editorialPlanningSnapshot: snapshot, editorialPlanningSnapshotDigest: snapshotDigest, selectedNextItemId: editorial.selectedNextItemId, editorialItemStates: states, editorialPlanEvidenceLineage: [...new Set(editorial.items.flatMap(item => item.evidenceRefs))] };

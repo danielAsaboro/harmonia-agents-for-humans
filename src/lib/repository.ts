@@ -10,9 +10,9 @@ import type { ApprovalActor } from "./decisions";
 import { awsRepository,DynamoTransaction,field,limited,newRecordId,ordered,partition,recordKey,REMOVE_FIELD,StoredRecord,where } from "./dynamo";
 import { assertEditorialPlanSubmission,assertSelectedProductionAuthority,editorialPlanDigest,editorialPlanEvidenceLineage,editorialPlanningSnapshotDigest,isMatchingActiveProduction } from "./editorialPlan";
 import { buildEditorialPlanningSnapshot } from "./editorialPlanning";
-import { authorityKey, listPlanningAssets, readItemState, readPlan, readPlanningPolicy } from "./campaigns/repository";
+import { authorityKey, listPlanningAssets, readItemState, readPlan, readPlannedItem, readPlanningPolicy } from "./campaigns/repository";
 import { persistEditorialPlan } from "./campaigns/editorial";
-import { claimNextPlannedItem, reconcilePlannedExecution } from "./planning/selection";
+import { claimNextPlannedItem, plannedItemAdmission, reconcilePlannedExecution } from "./planning/selection";
 import { decideEffectClaim,decideEffectFinalization } from "./effectClaims";
 import type { EventInboxClaimResult,EventInboxRecord } from "./eventInbox";
 import { EventInboxStore,type DurableEventClaimInput } from "./eventInboxStore";
@@ -1408,11 +1408,18 @@ export async function retryFailedJobWithOutbox(
   jobId: string,
   stage: Stage,
   options: { allowPermanent?: boolean } = {},
-): Promise<string> {
+): Promise<string | null> {
   const tenant = currentTenant();
   return db().atomic(async (tx) => {
     const jobSnapshot = await tx.read(jobRef(jobId));
     const job = requireJobDoc(jobSnapshot);
+    if (!job.failure && job.plannedItemRef && job.stage === stage) {
+      const state = await readItemState(job.plannedItemRef, tx);
+      if (state.status === "running" && state.jobId === jobId && state.outboxId) {
+        const delivery = await tx.read(stageOutboxRef(state.outboxId));
+        if (delivery.value?.jobId === jobId && delivery.value?.stage === stage && delivery.value?.operationId === operationIdForStageGeneration(jobId, stage, job.controlEpoch)) return state.outboxId;
+      }
+    }
     if (!job.failure || job.failure.stage !== stage || (job.status !== "failed" && !job.failure.retryable)) throw new Error("job is not retryable from this stage");
     if (!job.failure.retryable && !options.allowPermanent) throw new Error("permanent failure requires a deployed-fix acknowledgement");
     const generation = job.controlEpoch + 1;
@@ -1422,7 +1429,14 @@ export async function retryFailedJobWithOutbox(
     if (job.plannedItemRef) {
       const state = await readItemState(job.plannedItemRef, tx);
       if (state.jobId !== jobId) throw new Error("planned execution binding mismatch");
-      tx.put(authorityKey("planned_item_states", job.plannedItemRef), { ...state, status: "running", outboxId: id, reason: "", updatedAt: new Date().toISOString() });
+      const item = await readPlannedItem(job.plannedItemRef, tx);
+      const reasons = await plannedItemAdmission(tx, item, new Date().toISOString());
+      if (job.controlState !== "running") reasons.push(`execution is ${job.controlState}`);
+      if (reasons.length) {
+        tx.put(authorityKey("planned_item_states", job.plannedItemRef), { ...state, status: "failed", retryPending: true, reason: reasons.join("; "), updatedAt: new Date().toISOString() });
+        return null;
+      }
+      tx.put(authorityKey("planned_item_states", job.plannedItemRef), { ...state, status: "running", retryPending: false, outboxId: id, reason: "", updatedAt: new Date().toISOString() });
     }
     tx.patch(jobRef(jobId), {
       stage,
@@ -1828,7 +1842,7 @@ export async function acceptEditorialPlan(
     const evidenceLineage = editorialPlanEvidenceLineage(plan);
     if (job.planRef) {
       const prior = await readPlan(job.planRef, tx);
-      if (revision !== prior.ref.revision || !prior.editorial || editorialPlanDigest(prior.editorial.plan) !== digest) throw new Error("editorial plan already accepted; use an audited planning revision command");
+      if (revision !== prior.ref.revision || prior.acceptedEditorialDigest !== digest) throw new Error("editorial plan already accepted; use an audited planning revision command");
       return { digest, evidenceLineage, selectedNextItemId: plan.selectedNextItemId, planRef: prior.ref };
     }
     assertEditorialPlanSubmission(job, plan, revision);

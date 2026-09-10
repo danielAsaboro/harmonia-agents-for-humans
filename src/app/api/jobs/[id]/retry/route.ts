@@ -43,6 +43,7 @@ async function post(
   }
 
   const outboxId = await retryFailedJobWithOutbox(id, failedStage, retryAuthorization);
+  if (!outboxId) return Response.json({ ok: true, retryPending: true, message: "Retry is waiting for planning capacity or execution disposition." }, { status: 202 });
   await appendEvent(
     id,
     failedStage,

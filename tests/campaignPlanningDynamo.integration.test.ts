@@ -14,6 +14,9 @@ import { editorialPlanSchema } from "@/lib/contracts";
 import { createArtifactStore } from "@/lib/artifactStore";
 import { sourceAnalysisDigest } from "@/lib/sourceAnalysis";
 import { loadWorkspaceContentContext } from "@/lib/workspaceContentContext";
+import { campaignWorkerBridge } from "./fixtures/campaignWorkerBridge";
+import { buildStageMessage } from "@/lib/queue";
+import type { StageOutboxRecord } from "@/lib/stageOutbox";
 
 const tenant = (): TenantContext => ({ workspaceId: `campaign-${randomUUID()}`, brandId: "a", principal: { kind: "cognito_user", subjectId: "operator", authenticationId: "auth", workspaceRole: "owner" } });
 async function setup() {
@@ -29,6 +32,136 @@ async function request(disposition: "independent" | "new_initiative" = "new_init
 }
 
 describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("persistent campaign calendar", () => {
+  it("completes two replanned dependent deliverables through the actual worker and TS API with real S3 exports", async () => runWithTenant(tenant(), async () => {
+    vi.stubEnv("INTERNAL_API_TOKEN", "task3-local-worker-token"); vi.stubEnv("AGENT_SERVICE_URL", "http://127.0.0.1:1"); vi.stubEnv("SQS_STAGE_QUEUE_URL", undefined);
+    const bridge = await campaignWorkerBridge();
+    try {
+      await setup(); const api = await import("@/lib/planning/commands"); const repo = await import("@/lib/campaigns/repository"); const selection = await import("@/lib/planning/selection");
+      const draft = await request(); const base = await api.materializeIntake({ draftId: draft.id, expectedDraftRevision: 1, requestId: draft.answers.at(-1)!.requestId });
+      const appended = await api.addPlannedDeliverable({ planId: base.planRef.id, expectedRevision: 1, requestId: randomUUID(), name: "Second invitation", operatorBrief: "Imagine a different creative workflow; no factual claims", requestedOutputs: ["x_post"], channel: "x", scheduledFor: "2026-09-03T12:00:00Z", dependencies: base.itemRefs, requiredAssetIds: [] });
+      const revised = await api.replanItem({ itemRef: base.itemRefs[0], scheduledFor: "2026-09-01T12:00:00Z", requestId: randomUUID() });
+      expect(revised.outcome).toBe("applied");
+      const plan = await repo.currentPlan(base.planRef.id);
+      expect((await repo.readPlannedItem(plan.itemRefs.find(ref => ref.id === appended.itemRef.id)!)).dependencies).toEqual([revised.itemRef]);
+      await selection.claimNextPlannedItem(plan.ref.id);
+      const jobIds = []; const producedTexts: string[] = [];
+      for (const itemRef of plan.itemRefs) {
+        const state = await repo.readItemState(itemRef); expect(state.status).toBe("running"); expect(state.jobId).toBeTruthy(); jobIds.push(state.jobId!);
+        for (const [stage, next] of [["draft", "publish"], ["publish", "verify"], ["verify", "learn"], ["learn", "complete"]]) {
+          const rows = await awsRepository().query(partition(`workspaces/${plan.ref.workspaceId}/stage_outbox`));
+          const record = rows.rows.find(row => row.value?.jobId === state.jobId && row.value?.stage === stage)!.value as unknown as StageOutboxRecord;
+          const message = buildStageMessage(plan.ref, record); const event = JSON.parse(message.data.toString());
+          const input = { event, carrier: message.attributes, transportId: randomUUID() };
+          const outcome = await bridge.run(input);
+          expect(outcome, JSON.stringify(bridge.requests.filter(request => request.status >= 400))).toMatchObject({ acknowledged: true, result: { ack: true } });
+          expect(outcome.result.failed, JSON.stringify(bridge.requests)).not.toBe(true);
+          expect((await getJob(state.jobId!)).stage).toBe(next);
+          if (itemRef.id === plan.itemRefs[0].id && next !== "complete") expect((await repo.readItemState(plan.itemRefs[1])).jobId).toBeUndefined();
+          const replay = await bridge.run({ ...input, transportId: randomUUID(), deliveryAttempt: 2 });
+          expect(replay.result.duplicate).toBe(true); expect(replay.providerRoles).toEqual([]);
+        }
+        const completed = await getJob(state.jobId!);
+        expect(completed.terminalOutcome).toBe("succeeded"); expect(completed.contentArtifacts).toHaveLength(1);
+        const payload = completed.contentArtifacts![0].payload; if (payload.kind === "x_post") producedTexts.push(payload.text);
+        expect(completed.actions).toHaveLength(1); expect(completed.actions[0]).toMatchObject({ type: "export_content_artifact", state: "executed" });
+        expect(completed.verifications).toHaveLength(1); expect(completed.verifications![0].verified).toBe(true);
+        expect((await repo.readItemState(itemRef)).status).toBe("completed");
+      }
+      expect(new Set(jobIds).size).toBe(2);
+      expect(new Set(producedTexts).size).toBe(2);
+      expect((await repo.readCampaign(plan.campaignRef!)).ref).toEqual(base.campaignRef);
+      expect((await repo.currentPlan(plan.ref.id)).itemRefs).toEqual(plan.itemRefs);
+      await selection.recoverPlannedWork(); expect(await selection.claimNextPlannedItem(plan.ref.id)).toBeNull();
+      expect((await awsRepository().query(partition(`workspaces/${plan.ref.workspaceId}/jobs`))).rows).toHaveLength(2);
+      expect(bridge.requests.filter(request => request.path === "/api/internal/artifacts" && request.status === 201)).toHaveLength(4);
+      expect(bridge.requests.filter(request => request.status >= 400)).toEqual([]);
+    } finally { await bridge.close(); vi.unstubAllEnvs(); }
+  }), 60000);
+  it("resolves multi-item plan and campaign advance scopes without item-count ambiguity", async () => runWithTenant(tenant(), async () => {
+    await setup(); const api = await import("@/lib/planning/commands");
+    const draft = await request(); const base = await api.materializeIntake({ draftId: draft.id, expectedDraftRevision: 1, requestId: draft.answers.at(-1)!.requestId });
+    await api.addPlannedDeliverable({ planId: base.planRef.id, expectedRevision: 1, requestId: randomUUID(), name: "Second", operatorBrief: "Imagine a follow-up", requestedOutputs: ["x_post"], channel: "x", scheduledFor: "2026-09-03T12:00:00Z", dependencies: base.itemRefs, requiredAssetIds: [] });
+    const planCommand = { action: "advance_plan" as const, targetName: base.planRef.id, requestId: randomUUID(), message: "Advance plan" };
+    const claimed = await api.executePlanningChat(planCommand);
+    expect(claimed.claim?.itemRef).toEqual(base.itemRefs[0]);
+    expect(await api.executePlanningChat(planCommand)).toEqual(claimed);
+    const campaign = await api.executePlanningChat({ ...planCommand, targetName: base.campaignRef!.id, requestId: randomUUID() });
+    expect(campaign.claim?.jobId).toBe(claimed.claim!.jobId);
+  }));
+  it.each(["failed", "blocked", "unknown", "unknown_operation", "approved"])("keeps claimed %s work bound when calendar changes are proposed", async mode => runWithTenant(tenant(), async () => {
+    await setup(); const api = await import("@/lib/planning/commands"); const repo = await import("@/lib/campaigns/repository"); const selection = await import("@/lib/planning/selection");
+    const draft = await request(); const base = await api.materializeIntake({ draftId: draft.id, expectedDraftRevision: 1, requestId: draft.answers.at(-1)!.requestId });
+    const claim = await selection.claimNextPlannedItem(base.planRef.id);
+    await awsRepository().patch(repo.authorityKey("planned_item_states", base.itemRefs[0]), { status: mode === "failed" ? "failed" : "blocked" });
+    const key = recordKey(`workspaces/${base.planRef.workspaceId}/jobs/${claim!.jobId}`);
+    await awsRepository().patch(key, { status: "failed", failure: { stage: "draft", retryable: true }, actions: mode === "approved" ? [{ id: "approved-effect", approvalState: "approved", state: "planned" }] : [] });
+    if (mode === "unknown") await awsRepository().put(recordKey(`workspaces/${base.planRef.workspaceId}/effect_commands/unknown-effect`), { workspaceId: base.planRef.workspaceId, brandId: base.planRef.brandId, id: "unknown-effect", jobId: claim!.jobId, state: "unknown" });
+    if (mode === "unknown_operation") await awsRepository().put(recordKey(`workspaces/${base.planRef.workspaceId}/operations/unknown-operation`), { workspaceId: base.planRef.workspaceId, brandId: base.planRef.brandId, jobId: claim!.jobId, state: "unknown" });
+    const change = await api.replanItem({ itemRef: base.itemRefs[0], scheduledFor: "2026-09-01T12:00:00Z", requestId: randomUUID() });
+    expect(change.outcome).toBe("proposal");
+    expect((await repo.currentPlan(base.planRef.id)).ref).toEqual(base.planRef);
+    expect((await repo.readItemState(base.itemRefs[0])).jobId).toBe(claim!.jobId);
+    const proposal = (await awsRepository().read(recordKey(`${repo.campaignRoot()}/planning_proposals/${change.proposalId}`))).value!;
+    const disposition = { proposalId: change.proposalId!, expectedAuthorityDigest: strategyDigest(proposal.guarded), decision: "keep_existing_execution" as const, requestId: randomUUID() };
+    await expect(api.disposePlanningProposal({ ...disposition, expectedAuthorityDigest: "0".repeat(64) })).rejects.toThrow("authority mismatch");
+    const kept = await api.disposePlanningProposal(disposition);
+    expect(kept).toMatchObject({ outcome: "kept_existing_execution" });
+    expect(await api.disposePlanningProposal(disposition)).toEqual(kept);
+    expect((await repo.currentPlan(base.planRef.id)).ref).toEqual(base.planRef);
+    expect(await selection.claimNextPlannedItem(base.planRef.id)).toBeNull();
+    if (["unknown", "unknown_operation"].includes(mode)) expect(await retryFailedJobWithOutbox(claim!.jobId, "draft")).toBeNull();
+  }));
+  it("rejects a disposition after the captured execution authority changes", async () => runWithTenant(tenant(), async () => {
+    await setup(); const api = await import("@/lib/planning/commands"); const repo = await import("@/lib/campaigns/repository"); const selection = await import("@/lib/planning/selection");
+    const draft = await request(); const base = await api.materializeIntake({ draftId: draft.id, expectedDraftRevision: 1, requestId: draft.answers.at(-1)!.requestId });
+    const claim = await selection.claimNextPlannedItem(base.planRef.id);
+    const change = await api.replanItem({ itemRef: base.itemRefs[0], scheduledFor: "2026-09-01T12:00:00Z", requestId: randomUUID() });
+    const proposal = (await awsRepository().read(recordKey(`${repo.campaignRoot()}/planning_proposals/${change.proposalId}`))).value!;
+    await awsRepository().patch(recordKey(`workspaces/${base.planRef.workspaceId}/jobs/${claim!.jobId}`), { controlEpoch: 2 });
+    await expect(api.disposePlanningProposal({ proposalId: change.proposalId!, expectedAuthorityDigest: strategyDigest(proposal.guarded), decision: "keep_existing_execution", requestId: randomUUID() })).rejects.toThrow("execution authority changed");
+    expect((await repo.currentPlan(base.planRef.id)).ref).toEqual(base.planRef);
+  }));
+  it("preserves a claimed dependent and flags the prerequisite change for exact disposition", async () => runWithTenant(tenant(), async () => {
+    await setup(); const api = await import("@/lib/planning/commands"); const repo = await import("@/lib/campaigns/repository");
+    const draft = await request(); const base = await api.materializeIntake({ draftId: draft.id, expectedDraftRevision: 1, requestId: draft.answers.at(-1)!.requestId });
+    const second = await api.addPlannedDeliverable({ planId: base.planRef.id, expectedRevision: 1, requestId: randomUUID(), name: "Second", operatorBrief: "Imagine a follow-up", requestedOutputs: ["x_post"], channel: "x", scheduledFor: "2026-09-03T12:00:00Z", dependencies: base.itemRefs, requiredAssetIds: [] });
+    // A persisted binding must win even if the calendar lifecycle projection is stale.
+    const jobId = `planned-${strategyDigest(second.itemRef).slice(0, 56)}`;
+    await awsRepository().put(recordKey(`workspaces/${base.planRef.workspaceId}/jobs/${jobId}`), { workspaceId: base.planRef.workspaceId, brandId: base.planRef.brandId, plannedItemRef: second.itemRef, stage: "draft", status: "failed" });
+    const result = await api.replanItem({ itemRef: base.itemRefs[0], scheduledFor: "2026-09-01T12:00:00Z", requestId: randomUUID() });
+    expect(result.outcome).toBe("proposal");
+    expect((await repo.currentPlan(base.planRef.id)).itemRefs).toEqual([...base.itemRefs, second.itemRef]);
+    expect((await repo.readItemState(second.itemRef)).dispositionProposalId).toBe(result.proposalId);
+    expect((await repo.readPlannedItem(second.itemRef)).dependencies).toEqual(base.itemRefs);
+  }));
+  it("revises unclaimed dependencies atomically when a prerequisite is rescheduled", async () => runWithTenant(tenant(), async () => {
+    await setup(); const api = await import("@/lib/planning/commands"); const repo = await import("@/lib/campaigns/repository");
+    const draft = await request(); const base = await api.materializeIntake({ draftId: draft.id, expectedDraftRevision: 1, requestId: draft.answers.at(-1)!.requestId });
+    const second = await api.addPlannedDeliverable({ planId: base.planRef.id, expectedRevision: 1, requestId: randomUUID(), name: "Second", operatorBrief: "Imagine a follow-up", requestedOutputs: ["x_post"], channel: "x", scheduledFor: "2026-09-03T12:00:00Z", dependencies: base.itemRefs, requiredAssetIds: [] });
+    const result = await api.replanItem({ itemRef: base.itemRefs[0], scheduledFor: "2026-09-01T12:00:00Z", requestId: randomUUID() });
+    expect(result.outcome).toBe("applied");
+    const current = await repo.currentPlan(base.planRef.id); const dependent = await repo.readPlannedItem(current.itemRefs.find(ref => ref.id === second.itemRef.id)!);
+    expect(dependent.ref.revision).toBe(2); expect(dependent.dependencies).toEqual([result.itemRef]);
+  }));
+  it("does not enqueue a failed job retry while another item occupies concurrency", async () => runWithTenant(tenant(), async () => {
+    await setup(); const api = await import("@/lib/planning/commands"); const repo = await import("@/lib/campaigns/repository"); const selection = await import("@/lib/planning/selection");
+    const draft = await request(); const base = await api.materializeIntake({ draftId: draft.id, expectedDraftRevision: 1, requestId: draft.answers.at(-1)!.requestId });
+    const second = await api.addPlannedDeliverable({ planId: base.planRef.id, expectedRevision: 1, requestId: randomUUID(), name: "Second", operatorBrief: "Imagine a follow-up", requestedOutputs: ["x_post"], channel: "x", scheduledFor: "2098-09-03T12:00:00Z", dependencies: [], requiredAssetIds: [] });
+    const claim = await selection.claimNextPlannedItem(base.planRef.id);
+    await markFailed({ jobId: claim!.jobId, stage: "draft", category: "dependency", code: "temporary", publicMessage: "Unavailable", retryable: true, operationId: `job:${claim!.jobId}:stage:draft:generation:0`, traceId: "a".repeat(32), attempt: 1, maxAttempts: 3, details: {} });
+    const other = await selection.claimNextPlannedItem(base.planRef.id, "2099-01-01T00:00:00Z"); expect(other?.itemRef).toEqual(second.itemRef);
+    const before = await awsRepository().query(partition(`workspaces/${base.planRef.workspaceId}/stage_outbox`));
+    expect(await retryFailedJobWithOutbox(claim!.jobId, "draft")).toBeNull();
+    expect((await awsRepository().query(partition(`workspaces/${base.planRef.workspaceId}/stage_outbox`))).rows).toHaveLength(before.rows.length);
+    expect(await repo.readItemState(base.itemRefs[0])).toMatchObject({ status: "failed", retryPending: true });
+    await awsRepository().patch(recordKey(`workspaces/${base.planRef.workspaceId}/jobs/${other!.jobId}`), { status: "complete", stage: "complete", terminalOutcome: "succeeded" });
+    await selection.reconcilePlannedExecution(other!.jobId);
+    const resumed = await repo.readItemState(base.itemRefs[0]);
+    expect(resumed).toMatchObject({ status: "running", jobId: claim!.jobId, retryPending: false }); expect(resumed.outboxId).not.toBe(claim!.outboxId);
+    await selection.recoverPlannedWork();
+    expect(await retryFailedJobWithOutbox(claim!.jobId, "draft")).toBe(resumed.outboxId);
+    expect((await awsRepository().query(partition(`workspaces/${base.planRef.workspaceId}/stage_outbox`))).rows).toHaveLength(before.rows.length + 1);
+  }));
   it("audits calendar and advance chat commands with exact replay and no duplicate dispatch", async () => runWithTenant(tenant(), async () => {
     await setup(); const api = await import("@/lib/planning/commands"); const repo = await import("@/lib/campaigns/repository");
     const draft = await request(); const base = await api.materializeIntake({ draftId: draft.id, expectedDraftRevision: 1, requestId: draft.answers.at(-1)!.requestId });
@@ -101,9 +234,9 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("persistent campaign calendar",
     expect(await selection.claimNextPlannedItem(base.planRef.id)).toBeNull();
     expect(await repo.readItemState(second.itemRef)).toMatchObject({ status: "blocked", reason: expect.stringContaining("cancelled") });
     expect((await repo.readItemState(second.itemRef)).reason).toContain("asset design");
-    await awsRepository().patch(repo.authorityKey("planned_item_states", second.itemRef), { approvedDigest: "a".repeat(64), status: "awaiting_approval" });
+    await awsRepository().patch(repo.authorityKey("planned_item_states", second.itemRef), { status: "awaiting_approval" });
     const change = await api.replanItem({ itemRef: second.itemRef, scheduledFor: "2026-09-07T12:00:00Z", requestId: randomUUID() });
-    expect(change.outcome).toBe("proposal"); expect(change.reasons).toContain("changed approved work requires disposition");
+    expect(change.outcome).toBe("proposal"); expect(change.reasons).toContain("claimed or approved work requires exact execution disposition");
     expect((await repo.readPlannedItem(second.itemRef)).scheduledFor).toBe("2026-09-01T12:00:00.000Z");
     const proposed = await api.executePlanningChat({ action: "manage_calendar", requestId: randomUUID(), message: "Change cadence" });
     expect(proposed.outcome).toBe("proposal"); expect(proposed.reply).toContain("Saved planning proposal");

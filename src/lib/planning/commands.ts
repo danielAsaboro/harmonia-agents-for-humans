@@ -6,7 +6,8 @@ import { intakeDraftKey, readIntakeDraft, readIntakeSourceRights } from "../inta
 import { getActiveStrategy, readActiveStrategyRef } from "../strategy/repository";
 import { strategyDigest } from "../strategyApproval";
 import { sourceAnalysisDigest } from "../sourceAnalysis";
-import { authorityKey, campaignRoot, currentPlan, listCurrentPlans, pointerKey, readItemState, readPlannedItem, readPlanningPolicy, scopedRef, writeCampaign } from "../campaigns/repository";
+import { authorityKey, campaignRoot, currentPlan, listCurrentPlans, pointerKey, readItemState, readPlannedItem, readPlanningPolicy, scopedRef, writeCampaign, withItemProductionContext, assertItemProductionContext, readCampaign } from "../campaigns/repository";
+import { readPlannedExecutionAuthority } from "./executionAuthority";
 import type { AuthorityRef, PlannedItem, PlannedItemState, PlanningMaterialization, PlanningPolicy, PlanRevision } from "../campaigns/contracts";
 
 const digest = (value: unknown) => strategyDigest(value);
@@ -70,9 +71,9 @@ export async function materializeIntake(input: { draftId: string; expectedDraftR
         const itemRef = scopedRef(`item-${draft.id.slice(0, 48)}`, 1);
         const channel = draft.requestedOutputs.some(output => output.startsWith("x_")) ? "x" : draft.requestedOutputs.includes("linkedin_post") ? "linkedin" : active.strategy.channelRoles.find(role => role.operationallySupported)?.channel;
         if (!channel) throw new Error("approved strategy has no supported channel");
-        const item: PlannedItem = { ref: itemRef, workspaceId: ref.workspaceId, brandId: ref.brandId, planRef: ref, campaignRef: campaign?.ref ?? null, strategyRef: active.ref,
+        const item: PlannedItem = withItemProductionContext({ ref: itemRef, workspaceId: ref.workspaceId, brandId: ref.brandId, planRef: ref, campaignRef: campaign?.ref ?? null, strategyRef: active.ref,
           name: draft.expectedOutcome, objective: draft.expectedOutcome, operatorBrief: draft.originalOperatorBrief, requestedOutputs: draft.requestedOutputs, channel, scheduledFor: now, dependencies: [], requiredAssetIds: [],
-          evidence: { mode: "operator_context", operatorBrief: draft.originalOperatorBrief, contextDigest: sourceAnalysisDigest(draft.originalOperatorBrief), evidenceIds: [], factualClaimsAllowed: false }, createdAt: now };
+          evidence: { mode: "operator_context", operatorBrief: draft.originalOperatorBrief, contextDigest: sourceAnalysisDigest(draft.originalOperatorBrief), evidenceIds: [], factualClaimsAllowed: false }, productionContext: { mode: "operator_context", policyRef: policy.ref }, createdAt: now });
         const peers = await plannedCalendar(tx);
         const reasons = calendarConflicts(item, peers, policy);
         if (!active.strategy.channelRoles.some(role => role.channel === channel && role.operationallySupported)) reasons.push("channel outside approved strategy");
@@ -106,13 +107,24 @@ export async function executePlanningChat(input: { action: "advance_plan" | "man
   };
   const plans = await listCurrentPlans(); const items = await plannedCalendar();
   const name = input.targetName?.toLocaleLowerCase();
-  const targets = items.filter(item => name && [item.name, item.ref.id, item.planRef.id, item.campaignRef?.id, `${item.planRef.id}/${item.ref.id}`].some(value => value?.toLocaleLowerCase() === name));
-  if (input.action === "advance_plan" && (targets.length === 1 || (!name && plans.length === 1))) {
+  const targets = items.filter(item => name && [item.name, item.ref.id, `${item.planRef.id}/${item.ref.id}`].some(value => value?.toLocaleLowerCase() === name));
+  const planTargets = plans.filter(plan => name === plan.ref.id.toLocaleLowerCase());
+  const campaignRefs = [...new Map(plans.flatMap(plan => plan.campaignRef ? [[plan.campaignRef.id, plan.campaignRef] as const] : [])).values()];
+  const campaignTargets = [];
+  for (const ref of campaignRefs) { const campaign = await readCampaign(ref); if (name && [ref.id, campaign.name].some(value => value.toLocaleLowerCase() === name)) campaignTargets.push(ref); }
+  const scopes = [
+    ...targets.map(item => ({ planIds: [item.planRef.id], itemId: item.ref.id })),
+    ...planTargets.map(plan => ({ planIds: [plan.ref.id], itemId: undefined })),
+    ...campaignTargets.map(campaign => ({ planIds: plans.filter(plan => plan.campaignRef?.id === campaign.id).map(plan => plan.ref.id).sort(), itemId: undefined })),
+    ...(!name && plans.length === 1 ? [{ planIds: [plans[0].ref.id], itemId: undefined }] : []),
+  ];
+  if (input.action === "advance_plan" && scopes.length === 1) {
     const { claimNextInTransaction } = await import("./selection");
-    const planId = targets[0]?.planRef.id ?? plans[0].ref.id;
+    const scope = scopes[0];
     return audited(async tx => {
-      const claim = await claimNextInTransaction(tx, planId, new Date().toISOString());
-      return { outcome: "applied", reply: claim ? `Execution job ${claim.jobId} is bound to planned item ${claim.itemRef.id}. Its durable outbox owns dispatch.` : `Plan ${planId} has no eligible item due within current capacity. Review its schedule, dependency and asset states.`, claim };
+      let claim = null;
+      for (const planId of scope.planIds) { claim = await claimNextInTransaction(tx, planId, new Date().toISOString(), scope.itemId); if (claim) break; }
+      return { outcome: "applied", reply: claim ? `Execution job ${claim.jobId} is bound to planned item ${claim.itemRef.id}. Its durable outbox owns dispatch.` : `The selected scope has no eligible item due within current capacity. Review its schedule, dependency and asset states.`, claim };
     });
   }
   const timestamp = input.message.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})/)?.[0];
@@ -130,7 +142,7 @@ export async function executePlanningChat(input: { action: "advance_plan" | "man
     return { outcome: "proposal", proposalId, reply: `Saved planning proposal ${proposalId}. Specify the exact planned item and an ISO date/time with timezone offset to change its schedule, or the plan to advance. ${plans.length} plan(s) and ${items.length} item(s) are available.` };
   });
 }
-export async function plannedCalendar(reader = awsRepository() as import("../strategy/repository").StrategyReader): Promise<Array<PlannedItem & { lifecycle: PlannedItemState }>> {
+export async function plannedCalendar(reader = awsRepository() as import("../strategy/repository").StrategyReader, includeCancelled = false): Promise<Array<PlannedItem & { lifecycle: PlannedItemState }>> {
   const plans = await listCurrentPlans(reader); const items: Array<PlannedItem & { lifecycle: PlannedItemState }> = [];
   if (!plans.length) return items;
   const definitionsQuery = partition(`${campaignRoot()}/planned_item_revisions`), statesQuery = partition(`${campaignRoot()}/planned_item_states`);
@@ -141,7 +153,8 @@ export async function plannedCalendar(reader = awsRepository() as import("../str
     const item = definitions.rows.find(row => row.id === `${ref.id}-v${ref.revision}`)?.value as unknown as PlannedItem;
     if (!state || !item || digest(state.ref) !== digest(ref) || digest(item.ref) !== digest(ref)) throw new Error("planned calendar item revision authority missing");
     assertResourceWorkspace(currentTenant(), state); assertResourceWorkspace(currentTenant(), item);
-    if (state.status !== "cancelled") items.push({ ...item, lifecycle: state });
+    assertItemProductionContext(item);
+    if (includeCancelled || state.status !== "cancelled") items.push({ ...item, lifecycle: state });
   }
   return items;
 }
@@ -161,14 +174,12 @@ export async function addPlannedDeliverable(input: { planId: string; expectedRev
       await readPlannedItem(dependency, tx);
       if (!plan.itemRefs.some(ref => digest(ref) === digest(dependency))) throw new Error("dependency must be an exact item in this plan");
     }
-    const item: PlannedItem = { ref, workspaceId: ref.workspaceId, brandId: ref.brandId, planRef, campaignRef: plan.campaignRef, strategyRef: plan.strategyRef, name: input.name, objective: input.name, operatorBrief: input.operatorBrief, requestedOutputs: input.requestedOutputs, channel: input.channel, scheduledFor: new Date(input.scheduledFor).toISOString(), dependencies: input.dependencies, requiredAssetIds: input.requiredAssetIds, evidence: { mode: "operator_context", operatorBrief: input.operatorBrief, contextDigest: sourceAnalysisDigest(input.operatorBrief), evidenceIds: [], factualClaimsAllowed: false }, createdAt: now };
+    const item: PlannedItem = withItemProductionContext({ ref, workspaceId: ref.workspaceId, brandId: ref.brandId, planRef, campaignRef: plan.campaignRef, strategyRef: plan.strategyRef, name: input.name, objective: input.name, operatorBrief: input.operatorBrief, requestedOutputs: input.requestedOutputs, channel: input.channel, scheduledFor: new Date(input.scheduledFor).toISOString(), dependencies: input.dependencies, requiredAssetIds: input.requiredAssetIds, evidence: { mode: "operator_context", operatorBrief: input.operatorBrief, contextDigest: sourceAnalysisDigest(input.operatorBrief), evidenceIds: [], factualClaimsAllowed: false }, productionContext: { mode: "operator_context", policyRef: policy.ref }, createdAt: now });
     const conflicts = calendarConflicts(item, await plannedCalendar(tx), policy);
     if (conflicts.length) throw new Error(`calendar proposal required: ${conflicts.join("; ")}`);
     const active = await getActiveStrategy(tx);
     if (!active?.strategy.channelRoles.some(role => role.channel === item.channel && role.operationallySupported)) throw new Error("channel outside active strategy; proposal approval required");
     const nextPlan: PlanRevision = { ...plan, ref: planRef, itemRefs: [...plan.itemRefs, ref], reason: input.name, createdAt: now, createdBy: tenantSubjectId(currentTenant()) };
-    // This deliverable has its own operator context; it never inherits an earlier item's sources.
-    delete nextPlan.editorial;
     tx.insert(authorityKey("plan_revisions", planRef), nextPlan); tx.put(pointerKey("plans", planRef.id), planRef);
     tx.insert(authorityKey("planned_item_revisions", ref), item);
     tx.insert(authorityKey("planned_item_states", ref), { ref, workspaceId: ref.workspaceId, brandId: ref.brandId, status: "planned", updatedAt: now });
@@ -193,23 +204,87 @@ export async function replanItem(input: { itemRef: AuthorityRef; scheduledFor: s
       ...(item.publicationWindowEndAt ? { publicationWindowEndAt: new Date(Date.parse(item.publicationWindowEndAt) + shift).toISOString() } : {}),
       ...(item.productionDeadlineAt ? { productionDeadlineAt: new Date(Date.parse(item.productionDeadlineAt) + shift).toISOString() } : {}),
     };
-    const reasons = calendarConflicts(candidate, await plannedCalendar(tx), policy);
-    if (plan.editorial && (Date.parse(candidate.productionDeadlineAt ?? candidate.scheduledFor) < Date.parse(plan.editorial.plan.horizonStartAt) || Date.parse(candidate.publicationWindowEndAt ?? candidate.scheduledFor) > Date.parse(plan.editorial.plan.horizonEndAt))) reasons.push("schedule outside approved planning horizon");
+    const calendar = await plannedCalendar(tx, true);
+    const reasons = calendarConflicts(candidate, calendar, policy);
+    const context = item.productionContext;
+    if (context.mode === "source_backed" && (Date.parse(candidate.productionDeadlineAt ?? candidate.scheduledFor) < Date.parse(context.plan.horizonStartAt) || Date.parse(candidate.publicationWindowEndAt ?? candidate.scheduledFor) > Date.parse(context.plan.horizonEndAt))) reasons.push("schedule outside approved planning horizon");
     if (digest(active) !== digest(item.strategyRef)) reasons.push("strategy revision changed");
     if (state.status === "completed") throw new Error("completed work is immutable");
-    if (["running", "awaiting_approval"].includes(state.status) || state.approvedDigest) reasons.push("changed approved work requires disposition");
+    const authority = await readPlannedExecutionAuthority(tx, item, state);
+    const protectedStates = ["running", "awaiting_approval", "requires_disposition", "cancelled"];
+    if (authority.claimed || protectedStates.includes(state.status)) reasons.push("claimed or approved work requires exact execution disposition");
+    const affected = new Map([[digest(item.ref), item]]);
+    // Every unclaimed dependent is revised in the same commit, including transitive dependencies.
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      for (const dependent of calendar.filter(candidate => candidate.planRef.id === plan.ref.id)) {
+        if (affected.has(digest(dependent.ref)) || !dependent.dependencies.some(ref => affected.has(digest(ref)))) continue;
+        affected.set(digest(dependent.ref), dependent); expanded = true;
+      }
+    }
+    const guarded: Array<{ itemRef: AuthorityRef; authorityDigest: string }> = [];
+    if (authority.claimed || protectedStates.includes(state.status)) guarded.push({ itemRef: item.ref, authorityDigest: authority.digest });
+    for (const dependent of affected.values()) {
+      if (dependent.ref.id === item.ref.id) continue;
+      const lifecycle = await readItemState(dependent.ref, tx);
+      const execution = await readPlannedExecutionAuthority(tx, dependent, lifecycle);
+      if (execution.claimed || ["completed", ...protectedStates].includes(lifecycle.status)) {
+        reasons.push(`dependent ${dependent.ref.id} requires exact execution disposition`);
+        guarded.push({ itemRef: dependent.ref, authorityDigest: execution.digest });
+      }
+    }
     const now = new Date().toISOString();
     let result: Awaited<ReturnType<typeof replanItem>>;
     if (reasons.length) {
       result = { outcome: "proposal", reasons, proposalId: commandId };
-      tx.insert(recordKey(`${campaignRoot()}/planning_proposals/${commandId}`), { workspaceId: item.workspaceId, brandId: item.brandId, input, reasons, state: "pending_approval", at: now, actor: tenantSubjectId(currentTenant()) });
+      tx.insert(recordKey(`${campaignRoot()}/planning_proposals/${commandId}`), { workspaceId: item.workspaceId, brandId: item.brandId, type: "calendar_change", input, reasons, guarded, state: "pending_approval", at: now, actor: tenantSubjectId(currentTenant()) });
+      for (const guard of guarded) {
+        const priorState = await readItemState(guard.itemRef, tx);
+        tx.put(authorityKey("planned_item_states", guard.itemRef), { ...priorState, dispositionProposalId: commandId, reason: reasons.join("; "), updatedAt: now });
+      }
     } else {
       const planRef = scopedRef(plan.ref.id, plan.ref.revision + 1); const ref = scopedRef(item.ref.id, item.ref.revision + 1);
-      tx.insert(authorityKey("planned_item_revisions", ref), { ...candidate, ref, planRef, createdAt: now });
-      tx.insert(authorityKey("planned_item_states", ref), { ref, workspaceId: ref.workspaceId, brandId: ref.brandId, status: "planned", updatedAt: now });
-      tx.insert(authorityKey("plan_revisions", planRef), { ...plan, ref: planRef, itemRefs: plan.itemRefs.map(old => old.id === ref.id ? ref : old), reason: "Operator calendar change", createdAt: now, createdBy: tenantSubjectId(currentTenant()) });
+      const replacements = new Map([...affected.values()].map(item => [digest(item.ref), scopedRef(item.ref.id, item.ref.revision + 1)]));
+      for (const priorItem of affected.values()) {
+        const nextRef = replacements.get(digest(priorItem.ref))!;
+        const nextItem = { ...(priorItem.ref.id === item.ref.id ? candidate : priorItem), ref: nextRef, planRef, dependencies: priorItem.dependencies.map(ref => replacements.get(digest(ref)) ?? ref), createdAt: now };
+        // Calendar projections contain mutable lifecycle data; immutable definitions do not.
+        const { lifecycle: _lifecycle, ...definition } = nextItem as PlannedItem & { lifecycle?: PlannedItemState };
+        void _lifecycle;
+        assertItemProductionContext(definition);
+        tx.insert(authorityKey("planned_item_revisions", nextRef), definition);
+        tx.insert(authorityKey("planned_item_states", nextRef), { ref: nextRef, workspaceId: nextRef.workspaceId, brandId: nextRef.brandId, status: "planned", updatedAt: now });
+      }
+      tx.insert(authorityKey("plan_revisions", planRef), { ...plan, ref: planRef, itemRefs: plan.itemRefs.map(old => replacements.get(digest(old)) ?? old), reason: "Operator calendar change", createdAt: now, createdBy: tenantSubjectId(currentTenant()) });
       tx.put(pointerKey("plans", planRef.id), planRef); result = { outcome: "applied", itemRef: ref, reasons: [] };
     }
     tx.insert(receiptKey, { workspaceId: item.workspaceId, brandId: item.brandId, digest: digest(input), result, at: now }); return result;
+  });
+}
+
+/** A proposal can be declined while preserving its exact existing execution authority. */
+export async function disposePlanningProposal(input: { proposalId: string; expectedAuthorityDigest: string; decision: "keep_existing_execution"; requestId: string }) {
+  requireContentOperator(currentTenant());
+  if (input.decision !== "keep_existing_execution") throw new Error("unsupported planning disposition");
+  return awsRepository().atomic(async tx => {
+    const receiptKey = recordKey(`${campaignRoot()}/planning_commands/${digest([tenantSubjectId(currentTenant()), input.requestId])}`);
+    const prior = await tx.read(receiptKey);
+    if (prior.present) { if (prior.value?.digest !== digest(input)) throw new Error("planning disposition identity reused"); return prior.value.result; }
+    const key = recordKey(`${campaignRoot()}/planning_proposals/${input.proposalId}`); const row = await tx.read(key);
+    const proposal = row.value;
+    if (!proposal || proposal.type !== "calendar_change" || proposal.state !== "pending_approval") throw new Error("pending calendar disposition required");
+    assertResourceWorkspace(currentTenant(), proposal as { workspaceId: string; brandId: string });
+    const guarded = proposal.guarded as Array<{ itemRef: AuthorityRef; authorityDigest: string }>;
+    if (!guarded.length || digest(guarded) !== input.expectedAuthorityDigest) throw new Error("planning disposition authority mismatch");
+    for (const guard of guarded) {
+      const item = await readPlannedItem(guard.itemRef, tx); const state = await readItemState(guard.itemRef, tx);
+      if (state.dispositionProposalId !== input.proposalId || (await readPlannedExecutionAuthority(tx, item, state)).digest !== guard.authorityDigest) throw new Error("execution authority changed; reconcile and request a current disposition");
+      const { dispositionProposalId: _id, ...unchanged } = state; void _id;
+      tx.put(authorityKey("planned_item_states", guard.itemRef), { ...unchanged, reason: "Calendar proposal declined; existing execution retained", updatedAt: new Date().toISOString() });
+    }
+    const result = { outcome: "kept_existing_execution", proposalId: input.proposalId };
+    tx.put(key, { ...proposal, state: "declined", decision: input.decision, decidedBy: tenantSubjectId(currentTenant()), decidedAt: new Date().toISOString() });
+    tx.insert(receiptKey, { workspaceId: currentTenant().workspaceId, brandId: currentTenant().brandId, digest: digest(input), result }); return result;
   });
 }

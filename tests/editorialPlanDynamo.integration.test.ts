@@ -12,8 +12,8 @@ import { strategyDigest as calculateStrategyDigest } from "@/lib/strategyApprova
 import { strategyFixture } from "./fixtures/strategy";
 import { configurePlanningPolicy } from "@/lib/campaigns/repository";
 import { sealManifest } from "@/lib/sourceRegistry";
-import { currentPlan, readItemState } from "@/lib/campaigns/repository";
-import { replanItem } from "@/lib/planning/commands";
+import { currentPlan, readItemState, readPlannedItem } from "@/lib/campaigns/repository";
+import { addPlannedDeliverable, replanItem } from "@/lib/planning/commands";
 import { reconcilePlannedExecution } from "@/lib/planning/selection";
 
 const emulator = process.env.AWS_LOCAL_ENDPOINT;
@@ -75,12 +75,12 @@ describe.skipIf(!emulator)("Temi editorial plan DynamoDB boundary", () => {
     expect(accepted).toHaveProperty("planRef");
     expect(accepted).toHaveProperty("executionJobId");
     const stored = await runWithTenant(scope, () => getJob(accepted.executionJobId!));
-    expect(stored.editorialPlan?.items).toEqual(plan.items);
+    expect(stored.editorialPlan?.items).toEqual([plan.items[0]]);
     expect(stored.editorialPlanDigest).toBe(editorialPlanDigest(stored.editorialPlan));
     expect(stored.editorialPlanEvidenceLineage).toEqual(["moment-1"]);
     expect(stored.planRef).toEqual(accepted.planRef);
     expect((await awsRepository().read(recordKey(path))).value).not.toHaveProperty("editorialPlan");
-    expect(stored.editorialItemStates).toEqual({ [item.id]: expect.objectContaining({ status: "selected" }), "item-2": expect.objectContaining({ status: "planned" }) });
+    expect(stored.editorialItemStates).toEqual({ [item.id]: expect.objectContaining({ status: "selected" }) });
     expect(stored.campaignOutputPlan?.desiredOutputs).toEqual(["x_post"]);
     expect(accepted.selectedNextItemId).toBe(item.id);
     await expect(runWithTenant(otherScope, () => getJob(jobId))).rejects.toThrow("job not found");
@@ -89,8 +89,12 @@ describe.skipIf(!emulator)("Temi editorial plan DynamoDB boundary", () => {
       expect((await acceptEditorialPlan(jobId, plan, 1)).planRef).toEqual(accepted.planRef);
       await expect(acceptEditorialPlan(jobId, { ...plan, version: 2 }, 2)).rejects.toThrow("already accepted");
       const durable = await currentPlan(accepted.planRef.id);
+      const context = (await readPlannedItem(durable.itemRefs[1])).productionContextDigest;
+      await addPlannedDeliverable({ planId: durable.ref.id, expectedRevision: durable.ref.revision, requestId: "append-creative", name: "Creative follow-up", operatorBrief: "Imagine the next step", requestedOutputs: ["x_post"], channel: "x", scheduledFor: "2026-09-21T12:00:00Z", dependencies: [], requiredAssetIds: [] });
       const changed = await replanItem({ itemRef: durable.itemRefs[1], scheduledFor: "2026-09-10T16:00:00Z", requestId: "reschedule-second" });
       expect(changed.outcome).toBe("applied");
+      expect((await readPlannedItem(changed.itemRef!)).productionContextDigest).toBe(context);
+      expect(await currentPlan(accepted.planRef.id)).not.toHaveProperty("editorial");
       await awsRepository().patch(recordKey(`workspaces/${scope.workspaceId}/jobs/${accepted.executionJobId}`), { status: "complete", stage: "complete", terminalOutcome: "succeeded" });
       await reconcilePlannedExecution(accepted.executionJobId!);
       const execution = await readItemState(changed.itemRef!);

@@ -49,7 +49,14 @@ def strategist_input() -> StrategistInput:
             "angles": [{"id": "a1", "angleType": "source_insight", "evidenceKind": "source", "title": "Operational speed", "rationale": "The source demonstrates a measurable operational improvement.", "evidenceRefs": ["m1"], "assumptions": [], "confidence": "high"}],
             "assumptions": [], "confidence": "high",
         }),
-        performance=[PerformanceObservation(id="perf-1", summary="Proof-led posts earned more qualified replies", durableEvidenceRef="jobs/job-0/verifiedMetrics/perf-1")],
+        performance=[PerformanceObservation(
+            id="perf-1", jobId="job-0", actionId="action-1", postId="post-1",
+            checkedAt="2026-09-09T10:15:00.000Z", durableEvidenceRef="jobs/job-0/verifiedMetrics/perf-1",
+            metrics={"likes": 12, "replies": 4, "reposts": 3, "quotes": 1, "impressions": 240},
+            text="Proof-led posts earned more qualified replies.",
+            textAvailability="verified_action_payload_digest",
+            summary="Proof-led posts earned more qualified replies",
+        )],
         memoryFacts=[MemoryFact(id="mem-1", content="Operators prefer quantified proof", durableEvidenceRef="jobs/job-0/learnings/mem-1")],
     )
 

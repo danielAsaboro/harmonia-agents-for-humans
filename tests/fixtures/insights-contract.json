@@ -1,0 +1,93 @@
+{
+  "topPosts": [
+    {
+      "availability": "available",
+      "jobId": "job-measured-001",
+      "actionId": "action-publish-001",
+      "postId": "post-123",
+      "checkedAt": "2026-09-09T10:15:00.000Z",
+      "durableEvidenceRef": "https://api.x.com/2/tweets/post-123",
+      "metrics": {
+        "likes": 12,
+        "replies": 4,
+        "reposts": 3,
+        "quotes": 1,
+        "impressions": 240
+      },
+      "text": "We cut activation from nine days to forty hours.",
+      "textAvailability": "verified_action_payload_digest"
+    },
+    {
+      "availability": "unavailable",
+      "unavailableReason": "missing_action",
+      "jobId": "job-missing-action",
+      "actionId": "action-missing",
+      "postId": "post-missing-action",
+      "checkedAt": null,
+      "durableEvidenceRef": null,
+      "metrics": null,
+      "text": null,
+      "textAvailability": "unavailable"
+    },
+    {
+      "availability": "unavailable",
+      "unavailableReason": "stale_verification",
+      "jobId": "job-stale-verification",
+      "actionId": "action-stale",
+      "postId": "post-stale",
+      "checkedAt": null,
+      "durableEvidenceRef": null,
+      "metrics": null,
+      "text": null,
+      "textAvailability": "unavailable"
+    },
+    {
+      "availability": "unavailable",
+      "unavailableReason": "unverified_publication",
+      "jobId": "job-unverified",
+      "actionId": "action-unverified",
+      "postId": "post-unverified",
+      "checkedAt": null,
+      "durableEvidenceRef": null,
+      "metrics": null,
+      "text": null,
+      "textAvailability": "unavailable"
+    }
+  ],
+  "expectedNimiObservation": {
+    "id": "performance:post-123",
+    "jobId": "job-measured-001",
+    "actionId": "action-publish-001",
+    "postId": "post-123",
+    "checkedAt": "2026-09-09T10:15:00.000Z",
+    "durableEvidenceRef": "https://api.x.com/2/tweets/post-123",
+    "metrics": {
+      "likes": 12,
+      "replies": 4,
+      "reposts": 3,
+      "quotes": 1,
+      "impressions": 240
+    },
+    "text": "We cut activation from nine days to forty hours.",
+    "textAvailability": "verified_action_payload_digest",
+    "summary": "Verified post post-123 from job job-measured-001 action action-publish-001, measured at 2026-09-09T10:15:00.000Z: 12 likes, 3 reposts, 4 replies, 1 quotes, 240 impressions. Published text: We cut activation from nine days to forty hours."
+  },
+  "expectedRyanObservation": {
+    "id": "performance:post-123",
+    "jobId": "job-measured-001",
+    "actionId": "action-publish-001",
+    "postId": "post-123",
+    "checkedAt": "2026-09-09T10:15:00.000Z",
+    "durableEvidenceRef": "https://api.x.com/2/tweets/post-123",
+    "metrics": {
+      "likes": 12,
+      "replies": 4,
+      "reposts": 3,
+      "quotes": 1,
+      "impressions": 240
+    },
+    "text": "We cut activation from nine days to forty hours.",
+    "textAvailability": "verified_action_payload_digest",
+    "summary": "Verified post post-123 from job job-measured-001 action action-publish-001, measured at 2026-09-09T10:15:00.000Z: 12 likes, 3 reposts, 4 replies, 1 quotes, 240 impressions. Published text: We cut activation from nine days to forty hours."
+  }
+}

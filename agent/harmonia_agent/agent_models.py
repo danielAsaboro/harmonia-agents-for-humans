@@ -356,10 +356,37 @@ class AnalystEvidenceSegment(StrictModel):
     digest: StrictDigest
 
 
-class AnalystPerformanceObservation(StrictModel):
+class PerformanceMetrics(StrictModel):
+    likes: StrictInt = Field(ge=0)
+    replies: StrictInt = Field(ge=0)
+    reposts: StrictInt = Field(ge=0)
+    quotes: StrictInt = Field(ge=0)
+    impressions: StrictInt | None = Field(default=None, ge=0)
+
+
+class VerifiedPerformanceObservation(StrictModel):
     id: StrictIdentifier
-    summary: StrictStr = Field(min_length=1, max_length=1_000)
+    jobId: StrictIdentifier
+    actionId: StrictIdentifier
+    postId: StrictIdentifier
+    checkedAt: StrictStr = Field(min_length=1, max_length=100)
     durableEvidenceRef: StrictStr = Field(min_length=1, max_length=500)
+    metrics: PerformanceMetrics
+    text: StrictStr | None = Field(default=None, max_length=1_000)
+    textAvailability: Literal["verified_action_payload_digest", "unavailable"]
+    summary: StrictStr = Field(min_length=1, max_length=1_000)
+
+    @model_validator(mode="after")
+    def validate_text_provenance(self) -> "VerifiedPerformanceObservation":
+        if self.textAvailability == "verified_action_payload_digest" and not self.text:
+            raise ValueError("verified published text is required when its digest is supplied")
+        if self.textAvailability == "unavailable" and self.text is not None:
+            raise ValueError("unavailable published text must not be supplied")
+        return self
+
+
+class AnalystPerformanceObservation(VerifiedPerformanceObservation):
+    pass
 
 
 class AnalystMemoryFact(StrictModel):
@@ -438,10 +465,8 @@ class CampaignContext(StrictModel):
     horizonWeeks: int = Field(default=4, ge=1, le=12)
 
 
-class PerformanceObservation(StrictModel):
-    id: str = Field(min_length=1, max_length=100)
-    summary: str = Field(min_length=1, max_length=600)
-    durableEvidenceRef: str = Field(min_length=1, max_length=500)
+class PerformanceObservation(VerifiedPerformanceObservation):
+    pass
 
 
 class MemoryFact(StrictModel):

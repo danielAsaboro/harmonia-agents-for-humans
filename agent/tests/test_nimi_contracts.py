@@ -26,8 +26,12 @@ def analyst_input() -> dict:
             {"id": "frame-1", "sourceId": "source-1", "text": "Founder points to the activation chart.", "digest": "b" * 64, "locator": {"kind": "frame", "timestampMs": 4000, "frameArtifactId": "frame-artifact-1"}},
         ],
         "performanceObservations": [{
-            "id": "performance-1", "summary": "Verified proof posts earned qualified replies.",
-            "durableEvidenceRef": "engagement/post-1",
+            "id": "performance-1", "jobId": "job-0", "actionId": "action-1", "postId": "post-1",
+            "checkedAt": "2026-09-09T10:15:00.000Z", "durableEvidenceRef": "engagement/post-1",
+            "metrics": {"likes": 12, "replies": 4, "reposts": 3, "quotes": 1, "impressions": 240},
+            "text": "Verified proof posts earned qualified replies.",
+            "textAvailability": "verified_action_payload_digest",
+            "summary": "Verified proof posts earned qualified replies.",
         }],
         "memoryFacts": [{
             "id": "memory-1", "kind": "preference", "content": "Operators prefer concise proof.",

@@ -80,7 +80,13 @@ def test_strategize_receives_typed_analysis_context_and_performance(monkeypatch)
     async def fake_prepare(request, *, invocation):
         return request
     monkeypatch.setattr(stages, "get_job", lambda _id: job())
-    monkeypatch.setattr(stages, "get_insights", lambda: {"topPosts": [{"postId": "post-1", "text": "Proof post", "likes": 12, "reposts": 3}]})
+    monkeypatch.setattr(stages, "get_insights", lambda: {"topPosts": [{
+        "availability": "available", "jobId": "job-prior", "actionId": "action-prior",
+        "postId": "post-1", "checkedAt": "2026-09-09T10:15:00.000Z",
+        "durableEvidenceRef": "https://api.x.com/2/tweets/post-1",
+        "metrics": {"likes": 12, "replies": 4, "reposts": 3, "quotes": 1, "impressions": 240},
+        "text": "Proof post", "textAvailability": "verified_action_payload_digest",
+    }]})
     monkeypatch.setattr(stages, "strategize_with_team", fake_strategy)
     monkeypatch.setattr(stages, "prepare_strategist_input", fake_prepare)
     monkeypatch.setattr(stages, "web_post", lambda path, payload: posts.append((path, payload)))

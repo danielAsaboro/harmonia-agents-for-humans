@@ -3,6 +3,16 @@
 from harmonia_agent import proactive
 
 
+def _measured(text: str, likes: int, checked_at: str = "2026-09-09T10:15:00.000Z") -> dict:
+    return {
+        "availability": "available", "jobId": "job-prior", "actionId": "action-prior",
+        "postId": f"post-{likes}", "checkedAt": checked_at,
+        "durableEvidenceRef": f"https://api.x.com/2/tweets/post-{likes}",
+        "metrics": {"likes": likes, "replies": 0, "reposts": 0, "quotes": 0},
+        "text": text, "textAvailability": "verified_action_payload_digest",
+    }
+
+
 def test_proposal_ids_deterministic_and_unique():
     ideas = [{"topic": "same topic"}, {"topic": "same topic"}]
     props = proactive.build_proposals(ideas, "trend_scan")
@@ -26,12 +36,7 @@ def test_build_proposals_caps_and_cleans():
 
 
 def test_watch_engagement_flags_outliers(monkeypatch):
-    posts = [
-        {"likes": 300, "text": "breakout post"},
-        {"likes": 40, "text": "normal post"},
-        {"likes": 20, "text": "quiet post"},
-        {"likes": 30, "text": "another quiet one"},
-    ]
+    posts = [_measured("breakout post", 300), _measured("normal post", 40), _measured("quiet post", 20), _measured("another quiet one", 30)]
     monkeypatch.setattr(proactive, "get_insights", lambda: {"topPosts": posts})
     ideas = proactive.watch_engagement()
     assert len(ideas) == 1
@@ -41,7 +46,7 @@ def test_watch_engagement_flags_outliers(monkeypatch):
 
 
 def test_watch_engagement_quiet_when_few_posts(monkeypatch):
-    monkeypatch.setattr(proactive, "get_insights", lambda: {"topPosts": [{"likes": 5, "text": "only"}]})
+    monkeypatch.setattr(proactive, "get_insights", lambda: {"topPosts": [_measured("only", 5)]})
     assert proactive.watch_engagement() == []
 
 
@@ -130,7 +135,7 @@ def test_morning_briefing_composes_digest(monkeypatch):
         "proposalsPending": 1,
         "failedJobs": [],
     }
-    insights = {"topPosts": [{"likes": 214, "text": "winner post"}]}
+    insights = {"topPosts": [_measured("winner post", 214)]}
     _, __, notifications, ___ = _patch_web(monkeypatch, feed=feed, insights=insights)
 
     class FakeTG:
@@ -200,14 +205,14 @@ def test_recycle_winners_needs_old_high_performer(monkeypatch):
     import time as _time
 
     old_ts = _time.time() - 30 * 86400
-    insights = {"topPosts": [{"text": "evergreen banger", "likes": 220, "checkedAt": _iso(old_ts)}]}
+    insights = {"topPosts": [_measured("evergreen banger", 220, _iso(old_ts))]}
     _, __, ___, subs = _patch_web(monkeypatch, insights=insights)
     summary = proactive.check_recycle_winners({"insights": insights})
     assert "1 recycle proposal" in summary
     assert subs[0]["source"] == "recycle"
 
     # fresh top post -> no recycle
-    fresh = {"topPosts": [{"text": "new hot post", "likes": 50, "checkedAt": _iso(_time.time())}]}
+    fresh = {"topPosts": [_measured("new hot post", 50, _iso(_time.time()))]}
     summary2 = proactive.check_recycle_winners({"insights": fresh})
     assert summary2 == "top post still fresh"
 

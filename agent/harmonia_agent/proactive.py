@@ -115,6 +115,15 @@ def fetch_signals(limit: int = 6) -> list[dict[str, Any]]:
 
 # ---------- checks ----------
 
+def _measured_posts(insights: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        post for post in (insights.get("topPosts") or [])
+        if isinstance(post, dict)
+        and post.get("availability") == "available"
+        and isinstance(post.get("metrics"), dict)
+    ]
+
+
 def watch_engagement() -> list[dict[str, Any]]:
     """Flags engagement outliers (>= OUTLIER_FACTOR x median likes) as ideas."""
     try:
@@ -122,23 +131,23 @@ def watch_engagement() -> list[dict[str, Any]]:
     except WebApiError:
         logger.warning("engagement watch: insights feed unavailable")
         return []
-    posts = [p for p in insights.get("topPosts", []) if p.get("likes") is not None]
+    posts = [p for p in _measured_posts(insights) if p["metrics"].get("likes") is not None]
     if len(posts) < 3:
         return []
-    likes = sorted(int(p["likes"]) for p in posts)
+    likes = sorted(int(p["metrics"]["likes"]) for p in posts)
     median = likes[len(likes) // 2]
     if median <= 0:
         return []
     out = []
     for p in posts:
         text = str(p.get("text", ""))
-        if int(p["likes"]) >= max(median * OUTLIER_FACTOR, median + 10):
+        if int(p["metrics"]["likes"]) >= max(median * OUTLIER_FACTOR, median + 10):
             out.append({
                 "topic": f"Follow-up to our breakout post: {text[:120]}",
                 "angle": "Double down on the pattern that clearly resonated",
                 "reason": (
-                    f"Post earned {p['likes']} likes vs a median of {median} across recent "
-                    f"posts ({round(int(p['likes']) / median, 1)}x baseline); audiences want more of this."
+                    f"Post earned {p['metrics']['likes']} likes vs a median of {median} across recent "
+                    f"posts ({round(int(p['metrics']['likes']) / median, 1)}x baseline); audiences want more of this."
                 ),
                 "sources": [],
                 "suggestedPost": "",
@@ -212,9 +221,9 @@ def check_morning_briefing(ctx: dict[str, Any]) -> str:
     if failed:
         lines.append(f"- {len(failed)} failed job(s) need attention")
     insights = ctx.get("insights") or {}
-    top = (insights.get("topPosts") or [])[:1]
+    top = _measured_posts(insights)[:1]
     if top:
-        lines.append(f"- Top recent post: {int(top[0].get('likes', 0))} likes - \"{str(top[0].get('text', ''))[:70]}\"")
+        lines.append(f"- Top recent post: {int(top[0]['metrics'].get('likes', 0))} likes - \"{str(top[0].get('text', ''))[:70]}\"")
     body = "\n".join(lines)
 
     notify("daily_briefing", "Morning briefing", body, href="/dashboard")
@@ -281,19 +290,19 @@ def check_calendar_gap_scan(ctx: dict[str, Any]) -> str:
 
 def check_recycle_winners(ctx: dict[str, Any]) -> str:
     insights = ctx.get("insights") or {}
-    posts = insights.get("topPosts") or []
+    posts = _measured_posts(insights)
     if not posts:
         return "nothing worth recycling yet"
-    best = max(posts, key=lambda p: int(p.get("likes", 0)))
+    best = max(posts, key=lambda p: int(p["metrics"].get("likes", 0)))
     # Age signal: engagement records carry checkedAt; use the newest as proxy.
     checked_at = _parse_iso(best.get("checkedAt")) if isinstance(best.get("checkedAt"), str) else None
     age_days = (time.time() - checked_at) / 86400 if checked_at else RECYCLE_MIN_AGE_DAYS
-    if age_days < RECYCLE_MIN_AGE_DAYS or int(best.get("likes", 0)) < 10:
+    if age_days < RECYCLE_MIN_AGE_DAYS or int(best["metrics"].get("likes", 0)) < 10:
         return "top post still fresh"
     ideas = [{
         "topic": f"Revisit verified winner: {str(best.get('text', ''))[:180]}",
         "angle": "Measured winner eligible for a new strategy cycle",
-        "reason": f"The verified post is {round(age_days)} days old and earned {int(best.get('likes', 0))} likes.",
+        "reason": f"The verified post is {round(age_days)} days old and earned {int(best['metrics'].get('likes', 0))} likes.",
         "sources": [], "suggestedPost": "",
     }]
     created, _ = submit_proposals(build_proposals(ideas, "recycle"))
@@ -323,9 +332,9 @@ def _goals_text(goals: dict[str, Any]) -> str:
 
 
 def _learnings_text(insights: dict[str, Any]) -> str:
-    posts = insights.get("topPosts") or []
+    posts = _measured_posts(insights)
     return " | ".join(
-        f"{int(p.get('likes', 0))} likes: \"{str(p.get('text', ''))[:80]}\"" for p in posts[:3]
+        f"{int(p['metrics'].get('likes', 0))} likes: \"{str(p.get('text', ''))[:80]}\"" for p in posts[:3]
     )
 
 

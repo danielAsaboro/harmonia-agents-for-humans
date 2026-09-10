@@ -79,7 +79,8 @@ def get_engagement_insights() -> dict[str, Any]:
         items = [evidence("harmonia_dynamodb_engagement", provenance=provenance)]
         items.extend(
             evidence("harmonia_measured_post", provenance=provenance, reference=str(post["postId"]))
-            for post in data.get("topPosts") or [] if post.get("postId")
+            for post in data.get("topPosts") or []
+            if post.get("availability") == "available" and post.get("postId")
         )
         return success(data, evidence_items=items)
     except Exception as exc:  # noqa: BLE001
@@ -174,8 +175,10 @@ def suggest_posting_windows() -> dict[str, Any]:
 
     samples: list[dict[str, Any]] = []
     for post in insights.get("topPosts") or []:
-        ts = _parse_ts(post.get("publishedAt"))
-        likes = post.get("likes")
+        if post.get("availability") != "available" or not isinstance(post.get("metrics"), dict):
+            continue
+        ts = _parse_ts(post.get("checkedAt"))
+        likes = post["metrics"].get("likes")
         if ts is not None and isinstance(likes, int):
             samples.append({"at": ts, "likes": likes, "postId": post.get("postId")})
     if len(samples) < 3:

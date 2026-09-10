@@ -622,6 +622,7 @@ export const engagementRecordSchema = z.object({
   reposts: z.number().int().nonnegative(),
   quotes: z.number().int().nonnegative(),
   impressions: z.number().int().nonnegative().optional(),
+  checkedAt: z.string().datetime({ offset: true }),
 });
 
 export const engagementSubmissionSchema = z.object({

@@ -2250,10 +2250,103 @@ export async function saveLearnings(
 
 export interface PriorInsight {
   jobId: string;
-  text: string;
-  likes: number;
-  reposts: number;
-  replies: number;
+  actionId: string | null;
+  postId: string | null;
+  checkedAt: string | null;
+  durableEvidenceRef: string | null;
+  metrics: {
+    likes: number;
+    replies: number;
+    reposts: number;
+    quotes: number;
+    impressions?: number;
+  } | null;
+  text: string | null;
+  textAvailability: "verified_action_payload_digest" | "unavailable";
+  availability: "available" | "unavailable";
+  unavailableReason?: "missing_identity" | "missing_action" | "missing_or_invalid_checked_at" | "missing_metrics" | "unverified_publication" | "stale_verification";
+}
+
+function metricValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function engagementMetrics(engagement: Engagement): PriorInsight["metrics"] {
+  const likes = metricValue(engagement.likes);
+  const replies = metricValue(engagement.replies);
+  const reposts = metricValue(engagement.reposts);
+  const quotes = metricValue(engagement.quotes);
+  const impressions = engagement.impressions === undefined ? undefined : metricValue(engagement.impressions);
+  if (likes === null || replies === null || reposts === null || quotes === null || impressions === null) return null;
+  return { likes, replies, reposts, quotes, ...(impressions === undefined ? {} : { impressions }) };
+}
+
+function priorInsightUnavailable(
+  jobId: string,
+  engagement: Engagement,
+  unavailableReason: NonNullable<PriorInsight["unavailableReason"]>,
+): PriorInsight {
+  return {
+    jobId,
+    actionId: typeof engagement.actionId === "string" && engagement.actionId ? engagement.actionId : null,
+    postId: typeof engagement.postId === "string" && engagement.postId ? engagement.postId : null,
+    checkedAt: null,
+    durableEvidenceRef: null,
+    metrics: null,
+    text: null,
+    textAvailability: "unavailable",
+    availability: "unavailable",
+    unavailableReason,
+  };
+}
+
+/** Builds the typed, verification-bound performance observations exposed to agents. */
+export function priorInsightsFromJob(jobId: string, data: Pick<JobDoc, "actions" | "verifications"> & { engagement?: Engagement[] }): PriorInsight[] {
+  return (data.engagement ?? []).map((engagement) => {
+    if (typeof engagement.actionId !== "string" || !engagement.actionId || typeof engagement.postId !== "string" || !engagement.postId) {
+      return priorInsightUnavailable(jobId, engagement, "missing_identity");
+    }
+    const action = (data.actions ?? []).find((candidate) => candidate.id === engagement.actionId);
+    if (!action) return priorInsightUnavailable(jobId, engagement, "missing_action");
+    const checkedAt = typeof engagement.checkedAt === "string" && !Number.isNaN(Date.parse(engagement.checkedAt))
+      ? engagement.checkedAt
+      : null;
+    if (!checkedAt) return priorInsightUnavailable(jobId, engagement, "missing_or_invalid_checked_at");
+    const metrics = engagementMetrics(engagement);
+    if (!metrics) return priorInsightUnavailable(jobId, engagement, "missing_metrics");
+    const matchingVerifications = (data.verifications ?? []).filter((verification) => (
+      verification.actionId === engagement.actionId
+      && verification.verified
+      && verification.method === "official_api_readback"
+      && typeof verification.evidence?.url === "string"
+      && verification.evidence.url.length > 0
+      && typeof verification.evidence.digest === "string"
+      && verification.evidence.digest.length > 0
+    ));
+    const verification = matchingVerifications.find((candidate) => (
+      !Number.isNaN(Date.parse(candidate.checkedAt))
+      && Date.parse(candidate.checkedAt) <= Date.parse(checkedAt)
+    ));
+    if (!verification) {
+      const unavailableReason = matchingVerifications.length ? "stale_verification" : "unverified_publication";
+      return priorInsightUnavailable(jobId, engagement, unavailableReason);
+    }
+    const text = typeof action.payload.text === "string"
+      && createHash("sha256").update(action.payload.text).digest("hex") === verification.evidence.digest
+      ? action.payload.text
+      : null;
+    return {
+      jobId,
+      actionId: engagement.actionId,
+      postId: engagement.postId,
+      checkedAt,
+      durableEvidenceRef: verification.evidence.url,
+      metrics,
+      text,
+      textAvailability: text === null ? "unavailable" : "verified_action_payload_digest",
+      availability: "available",
+    };
+  });
 }
 
 export async function listRecentEngagement(limit = 20): Promise<PriorInsight[]> {
@@ -2261,18 +2354,12 @@ export async function listRecentEngagement(limit = 20): Promise<PriorInsight[]> 
   const out: PriorInsight[] = [];
   for (const doc of snaps.rows) {
     const data = doc.value as unknown as JobDoc & { engagement?: Engagement[] };
-    for (const e of data.engagement ?? []) {
-      const action = (data.actions ?? []).find((a) => a.id === e.actionId);
-      out.push({
-        jobId: doc.id,
-        text: action?.title ?? e.postId,
-        likes: e.likes,
-        reposts: e.reposts,
-        replies: e.replies,
-      });
-    }
+    out.push(...priorInsightsFromJob(doc.id, data));
   }
-  return out.sort((a, b) => b.likes - a.likes);
+  return out.sort((a, b) => (
+    Number(b.availability === "available") - Number(a.availability === "available")
+    || (b.metrics?.likes ?? -1) - (a.metrics?.likes ?? -1)
+  ));
 }
 
 export async function markFailed(

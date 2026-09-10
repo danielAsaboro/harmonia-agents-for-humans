@@ -60,7 +60,11 @@ def test_job_status_reports_missing_jobs_honestly():
 
 
 def test_posting_windows_derive_only_from_measured_history(monkeypatch):
-    monkeypatch.setattr(skills_runtime.web_client, "get_insights", lambda: {"topPosts": [{"postId": "1", "likes": 100, "publishedAt": "2026-08-20T14:05:00Z"}, {"postId": "2", "likes": 90, "publishedAt": "2026-08-18T14:30:00Z"}, {"postId": "3", "likes": 20, "publishedAt": "2026-08-15T09:40:00Z"}]})
+    monkeypatch.setattr(skills_runtime.web_client, "get_insights", lambda: {"topPosts": [
+        {"availability": "available", "postId": "1", "checkedAt": "2026-08-20T14:05:00Z", "metrics": {"likes": 100}},
+        {"availability": "available", "postId": "2", "checkedAt": "2026-08-18T14:30:00Z", "metrics": {"likes": 90}},
+        {"availability": "available", "postId": "3", "checkedAt": "2026-08-15T09:40:00Z", "metrics": {"likes": 20}},
+    ]})
     monkeypatch.setattr(skills_runtime.web_client, "get_feed", lambda: {"recentPublished": []})
     result = skills_runtime.suggest_posting_windows()
     assert result["status"] == "success"
@@ -77,7 +81,7 @@ def test_posting_windows_derive_only_from_measured_history(monkeypatch):
 
 
 def test_posting_windows_fail_closed_without_measured_posts(monkeypatch):
-    monkeypatch.setattr(skills_runtime.web_client, "get_insights", lambda: {"topPosts": [{"postId": "1", "text": "x"}]})
+    monkeypatch.setattr(skills_runtime.web_client, "get_insights", lambda: {"topPosts": [{"availability": "unavailable", "postId": "1", "metrics": None, "text": None}]})
     monkeypatch.setattr(skills_runtime.web_client, "get_feed", lambda: {"recentPublished": []})
     result = skills_runtime.suggest_posting_windows()
     assert result["status"] == "error"
@@ -87,11 +91,14 @@ def test_posting_windows_fail_closed_without_measured_posts(monkeypatch):
 
 def test_insight_reads_stay_within_workspace_tools(monkeypatch):
     monkeypatch.setattr(skills_runtime.web_client, "get_feed", lambda: {"recentPublished": []})
-    monkeypatch.setattr(skills_runtime.web_client, "get_insights", lambda: {"topPosts": [{"postId": "1", "likes": 2}, {"postId": "2", "likes": 1}]})
+    monkeypatch.setattr(skills_runtime.web_client, "get_insights", lambda: {"topPosts": [
+        {"availability": "available", "postId": "1", "checkedAt": "2026-08-20T14:05:00Z", "metrics": {"likes": 2}},
+        {"availability": "available", "postId": "2", "checkedAt": "2026-08-18T14:30:00Z", "metrics": {"likes": 1}},
+    ]})
     feed = skills_runtime.get_operator_feed()
     insights = skills_runtime.get_engagement_insights()
     assert "recentPublished" in feed["data"]
-    assert insights["data"]["topPosts"][0]["likes"] > insights["data"]["topPosts"][1]["likes"]
+    assert insights["data"]["topPosts"][0]["metrics"]["likes"] > insights["data"]["topPosts"][1]["metrics"]["likes"]
     assert {item["reference"] for item in insights["evidence"][1:]} == {
         post["postId"] for post in insights["data"]["topPosts"]
     }

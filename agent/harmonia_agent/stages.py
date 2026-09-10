@@ -361,18 +361,7 @@ async def run_understand(job_id: str) -> None:
     performance: list[AnalystPerformanceObservation] = []
     try:
         insights = get_insights()
-        for item in (insights.get("topPosts") or [])[:5]:
-            post_id = str(item.get("postId") or "").strip()
-            if not post_id:
-                continue
-            performance.append(AnalystPerformanceObservation(
-                id=f"performance:{post_id}",
-                summary=(
-                    f"Verified post {post_id}: {int(item.get('likes') or 0)} likes and "
-                    f"{int(item.get('reposts') or 0)} reposts."
-                ),
-                durableEvidenceRef=f"engagement/{post_id}",
-            ))
+        performance = _performance_observations_for_nimi(insights)
     except WebApiError:
         logger.info("no prior engagement insights yet")
     source_ids = [str(source["sourceId"]) for source in normalized_sources]
@@ -433,20 +422,70 @@ async def run_understand(job_id: str) -> None:
     })
 
 
+def _performance_observation_payloads(insights: dict[str, Any]) -> list[dict[str, Any]]:
+    observations = insights.get("topPosts") or []
+    if not isinstance(observations, list):
+        raise AgentProtocolError("insights topPosts must be a list")
+    payloads: list[dict[str, Any]] = []
+    for item in observations[:5]:
+        if not isinstance(item, dict) or item.get("availability") != "available":
+            continue
+        metrics = item.get("metrics")
+        if not isinstance(metrics, dict):
+            raise AgentProtocolError("available performance observation has no metrics")
+        text = item.get("text")
+        text_availability = item.get("textAvailability")
+        if text_availability == "verified_action_payload_digest":
+            if not isinstance(text, str) or not text:
+                raise AgentProtocolError("verified published text is missing")
+        elif text_availability == "unavailable":
+            if text is not None:
+                raise AgentProtocolError("unavailable published text must be absent")
+        else:
+            raise AgentProtocolError("available performance observation has invalid text provenance")
+        required = ("jobId", "actionId", "postId", "checkedAt", "durableEvidenceRef")
+        if any(not isinstance(item.get(field), str) or not item[field] for field in required):
+            raise AgentProtocolError("available performance observation has incomplete identity")
+        post_id = item["postId"]
+        metric_summary = (
+            f"{metrics.get('likes')} likes, {metrics.get('reposts')} reposts, "
+            f"{metrics.get('replies')} replies, {metrics.get('quotes')} quotes"
+        )
+        if isinstance(metrics.get("impressions"), int):
+            metric_summary += f", {metrics['impressions']} impressions"
+        payloads.append({
+            "id": f"performance:{post_id}",
+            "jobId": item["jobId"],
+            "actionId": item["actionId"],
+            "postId": post_id,
+            "checkedAt": item["checkedAt"],
+            "durableEvidenceRef": item["durableEvidenceRef"],
+            "metrics": metrics,
+            "text": text,
+            "textAvailability": text_availability,
+            "summary": (
+                f"Verified post {post_id} from job {item['jobId']} action {item['actionId']}, "
+                f"measured at {item['checkedAt']}: {metric_summary}. "
+                + (f"Published text: {text}" if text else "")
+            ),
+        })
+    return payloads
+
+
+def _performance_observations_for_nimi(insights: dict[str, Any]) -> list[AnalystPerformanceObservation]:
+    return [AnalystPerformanceObservation.model_validate(item) for item in _performance_observation_payloads(insights)]
+
+
+def _performance_observations_for_ryan(insights: dict[str, Any]) -> list[PerformanceObservation]:
+    return [PerformanceObservation.model_validate(item) for item in _performance_observation_payloads(insights)]
+
+
 def _strategy_input(job: dict[str, Any], insights: dict[str, Any]) -> StrategistInput:
     context = (job.get("config") or {}).get("strategyContext")
     if not isinstance(context, dict):
         raise AgentProtocolError("job requires typed strategyContext")
     analysis = SourceAnalysis.model_validate(job.get("sourceAnalysis"))
-    performance = []
-    for item in (insights.get("topPosts") or [])[:5]:
-        post_id = str(item.get("postId") or "").strip()
-        if post_id:
-            performance.append(PerformanceObservation(
-                id=f"performance:{post_id}",
-                summary=f"Verified post {post_id}: {int(item.get('likes') or 0)} likes and {int(item.get('reposts') or 0)} reposts.",
-                durableEvidenceRef=f"engagement/{post_id}",
-            ))
+    performance = _performance_observations_for_ryan(insights)
     revision = int(job.get("strategyRevision") or 1)
     return StrategistInput(
         source_title=str((job.get("sourceAnalysis") or {}).get("summary") or f"Source bundle {(job.get('config') or {}).get('sourceManifestId', '')[:12]}")[:300],
@@ -1064,6 +1103,7 @@ async def run_learn(job_id: str) -> None:
         engagement.append({
             "actionId": action["id"],
             "postId": str(post_id),
+            "checkedAt": _now(),
             **metrics,
         })
 

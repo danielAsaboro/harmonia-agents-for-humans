@@ -7,7 +7,13 @@ import { ApprovalReview, CampaignBrief, DraftComparison, JobProgress, MomentExpl
 import styles from "./HarmoniaWorkspaceElements.module.css";
 
 export interface HarmoniaClientAction { name: "decide_job_action" | "decide_operation" | "request_surface_revision"; context: Record<string, string> }
-export type HarmoniaMessage = UIMessage<never, { "harmonia-surface": HarmoniaSurfacePart["data"] }>;
+export type HarmoniaMessage = UIMessage<{ runId: string; sequence: number }, {
+  "harmonia-surface": HarmoniaSurfacePart["data"];
+  "harmonia-activity": Record<string, unknown>;
+  "harmonia-tool-activity": Record<string, unknown>;
+  "harmonia-confirmation": Record<string, unknown>;
+  "harmonia-job-update": Record<string, unknown>;
+}>;
 export const parseHarmoniaSurface = parseHarmoniaSurfacePart;
 export interface SurfaceFrameMetadata { composition: "stack" | "split" | "mosaic" | "rail"; rhythm: "editorial" | "operational" | "cinematic" | "evidence"; energy: "quiet" | "active" | "resolved"; revision: number }
 const DEFAULT_FRAME: SurfaceFrameMetadata = { composition: "stack", rhythm: "editorial", energy: "quiet", revision: 1 };

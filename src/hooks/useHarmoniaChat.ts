@@ -1,25 +1,12 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useChat } from "@ai-sdk/react";
 import { apiFetch } from "@/lib/clientApi";
-import { initialChatRunState, reduceChatStreamEvent, type ChatRunState } from "@/lib/ai-sdk/messageReducer";
+import { initialChatRunState, type ChatRunState } from "@/lib/ai-sdk/messageReducer";
 import { parseChatStreamEvent, type ChatStreamEvent } from "@/lib/ai-sdk/contracts";
-
-async function consumeNdjson(response: Response, onEvent: (event: ChatStreamEvent) => void): Promise<void> {
-  if (!response.body) throw new Error("chat stream returned no body");
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) if (line.trim()) onEvent(parseChatStreamEvent(JSON.parse(line)));
-    if (done) break;
-  }
-  if (buffer.trim()) onEvent(parseChatStreamEvent(JSON.parse(buffer)));
-}
+import { DurableChatTransport } from "@/lib/ai-sdk/durableChatTransport";
+import type { HarmoniaMessage } from "@/components/ai-sdk/HarmoniaMessageRenderer";
 
 interface ReplayChatRunInput {
   runId: string;
@@ -59,57 +46,39 @@ export async function replayChatRunUntilTerminal(input: ReplayChatRunInput): Pro
 }
 
 export function useHarmoniaChat() {
-  const [run, setRun] = useState<ChatRunState | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const transport = useMemo(() => new DurableChatTransport<HarmoniaMessage>(), []);
+  const chat = useChat<HarmoniaMessage>({ transport });
+  const run = useMemo(() => {
+    const message = [...chat.messages].reverse().find((candidate) => candidate.role === "assistant");
+    if (!message) return null;
+    const metadata = message.metadata ?? { runId: message.id, sequence: -1 };
+    const state = initialChatRunState(metadata.runId);
+    state.lastSequence = metadata.sequence;
+    state.status = chat.status === "error" ? "failed" : chat.status === "ready" ? "complete" : "running";
+    for (const part of message.parts) {
+      if (part.type === "text") state.text += part.text;
+      else if (part.type === "data-harmonia-surface") state.parts.push({ type: part.type, ...(part.id ? { id: part.id } : {}), data: part.data });
+      else if (part.type === "data-harmonia-activity") state.activities.push(part.data as ChatRunState["activities"][number]);
+      else if (part.type === "data-harmonia-tool-activity") state.tools.push(part.data as ChatRunState["tools"][number]);
+      else if (part.type === "data-harmonia-confirmation") state.confirmations.push(part.data as ChatRunState["confirmations"][number]);
+      else if (part.type === "data-harmonia-job-update") state.jobUpdates.push({ type: "job_updated", runId: state.runId, sequence: state.lastSequence, ...(part.data as { jobId: string; stage: string; status: string }) });
+    }
+    if (chat.error) state.error = chat.error.message;
+    return state;
+  }, [chat.error, chat.messages, chat.status]);
+  const runRef = useRef(run);
+  useEffect(() => { runRef.current = run; }, [run]);
 
   const send = useCallback(async (message: string, attachmentIds: string[] = [], conversationId = "primary") => {
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    const response = await apiFetch("/api/chat/stream", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message, surface: "dashboard", conversationId, attachmentIds }),
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(() => null) as { error?: string } | null;
-      throw new Error(body?.error ?? `chat failed (${response.status})`);
-    }
-    const runId = response.headers.get("x-chat-run-id");
-    if (!runId) throw new Error("chat stream omitted run id");
-    let current = initialChatRunState(runId);
-    setRun(current);
-    const apply = (event: ChatStreamEvent) => {
-      current = reduceChatStreamEvent(current, event);
-      setRun(current);
-    };
-    let streamError: unknown = null;
-    try {
-      await consumeNdjson(response, apply);
-    } catch (error) {
-      if (controller.signal.aborted) throw error;
-      streamError = error;
-    }
-    if (current.status === "running") {
-      try {
-        await replayChatRunUntilTerminal({
-          runId,
-          afterSequence: current.lastSequence,
-          onEvent: apply,
-          signal: controller.signal,
-        });
-      } catch (replayError) {
-        throw streamError ?? replayError;
-      }
-    }
-    return current;
-  }, []);
+    await chat.sendMessage({ text: message }, { body: { conversationId, attachmentIds } });
+    const assistant = [...chat.messages].reverse().find((candidate) => candidate.role === "assistant");
+    const metadata = assistant?.metadata;
+    return runRef.current ?? { ...initialChatRunState(metadata?.runId ?? "pending"), status: "complete" as const };
+  }, [chat]);
 
   const cancel = useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-  }, []);
+    void chat.stop();
+  }, [chat]);
 
-  return { run, send, cancel, clear: () => setRun(null) };
+  return { run, send, cancel, clear: () => chat.setMessages([]), messages: chat.messages, resumeStream: chat.resumeStream };
 }

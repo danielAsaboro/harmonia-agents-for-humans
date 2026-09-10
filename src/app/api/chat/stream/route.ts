@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { createUIMessageStreamResponse, type UIMessageChunk } from "ai";
 import { operatorTenantHandler } from "@/lib/auth";
 import { handleChat, type ChatResponse } from "@/lib/chatHandler";
 import { requireReadyAttachments } from "@/lib/chatAttachments";
 import { appendChatRunEvent, createChatRun, type UnsequencedChatStreamEvent } from "@/lib/chatRuns";
 import { loadGeneratedPresentation } from "@/lib/ai-sdk/generatedPresentation";
+import { initialUIChunkProjectionState, projectDurableEvent } from "@/lib/ai-sdk/uiStream";
 
 const streamRequestSchema = z.object({
   message: z.string().min(1).max(2_000),
@@ -11,8 +13,6 @@ const streamRequestSchema = z.object({
   conversationId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).default("primary"),
   attachmentIds: z.array(z.string().min(1)).max(20).default([]),
 }).strict();
-
-const encoder = new TextEncoder();
 
 async function post(req: Request): Promise<Response> {
   const parsed = streamRequestSchema.safeParse(await req.json().catch(() => null));
@@ -24,13 +24,14 @@ async function post(req: Request): Promise<Response> {
   }
   const run = await createChatRun(parsed.data.message, parsed.data.attachmentIds);
 
-  const stream = new ReadableStream<Uint8Array>({
+  const projection = initialUIChunkProjectionState();
+  const stream = new ReadableStream<UIMessageChunk>({
     start(controller) {
       let deliveryOpen = true;
       const deliver = (event: unknown) => {
         if (!deliveryOpen) return;
         try {
-          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+          for (const chunk of projectDurableEvent(event as Parameters<typeof projectDurableEvent>[0], projection)) controller.enqueue(chunk);
         } catch {
           deliveryOpen = false;
         }
@@ -104,14 +105,11 @@ async function post(req: Request): Promise<Response> {
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "content-type": "application/x-ndjson; charset=utf-8",
-      "cache-control": "no-store, no-transform",
-      "x-accel-buffering": "no",
-      "x-chat-run-id": run.id,
-    },
-  });
+  return createUIMessageStreamResponse({ stream, headers: {
+    "cache-control": "no-store, no-transform",
+    "x-accel-buffering": "no",
+    "x-chat-run-id": run.id,
+  } });
 }
 
 export const POST = operatorTenantHandler(post);

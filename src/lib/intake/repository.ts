@@ -6,7 +6,7 @@ import { loadActiveStrategyContext } from "../strategy/context";
 import { hasRightsAttestation, sourceRightsAuthorization, sourceRightsAuthorizationId } from "../sourceRights";
 import { requireContentOperator } from "../authority";
 import { strategyDigest } from "../strategyApproval";
-import { evaluateIntake, intakeAdviceSchema, intakeSourceKey, type IntakeAdvice, type IntakeDraft, type IntakeTarget, type IntakeSourceHandle, type IntakeMissingField } from "./contracts";
+import { evaluateIntake, intakeAdviceSchema, intakeSourceKey, intakeRequirementApplies, type IntakeAdvice, type IntakeDraft, type IntakeTarget, type IntakeSourceHandle, type IntakeMissingField } from "./contracts";
 
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const turnDigest = (message: string, attachmentIds: string[]) => hash([message, [...attachmentIds].sort()]);
@@ -92,10 +92,10 @@ export async function submitIntakeTurn(input: IntakeTurn): Promise<IntakeDraft> 
     const rightsAttested = sourceHandles.every(source => source.kind === "web" || Boolean(sourceRights[intakeSourceKey(source)]));
     const assessment = evaluateIntake({ ...merged, rightsAttested }, merged.disposition === "existing_plan_item" ? await authorizedIntakeTargets(tx) : []);
     const active = await readActiveStrategyRef(tx);
-    if (merged.action === "revise_strategy" && !active) {
+    if (intakeRequirementApplies("activeStrategy", merged) && !active) {
       assessment.missingFields.push("activeStrategy"); assessment.question ??= "There is no approved strategy to revise. Would you like to establish one?";
     }
-    if (["establish_strategy", "revise_strategy"].includes(merged.action) && !merged.strategyContext && merged.disposition !== "knowledge_only") {
+    if (intakeRequirementApplies("strategyContext", merged) && !merged.strategyContext) {
       assessment.missingFields.push("strategyContext"); assessment.question ??= "What company, audience, positioning and business outcome should the strategy address?";
     }
     const priorQuestion = prior?.clarification;
@@ -105,7 +105,8 @@ export async function submitIntakeTurn(input: IntakeTurn): Promise<IntakeDraft> 
       && (field !== "requestedOutputs" || merged.requestedOutputs.length > 0)
       && (field !== "strategyContext" || Boolean(merged.strategyContext))
       && (field !== "activeStrategy" || Boolean(active));
-    const unresolvedPriorQuestion = priorQuestion && !(advice.resolvedField === priorQuestion.field && fieldSatisfied(priorQuestion.field));
+    const unresolvedPriorQuestion = priorQuestion && intakeRequirementApplies(priorQuestion.field, merged)
+      && !(advice.resolvedField === priorQuestion.field && fieldSatisfied(priorQuestion.field));
     merged.clarification = unresolvedPriorQuestion ? priorQuestion : advice.clarification ?? null;
     if (merged.clarification) {
       assessment.missingFields = [...new Set([merged.clarification.field, ...assessment.missingFields])];

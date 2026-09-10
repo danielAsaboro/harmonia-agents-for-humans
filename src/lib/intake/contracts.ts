@@ -44,6 +44,20 @@ export interface IntakeDraft extends IntakeAdvice {
   createdAt: string; updatedAt: string;
 }
 
+/** Reassess stored questions against the operator's validated current work request. */
+export function intakeRequirementApplies(field: IntakeMissingField, input: IntakeAdvice): boolean {
+  switch (field) {
+    case "expectedOutcome": return true;
+    // Explicit evidence questions may apply to factual claims in any action.
+    case "sources": return true;
+    case "target": return input.disposition === "existing_plan_item";
+    case "rights": return input.sourceHandles.some(source => source.kind === "upload" || source.kind === "youtube");
+    case "requestedOutputs": return input.disposition !== "knowledge_only" && input.action === "create_job";
+    case "strategyContext": return input.disposition !== "knowledge_only" && ["establish_strategy", "revise_strategy"].includes(input.action);
+    case "activeStrategy": return input.disposition !== "knowledge_only" && input.action === "revise_strategy";
+  }
+}
+
 /** Classification is advisory. Only authorized records passed by the host resolve a target. */
 export function evaluateIntake(input: IntakeAdvice & { rightsAttested: boolean }, targets: IntakeTarget[]) {
   const missingFields: IntakeMissingField[] = [];
@@ -57,10 +71,10 @@ export function evaluateIntake(input: IntakeAdvice & { rightsAttested: boolean }
     if (matches.length === 1) target = matches[0];
     else missing("target", matches.length > 1 ? `Which planned item do you mean: ${matches.map(item => `${item.campaignId}/${item.itemId}`).join(", ")}?` : "Which authorized campaign and planned item should this work belong to?");
   }
-  if (input.sourceHandles.some(source => source.kind === "upload" || source.kind === "youtube") && !input.rightsAttested) missing("rights", "Please confirm: I confirm I have rights to use this source.");
+  if (intakeRequirementApplies("rights", input) && !input.rightsAttested) missing("rights", "Please confirm: I confirm I have rights to use this source.");
   if (input.disposition === "knowledge_only") {
     if (!input.sourceHandles.length) missing("sources", "Which source should I retain as knowledge?");
-  } else if (!["establish_strategy", "revise_strategy", "advance_plan"].includes(input.action) && !input.requestedOutputs.length) {
+  } else if (intakeRequirementApplies("requestedOutputs", input) && !input.requestedOutputs.length) {
     missing("requestedOutputs", "Which outputs do you want produced?");
   }
   return { missingFields, question, target };

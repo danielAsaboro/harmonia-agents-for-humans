@@ -108,7 +108,8 @@ export async function resumePendingPlannedRetries() {
   for (const item of await plannedCalendar()) if (item.lifecycle.retryPending && item.lifecycle.jobId) {
     const row = await awsRepository().read(recordKey(`workspaces/${item.workspaceId}/jobs/${item.lifecycle.jobId}`));
     const failure = row.value?.failure as { stage: import("../types").Stage; retryable: boolean } | undefined;
-    if (failure?.retryable) await retryFailedJobWithOutbox(item.lifecycle.jobId, failure.stage);
+    if (item.lifecycle.permanentRetryAuthorizationId) await retryFailedJobWithOutbox(item.lifecycle.jobId, null, { permanentAuthorizationId: item.lifecycle.permanentRetryAuthorizationId });
+    else if (failure?.retryable) await retryFailedJobWithOutbox(item.lifecycle.jobId, failure.stage);
   }
 }
 export async function recoverPlannedWork() {

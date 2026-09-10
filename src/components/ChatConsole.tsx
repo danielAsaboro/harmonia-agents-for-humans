@@ -293,7 +293,7 @@ export default function ChatConsole({ conversationId }: { conversationId?: strin
     const response = await apiFetch(`/api/jobs/${job.id}/retry`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(failure.retryable ? {} : { afterFix: true }),
+      body: JSON.stringify(failure.retryable ? {} : { afterFix: true, requestId: `retry-${job.controlEpoch}-${failure.traceId}-${Date.parse(failure.at)}`, expectedGeneration: job.controlEpoch, expectedFailure: failure, reason: "Administrator acknowledged a deployed fix in the job retry control" }),
     });
     const body = await response.json().catch(() => null) as { error?: string } | null;
     if (!response.ok) throw new Error(body?.error ?? `Retry failed (${response.status})`);

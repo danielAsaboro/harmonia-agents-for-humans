@@ -7,6 +7,11 @@ import { agentActivitySchema } from "./contracts";
 import { markReservationFinalized,markReservationReleased,markReservationUncertain,type CostReservationState } from "./costReservations";
 import { applyFinalizedUsage,applyReleasedReservation,applyReservation,canReserve,exceedsApprovalThreshold } from "./costs";
 import type { ApprovalActor } from "./decisions";
+import { requireWorkspaceAdministrator } from "./authority";
+import { authorizeJobRetry } from "./jobRetry";
+import { isKnownStage } from "./stages";
+import { INTERNAL_CONTRACT_REVISION } from "./internalHandler";
+import { PermanentRetryConflict, permanentRetryRequestSchema, type PermanentRetryAuthorization, type PermanentRetryRequest } from "./permanentRetry";
 import { awsRepository,DynamoTransaction,field,limited,newRecordId,ordered,partition,recordKey,REMOVE_FIELD,StoredRecord,where } from "./dynamo";
 import { assertEditorialPlanSubmission,assertSelectedProductionAuthority,editorialPlanDigest,editorialPlanEvidenceLineage,editorialPlanningSnapshotDigest,isMatchingActiveProduction } from "./editorialPlan";
 import { buildEditorialPlanningSnapshot } from "./editorialPlanning";
@@ -1404,15 +1409,76 @@ export async function createJob(
   });
 }
 
+function permanentRetryKey(jobId: string, id: string) {
+  if (!/^[a-f0-9]{64}$/.test(id)) throw new Error("invalid permanent retry authorization id");
+  return recordKey(`${jobRef(jobId).path}/permanent_retry_authorizations/${id}`);
+}
+function permanentRetryResult(authorization: PermanentRetryAuthorization, replayed: boolean) {
+  return { authorizationId: authorization.id, outboxId: authorization.outboxId ?? null, retryPending: authorization.state === "pending", state: authorization.state, replayed };
+}
+
+export async function authorizePermanentJobRetry(jobId: string, request: PermanentRetryRequest) {
+  const tenant = currentTenant(); const actor = requireWorkspaceAdministrator(tenant);
+  const input = permanentRetryRequestSchema.parse(request);
+  const id = strategyDigest([tenant.workspaceId, tenant.brandId, actor.subjectId, input.requestId]);
+  return db().atomic(async tx => {
+    const job = requireJobDoc(await tx.read(jobRef(jobId)));
+    const key = permanentRetryKey(jobId, id); const previous = await tx.read(key);
+    if (previous.present) {
+      const authorization = previous.value as unknown as PermanentRetryAuthorization;
+      assertResourceWorkspace(tenant, authorization);
+      if (authorization.requestDigest !== strategyDigest(input) || authorization.jobId !== jobId) throw new PermanentRetryConflict("permanent retry identity reused");
+      return permanentRetryResult(authorization, true);
+    }
+    if (job.controlEpoch !== input.expectedGeneration || !job.failure || strategyDigest(job.failure) !== strategyDigest(input.expectedFailure)) throw new PermanentRetryConflict("retry failure or generation changed");
+    if (job.failure.retryable) throw new PermanentRetryConflict("permanent failure required");
+    try { authorizeJobRetry(job.failure, true, INTERNAL_CONTRACT_REVISION); }
+    catch (error) { throw new PermanentRetryConflict(error instanceof Error ? error.message : String(error)); }
+    const authorization: PermanentRetryAuthorization = { id, workspaceId: tenant.workspaceId, brandId: tenant.brandId, jobId, itemRef: job.plannedItemRef ?? null, actor, decision: "retry_after_fix", reason: input.reason, approvedAt: new Date().toISOString(), idempotencyKey: input.requestId, requestDigest: strategyDigest(input), expectedGeneration: job.controlEpoch, failureDigest: strategyDigest(job.failure), stage: job.failure.stage, state: "pending" };
+    tx.insert(key, authorization);
+    await retryJobInTransaction(tx, job, job.failure.stage, authorization);
+    return permanentRetryResult(authorization, false);
+  });
+}
+
 export async function retryFailedJobWithOutbox(
   jobId: string,
-  stage: Stage,
-  options: { allowPermanent?: boolean } = {},
+  stage: Stage | null,
+  options: { permanentAuthorizationId?: string } = {},
 ): Promise<string | null> {
   const tenant = currentTenant();
+  if (options.permanentAuthorizationId && tenant.principal.kind !== "service") requireWorkspaceAdministrator(tenant);
   return db().atomic(async (tx) => {
     const jobSnapshot = await tx.read(jobRef(jobId));
     const job = requireJobDoc(jobSnapshot);
+    let authorization: PermanentRetryAuthorization | undefined;
+    if (options.permanentAuthorizationId) {
+      const row = await tx.read(permanentRetryKey(jobId, options.permanentAuthorizationId));
+      if (!row.present) throw new Error("permanent retry authorization not found");
+      authorization = row.value as unknown as PermanentRetryAuthorization;
+      assertResourceWorkspace(tenant, authorization);
+      if (authorization.jobId !== jobId || (stage !== null && authorization.state !== "pending" && authorization.stage !== stage)) throw new Error("permanent retry authorization binding mismatch");
+      if (authorization.state !== "pending") return authorization.outboxId ?? null;
+    }
+    // Recovery resolves the stage from the authorization even if failure authority disappeared.
+    const retryStage = stage ?? authorization?.stage;
+    if (!retryStage) throw new Error("retry stage authority required");
+    return retryJobInTransaction(tx, job, retryStage, authorization);
+  });
+}
+
+async function retryJobInTransaction(tx: DynamoTransaction, job: Job, stage: Stage, authorization?: PermanentRetryAuthorization): Promise<string | null> {
+    const tenant = currentTenant(); const jobId = job.id;
+    if (authorization && (job.controlEpoch !== authorization.expectedGeneration || strategyDigest(job.plannedItemRef ?? null) !== strategyDigest(authorization.itemRef) || !job.failure || job.failure.stage !== authorization.stage || strategyDigest(job.failure) !== authorization.failureDigest)) {
+      authorization.state = "stale"; authorization.staleAt = new Date().toISOString();
+      tx.patch(permanentRetryKey(jobId, authorization.id), authorization);
+      if (authorization.itemRef) {
+        const state = await readItemState(authorization.itemRef, tx);
+        const { permanentRetryAuthorizationId: _authorizationId, ...next } = state; void _authorizationId;
+        if (state.jobId === jobId && state.permanentRetryAuthorizationId === authorization.id) tx.put(authorityKey("planned_item_states", authorization.itemRef), { ...next, retryPending: false, reason: "Permanent retry authorization is stale; a new administrator decision is required", updatedAt: authorization.staleAt });
+      }
+      return null;
+    }
     if (!job.failure && job.plannedItemRef && job.stage === stage) {
       const state = await readItemState(job.plannedItemRef, tx);
       if (state.status === "running" && state.jobId === jobId && state.outboxId) {
@@ -1421,7 +1487,8 @@ export async function retryFailedJobWithOutbox(
       }
     }
     if (!job.failure || job.failure.stage !== stage || (job.status !== "failed" && !job.failure.retryable)) throw new Error("job is not retryable from this stage");
-    if (!job.failure.retryable && !options.allowPermanent) throw new Error("permanent failure requires a deployed-fix acknowledgement");
+    if (!job.failure.retryable && !authorization) throw new Error("permanent failure requires a durable deployed-fix authorization");
+    if (!isKnownStage(stage) || ["complete", "failed"].includes(stage)) throw new PermanentRetryConflict("stage is not retryable");
     const generation = job.controlEpoch + 1;
     const id = stageOutboxId(jobId, stage, generation);
     const ref = stageOutboxRef(id);
@@ -1429,14 +1496,25 @@ export async function retryFailedJobWithOutbox(
     if (job.plannedItemRef) {
       const state = await readItemState(job.plannedItemRef, tx);
       if (state.jobId !== jobId) throw new Error("planned execution binding mismatch");
+      const { permanentRetryAuthorizationId: priorAuthorizationId, ...unboundState } = state;
+      if (!authorization && priorAuthorizationId) {
+        const priorKey = permanentRetryKey(jobId, priorAuthorizationId); const prior = await tx.read(priorKey);
+        if (prior.present) {
+          assertResourceWorkspace(tenant, prior.value as { workspaceId: string; brandId: string });
+          if (prior.value?.state === "pending") tx.patch(priorKey, { state: "stale", staleAt: new Date().toISOString() });
+        }
+      }
       const item = await readPlannedItem(job.plannedItemRef, tx);
       const reasons = await plannedItemAdmission(tx, item, new Date().toISOString());
       if (job.controlState !== "running") reasons.push(`execution is ${job.controlState}`);
       if (reasons.length) {
-        tx.put(authorityKey("planned_item_states", job.plannedItemRef), { ...state, status: "failed", retryPending: true, reason: reasons.join("; "), updatedAt: new Date().toISOString() });
+        const next = { ...unboundState, status: "failed", retryPending: true, ...(authorization ? { permanentRetryAuthorizationId: authorization.id } : {}), reason: reasons.join("; "), updatedAt: new Date().toISOString() };
+        // Repeated pending admission checks have no write or audit side effects.
+        if (state.retryPending && state.reason === next.reason && state.permanentRetryAuthorizationId === next.permanentRetryAuthorizationId) return null;
+        tx.put(authorityKey("planned_item_states", job.plannedItemRef), next);
         return null;
       }
-      tx.put(authorityKey("planned_item_states", job.plannedItemRef), { ...state, status: "running", retryPending: false, outboxId: id, reason: "", updatedAt: new Date().toISOString() });
+      tx.put(authorityKey("planned_item_states", job.plannedItemRef), { ...unboundState, status: "running", retryPending: false, outboxId: id, reason: "", updatedAt: new Date().toISOString() });
     }
     tx.patch(jobRef(jobId), {
       stage,
@@ -1450,8 +1528,11 @@ export async function retryFailedJobWithOutbox(
       ...stageOutboxDurability(id, jobId, stage, generation),
       state: "pending", createdAt: new Date().toISOString(),
     } satisfies StageOutboxRecord);
+    if (authorization) {
+      Object.assign(authorization, { state: "consumed", outboxId: id, admittedGeneration: generation, consumedAt: new Date().toISOString() });
+      tx.patch(permanentRetryKey(jobId, authorization.id), authorization);
+    }
     return id;
-  });
 }
 
 export async function getJob(jobId: string) {

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { runWithTenant, type TenantContext } from "@/lib/tenancy";
-import { awsRepository, partition, recordKey, UnknownCommitOutcome } from "@/lib/dynamo";
+import { awsRepository, partition, recordKey, REMOVE_FIELD, UnknownCommitOutcome } from "@/lib/dynamo";
 import { insertStrategyProposal, decideStrategyProposal } from "@/lib/strategy/repository";
 import { strategyDigest } from "@/lib/strategyApproval";
 import { strategyFixture } from "./fixtures/strategy";
@@ -29,6 +29,16 @@ async function setup() {
 }
 async function request(disposition: "independent" | "new_initiative" = "new_initiative") {
   return submitIntakeTurn({ requestId: randomUUID(), conversationId: randomUUID(), surface: "dashboard", message: "Write a creative X post inviting founders to imagine a better workflow; no factual claims.", advice: { action: "create_job", disposition, expectedOutcome: "Invite founders", requestedOutputs: ["x_post"], sourceHandles: [], targetName: "Launch" } });
+}
+async function permanentRetryPair() {
+  await setup(); const api = await import("@/lib/planning/commands"); const repo = await import("@/lib/campaigns/repository"); const selection = await import("@/lib/planning/selection");
+  const draft = await request(); const base = await api.materializeIntake({ draftId: draft.id, expectedDraftRevision: 1, requestId: draft.answers.at(-1)!.requestId });
+  await api.addPlannedDeliverable({ planId: base.planRef.id, expectedRevision: 1, requestId: randomUUID(), name: "Second", operatorBrief: "Imagine a follow-up", requestedOutputs: ["x_post"], channel: "x", scheduledFor: "2098-09-03T12:00:00Z", dependencies: [], requiredAssetIds: [] });
+  const claim = (await selection.claimNextPlannedItem(base.planRef.id))!;
+  await markFailed({ jobId: claim.jobId, stage: "draft", category: "validation", code: "fixed_contract", publicMessage: "Contract rejected", retryable: false, operationId: `job:${claim.jobId}:stage:draft:generation:0`, traceId: "a".repeat(32), attempt: 1, maxAttempts: 3, details: {} });
+  const other = (await selection.claimNextPlannedItem(base.planRef.id, "2099-01-01T00:00:00Z"))!;
+  const job = await getJob(claim.jobId);
+  return { base, claim, other, repo, selection, job, input: { requestId: randomUUID(), afterFix: true as const, reason: "Deployed the draft contract correction", expectedGeneration: job.controlEpoch, expectedFailure: job.failure! } };
 }
 
 describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("persistent campaign calendar", () => {
@@ -161,6 +171,130 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("persistent campaign calendar",
     await selection.recoverPlannedWork();
     expect(await retryFailedJobWithOutbox(claim!.jobId, "draft")).toBe(resumed.outboxId);
     expect((await awsRepository().query(partition(`workspaces/${base.planRef.workspaceId}/stage_outbox`))).rows).toHaveLength(before.rows.length + 1);
+  }));
+  it("resumes an administrator-authorized permanent retry after occupied capacity clears", async () => runWithTenant(tenant(), async () => {
+    await setup(); const api = await import("@/lib/planning/commands"); const repo = await import("@/lib/campaigns/repository"); const selection = await import("@/lib/planning/selection");
+    const draft = await request(); const base = await api.materializeIntake({ draftId: draft.id, expectedDraftRevision: 1, requestId: draft.answers.at(-1)!.requestId });
+    const second = await api.addPlannedDeliverable({ planId: base.planRef.id, expectedRevision: 1, requestId: randomUUID(), name: "Second", operatorBrief: "Imagine a follow-up", requestedOutputs: ["x_post"], channel: "x", scheduledFor: "2098-09-03T12:00:00Z", dependencies: [], requiredAssetIds: [] });
+    const claim = (await selection.claimNextPlannedItem(base.planRef.id))!;
+    await markFailed({ jobId: claim.jobId, stage: "draft", category: "validation", code: "fixed_contract", publicMessage: "Contract rejected", retryable: false, operationId: `job:${claim.jobId}:stage:draft:generation:0`, traceId: "a".repeat(32), attempt: 1, maxAttempts: 3, details: {} });
+    const other = (await selection.claimNextPlannedItem(base.planRef.id, "2099-01-01T00:00:00Z"))!; expect(other.itemRef).toEqual(second.itemRef);
+    const before = await awsRepository().query(partition(`workspaces/${base.planRef.workspaceId}/stage_outbox`));
+    const jobs = await import("@/lib/repository"); const failed = await getJob(claim.jobId);
+    const input = { requestId: randomUUID(), afterFix: true as const, reason: "Deployed the draft contract correction", expectedGeneration: failed.controlEpoch, expectedFailure: failed.failure! };
+    const authorization = await jobs.authorizePermanentJobRetry(claim.jobId, input);
+    expect(authorization).toMatchObject({ retryPending: true, outboxId: null });
+    const authKey = recordKey(`workspaces/${base.planRef.workspaceId}/jobs/${claim.jobId}/permanent_retry_authorizations/${authorization.authorizationId}`);
+    const pending = await awsRepository().read(authKey);
+    expect(pending.value).toMatchObject({ workspaceId: base.planRef.workspaceId, brandId: "a", jobId: claim.jobId, itemRef: claim.itemRef, expectedGeneration: 0, failureDigest: strategyDigest(failed.failure), decision: "retry_after_fix", reason: input.reason, state: "pending", actor: { subjectId: "operator", workspaceRole: "owner" } });
+    expect(pending.value?.approvedAt).toBeTruthy(); expect(pending.value?.idempotencyKey).toBe(input.requestId);
+    expect(await jobs.authorizePermanentJobRetry(claim.jobId, input)).toMatchObject({ replayed: true, retryPending: true });
+    expect(await awsRepository().read(authKey)).toEqual(pending);
+    expect(await repo.readItemState(claim.itemRef)).toMatchObject({ status: "failed", retryPending: true });
+    expect((await awsRepository().query(partition(`workspaces/${base.planRef.workspaceId}/stage_outbox`))).rows).toHaveLength(before.rows.length);
+    await awsRepository().patch(recordKey(`workspaces/${base.planRef.workspaceId}/jobs/${other.jobId}`), { status: "complete", stage: "complete", terminalOutcome: "succeeded" });
+    await selection.reconcilePlannedExecution(other.jobId);
+    const resumed = await repo.readItemState(claim.itemRef);
+    expect(resumed).toMatchObject({ status: "running", jobId: claim.jobId, retryPending: false });
+    expect(resumed.outboxId).not.toBe(claim.outboxId);
+    const consumed = await awsRepository().read(authKey);
+    expect(consumed.value).toMatchObject({ state: "consumed", outboxId: resumed.outboxId, admittedGeneration: 1 });
+    const stableJob = await awsRepository().read(recordKey(`workspaces/${base.planRef.workspaceId}/jobs/${claim.jobId}`));
+    const stableItem = await repo.readItemState(claim.itemRef);
+    await Promise.all([selection.resumePendingPlannedRetries(), selection.resumePendingPlannedRetries()]);
+    expect(await jobs.authorizePermanentJobRetry(claim.jobId, input)).toMatchObject({ replayed: true, outboxId: resumed.outboxId, retryPending: false });
+    expect(await awsRepository().read(authKey)).toEqual(consumed);
+    expect(await awsRepository().read(recordKey(`workspaces/${base.planRef.workspaceId}/jobs/${claim.jobId}`))).toEqual(stableJob);
+    expect(await repo.readItemState(claim.itemRef)).toEqual(stableItem);
+    expect((await repo.readItemState(claim.itemRef)).outboxId).toBe(resumed.outboxId);
+    expect((await awsRepository().query(partition(`workspaces/${base.planRef.workspaceId}/stage_outbox`))).rows).toHaveLength(before.rows.length + 1);
+  }));
+  it.each(["failure", "generation", "stage", "item", "missing_failure"])("rejects permanent retry authorization after its exact %s changes", async change => runWithTenant(tenant(), async () => {
+    const { base, claim, other, repo, selection, job, input } = await permanentRetryPair(); const jobs = await import("@/lib/repository");
+    const grant = await jobs.authorizePermanentJobRetry(claim.jobId, input);
+    const key = recordKey(`workspaces/${base.planRef.workspaceId}/jobs/${claim.jobId}`);
+    await awsRepository().patch(key, change === "failure" ? { failure: { ...job.failure, code: "different_failure" } } : change === "stage" ? { failure: { ...job.failure, stage: "publish" } } : change === "item" ? { plannedItemRef: other.itemRef } : change === "missing_failure" ? { failure: REMOVE_FIELD } : { controlEpoch: 1 });
+    await awsRepository().patch(recordKey(`workspaces/${base.planRef.workspaceId}/jobs/${other.jobId}`), { status: "complete", stage: "complete", terminalOutcome: "succeeded" });
+    await selection.reconcilePlannedExecution(other.jobId);
+    expect(await repo.readItemState(claim.itemRef)).toMatchObject({ status: "failed", retryPending: false, reason: expect.stringContaining("stale") });
+    expect((await awsRepository().read(recordKey(`${key.path}/permanent_retry_authorizations/${grant.authorizationId}`))).value?.state).toBe("stale");
+    expect((await awsRepository().query(partition(`workspaces/${base.planRef.workspaceId}/stage_outbox`))).rows).toHaveLength(2);
+    if (change !== "item") await expect(jobs.authorizePermanentJobRetry(claim.jobId, { ...input, requestId: randomUUID() })).rejects.toThrow("failure or generation changed");
+    expect(await jobs.authorizePermanentJobRetry(claim.jobId, input)).toMatchObject({ replayed: true, retryPending: false, outboxId: null });
+  }));
+  it("replays the authenticated permanent-retry API without writes or dispatch and rejects stale decisions", async () => {
+    const scope = tenant(); const cognito = await import("@/lib/cognito");
+    const uid = `retry-api-${randomUUID()}`;
+    const verify = vi.spyOn(cognito, "verifyCognitoIdentity").mockResolvedValue({ uid, email: "test@example.test", exp: Math.floor(Date.now() / 1000) + 3600 } as Awaited<ReturnType<typeof cognito.verifyCognitoIdentity>>);
+    try {
+      const auth = await import("@/lib/auth"); const route = await import("@/app/api/jobs/[id]/retry/route");
+      const cookie = (await auth.createSessionCookie("offline-verified-identity")).split(";")[0];
+      const userKey = recordKey(`users/${uid}`); const memberKey = recordKey(`workspaces/${scope.workspaceId}/members/${uid}`);
+      await awsRepository().put(userKey, { defaultWorkspaceId: scope.workspaceId, defaultBrandId: scope.brandId });
+      await awsRepository().put(memberKey, { userId: uid, role: "admin" });
+      await runWithTenant(scope, async () => {
+        const { base, claim, other, selection, input } = await permanentRetryPair();
+        const send = (body = input) => route.POST(new Request(`http://localhost/api/jobs/${claim.jobId}/retry`, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(body) }), { params: Promise.resolve({ id: claim.jobId }) });
+        const response = await send(); expect(response.status).toBe(202); const pending = await response.json();
+        const key = recordKey(`workspaces/${base.planRef.workspaceId}/jobs/${claim.jobId}/permanent_retry_authorizations/${pending.authorizationId}`);
+        const record = await awsRepository().read(key);
+        expect(await (await send()).json()).toEqual(pending); expect(await awsRepository().read(key)).toEqual(record);
+        await awsRepository().put(memberKey, { userId: uid, role: "member" });
+        expect((await send()).status).toBe(403);
+        await awsRepository().put(memberKey, { userId: uid, role: "admin" });
+        await awsRepository().patch(recordKey(`workspaces/${base.planRef.workspaceId}/jobs/${other.jobId}`), { status: "complete", stage: "complete", terminalOutcome: "succeeded" });
+        await selection.reconcilePlannedExecution(other.jobId);
+        const consumed = await awsRepository().read(key); const jobKey = recordKey(`workspaces/${base.planRef.workspaceId}/jobs/${claim.jobId}`); const before = await awsRepository().read(jobKey);
+        const outboxKey = recordKey(`workspaces/${base.planRef.workspaceId}/stage_outbox/${consumed.value?.outboxId}`); const outbox = await awsRepository().read(outboxKey);
+        const replay = await send(); expect(replay.status).toBe(200); expect(await replay.json()).toMatchObject({ state: "consumed", retryPending: false, outboxId: consumed.value?.outboxId });
+        expect(await awsRepository().read(key)).toEqual(consumed); expect(await awsRepository().read(jobKey)).toEqual(before); expect(await awsRepository().read(outboxKey)).toEqual(outbox);
+        expect((await send({ ...input, requestId: randomUUID() })).status).toBe(409);
+      });
+    } finally { verify.mockRestore(); }
+  });
+  it("requires a fresh permanent retry authorization for a new failure and denies non-admin or cross-brand use", async () => {
+    const scope = tenant(); await runWithTenant(scope, async () => {
+      const { base, claim, other, repo, selection, input } = await permanentRetryPair(); const jobs = await import("@/lib/repository");
+      const member: TenantContext = { ...scope, principal: { kind: "cognito_user", subjectId: "member", authenticationId: "auth", workspaceRole: "member" } };
+      await expect(runWithTenant(member, () => jobs.authorizePermanentJobRetry(claim.jobId, input))).rejects.toThrow("administrator required");
+      const grant = await jobs.authorizePermanentJobRetry(claim.jobId, input);
+      await expect(runWithTenant(member, () => retryFailedJobWithOutbox(claim.jobId, "draft", { permanentAuthorizationId: grant.authorizationId }))).rejects.toThrow("administrator required");
+      await expect(runWithTenant({ ...scope, brandId: "b" }, () => retryFailedJobWithOutbox(claim.jobId, "draft", { permanentAuthorizationId: grant.authorizationId }))).rejects.toThrow("brand access denied");
+      await expect(runWithTenant({ ...scope, brandId: "b" }, () => jobs.authorizePermanentJobRetry(claim.jobId, input))).rejects.toThrow("brand access denied");
+      await expect(jobs.authorizePermanentJobRetry(claim.jobId, { ...input, reason: "Different decision" })).rejects.toThrow("identity reused");
+      await awsRepository().patch(recordKey(`workspaces/${base.planRef.workspaceId}/jobs/${other.jobId}`), { status: "complete", stage: "complete", terminalOutcome: "succeeded" });
+      await runWithTenant({ ...scope, principal: { kind: "service", subjectId: "harmonia-worker", authenticationId: "worker", workspaceRole: "service" } }, () => selection.reconcilePlannedExecution(other.jobId));
+      const resumed = await repo.readItemState(claim.itemRef);
+      const oldOutbox = resumed.outboxId;
+      await markFailed({ jobId: claim.jobId, stage: "draft", category: "validation", code: "new_failure", publicMessage: "New failure", retryable: false, operationId: `job:${claim.jobId}:stage:draft:generation:1`, traceId: "b".repeat(32), attempt: 1, maxAttempts: 3, details: {} });
+      await selection.resumePendingPlannedRetries();
+      expect(await repo.readItemState(claim.itemRef)).toMatchObject({ status: "failed", outboxId: oldOutbox });
+      expect(await jobs.authorizePermanentJobRetry(claim.jobId, input)).toMatchObject({ replayed: true, outboxId: oldOutbox });
+      expect((await getJob(claim.jobId)).failure?.code).toBe("new_failure");
+      const current = await getJob(claim.jobId);
+      const next = await jobs.authorizePermanentJobRetry(claim.jobId, { ...input, requestId: randomUUID(), expectedGeneration: current.controlEpoch, expectedFailure: current.failure! });
+      expect(next.outboxId).not.toBe(oldOutbox); expect((await getJob(claim.jobId)).controlEpoch).toBe(2);
+      expect((await awsRepository().query(partition(`workspaces/${base.planRef.workspaceId}/jobs/${claim.jobId}/permanent_retry_authorizations`))).rows).toHaveLength(2);
+    });
+  });
+  it.each(["not_a_stage", "complete"])("rejects permanent retry from non-executable stage %s without retaining authority", async stage => runWithTenant(tenant(), async () => {
+    const { base, claim, input } = await permanentRetryPair(); const jobs = await import("@/lib/repository");
+    const key = recordKey(`workspaces/${base.planRef.workspaceId}/jobs/${claim.jobId}`);
+    await awsRepository().patch(key, { failure: { ...input.expectedFailure, stage } });
+    const job = await getJob(claim.jobId);
+    await expect(jobs.authorizePermanentJobRetry(claim.jobId, { ...input, expectedFailure: job.failure! })).rejects.toThrow("stage is not retryable");
+    expect((await awsRepository().query(partition(`${key.path}/permanent_retry_authorizations`))).rows).toHaveLength(0);
+  }));
+  it("does not carry a permanent authorization into a later transient retry", async () => runWithTenant(tenant(), async () => {
+    const { base, claim, other, repo, selection, input } = await permanentRetryPair(); const jobs = await import("@/lib/repository");
+    await jobs.authorizePermanentJobRetry(claim.jobId, input);
+    await markFailed({ jobId: claim.jobId, stage: "draft", category: "provider_transient", code: "new_transient_failure", publicMessage: "Temporarily unavailable", retryable: true, operationId: `job:${claim.jobId}:stage:draft:generation:0`, traceId: "b".repeat(32), attempt: 2, maxAttempts: 3, details: {} });
+    expect(await retryFailedJobWithOutbox(claim.jobId, "draft")).toBeNull();
+    expect((await repo.readItemState(claim.itemRef)).permanentRetryAuthorizationId).toBeUndefined();
+    await awsRepository().patch(recordKey(`workspaces/${base.planRef.workspaceId}/jobs/${other.jobId}`), { status: "complete", stage: "complete", terminalOutcome: "succeeded" });
+    await selection.reconcilePlannedExecution(other.jobId);
+    expect(await repo.readItemState(claim.itemRef)).toMatchObject({ status: "running", jobId: claim.jobId, retryPending: false });
+    expect((await getJob(claim.jobId)).controlEpoch).toBe(1);
   }));
   it("audits calendar and advance chat commands with exact replay and no duplicate dispatch", async () => runWithTenant(tenant(), async () => {
     await setup(); const api = await import("@/lib/planning/commands"); const repo = await import("@/lib/campaigns/repository");

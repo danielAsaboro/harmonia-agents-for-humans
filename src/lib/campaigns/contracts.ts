@@ -46,6 +46,7 @@ export interface PlannedItemState {
   ref: AuthorityRef; workspaceId: string; brandId: string; status: ItemStatus; updatedAt: string;
   jobId?: string; outboxId?: string; reason?: string; retryable?: boolean; retryPending?: boolean;
   dispositionProposalId?: string;
+  permanentRetryAuthorizationId?: string;
 }
 export interface PlanningMaterialization { campaignRef: AuthorityRef | null; planRef: AuthorityRef; itemRefs: AuthorityRef[]; proposalId?: string }
 export interface PlanningAsset { id: string; workspaceId: string; brandId: string; briefId: string; assetType: string; status: "ready" | "missing" | "blocked"; evidenceRefs: string[] }

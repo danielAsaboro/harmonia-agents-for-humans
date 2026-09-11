@@ -30,16 +30,25 @@ export interface OutputCapabilityStatus {
   liveVerification: "not_applicable" | "not_verified" | "verified";
 }
 
+/** Server-derived configuration facts. Never infer these from browser env. */
+export interface MediaCapabilityConfiguration {
+  allowPaidProviders?: boolean;
+  generativeMediaEnabled?: boolean;
+  durableArtifactStorage?: boolean;
+  mediaOutputBucket?: string;
+  elevenLabsApiKeyConfigured?: boolean;
+  novaCanvasPrice?: string;
+  novaReelPrice?: string;
+  elevenLabsMusicPrice?: string;
+  novaCanvasModel?: string;
+  novaReelModel?: string;
+  elevenLabsMusicModel?: string;
+}
+
+const positivePrice = (value: string | undefined) => Boolean(value && /^\d+\.\d{6}$/.test(value) && Number(value) > 0);
+
 /** Configuration status never claims that a provider was invoked or verified. */
-export function outputCapabilityStatus(
-  kind: OutputKind,
-  options: {
-    allowPaidProviders?: boolean;
-    generativeMediaEnabled?: boolean;
-    mediaOutputBucket?: string;
-    elevenLabsApiKey?: string;
-  } = {},
-): OutputCapabilityStatus {
+export function outputCapabilityStatus(kind: OutputKind, options?: MediaCapabilityConfiguration): OutputCapabilityStatus {
   const capability = OUTPUT_CAPABILITIES[kind];
   if (capability.state === "unavailable") {
     return { supported: false, providerAvailability: "not_required", liveVerification: "not_applicable" };
@@ -47,14 +56,12 @@ export function outputCapabilityStatus(
   if (!capability.mediaProvider) {
     return { supported: true, providerAvailability: "not_required", liveVerification: "not_applicable" };
   }
-  const paid = options.allowPaidProviders ?? process.env.HARMONIA_ALLOW_PAID_AWS === "true";
-  const enabled = options.generativeMediaEnabled ?? process.env.GENERATIVE_MEDIA_ENABLED === "true";
-  const configured = paid
-    && enabled
-    && (!(["nova_reel", "nova_canvas"] as readonly string[]).includes(capability.mediaProvider)
-      || Boolean(options.mediaOutputBucket ?? process.env.MEDIA_OUTPUT_BUCKET ?? process.env.S3_BUCKET))
-    && (capability.mediaProvider !== "elevenlabs"
-      || Boolean(options.elevenLabsApiKey ?? process.env.ELEVENLABS_API_KEY));
+  const configured = Boolean(options?.allowPaidProviders && options.generativeMediaEnabled && options.durableArtifactStorage)
+    && (capability.mediaProvider === "nova_canvas"
+      ? positivePrice(options?.novaCanvasPrice) && options?.novaCanvasModel === "amazon.nova-canvas-v1:0"
+      : capability.mediaProvider === "nova_reel"
+        ? Boolean(options?.mediaOutputBucket) && positivePrice(options?.novaReelPrice) && options?.novaReelModel === "amazon.nova-reel-v1:1"
+        : Boolean(options?.elevenLabsApiKeyConfigured) && positivePrice(options?.elevenLabsMusicPrice) && options?.elevenLabsMusicModel === "music_v1");
   return {
     supported: true,
     providerAvailability: configured ? "configured" : "not_configured",

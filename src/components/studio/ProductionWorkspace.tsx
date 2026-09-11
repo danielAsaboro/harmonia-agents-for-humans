@@ -41,7 +41,7 @@ export function ProductionWorkspace({ job, busy = false, onSeal, onDecide }: Pro
         </ol>
         {plan.soundtrack ? <p className="mt-3 text-xs"><b>Soundtrack:</b> {plan.soundtrack.modelCapability} · {plan.soundtrack.prompt}</p> : <p className="mt-3 text-xs text-black/45">No generated soundtrack is authorized.</p>}
         <div className="mt-3 space-y-1 font-mono text-[8px]">
-          {operations.map((operation) => <div key={operation.id} className="grid grid-cols-[1fr_auto_auto] gap-2 border-t border-black/10 py-1.5"><span className="truncate">{operation.type}</span><span>{operation.executionAuthority === "production_mandate" ? operation.estimatedCostUsd ? `$${operation.estimatedCostUsd}` : "paid" : "cost-free"}</span><b>{operation.state}</b></div>)}
+          {operations.map((operation) => <div key={operation.id} className="grid grid-cols-[1fr_auto_auto] gap-2 border-t border-black/10 py-1.5"><span className="truncate">{operation.type}{operation.provider && operation.model ? ` · ${operation.provider}/${operation.model}` : ""}</span><span>{operation.executionAuthority === "production_mandate" ? operation.estimatedCostUsd ? `$${operation.estimatedCostUsd}` : "paid" : "cost-free"}</span><b>{operation.state}</b></div>)}
         </div>
       </details>
       <p className="mt-3 rounded-lg bg-[#efffb6] p-2 text-[10px]"><b>Production approval only.</b> This authorizes the exact paid generation digests and cost ceiling. External publication remains separately gated.</p>

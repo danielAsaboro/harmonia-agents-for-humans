@@ -23,6 +23,9 @@ describe("internal routed media proposal", () => {
     process.env.INTERNAL_API_TOKEN = "test-token"; process.env.AGENT_SERVICE_URL = "http://127.0.0.1:8080";
     process.env.MODEL_PRICING_VERSION = "test-pricing"; process.env.NOVA_CANVAS_COST_PER_IMAGE_USD = "0.500000";
     process.env.NOVA_REEL_COST_PER_SECOND_USD = "0.080000"; process.env.ELEVENLABS_MUSIC_COST_PER_SECOND_USD = "0.004000";
+    process.env.HARMONIA_ALLOW_PAID_AWS = "true"; process.env.GENERATIVE_MEDIA_ENABLED = "true"; process.env.S3_BUCKET = "durable-artifacts";
+    process.env.MEDIA_OUTPUT_BUCKET = "media-output"; process.env.ELEVENLABS_API_KEY = "test-key";
+    process.env.NOVA_CANVAS_MODEL_ID = "amazon.nova-canvas-v1:0"; process.env.NOVA_REEL_MODEL_ID = "amazon.nova-reel-v1:1"; process.env.ELEVENLABS_MUSIC_MODEL_ID = "music_v1";
     repository.getJob.mockResolvedValue(job); repository.appendEvent.mockResolvedValue(undefined);
     store.getProductionPlanWorkspaceForJob.mockResolvedValue(null);
     store.proposeProductionPlan.mockResolvedValue({ id: "media-plan", state: "proposed" });

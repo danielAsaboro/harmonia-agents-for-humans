@@ -4,6 +4,8 @@ import { appendEvent, getJob } from "@/lib/repository";
 import { mediaProposalSummary, planRequestedMediaProduction } from "@/lib/outputMediaProduction";
 import { getProductionPlanWorkspaceForJob, proposeProductionPlan, sealProductionPlan } from "@/lib/productionPlanStore";
 import { productionPlanError } from "@/lib/productionPlanHttp";
+import { mediaCapabilityConfiguration } from "@/lib/outputCapabilityServer";
+import { outputCapabilityStatus } from "@/lib/outputCapabilities";
 
 const bodySchema = z.object({ jobId: z.string().min(1) }).strict();
 
@@ -13,6 +15,11 @@ async function post(request: Request) {
   try {
     const job = await getJob(parsed.data.jobId);
     if (!job.campaignOutputPlan) throw new Error("campaign output plan is required before media production");
+    const configuration = mediaCapabilityConfiguration();
+    const unavailable = job.campaignOutputPlan.outputs
+      .filter((output) => ["social_image", "generated_video", "generated_music"].includes(output.outputType))
+      .filter((output) => outputCapabilityStatus(output.outputType, configuration).providerAvailability !== "configured");
+    if (unavailable.length) throw new Error(`requested provider is not configured: ${unavailable.map((output) => output.outputType).join(", ")}`);
     const existing = await getProductionPlanWorkspaceForJob(job.id);
     if (existing?.revision.plan.outputRequest?.outputPlanDigest === job.campaignOutputPlan.digest) {
       return Response.json({ outcome: "already_proposed", proposal: mediaProposalSummary(existing.revision.plan), state: existing.aggregate.state });

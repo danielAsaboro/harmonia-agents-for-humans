@@ -595,16 +595,24 @@ def execute_production_operation(
     if operation_type not in {"generate_image", "generate_video", "generate_music"}:
         raise ProductionExecutionProtocolError("executor received a non-paid production operation")
 
-    provider = "elevenlabs" if operation_type == "generate_music" else "nova_canvas" if operation_type == "generate_image" else "nova_reel"
+    sealed_request = operation.get("payload")
+    if not isinstance(sealed_request, dict) or set(sealed_request) != {"provider", "model", "request"}:
+        raise ProductionExecutionProtocolError("production operation is missing its sealed provider/model request")
+    provider = sealed_request.get("provider")
+    expected_provider = "elevenlabs" if operation_type == "generate_music" else "nova_canvas" if operation_type == "generate_image" else "nova_reel"
+    if provider != expected_provider or not isinstance(sealed_request.get("model"), str) or not isinstance(sealed_request.get("request"), dict):
+        raise ProductionExecutionProtocolError("production provider does not match the sealed operation")
     role = "elevenlabs_generator" if provider == "elevenlabs" else "nova_canvas_generator" if provider == "nova_canvas" else "nova_reel_generator"
     model_request = (
-        validate_elevenlabs_request(operation.get("payload"))
+        validate_elevenlabs_request(sealed_request["request"])
         if provider == "elevenlabs"
-        else validate_nova_canvas_request(operation.get("payload"))
+        else validate_nova_canvas_request(sealed_request["request"])
         if provider == "nova_canvas"
-        else validate_nova_reel_request(operation.get("payload"))
+        else validate_nova_reel_request(sealed_request["request"])
     )
     model = str(model_request["providerModel"])
+    if sealed_request["model"] != model:
+        raise ProductionExecutionProtocolError("sealed provider model is unsupported")
     persisted_provider_id = claim.get("providerOperationId")
     conditioning_media: dict[str, tuple[bytes, str, str]] = {}
     if provider == "nova_reel":
@@ -629,6 +637,14 @@ def execute_production_operation(
     if not config.allow_paid_aws or not config.generative_media_enabled:
         record_production_operation_failure(plan_id, operation_id, claim_id=claim["id"], claim_token=token, outcome="failed", reason="paid AWS operations disabled")
         return {"outcome": "failed", "reason": "paid AWS operations disabled"}
+    configured_model = (
+        getattr(config, "elevenlabs_music_model_id", model) if provider == "elevenlabs"
+        else getattr(config, "nova_canvas_model_id", model) if provider == "nova_canvas"
+        else getattr(config, "nova_reel_model_id", model)
+    )
+    if configured_model != model:
+        record_production_operation_failure(plan_id, operation_id, claim_id=claim["id"], claim_token=token, outcome="failed", reason="configured provider model does not match approved sealed model")
+        return {"outcome": "failed", "reason": "configured provider model does not match approved sealed model"}
     if provider == "elevenlabs" and not getattr(config, "elevenlabs_api_key", None):
         record_production_operation_failure(plan_id, operation_id, claim_id=claim["id"], claim_token=token, outcome="failed", reason="ELEVENLABS_API_KEY required before submission")
         return {"outcome": "failed", "reason": "music provider configuration unavailable"}

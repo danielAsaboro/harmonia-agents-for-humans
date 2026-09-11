@@ -56,6 +56,28 @@ export const generatedMusicSpecSchema = z.object({
   outputCount: z.literal(1),
 }).strict();
 
+/**
+ * The provider and immutable model release are part of the approved request,
+ * rather than executor defaults.  A worker may only submit this exact envelope.
+ */
+export const sealedProviderRequestSchema = z.discriminatedUnion("provider", [
+  z.object({ provider: z.literal("nova_canvas"), model: z.literal(NOVA_CANVAS_CAPABILITIES["nova-canvas"].model), request: generatedImageSpecSchema }).strict(),
+  z.object({ provider: z.literal("nova_reel"), model: z.literal(NOVA_REEL_CAPABILITIES["nova-reel"].model), request: generatedVideoSpecSchema }).strict(),
+  z.object({ provider: z.literal("elevenlabs"), model: z.literal(ELEVENLABS_CAPABILITIES["elevenlabs-music"].model), request: generatedMusicSpecSchema }).strict(),
+]);
+export type SealedProviderRequest = z.infer<typeof sealedProviderRequestSchema>;
+
+export function sealProviderRequest(spec: GeneratedVideoSpec | GeneratedMusicSpec | GeneratedImageSpec): SealedProviderRequest {
+  if (spec.modelCapability === "nova-canvas") return { provider: "nova_canvas", model: NOVA_CANVAS_CAPABILITIES["nova-canvas"].model, request: spec };
+  if (spec.modelCapability === "nova-reel") return { provider: "nova_reel", model: NOVA_REEL_CAPABILITIES["nova-reel"].model, request: spec };
+  return { provider: "elevenlabs", model: ELEVENLABS_CAPABILITIES["elevenlabs-music"].model, request: spec };
+}
+
+export function sealedProviderForOperation(operation: { executionAuthority: string; payload: unknown }): SealedProviderRequest | null {
+  if (operation.executionAuthority !== "production_mandate") return null;
+  return sealedProviderRequestSchema.parse(operation.payload);
+}
+
 const sourceWindowSchema = z.object({
   startSec: z.number().nonnegative(),
   durationSec: z.number().positive(),
@@ -255,7 +277,7 @@ function canonical(value: unknown): string {
 }
 
 const sha = (value: unknown) => createHash("sha256").update(canonical(value)).digest("hex");
-export function generatedMediaRequestDigest(spec: GeneratedVideoSpec | GeneratedMusicSpec | GeneratedImageSpec): string { return sha(spec); }
+export function generatedMediaRequestDigest(spec: GeneratedVideoSpec | GeneratedMusicSpec | GeneratedImageSpec): string { return sha(sealProviderRequest(spec)); }
 export function productionPlanDigest(plan: VideoProductionPlan): string { return sha(videoProductionPlanSchema.parse(plan)); }
 
 export function productionApprovalStillValid(
@@ -373,21 +395,24 @@ export function compileProductionOperations(plan: VideoProductionPlan): Producti
   const paid: ProductionOperation[] = [];
   for (const [index, image] of plan.images.entries()) {
     const id = `${plan.id}:generate_image:image-${index + 1}`;
-    paid.push({ id, jobId: plan.jobId, type: "generate_image", dependsOn: [], payload: image, requestDigest: generatedMediaRequestDigest(image), estimatedCostUsd: plan.operationCostsUsd[id], executionAuthority: "production_mandate" });
+    const payload = sealProviderRequest(image);
+    paid.push({ id, jobId: plan.jobId, type: "generate_image", dependsOn: [], payload, requestDigest: sha(payload), estimatedCostUsd: plan.operationCostsUsd[id], executionAuthority: "production_mandate" });
   }
   for (const scene of [...plan.scenes].sort((a, b) => a.order - b.order)) if (scene.video) {
     const type = "generate_video";
     const id = `${plan.id}:${type}:${scene.id}`;
-    const requestDigest = generatedMediaRequestDigest(scene.video);
+    const payload = sealProviderRequest(scene.video);
+    const requestDigest = sha(payload);
     const conditioningIds = [scene.video.sourceImageArtifact]
       .filter((reference): reference is VerifiedProductionArtifactRef => Boolean(reference))
       .map((reference) => `${plan.id}:resolve_media:${reference.artifactId}`);
-    paid.push({ id, jobId: plan.jobId, type, dependsOn: conditioningIds, payload: scene.video, requestDigest, estimatedCostUsd: plan.operationCostsUsd[id], executionAuthority: "production_mandate" });
+    paid.push({ id, jobId: plan.jobId, type, dependsOn: conditioningIds, payload, requestDigest, estimatedCostUsd: plan.operationCostsUsd[id], executionAuthority: "production_mandate" });
   }
   if (plan.soundtrack) {
     const id = `${plan.id}:generate_music`;
-    const requestDigest = generatedMediaRequestDigest(plan.soundtrack);
-    paid.push({ id, jobId: plan.jobId, type: "generate_music", dependsOn: [], payload: plan.soundtrack, requestDigest, estimatedCostUsd: plan.operationCostsUsd[id], executionAuthority: "production_mandate" });
+    const payload = sealProviderRequest(plan.soundtrack);
+    const requestDigest = sha(payload);
+    paid.push({ id, jobId: plan.jobId, type: "generate_music", dependsOn: [], payload, requestDigest, estimatedCostUsd: plan.operationCostsUsd[id], executionAuthority: "production_mandate" });
   }
   // A request for provider media alone is a deliverable in its own right. Do
   // not force it through a video compositor: assemble an archive whose sealed

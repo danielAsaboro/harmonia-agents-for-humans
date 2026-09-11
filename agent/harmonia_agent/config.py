@@ -45,6 +45,9 @@ class Settings:
     agentcore_memory_id: str | None
     generative_media_enabled: bool
     media_output_bucket: str | None
+    nova_canvas_model_id: str | None
+    nova_reel_model_id: str | None
+    elevenlabs_music_model_id: str | None
     durable_recovery_limit: int
     durable_recovery_deadline_seconds: int
     durable_recovery_max_retries: int
@@ -104,6 +107,9 @@ class Settings:
             agentcore_memory_id=os.environ.get("AGENTCORE_MEMORY_ID") or None,
             generative_media_enabled=_bool_env("GENERATIVE_MEDIA_ENABLED"),
             media_output_bucket=os.environ.get("MEDIA_OUTPUT_BUCKET") or os.environ.get("S3_BUCKET") or None,
+            nova_canvas_model_id=os.environ.get("NOVA_CANVAS_MODEL_ID") or None,
+            nova_reel_model_id=os.environ.get("NOVA_REEL_MODEL_ID") or None,
+            elevenlabs_music_model_id=os.environ.get("ELEVENLABS_MUSIC_MODEL_ID") or None,
             durable_recovery_limit=recovery_limit,
             durable_recovery_deadline_seconds=recovery_deadline,
             durable_recovery_max_retries=recovery_retries,

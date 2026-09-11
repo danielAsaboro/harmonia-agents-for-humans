@@ -24,8 +24,15 @@ it("separates media support, provider configuration, and live verification", () 
     expect(outputCapabilityStatus(kind, {
       allowPaidProviders: true,
       generativeMediaEnabled: true,
+      durableArtifactStorage: true,
       mediaOutputBucket: "media-output",
-      elevenLabsApiKey: "test-key",
+      elevenLabsApiKeyConfigured: true,
+      novaCanvasPrice: "0.500000",
+      novaReelPrice: "0.080000",
+      elevenLabsMusicPrice: "0.004000",
+      novaCanvasModel: "amazon.nova-canvas-v1:0",
+      novaReelModel: "amazon.nova-reel-v1:1",
+      elevenLabsMusicModel: "music_v1",
     })).toEqual({
       supported: true,
       providerAvailability: "configured",
@@ -33,4 +40,12 @@ it("separates media support, provider configuration, and live verification", () 
     });
   }
   expect(Object.values(OUTPUT_CAPABILITIES).some(capability => String(capability.state) === "verified_export")).toBe(false);
+});
+
+it("requires only the selected medium's exact server prerequisites", () => {
+  const base = { allowPaidProviders: true, generativeMediaEnabled: true, durableArtifactStorage: true } as const;
+  expect(outputCapabilityStatus("social_image", { ...base, novaCanvasPrice: "0.500000", novaCanvasModel: "amazon.nova-canvas-v1:0" }).providerAvailability).toBe("configured");
+  expect(outputCapabilityStatus("generated_video", { ...base, mediaOutputBucket: "bucket", novaReelPrice: "0.080000", novaReelModel: "wrong" }).providerAvailability).toBe("not_configured");
+  expect(outputCapabilityStatus("generated_music", { ...base, elevenLabsApiKeyConfigured: true, elevenLabsMusicPrice: "0.004000", elevenLabsMusicModel: "music_v1" }).providerAvailability).toBe("configured");
+  expect(outputCapabilityStatus("generated_music", { ...base, elevenLabsApiKeyConfigured: true, elevenLabsMusicPrice: "0.004000", elevenLabsMusicModel: "music_v1", novaReelPrice: undefined }).providerAvailability).toBe("configured");
 });

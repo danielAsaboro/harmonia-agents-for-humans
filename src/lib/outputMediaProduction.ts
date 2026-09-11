@@ -13,13 +13,13 @@ const usd = (micros: bigint) => {
 const promptHash = (value: string) => createHash("sha256").update(value).digest("hex");
 const stablePlanId = (jobId: string) => `media-${createHash("sha256").update(jobId).digest("hex").slice(0, 24)}`;
 
-function configuredPricing(input?: Pricing): Pricing {
+function configuredPricing(selected: Set<string>, input?: Pricing): Pricing {
   if (input) return input;
   const config = getConfig();
-  if (!config.NOVA_CANVAS_COST_PER_IMAGE_USD || !config.NOVA_REEL_COST_PER_SECOND_USD || !config.ELEVENLABS_MUSIC_COST_PER_SECOND_USD) {
-    throw new Error("configured media pricing is required before proposing media production");
-  }
-  return { version: config.MODEL_PRICING_VERSION, canvasPerImage: config.NOVA_CANVAS_COST_PER_IMAGE_USD, reelPerSecond: config.NOVA_REEL_COST_PER_SECOND_USD, musicPerSecond: config.ELEVENLABS_MUSIC_COST_PER_SECOND_USD };
+  if (selected.has("social_image") && !config.NOVA_CANVAS_COST_PER_IMAGE_USD) throw new Error("Nova Canvas pricing is required before proposing images");
+  if (selected.has("generated_video") && !config.NOVA_REEL_COST_PER_SECOND_USD) throw new Error("Nova Reel pricing is required before proposing video");
+  if (selected.has("generated_music") && !config.ELEVENLABS_MUSIC_COST_PER_SECOND_USD) throw new Error("ElevenLabs Music pricing is required before proposing music");
+  return { version: config.MODEL_PRICING_VERSION, canvasPerImage: config.NOVA_CANVAS_COST_PER_IMAGE_USD ?? "0.000001", reelPerSecond: config.NOVA_REEL_COST_PER_SECOND_USD ?? "0.000001", musicPerSecond: config.ELEVENLABS_MUSIC_COST_PER_SECOND_USD ?? "0.000001" };
 }
 
 /**
@@ -38,7 +38,7 @@ export function planRequestedMediaProduction(input: {
   if (!selected.length) return null;
   const brief = input.job.config.operatorBrief;
   if (!brief) throw new Error("direct media production requires the operator brief that supplied the requested content");
-  const pricing = configuredPricing(input.pricing);
+  const pricing = configuredPricing(new Set(selected.map((output) => output.outputType)), input.pricing);
   const id = stablePlanId(input.job.id);
   const revision = input.revision ?? 1;
   const images = selected.filter((output) => output.outputType === "social_image").flatMap((output) => Array.from({ length: output.quantity }, () => ({ modelCapability: "nova-canvas" as const, prompt: brief, width: 1024 as const, height: 1024 as const, outputCount: 1 as const })));

@@ -12,6 +12,7 @@ createProductionMandate,
 productionMandateSchema,
 productionOperationSchema,
 productionPlanDigest,
+sealedProviderForOperation,
 verifiedProductionArtifactRefSchema,
 videoProductionPlanSchema,
 type ProductionMandate,
@@ -127,6 +128,7 @@ export interface ProductionPlanWorkspaceOperation {
   state: "pending" | ProductionOperationClaim["state"];
   attempt: number;
   provider?: "nova_canvas" | "nova_reel" | "elevenlabs";
+  model?: string;
   providerOperationId?: string;
   artifact?: { mime: string; digest: string; sizeBytes: number };
   metadata?: Record<string, unknown>;
@@ -455,6 +457,7 @@ export async function getProductionPlanWorkspaceForJob(
     return [claim.id, claim] as const;
   }));
   const operations = revision.operations.map((operation): ProductionPlanWorkspaceOperation => {
+    const sealedProvider = sealedProviderForOperation(operation);
     const claim = claimsById.get(operationClaimId(
       aggregate.currentRevision, aggregate.currentPlanDigest, operation.id,
       operationInternalRun(aggregate, operation),
@@ -468,6 +471,7 @@ export async function getProductionPlanWorkspaceForJob(
       state: claim?.state ?? "pending",
       attempt: claim?.attempt ?? 0,
       ...(claim?.kind === "paid" && claim.provider ? { provider: claim.provider } : {}),
+      ...(sealedProvider ? { provider: sealedProvider.provider, model: sealedProvider.model } : {}),
       ...(claim?.kind === "paid" && claim.providerOperationId ? { providerOperationId: claim.providerOperationId } : {}),
       ...(claim?.artifact ? { artifact: {
         mime: claim.artifact.mime,
@@ -1160,8 +1164,8 @@ export async function startProductionProviderSubmission(
       brandId: tenant.brandId,
       now: new Date(),
     });
-    const expectedProvider = operation.type === "generate_music" ? "elevenlabs" : operation.type === "generate_image" ? "nova_canvas" : "nova_reel";
-    if (input.provider !== expectedProvider) throw new Error("provider does not match sealed production operation");
+    const sealedProvider = sealedProviderForOperation(operation);
+    if (!sealedProvider || input.provider !== sealedProvider.provider) throw new Error("provider does not match sealed production operation");
     const updated: PaidProductionOperationClaim = {
       ...claim,
       state: "submitting",

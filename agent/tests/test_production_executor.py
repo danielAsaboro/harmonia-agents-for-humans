@@ -7,6 +7,7 @@ from pathlib import Path
 import hashlib
 import json
 import subprocess
+import pytest
 
 from harmonia_agent import production_executor
 from harmonia_agent.generative_media import GeneratedMedia, MediaOperationPending, MediaProviderError
@@ -19,7 +20,7 @@ def _operation() -> dict:
         "jobId": "job-1",
         "type": "generate_video",
         "dependsOn": [],
-        "payload": {
+        "payload": {"provider": "nova_reel", "model": "amazon.nova-reel-v1:1", "request": {
             "modelCapability": "nova-reel",
             "mode": "text_to_video",
             "prompt": "calm blue network",
@@ -29,7 +30,7 @@ def _operation() -> dict:
 
 
             "outputCount": 1,
-        },
+        }},
         "requestDigest": "a" * 64,
         "estimatedCostUsd": "0.320000",
         "executionAuthority": "production_mandate",
@@ -39,7 +40,7 @@ def _operation() -> dict:
 def _image_operation() -> dict:
     return {
         "id": "plan-1:generate_image:image-1", "jobId": "job-1", "type": "generate_image", "dependsOn": [],
-        "payload": {"modelCapability": "nova-canvas", "prompt": "calm launch visual", "width": 1024, "height": 1024, "outputCount": 1},
+        "payload": {"provider": "nova_canvas", "model": "amazon.nova-canvas-v1:0", "request": {"modelCapability": "nova-canvas", "prompt": "calm launch visual", "width": 1024, "height": 1024, "outputCount": 1}},
         "requestDigest": "b" * 64, "estimatedCostUsd": "0.500000", "executionAuthority": "production_mandate",
     }
 
@@ -109,6 +110,29 @@ def test_canvas_transient_after_submission_is_durable_uncertainty_not_provider_w
     assert failures[-1]["outcome"] == "uncertain"
 
 
+def test_executor_refuses_model_configuration_that_changed_after_approval(monkeypatch):
+    failures: list[dict] = []
+    monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim())
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(
+        aws_region="us-east-1", allow_paid_aws=True, generative_media_enabled=True,
+        media_output_bucket="media-bucket", nova_reel_model_id="amazon.nova-reel-v2:0",
+    ))
+    monkeypatch.setattr(production_executor, "record_production_operation_failure", lambda *_args, **kwargs: failures.append(kwargs))
+    monkeypatch.setattr(production_executor.NovaReelGenerator, "generate", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("provider must not run")))
+    result = production_executor.execute_production_operation("plan-1", _operation()["id"], claim_token="worker-1", plan_revision=1, plan_digest="a" * 64)
+    assert result["outcome"] == "failed"
+    assert "does not match approved" in result["reason"]
+    assert failures[-1]["outcome"] == "failed"
+
+
+def test_executor_rejects_a_provider_model_not_sealed_for_its_request(monkeypatch):
+    decision = _claim()
+    decision["operation"]["payload"]["model"] = "amazon.nova-reel-v9:0"
+    monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: decision)
+    with pytest.raises(production_executor.ProductionExecutionProtocolError, match="sealed provider model"):
+        production_executor.execute_production_operation("plan-1", _operation()["id"], claim_token="worker-1", plan_revision=1, plan_digest="a" * 64)
+
+
 def _conditioned_claim(*, provider_operation_id: str | None = None) -> dict:
     reference = {
         "artifactId": "018f47a2-4f40-7b1f-b19f-8f6b916b7d13",
@@ -122,8 +146,7 @@ def _conditioned_claim(*, provider_operation_id: str | None = None) -> dict:
         "dependsOn": ["plan-1:resolve_media:018f47a2-4f40-7b1f-b19f-8f6b916b7d13"],
         "payload": {
             **_operation()["payload"],
-            "mode": "image_to_video",
-            "sourceImageArtifact": reference,
+            "request": {**_operation()["payload"]["request"], "mode": "image_to_video", "sourceImageArtifact": reference},
         },
     }
     decision = _claim(provider_operation_id=provider_operation_id)

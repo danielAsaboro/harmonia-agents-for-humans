@@ -94,7 +94,7 @@ describe("media production contracts", () => {
     });
     const operation = compileProductionOperations(plan).find((item) => item.type === "generate_image");
     expect(operation).toMatchObject({
-      id: "plan-image:generate_image:image-1", payload: imageSpec, estimatedCostUsd: "0.500000", executionAuthority: "production_mandate",
+      id: "plan-image:generate_image:image-1", payload: { provider: "nova_canvas", model: "amazon.nova-canvas-v1:0", request: imageSpec }, estimatedCostUsd: "0.500000", executionAuthority: "production_mandate",
     });
     expect(generatedImageSpecSchema.safeParse({ ...imageSpec, width: 512 }).success).toBe(false);
   });

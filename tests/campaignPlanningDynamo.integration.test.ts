@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { runWithTenant, type TenantContext } from "@/lib/tenancy";
+import { currentTenant, runWithTenant, tenantCollectionPath, type TenantContext } from "@/lib/tenancy";
 import { awsRepository, partition, recordKey, REMOVE_FIELD, UnknownCommitOutcome } from "@/lib/dynamo";
 import { insertStrategyProposal, decideStrategyProposal } from "@/lib/strategy/repository";
 import { strategyDigest } from "@/lib/strategyApproval";
@@ -416,15 +416,17 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("persistent campaign calendar",
     const assets = await repo.listPlanningAssets();
     expect(assets).toContainEqual(expect.objectContaining({ id: artifact.id, status: "ready" }));
   }));
-  it("exposes cancelled dependencies and missing assets, preserves approved work as a proposal", async () => runWithTenant(tenant(), async () => {
+  it("exposes cancelled dependencies and unavailable validated assets, preserves approved work as a proposal", async () => runWithTenant(tenant(), async () => {
     await setup(); const api = await import("@/lib/planning/commands"); const repo = await import("@/lib/campaigns/repository");
     const draft = await request(); const base = await api.materializeIntake({ draftId: draft.id, expectedDraftRevision: 1, requestId: draft.answers.at(-1)!.requestId });
-    const second = await api.addPlannedDeliverable({ planId: base.planRef.id, expectedRevision: 1, requestId: randomUUID(), name: "Follow-up", operatorBrief: "Imagine the next step", requestedOutputs: ["x_post"], channel: "x", scheduledFor: "2026-09-01T12:00:00Z", dependencies: base.itemRefs, requiredAssetIds: ["design"] });
+    const artifact = await createArtifactStore(awsRepository()).create({ jobId: "asset-readiness", operationId: "design-upload", bytes: Buffer.from("Approved design"), contentType: "text/plain", trust: "operator", producer: { kind: "operator", id: "operator", version: "1" }, retentionClass: "audit" });
+    const second = await api.addPlannedDeliverable({ planId: base.planRef.id, expectedRevision: 1, requestId: randomUUID(), name: "Follow-up", operatorBrief: "Imagine the next step", requestedOutputs: ["x_post"], channel: "x", scheduledFor: "2026-09-01T12:00:00Z", dependencies: base.itemRefs, requiredAssetIds: [artifact.id] });
+    await awsRepository().patch(recordKey(`${tenantCollectionPath(currentTenant(), "artifacts")}/${artifact.id}`), { state: "failed", failureReason: "asset withdrawn after planning" });
     await awsRepository().patch(repo.authorityKey("planned_item_states", base.itemRefs[0]), { status: "cancelled" });
     const selection = await import("@/lib/planning/selection");
     expect(await selection.claimNextPlannedItem(base.planRef.id)).toBeNull();
     expect(await repo.readItemState(second.itemRef)).toMatchObject({ status: "blocked", reason: expect.stringContaining("cancelled") });
-    expect((await repo.readItemState(second.itemRef)).reason).toContain("asset design");
+    expect((await repo.readItemState(second.itemRef)).reason).toContain(`asset ${artifact.id}`);
     await awsRepository().patch(repo.authorityKey("planned_item_states", second.itemRef), { status: "awaiting_approval" });
     const change = await api.replanItem({ itemRef: second.itemRef, scheduledFor: "2026-09-07T12:00:00Z", requestId: randomUUID() });
     expect(change.outcome).toBe("proposal"); expect(change.reasons).toContain("claimed or approved work requires exact execution disposition");

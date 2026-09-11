@@ -61,7 +61,7 @@ export interface PaidProductionOperationClaim {
   planRevision: number;
   planDigest: string;
   operationId: string;
-  requestDigest: string;
+  requestDigest?: string;
   mandateId: string;
   state: "claimed" | "submitting" | "waiting_provider" | "succeeded" | "failed" | "uncertain";
   reservedCostUsd: string;
@@ -121,6 +121,7 @@ export interface ProductionOperationInput {
 
 export interface ProductionPlanWorkspaceOperation {
   id: string;
+  requestDigest?: string;
   type: ProductionOperation["type"];
   executionAuthority: ProductionOperation["executionAuthority"];
   dependsOn: string[];
@@ -464,6 +465,7 @@ export async function getProductionPlanWorkspaceForJob(
     ));
     return {
       id: operation.id,
+      requestDigest: operation.requestDigest,
       type: operation.type,
       executionAuthority: operation.executionAuthority,
       dependsOn: [...operation.dependsOn],

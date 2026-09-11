@@ -15,4 +15,13 @@ describe("OutputIntentSelector", () => {
     expect(html).toContain("LinkedIn post");
     expect(html).toContain("Publish when connected");
   });
+
+  it("renders server-delivered configured status without reading browser configuration", () => {
+    const html = renderToStaticMarkup(createElement(OutputIntentSelector, {
+      selected: [], onChange: () => undefined,
+      capabilityStatus: { generated_music: { supported: true, providerAvailability: "configured", liveVerification: "not_verified" } },
+    }));
+    expect(html).toContain("Generated music — Export available — Provider configured — Live verification pending");
+    expect(html).not.toContain("Generated music — Export available — Provider not configured");
+  });
 });

@@ -39,9 +39,11 @@ export function ProductionWorkspace({ job, busy = false, onSeal, onDecide }: Pro
         <ol className="mt-3 space-y-2">
           {plan.scenes.map((scene) => <li key={scene.id} className="rounded-lg bg-[#f3f0e8] p-2 text-xs"><b>{scene.order}. {scene.purpose}</b><span className="ml-2 font-mono text-[8px] text-black/45">{scene.startSec}s–{scene.startSec + scene.durationSec}s · {scene.video?.modelCapability ?? "source"}</span></li>)}
         </ol>
+        {plan.images.map((image, index) => <p key={`image-${index}`} className="mt-2 rounded-lg bg-[#f3f0e8] p-2 text-xs"><b>Image {index + 1}:</b> Nova Canvas · {image.width}×{image.height} · {image.prompt}</p>)}
         {plan.soundtrack ? <p className="mt-3 text-xs"><b>Soundtrack:</b> {plan.soundtrack.modelCapability} · {plan.soundtrack.prompt}</p> : <p className="mt-3 text-xs text-black/45">No generated soundtrack is authorized.</p>}
+        {plan.outputRequest ? <p className="mt-3 rounded-lg bg-[#f3f0e8] p-2 text-xs"><b>Destinations:</b> {plan.outputRequest.destinations.join(", ") || "none"} <span className="ml-2 font-mono text-[8px]">prompt {plan.outputRequest.promptDigest}</span></p> : null}
         <div className="mt-3 space-y-1 font-mono text-[8px]">
-          {operations.map((operation) => <div key={operation.id} className="grid grid-cols-[1fr_auto_auto] gap-2 border-t border-black/10 py-1.5"><span className="truncate">{operation.type}{operation.provider && operation.model ? ` · ${operation.provider}/${operation.model}` : ""}</span><span>{operation.executionAuthority === "production_mandate" ? operation.estimatedCostUsd ? `$${operation.estimatedCostUsd}` : "paid" : "cost-free"}</span><b>{operation.state}</b></div>)}
+          {operations.map((operation) => <div key={operation.id} className="grid grid-cols-[1fr_auto_auto] gap-2 border-t border-black/10 py-1.5"><span className="truncate">{operation.type}{operation.provider && operation.model ? ` · ${operation.provider}/${operation.model}` : ""}<small className="block text-[7px] text-black/45">{operation.requestDigest ?? "digest unavailable"}</small></span><span>{operation.executionAuthority === "production_mandate" ? operation.estimatedCostUsd ? `$${operation.estimatedCostUsd}` : "paid" : "cost-free"}</span><b>{operation.state}</b></div>)}
         </div>
       </details>
       <p className="mt-3 rounded-lg bg-[#efffb6] p-2 text-[10px]"><b>Production approval only.</b> This authorizes the exact paid generation digests and cost ceiling. External publication remains separately gated.</p>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { replayBundleSchema, type UnsignedReplayBundle } from "@/lib/recordReplay/schema";
 import { canonicalJson, signReplayBundle, verifyReplayBundleDigest } from "@/lib/recordReplay/integrity";
+import { createHash } from "node:crypto";
 
 const unsigned: UnsignedReplayBundle = {
   schema: "harmonia.authenticated-replay", schemaVersion: "1.0.0", bundleId: "golden-success-1",
@@ -22,6 +23,12 @@ describe("authenticated replay bundle", () => {
     expect(replayBundleSchema.parse(signed)).toEqual(signed);
     expect(verifyReplayBundleDigest(signed)).toBe(true);
     expect(verifyReplayBundleDigest({ ...signed, scenario: "rejection" })).toBe(false);
+  });
+
+  it("uses the shared UTF-8 representation for café and emoji", () => {
+    const canonical = canonicalJson({ title: "café", emoji: "🚀" });
+    expect(canonical).toBe('{"emoji":"🚀","title":"café"}');
+    expect(createHash("sha256").update(canonical, "utf8").digest("hex")).toBe("8cb94bc484c5bfb808cc96ee1e5051722a413073e49af6c62f83664d85c80523");
   });
 
   it("fails closed on unknown fields and sequence gaps", () => {

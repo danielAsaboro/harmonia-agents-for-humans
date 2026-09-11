@@ -26,7 +26,7 @@ const job: JobFull = {
   productionPlan: {
     aggregate: { id: plan.id, jobId: jobId(), workspaceId: plan.workspaceId, brandId: plan.brandId, state: "sealed", currentRevision: 1, currentPlanDigest: digest, activeMandateId: null, currentMandateReservedCostUsd: "0.000000", internalRun: 0, createdAt: "2026-08-31T00:00:00.000Z", updatedAt: "2026-08-31T00:00:00.000Z" },
     revision: { revision: 1, plan, planDigest: digest, operations, proposedAt: "2026-08-31T00:00:00.000Z" },
-    operations: operations.map((operation, index) => ({ id: operation.id, type: operation.type, executionAuthority: operation.executionAuthority, dependsOn: operation.dependsOn, ...(operation.estimatedCostUsd ? { estimatedCostUsd: operation.estimatedCostUsd } : {}), state: index === 0 ? "waiting_provider" : "pending", attempt: index === 0 ? 1 : 0 })),
+    operations: operations.map((operation, index) => ({ id: operation.id, requestDigest: operation.requestDigest, type: operation.type, executionAuthority: operation.executionAuthority, dependsOn: operation.dependsOn, ...(operation.estimatedCostUsd ? { estimatedCostUsd: operation.estimatedCostUsd } : {}), state: index === 0 ? "waiting_provider" : "pending", attempt: index === 0 ? 1 : 0 })),
   },
 };
 
@@ -41,6 +41,7 @@ describe("production workspace", () => {
     expect(html).toContain("External publication remains separately gated.");
     expect(html).toContain("nova-reel");
     expect(html).toContain("waiting_provider");
+    expect(html).toContain(operations[0].requestDigest);
     expect(html).not.toContain("Approve publication");
   });
 });

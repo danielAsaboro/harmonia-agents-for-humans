@@ -110,6 +110,24 @@ def test_canvas_transient_after_submission_is_durable_uncertainty_not_provider_w
     assert failures[-1]["outcome"] == "uncertain"
 
 
+def test_canvas_body_read_exception_after_submission_is_durable_uncertainty(monkeypatch):
+    operation = _image_operation(); decision = _claim(); decision["operation"] = operation
+    decision["claim"]["operationId"] = operation["id"]; decision["claim"]["reservedCostUsd"] = "0.500000"
+    failures: list[dict] = []
+    monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: decision)
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(aws_region="us-east-1", allow_paid_aws=True, generative_media_enabled=True, media_output_bucket="media-bucket"))
+    monkeypatch.setattr(production_executor, "AwsMediaTransport", lambda **_kwargs: object())
+    monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: None)
+    monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(production_executor, "record_production_provider_operation", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(production_executor, "record_production_operation_failure", lambda *_args, **kwargs: failures.append(kwargs))
+    monkeypatch.setattr(production_executor, "resolve_budget_reservation", lambda _payload: None)
+    monkeypatch.setattr(production_executor.NovaCanvasGenerator, "generate", lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("response body read timed out")))
+    result = production_executor.execute_production_operation("plan-1", operation["id"], claim_token="worker-1", plan_revision=1, plan_digest="a" * 64)
+    assert result["outcome"] == "uncertain"
+    assert failures[-1]["outcome"] == "uncertain"
+
+
 def test_executor_refuses_model_configuration_that_changed_after_approval(monkeypatch):
     failures: list[dict] = []
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim())
@@ -131,6 +149,11 @@ def test_executor_rejects_a_provider_model_not_sealed_for_its_request(monkeypatc
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: decision)
     with pytest.raises(production_executor.ProductionExecutionProtocolError, match="sealed provider model"):
         production_executor.execute_production_operation("plan-1", _operation()["id"], claim_token="worker-1", plan_revision=1, plan_digest="a" * 64)
+
+
+def test_content_artifact_digest_uses_shared_utf8_cafe_and_emoji():
+    artifact = {"emoji": "🚀", "title": "café", "contentDigest": "8cb94bc484c5bfb808cc96ee1e5051722a413073e49af6c62f83664d85c80523"}
+    assert production_executor._content_artifact_bytes(artifact, artifact["contentDigest"]) == b'{"emoji":"\xf0\x9f\x9a\x80","title":"caf\xc3\xa9"}'
 
 
 def _conditioned_claim(*, provider_operation_id: str | None = None) -> dict:

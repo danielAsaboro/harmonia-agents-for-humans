@@ -2,7 +2,7 @@ import { artifactProductionSubmissionSchema } from "@/lib/contentArtifacts/submi
 import { resolveContentPackPayload, sealContentArtifact } from "@/lib/contentArtifacts/digest";
 import { deriveArtifactActions } from "@/lib/contentArtifacts/actions";
 import { applyPolicy } from "@/lib/policy";
-import { appendEvent, createNotification, finalizeArtifactProduction, getConnection, getJob, transitionStageWithOutbox } from "@/lib/repository";
+import { appendEvent, claimArtifactProductionCallback, createNotification, finalizeArtifactProduction, getConnection, getJob, transitionStageWithOutbox } from "@/lib/repository";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { currentTraceId } from "@/lib/telemetry";
@@ -11,15 +11,14 @@ import { materializeExecutableJobCommands } from "@/lib/jobEffectCommands";
 import { bindTextArtifactsToMediaPack } from "@/lib/outputMediaProduction";
 import { getProductionPlanWorkspaceForJob, proposeProductionPlan, sealProductionPlan } from "@/lib/productionPlanStore";
 import { productionPlanDigest } from "@/lib/mediaProduction";
-import { canonicalJson } from "@/lib/recordReplay/integrity";
-import { createHash } from "node:crypto";
 
 export async function POST(req: Request) {
   if (!isInternalAuthorized(req)) return unauthorized();
   return internalRoute(req, artifactProductionSubmissionSchema, async (body) => {
     const job = await getJob(body.jobId);
-    const submittedDigest = createHash("sha256").update(canonicalJson(body.result), "utf8").digest("hex");
-    if (job.artifactProductionResult && job.artifactProductionDigest === submittedDigest) return Response.json({ ok: true, alreadyApplied: true });
+    const callback = await claimArtifactProductionCallback(body.jobId, body.result);
+    if (callback.outcome === "already_applied") return Response.json({ ok: true, alreadyApplied: true });
+    if (callback.outcome === "in_progress") return Response.json({ ok: true, inProgress: true }, { status: 202 });
     if (job.stage !== "draft" && job.stage !== "awaiting_approval") return Response.json({ error: `job stage is '${job.stage}'` }, { status: 409 });
     const plan = job.campaignOutputPlan; if (!plan) return Response.json({ error: "campaign output plan is missing" }, { status: 409 });
     const acceptedReviews = body.result.finalReview?.reviews ?? body.result.firstReview.reviews; const traceId = currentTraceId(); const now = new Date().toISOString();
@@ -44,9 +43,13 @@ export async function POST(req: Request) {
     if (unifiedMediaPack) {
       const workspace = await getProductionPlanWorkspaceForJob(job.id);
       if (!workspace || workspace.revision.plan.outputRequest?.outputPlanDigest !== plan.digest) throw new Error("sealed media plan is required before binding a unified content pack");
-      const revised = bindTextArtifactsToMediaPack(workspace.revision.plan, artifacts);
-      await proposeProductionPlan(revised);
-      await sealProductionPlan(revised.id, { planDigest: productionPlanDigest(revised) });
+      const alreadyBound = workspace.revision.plan.packTextChildren.length === artifacts.length
+        && workspace.revision.plan.packTextChildren.every((child) => artifacts.some((artifact) => artifact.id === child.artifactId && artifact.contentDigest === child.digest));
+      if (!alreadyBound) {
+        const revised = bindTextArtifactsToMediaPack(workspace.revision.plan, artifacts);
+        await proposeProductionPlan(revised);
+        await sealProductionPlan(revised.id, { planDigest: productionPlanDigest(revised) });
+      }
     }
     const [x, linkedin] = await Promise.all([getConnection("x"), getConnection("linkedin")]);
     const destination = linkedin?.health !== "reconnect_required" && linkedin?.defaultDestinationId ? linkedin.destinations?.find((item) => item.id === linkedin.defaultDestinationId && (item.kind === "linkedin_member" || item.kind === "linkedin_organization")) ?? null : null;

@@ -419,10 +419,11 @@ export function compileProductionOperations(plan: VideoProductionPlan): Producti
   // children are exactly the paid operation artifacts in this immutable graph.
   if (!plan.scenes.length) {
     const planDigest = productionPlanDigest(plan);
+    const childOperationIds = paid.map((item) => item.id).sort();
     return [...resolved, ...paid, {
-      id: `${plan.id}:assemble_export`, jobId: plan.jobId, type: "assemble_export", dependsOn: paid.map((item) => item.id),
-      payload: { planDigest, childOperationIds: paid.map((item) => item.id).sort() },
-      requestDigest: sha({ type: "assemble_export", planDigest, childOperationIds: paid.map((item) => item.id).sort() }), executionAuthority: "internal",
+      id: `${plan.id}:assemble_export`, jobId: plan.jobId, type: "assemble_export", dependsOn: childOperationIds,
+      payload: { planDigest, childOperationIds, packTextChildren: plan.packTextChildren },
+      requestDigest: sha({ type: "assemble_export", planDigest, childOperationIds, packTextChildren: plan.packTextChildren }), executionAuthority: "internal",
     }];
   }
   const buildId = `${plan.id}:build_composition`;

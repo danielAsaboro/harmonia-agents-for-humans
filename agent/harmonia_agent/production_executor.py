@@ -162,7 +162,9 @@ def _target_dimensions(plan: dict[str, Any]) -> tuple[int, int]:
 
 
 def _json_bytes(value: Any) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    # Match JavaScript JSON.stringify's UTF-8 output; escaping non-ASCII here
+    # would change the content-artifact digest sealed by the TypeScript host.
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
 def _content_artifact_bytes(artifact: dict[str, Any], expected_digest: str) -> bytes:
@@ -822,6 +824,12 @@ def execute_production_operation(
         quarantine(exc, "failed" if active_provider_id else "uncertain")
         raise
     except Exception as exc:
+        # Canvas has no polling/reconciliation API. Once its deterministic
+        # submission identity is persisted, every exception (including body
+        # reads and JSON parsing) is ambiguous and must never be replayed.
+        if provider == "nova_canvas" and active_provider_id:
+            quarantine(exc, "uncertain")
+            return {"outcome": "uncertain", "providerOperationId": active_provider_id}
         quarantine(exc, "failed" if active_provider_id else "uncertain")
         raise
 

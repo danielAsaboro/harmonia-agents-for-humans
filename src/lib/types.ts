@@ -333,6 +333,8 @@ export interface Job {
   editorialItemStates?: Record<string, { status: "planned" | "selected" | "drafting" | "reviewed" | "awaiting_approval"; updatedAt: string }>;
   activeProductionLineage?: { editorialPlanId: string; editorialPlanDigest: string; editorialItemId: string; briefId: string };
   artifactProductionDigest?: string;
+  artifactProductionCallbackDigest?: string;
+  artifactProductionCallbackClaimedAt?: string;
   budget?: JobBudget;
   failure?: {
     stage: Stage;

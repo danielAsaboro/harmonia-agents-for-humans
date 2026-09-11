@@ -43,4 +43,13 @@ describe("routed media production proposal", () => {
     expect(productionPlanDigest(revised)).not.toBe(productionPlanDigest(initial));
     expect(compileProductionOperations(revised).find((operation) => operation.type === "assemble_media_pack")?.payload).toMatchObject({ packTextChildren: revised.packTextChildren });
   });
+
+  it("keeps sealed text children in an image-and-music-only export graph", () => {
+    const mediaOnly = { ...outputPlan, outputs: outputPlan.outputs.filter((output) => output.outputType !== "generated_video") };
+    const initial = planRequestedMediaProduction({ job, outputPlan: mediaOnly, pricing: { version: "test", canvasPerImage: "0.500000", reelPerSecond: "0.080000", musicPerSecond: "0.004000" } })!;
+    const revised = bindTextArtifactsToMediaPack(initial, [{ id: "copy-cafe", contentDigest: "c".repeat(64), mimeType: "text/markdown" }]);
+    const exportOperation = compileProductionOperations(revised).find((operation) => operation.type === "assemble_export")!;
+    expect(exportOperation.payload).toMatchObject({ packTextChildren: revised.packTextChildren });
+    expect(exportOperation.requestDigest).not.toBe(compileProductionOperations(initial).find((operation) => operation.type === "assemble_export")!.requestDigest);
+  });
 });

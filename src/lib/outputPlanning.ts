@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { CampaignOutputPlan, NormalizedSource, OutputKind, ProposedOutput, SourceAnalysis } from "./types";
-import { OUTPUT_CAPABILITIES, outputCapabilityStatus } from "./outputCapabilities";
+import { OUTPUT_CAPABILITIES, outputCapabilityStatus, type MediaCapabilityConfiguration } from "./outputCapabilities";
 
 export interface OutputEligibilityIssue { outputType: OutputKind; code: "not_allowed" | "video_evidence_required" | "missing_evidence"; message: string }
 
@@ -21,7 +21,7 @@ export function sealOutputPlan(input: Omit<CampaignOutputPlan, "digest">): Campa
   return { ...input, digest: createHash("sha256").update(JSON.stringify(canonical)).digest("hex") };
 }
 
-export function proposeOutputPlan(jobId: string, desiredOutputs: OutputKind[], allowedOutputs: OutputKind[], analysis: SourceAnalysis): CampaignOutputPlan {
+export function proposeOutputPlan(jobId: string, desiredOutputs: OutputKind[], allowedOutputs: OutputKind[], analysis: SourceAnalysis, capabilities?: MediaCapabilityConfiguration): CampaignOutputPlan {
   const unavailable = desiredOutputs.filter((output) => !outputCapabilityStatus(output).supported);
   if (unavailable.length) throw new Error(`unavailable output: ${unavailable.join(", ")}`);
   const allowed = new Set(allowedOutputs); const sourceRefs = [...new Set([...analysis.moments.flatMap((moment) => moment.sourceSegmentRefs), ...analysis.angles.flatMap((angle) => angle.evidenceKind === "source" ? angle.evidenceRefs.filter((ref) => ref.includes(":")) : [])])];
@@ -30,7 +30,7 @@ export function proposeOutputPlan(jobId: string, desiredOutputs: OutputKind[], a
     const clip = outputType === "short_clip" || outputType === "reel"; const evidenceRefs = clip ? timedRefs : sourceRefs;
     if (!evidenceRefs.length) return [];
     const capability = OUTPUT_CAPABILITIES[outputType];
-    const availability = outputCapabilityStatus(outputType);
+    const availability = outputCapabilityStatus(outputType, capabilities);
     return [{
       id: `output-${index + 1}-${outputType}`,
       outputType,

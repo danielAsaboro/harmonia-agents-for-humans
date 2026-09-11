@@ -458,7 +458,9 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
     return { __http: Response.json({ error: `intent parsing failed: ${e instanceof Error ? e.message : String(e)}` }, { status: 502 }) };
   }
 
-  if (intent.needsClarification && intent.clarifyingQuestion) return { payload: { intent: intent.intent, reply: intent.clarifyingQuestion } };
+  if (["advance_plan", "manage_calendar", "append_deliverable"].includes(intent.intent) && intent.needsClarification && intent.clarifyingQuestion) {
+    return { payload: { intent: intent.intent, reply: intent.clarifyingQuestion } };
+  }
 
   if (intent.intent === "advance_plan" || intent.intent === "manage_calendar" || intent.intent === "append_deliverable") {
     if (!requestId) return { __http: Response.json({ error: "durable planning requestId is required" }, { status: 400 }) };

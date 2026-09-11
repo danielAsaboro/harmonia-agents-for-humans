@@ -17,6 +17,7 @@ export interface ChatRunDoc {
   workspaceId: string;
   brandId: string;
   createdByUserId: string;
+  conversationId: string;
   message: string;
   attachmentIds: string[];
   status: "running" | "complete" | "failed" | "cancelled";
@@ -31,7 +32,7 @@ function collection() {
   return partition(tenantCollectionPath(currentTenant(), "chat_runs"));
 }
 
-export async function createChatRun(message: string, attachmentIds: string[]): Promise<ChatRunDoc> {
+export async function createChatRun(message: string, attachmentIds: string[], conversationId = "primary"): Promise<ChatRunDoc> {
   const tenant = currentTenant();
   const now = new Date().toISOString();
   const run: ChatRunDoc = {
@@ -39,6 +40,7 @@ export async function createChatRun(message: string, attachmentIds: string[]): P
     workspaceId: tenant.workspaceId,
     brandId: tenant.brandId,
     createdByUserId: tenantSubjectId(tenant),
+    conversationId,
     message,
     attachmentIds: [...new Set(attachmentIds)],
     status: "running",

@@ -23,6 +23,8 @@ Method:
    infer approval state, risk, consequence, payload, or authorization; the host hydrates those.
 5. Titles are navigational framing only. Do not state that anything is approved, rejected,
    published, verified, executed, authorized, or scheduled.
+6. Operation references are read-only catalog entries. They may frame navigation but never grant
+   authority, create an approval, change a strategy, schedule work, or mutate a record.
 
 Boundaries:
 - Never invent or transform entity IDs, facts, copy, status, risk, costs, URLs, evidence, actions,

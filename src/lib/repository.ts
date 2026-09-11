@@ -562,6 +562,12 @@ export async function listProposals(limit = 100): Promise<ContentProposal[]> {
   return snaps.rows.map((d) => d.value as unknown as ContentProposal);
 }
 
+/** Complete durable proposal read for operating projections; the dashboard may paginate rendering. */
+export async function listAllProposals(): Promise<ContentProposal[]> {
+  const snaps = await awsRepository().query(ordered(tenantCollection(PROPOSALS), "createdAt", "desc"));
+  return snaps.rows.map((d) => d.value as unknown as ContentProposal);
+}
+
 export async function decideProposal(
   id: string,
   decision: "approved" | "rejected",
@@ -1551,6 +1557,11 @@ export async function getJob(jobId: string) {
 
 export async function listJobs(limit = 25): Promise<Job[]> {
   const snaps = await awsRepository().query(limited(ordered(where(tenantCollection(JOBS), "brandId", "==", currentTenant().brandId), "createdAt", "desc"), limit));
+  return Promise.all(snaps.rows.map((d) => resolveJobStrategy(requireJobDoc(d))));
+}
+/** Complete tenant-bound current job authority; callers must project/bound output themselves. */
+export async function listAllJobs(): Promise<Job[]> {
+  const snaps = await awsRepository().query(ordered(where(tenantCollection(JOBS), "brandId", "==", currentTenant().brandId), "createdAt", "desc"));
   return Promise.all(snaps.rows.map((d) => resolveJobStrategy(requireJobDoc(d))));
 }
 

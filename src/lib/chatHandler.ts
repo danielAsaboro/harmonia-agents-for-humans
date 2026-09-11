@@ -24,6 +24,7 @@ import type { IntakeAdvice, IntakeDraft } from "@/lib/intake/contracts";
 import { getProductionPlanWorkspaceForJob, proposeProductionPlan, requestProductionRerender, type ProductionPlanAggregate, type ProductionPlanWorkspaceView, type ProductionRerenderRequest } from "@/lib/productionPlanStore";
 import { authorProductionPlan } from "@/lib/productionPlanAuthor";
 import type { VideoProductionPlan } from "@/lib/mediaProduction";
+import { loadWorkspaceContentContext, type WorkspaceOperationContext } from "@/lib/workspaceContentContext";
 
 const chatSchema = z.object({
   message: z.string().min(1).max(2000),
@@ -85,6 +86,13 @@ export interface ChatResponse {
   jobId?: string;
   /** Durable stream run linked to a persisted assistant message. */
   chatRunId?: string;
+  /** Authoritative, read-only operating-loop projection for status requests. */
+  operation?: WorkspaceOperationContext;
+}
+
+function operationStatusReply(operation: WorkspaceOperationContext): string {
+  const strategy = operation.activeStrategy ? `strategy ${operation.activeStrategy.strategyId} v${operation.activeStrategy.revision}` : "no active strategy";
+  return `${strategy}; ${operation.campaigns.length} campaign(s), ${operation.plans.length} plan revision(s), ${operation.plannedItems.length} planned item(s), ${operation.results.length} measured result(s), and ${operation.proposedChanges.length} reviewable proposed change(s). Each item retains its pinned strategy, metric, evidence, dependencies, assets, approval, and availability state.`;
 }
 
 type FullJob = Awaited<ReturnType<typeof getJob>>;
@@ -505,13 +513,19 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
           assets: await assetsOf(job.id),
         } satisfies ChatResponse };
       }
-      const jobs = await listJobs();
+      // Keep the empty-state route dependency-free. Once durable work exists,
+      // the response below always carries the authoritative operation projection.
+      const recent = await listJobs();
+      if (recent.length === 0) return { payload: {
+        intent: intent.intent,
+        reply: "No jobs yet. Share a URL, upload a file, paste source material, or describe a content brief to create one.",
+      } satisfies ChatResponse };
+      const workspace = await loadWorkspaceContentContext();
       return { payload: {
         intent: intent.intent,
-        reply: jobs.length
-          ? `${jobs.length} recent job(s), newest first:`
-          : "No jobs yet. Share a URL, upload a file, paste source material, or describe a content brief to create one.",
-        jobs: jobs.slice(0, 5).map(toCard),
+        reply: operationStatusReply(workspace.operation!),
+        operation: workspace.operation,
+        jobs: workspace.recentJobs.map(job => ({ id: job.id, stage: job.stage as Stage, status: job.status, ...(job.title ? { title: job.title } : {}) })),
       } satisfies ChatResponse };
     }
 

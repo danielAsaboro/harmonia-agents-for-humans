@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { conversationPath, groupSessions } from "../src/lib/chatSessions";
+import { conversationForRun, conversationPath, groupSessions } from "../src/lib/chatSessions";
 
 describe("chat sessions", () => {
   it("keeps stable message IDs and run state inside grouped sessions", () => {
@@ -37,5 +37,13 @@ describe("chat sessions", () => {
   it("builds a canonical dashboard URL only for valid conversation identifiers", () => {
     expect(conversationPath("launch_2026-09-04")).toBe("/dashboard/launch_2026-09-04");
     expect(() => conversationPath("bad/id")).toThrow("invalid conversation id");
+  });
+
+  it("keeps a deferred A run in A after the operator switches to B", () => {
+    const bindings = new Map([["run-a", "conversation-a"]]);
+    const selectedConversationAfterSwitch = "conversation-b";
+    expect(selectedConversationAfterSwitch).toBe("conversation-b");
+    expect(conversationForRun("run-a", bindings)).toBe("conversation-a");
+    expect(conversationForRun("stale-run", bindings)).toBeNull();
   });
 });

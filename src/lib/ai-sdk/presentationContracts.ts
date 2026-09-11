@@ -54,6 +54,16 @@ const receiptSummarySchema = z.object({
   verified: z.boolean(),
 }).strict();
 
+/** Read-only pointers. Maya may explain these records but cannot turn them into authority. */
+const operationReferenceSchema = z.object({
+  strategyId: id.optional(),
+  campaignIds: boundedList(id, 100).default([]),
+  planIds: boundedList(id, 100).default([]),
+  plannedItemIds: boundedList(id, 500).default([]),
+  resultIds: boundedList(id, 500).default([]),
+  proposalIds: boundedList(id, 100).default([]),
+}).strict();
+
 export const uiContextSchema = z.object({
   runId: id,
   operatorRequest: z.string().min(1).max(2_000),
@@ -65,6 +75,7 @@ export const uiContextSchema = z.object({
   assets: boundedList(assetSummarySchema, 20).default([]),
   actions: boundedList(actionSummarySchema, 20).default([]),
   receipts: boundedList(receiptSummarySchema, 20).default([]),
+  operation: operationReferenceSchema.optional(),
 }).strict().superRefine((context, refinement) => {
   const groups = [
     ["draft", context.drafts.map((item) => item.id)],

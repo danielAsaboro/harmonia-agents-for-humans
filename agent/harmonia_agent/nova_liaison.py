@@ -116,6 +116,8 @@ def validate_liaison_answer(answer: LiaisonAnswer, trace: list[dict[str, Any]]) 
         freshness = (last_response.get("data") or {}).get("freshness")
         if not isinstance(freshness, dict) or freshness.get("state") not in {"current", "stale", "unavailable"} or not isinstance(freshness.get("readAt"), str):
             raise ValueError("Nova workspace feed requires explicit freshness")
+        if str(freshness["state"]).casefold() not in answer.answer.casefold() or str(freshness["readAt"]).casefold() not in answer.answer.casefold():
+            raise ValueError("Nova workspace answer must state freshness state and readAt")
 
     if _AUTHORITY.search(answer.answer):
         raise ValueError("Nova answer claims mutation authority")

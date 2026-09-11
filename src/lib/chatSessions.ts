@@ -33,6 +33,11 @@ export function conversationPath(conversationId: string): string {
   return `/dashboard/${conversationId}`;
 }
 
+/** A durable run is bound at submission time; a later selected pane is irrelevant. */
+export function conversationForRun(runId: string, bindings: ReadonlyMap<string, string>): string | null {
+  return bindings.get(runId) ?? null;
+}
+
 function dayLabel(dayIso: string): string {
   const d = new Date(`${dayIso}T12:00:00`);
   const today = new Date();

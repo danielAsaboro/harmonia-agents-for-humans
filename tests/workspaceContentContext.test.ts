@@ -56,8 +56,9 @@ describe("workspace content context", () => {
       campaigns: [{ ref: { id: "campaign-1", revision: 1 }, name: "Founder proof", objective: "Build trust" }],
       plannedItems: [{
         ref: { id: "item-1", revision: 1 }, planRef: { id: "plan-1", revision: 2 }, strategyRef: { digest: "a".repeat(64) },
-        campaignRef: null, name: "Independent founder note", channel: "x", scheduledFor: "2026-09-20T09:00:00Z",
+        campaignRef: null, name: "Independent founder note", objective: "Teach founder operations", channel: "x", scheduledFor: "2026-09-20T09:00:00Z",
         evidence: { mode: "operator_context", contextDigest: "b".repeat(64) }, measurements: [{ definition: { id: "engagement" } }],
+        dependencies: [], requiredAssetIds: [],
         lifecycle: { status: "blocked", jobId: "job-approval", reason: "asset:demo-video" },
       }] as never,
       results: [{ id: "observation-1", availability: "unavailable", metric: "engagement", checkedAt: "2026-09-11T10:00:00Z" }],
@@ -68,5 +69,19 @@ describe("workspace content context", () => {
     expect(result.operation?.plannedItems[0]).toMatchObject({ campaignId: null, campaignLabel: "Independent work", metricIds: ["engagement"], evidenceState: "operator_context", approvalState: "pending", dependencyState: "blocked" });
     expect(result.operation?.plannedItems[0].unresolvedDependencies).toEqual(["asset:demo-video"]);
     expect(result.operation?.results).toEqual([{ id: "observation-1", metric: "engagement", availability: "unavailable", checkedAt: "2026-09-11T10:00:00Z" }]);
+  });
+
+  it("does not truncate authoritative operating records and preserves proposal and availability states", () => {
+    const jobs = Array.from({ length: 26 }, (_, index) => ({ id: `job-${index}`, stage: "draft", status: "running", actions: [] })) as unknown as Job[];
+    const campaigns = Array.from({ length: 26 }, (_, index) => ({ ref: { id: `campaign-${index}`, revision: 1 }, name: `Campaign ${index}`, objective: "Durable campaign even without current work" }));
+    const result = projectWorkspaceContentContext({
+      goals: { topics: [] }, jobs, items: [], activeStrategy: null, campaigns,
+      proposedChanges: [{ id: "proposal-pending", status: "pending", changes: ["Move cadence to weekly"], decision: "operator review pending" }, { id: "proposal-revoked", status: "revoked", changes: ["Do not use revoked evidence"] }],
+      results: ["available", "pending_window", "stale", "revoked", "unavailable"].map((availability, index) => ({ id: `result-${availability}`, metric: `metric-${index}`, availability })),
+    } as never);
+    expect(result.recentJobs).toHaveLength(5);
+    expect(result.operation?.campaigns).toHaveLength(26);
+    expect(result.operation?.proposedChanges).toContainEqual({ id: "proposal-pending", status: "pending", changes: ["Move cadence to weekly"], decision: "operator review pending" });
+    expect(result.operation?.results.map(item => item.availability)).toEqual(["available", "pending_window", "stale", "revoked", "unavailable"]);
   });
 });

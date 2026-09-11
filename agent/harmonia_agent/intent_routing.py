@@ -50,12 +50,12 @@ class RecentJobSummary(StrictModel):
 
 class WorkspaceOperationContext(StrictModel):
     """Bounded read-only operating-loop context; routing cannot mutate it."""
-    activeStrategy: dict[str, StrictStr] | None = None
-    proposedChanges: list[dict[str, StrictStr]] = Field(default_factory=list, max_length=20)
-    campaigns: list[dict[str, StrictStr]] = Field(default_factory=list, max_length=50)
-    plans: list[dict[str, StrictStr | StrictInt]] = Field(default_factory=list, max_length=50)
-    plannedItems: list[dict[str, object]] = Field(default_factory=list, max_length=100)
-    results: list[dict[str, StrictStr]] = Field(default_factory=list, max_length=100)
+    activeStrategy: dict[str, StrictStr | StrictInt] | None = None
+    proposedChanges: list[dict[str, object]] = Field(default_factory=list, max_length=500)
+    campaigns: list[dict[str, StrictStr]] = Field(default_factory=list, max_length=500)
+    plans: list[dict[str, StrictStr | StrictInt]] = Field(default_factory=list, max_length=500)
+    plannedItems: list[dict[str, object]] = Field(default_factory=list, max_length=1_000)
+    results: list[dict[str, StrictStr]] = Field(default_factory=list, max_length=1_000)
 
 
 class WorkspaceContentContext(StrictModel):

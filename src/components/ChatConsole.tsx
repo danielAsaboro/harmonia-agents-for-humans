@@ -13,7 +13,7 @@ import type { ChatRunState } from "@/lib/ai-sdk/messageReducer";
 import { historyRunState } from "@/lib/ai-sdk/historyReplay";
 import { latestSurfaceParts } from "@/lib/ai-sdk/surfaceSlots";
 import { apiFetch } from "@/lib/clientApi";
-import { conversationPath, dayLabel, groupSessions, sessionPreview, type ConsoleMessage } from "@/lib/chatSessions";
+import { conversationForRun, conversationPath, dayLabel, groupSessions, sessionPreview, type ConsoleMessage } from "@/lib/chatSessions";
 import { activeJobIdForConversation, buildStudioChapters } from "@/lib/studio/conversationModel";
 import { startJobRefresh } from "@/lib/jobRefresh";
 
@@ -107,6 +107,8 @@ export default function ChatConsole({ conversationId }: { conversationId?: strin
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<"conversation" | "canvas">("conversation");
   const completedRuns = useRef(new Set<string>());
+  const runConversations = useRef(new Map<string, string>());
+  const pendingRunConversation = useRef<string | null>(null);
   const submittedConversationId = useRef<string | null>(conversationId ?? null);
   const detailRequest = useRef<AbortController | null>(null);
   const chat = useHarmoniaChat();
@@ -145,9 +147,17 @@ export default function ChatConsole({ conversationId }: { conversationId?: strin
 
   useEffect(() => {
     const run = chat.run;
-    if (!run || run.status === "running" || completedRuns.current.has(run.runId)) return;
+    if (!run) return;
+    if (run.status === "running" && pendingRunConversation.current && !runConversations.current.has(run.runId)) {
+      runConversations.current.set(run.runId, pendingRunConversation.current);
+      pendingRunConversation.current = null;
+      return;
+    }
+    if (run.status === "running" || completedRuns.current.has(run.runId)) return;
     completedRuns.current.add(run.runId);
-    setMessages((current) => [...current, { id: `run-${run.runId}`, conversationId: submittedConversationId.current ?? undefined, role: "assistant", text: run.status === "complete" ? run.text : run.error ?? "Chat run failed", run, surface: "dashboard", at: new Date().toISOString() }]);
+    const conversationId = conversationForRun(run.runId, runConversations.current);
+    if (!conversationId) return;
+    setMessages((current) => [...current, { id: `run-${run.runId}`, conversationId, role: "assistant", text: run.status === "complete" ? run.text : run.error ?? "Chat run failed", run, surface: "dashboard", at: new Date().toISOString() }]);
   }, [chat.run]);
 
   const sessions = useMemo(() => groupSessions(messages), [messages]);
@@ -263,7 +273,10 @@ export default function ChatConsole({ conversationId }: { conversationId?: strin
     setInput(""); setAttachments([]); setBusy(true);
     setMessages((current) => [...current, { id: `operator-${Date.now()}`, conversationId: targetConversationId, role: "user", text: message, attachments: submittedAttachments, surface: "dashboard", at: new Date().toISOString() }]);
     try {
+      pendingRunConversation.current = targetConversationId;
       const result = await chat.send(message, submittedAttachments.map((attachment) => attachment.attachmentId), targetConversationId);
+      runConversations.current.set(result.runId, targetConversationId);
+      pendingRunConversation.current = null;
       const latestJobId = result.jobUpdates.at(-1)?.jobId;
       if (latestJobId) await openJob(latestJobId);
     } catch (error) {

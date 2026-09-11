@@ -79,6 +79,16 @@ class ReceiptSummary(StrictModel):
     verified: bool
 
 
+class OperationReferences(StrictModel):
+    """Read-only operating-loop identifiers; they never authorize a Maya action."""
+    strategyId: str | None = Field(default=None, min_length=1, max_length=200)
+    campaignIds: list[str] = Field(default_factory=list, max_length=100)
+    planIds: list[str] = Field(default_factory=list, max_length=100)
+    plannedItemIds: list[str] = Field(default_factory=list, max_length=500)
+    resultIds: list[str] = Field(default_factory=list, max_length=500)
+    proposalIds: list[str] = Field(default_factory=list, max_length=100)
+
+
 class UiContext(StrictModel):
     runId: str = Field(min_length=1, max_length=200)
     operatorRequest: str = Field(min_length=1, max_length=2_000)
@@ -90,6 +100,7 @@ class UiContext(StrictModel):
     assets: list[AssetSummary] = Field(default_factory=list, max_length=20)
     actions: list[ActionSummary] = Field(default_factory=list, max_length=20)
     receipts: list[ReceiptSummary] = Field(default_factory=list, max_length=20)
+    operation: OperationReferences | None = None
 
     @model_validator(mode="after")
     def validate_unique_entity_ids(self) -> "UiContext":

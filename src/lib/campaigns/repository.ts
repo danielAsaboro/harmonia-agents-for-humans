@@ -51,6 +51,10 @@ export async function listCurrentPlans(reader: StrategyReader = awsRepository())
     assertResourceWorkspace(currentTenant(), revision); return revision;
   });
 }
+export async function listCurrentCampaigns(reader: StrategyReader = awsRepository()): Promise<Campaign[]> {
+  const pointers = reader instanceof DynamoTransaction ? await reader.read(partition(`${campaignRoot()}/campaigns`)) : await awsRepository().query(partition(`${campaignRoot()}/campaigns`));
+  return Promise.all(pointers.rows.map(row => readCampaign(authorityRefSchema.parse(row.value), reader)));
+}
 export async function readPlanningPolicy(reader: StrategyReader = awsRepository()): Promise<PlanningPolicy> {
   const ref = await readRequired<AuthorityRef>(pointerKey("planning_policy", "active"), reader);
   return readRequired<PlanningPolicy>(authorityKey("planning_policy_revisions", ref), reader);

@@ -96,5 +96,13 @@ export function buildUiContext(input: BuildUiContextInput): UiContext {
       outcome: receipt.outcome,
       verified: job ? receiptIsVerified(job, receipt) : false,
     })),
+    ...(response.operation ? { operation: {
+      ...(response.operation.activeStrategy ? { strategyId: response.operation.activeStrategy.strategyId } : {}),
+      campaignIds: response.operation.campaigns.map(campaign => campaign.id),
+      planIds: response.operation.plans.map(plan => plan.id),
+      plannedItemIds: response.operation.plannedItems.map(item => item.id),
+      resultIds: response.operation.results.map(result => result.id),
+      proposalIds: response.operation.proposedChanges.map(proposal => proposal.id),
+    } } : {}),
   });
 }

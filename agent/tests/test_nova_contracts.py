@@ -94,7 +94,24 @@ def test_workspace_feed_answer_requires_explicit_freshness_from_the_authorized_r
         validate_liaison_answer(LiaisonAnswer.model_validate(value), calls)
 
     calls[1]["response"]["data"]["freshness"] = {"readAt": "2026-09-11T09:00:00Z", "state": "current"}
+    value["answer"] = "Job job-1 is available [ev-aaaaaaaaaaaaaaaa]. Freshness current at 2026-09-11T09:00:00Z."
     assert validate_liaison_answer(LiaisonAnswer.model_validate(value), calls).status == "success"
+
+
+@pytest.mark.parametrize("state", ["current", "stale", "unavailable"])
+def test_workspace_feed_requires_the_exact_authoritative_freshness_state_and_read_time(state):
+    value = answer(); value["skillName"] = "signal-watch"
+    read_at = "2026-09-11T09:00:00Z"
+    calls = [_native_activation(), {"sequence": 2, "name": "get_operator_feed", "args": {}, "response": envelope()}]
+    calls[1]["response"]["data"]["freshness"] = {"readAt": read_at, "state": state}
+    value["answer"] = f"Job job-1 is available [ev-aaaaaaaaaaaaaaaa]. Freshness {state} at {read_at}."
+    assert validate_liaison_answer(LiaisonAnswer.model_validate(value), calls).status == "success"
+    value["answer"] = f"Job job-1 is available [ev-aaaaaaaaaaaaaaaa]. Freshness current at {read_at}."
+    if state == "current":
+        assert validate_liaison_answer(LiaisonAnswer.model_validate(value), calls).status == "success"
+    else:
+        with pytest.raises(ValueError, match="freshness state"):
+            validate_liaison_answer(LiaisonAnswer.model_validate(value), calls)
 
 
 def _native_activation():

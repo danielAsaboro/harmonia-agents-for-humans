@@ -1,8 +1,8 @@
 import {
   getGoals,
   listContentItems,
-  listJobs,
-  listProposals,
+  listAllJobs,
+  listAllProposals,
   listReceipts,
 } from "@/lib/repository";
 import { internalTenantHandler } from "@/lib/internalAuth";
@@ -17,13 +17,18 @@ async function get(_req: Request) {
 
   const [items, jobs, proposals, goals, workspace] = await Promise.all([
     listContentItems(),
-    listJobs(),
-    listProposals(50),
+    listAllJobs(),
+    listAllProposals(),
     getGoals(),
     loadWorkspaceContentContext(),
   ]);
 
   const now = Date.now();
+  const authoritativeReadAt = [
+    ...jobs.map(job => job.updatedAt), ...items.map(item => item.updatedAt),
+    ...(workspace.operation?.results ?? []).flatMap(result => result.checkedAt ? [result.checkedAt] : []),
+  ].map(Date.parse).filter(Number.isFinite).sort((a, b) => b - a)[0];
+  const freshnessState = authoritativeReadAt === undefined ? "unavailable" as const : now - authoritativeReadAt > 15 * 60_000 ? "stale" as const : "current" as const;
   const STUCK_AFTER_MS = 2 * 3600_000;
 
   // Posts published in the last 48h (for the hourly publish-pulse check).
@@ -47,7 +52,7 @@ async function get(_req: Request) {
 
   return Response.json({
     now: new Date(now).toISOString(),
-    freshness: { readAt: new Date(now).toISOString(), state: "current" as const },
+    freshness: { readAt: authoritativeReadAt === undefined ? new Date(now).toISOString() : new Date(authoritativeReadAt).toISOString(), state: freshnessState },
     operation: workspace.operation,
     items: items.map((i) => ({
       id: i.id,

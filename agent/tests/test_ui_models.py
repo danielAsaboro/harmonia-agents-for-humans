@@ -40,6 +40,14 @@ def test_ui_context_accepts_bounded_reference_summaries() -> None:
     assert context.drafts[0].id == "draft-1"
 
 
+def test_ui_context_accepts_read_only_operation_references() -> None:
+    payload = context_payload()
+    payload["operation"] = {"strategyId": "strategy-1", "campaignIds": ["campaign-1"], "planIds": ["plan-1"], "plannedItemIds": ["item-1"], "resultIds": ["result-1"], "proposalIds": ["proposal-1"]}
+    context = UiContext.model_validate(payload)
+    assert context.operation is not None
+    assert context.operation.plannedItemIds == ["item-1"]
+
+
 def test_ui_context_requires_a_durable_run_id() -> None:
     payload = context_payload()
     del payload["runId"]

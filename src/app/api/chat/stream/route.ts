@@ -22,7 +22,7 @@ async function post(req: Request): Promise<Response> {
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 409 });
   }
-  const run = await createChatRun(parsed.data.message, parsed.data.attachmentIds);
+  const run = await createChatRun(parsed.data.message, parsed.data.attachmentIds, parsed.data.conversationId);
 
   const projection = initialUIChunkProjectionState();
   const stream = new ReadableStream<UIMessageChunk>({

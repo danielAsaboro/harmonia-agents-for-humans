@@ -1,7 +1,7 @@
 import type { IntakeDraft } from "./contracts";
 import { bindIntakeJob, readIntakeDraft, readIntakeSourceRights, submitIntakeTurn } from "./repository";
 import { createJob } from "../repository";
-import { createSourceJob } from "../sourceManifest";
+import { createSourceJob, retainKnowledgeOnlyIntake } from "../sourceManifest";
 import { requireReadyAttachments } from "../chatAttachments";
 import type { SourceInput } from "../types";
 import { materializeIntake } from "../planning/commands";
@@ -13,6 +13,10 @@ export { submitIntakeTurn };
 export async function executeIntakeDraft(input: IntakeDraft): Promise<IntakeDraft> {
   const draft = await readIntakeDraft(input.id);
   if (!draft) throw new Error("intake draft missing");
+  if (draft.state === "retained" && draft.disposition === "knowledge_only") {
+    await retainKnowledgeOnlyIntake(draft);
+    return draft;
+  }
   if (draft.state === "ready_for_planning") {
     if (!await readActiveStrategyRef()) return draft;
     await materializeIntake({ draftId: draft.id, expectedDraftRevision: draft.revision, requestId: draft.answers.at(-1)!.requestId });

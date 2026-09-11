@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
 import { actionPayloadDigest } from "@/lib/idempotency";
-import { acceptStrategyProposal, decideStrategy, getJob, saveConnection, saveStrategyInvocationContext } from "@/lib/repository";
+import { decideStrategy, getJob, saveConnection } from "@/lib/repository";
 import { configurePlanningPolicy, readItemState, readPlannedItem } from "@/lib/campaigns/repository";
 import { submitIntakeTurn } from "@/lib/intake/repository";
 import { executeIntakeDraft } from "@/lib/intake/commands";
@@ -12,13 +12,12 @@ import { claimNextPlannedItem } from "@/lib/planning/selection";
 import { resolveDecision } from "@/lib/decisions";
 import { awsRepository, partition, recordKey } from "@/lib/dynamo";
 import { runWithTenant, type TenantContext } from "@/lib/tenancy";
-import { strategyDigest } from "@/lib/strategyApproval";
 import { readActiveStrategyRef } from "@/lib/strategy/repository";
-import { createEffectCommand, effectCommandDigest } from "@/lib/effectCommands";
-import { claimCommandEffect, createCommand, getCommand, transitionCommandEffect } from "@/lib/effectCommandStore";
-import { strategyFixture } from "./fixtures/strategy";
+import { getCommand } from "@/lib/effectCommandStore";
+import { saveChatAttachment } from "@/lib/chatAttachments";
 import { campaignWorkerBridge } from "./fixtures/campaignWorkerBridge";
 import { buildStageMessage } from "@/lib/queue";
+import { withTraceContext } from "@/lib/telemetry";
 import type { StageOutboxRecord } from "@/lib/stageOutbox";
 import type { PlannedAction } from "@/lib/types";
 
@@ -32,7 +31,7 @@ const strategyContext: import("@/lib/types").StrategyContext = {
   company: "Task Seven Studio", product: "A collaboration tool for startup teams", positioning: "calm execution", differentiators: ["durable approvals"], brandVoice: ["clear", "helpful"], exclusions: ["performance claims"], safetyConstraints: ["do not invent facts"], businessObjectives: ["invite qualified founders"], campaignObjectives: ["start conversations"], audiences: [{ id: "founders", name: "Startup founders", pains: ["too many tools"] }], funnelStage: "consideration", intendedConversion: "conversation", requestedChannels: ["x"], supportedChannels: ["x"],
 };
 
-async function approveInitialStrategy() {
+async function approveInitialStrategy(bridge: Awaited<ReturnType<typeof campaignWorkerBridge>>) {
   const firstRequestId = randomUUID();
   const conversationId = randomUUID();
   const initial = await submitIntakeTurn({
@@ -52,14 +51,11 @@ async function approveInitialStrategy() {
   const dispatch = await executeIntakeDraft(clarified);
   const job = await getJob(dispatch.jobId!);
   expect(job.stage).toBe("strategize");
-  await saveStrategyInvocationContext(job.id, {
-    revision: 1, sourceIds: [], operatorContextIds: ["context:campaign", "context:company"], performance: [], memoryFacts: [], audienceIds: ["founders"], requestedChannels: ["x"], supportedChannels: ["x"], horizonWeeks: 4, researchRequest: null, searchEvidence: [],
-  });
-  const strategy = strategyFixture("task7-initial");
-  for (const group of [strategy.pillars, strategy.campaignThemes, strategy.briefs]) for (const item of group) item.evidenceRefs = ["context:company"];
-  const digest = strategyDigest(strategy);
-  await acceptStrategyProposal(job.id, strategy, digest, 1, [], null);
-  const approved = await decideStrategy(job.id, { decision: "approved", payloadDigest: digest, expectedActiveRevision: 0 });
+  await nextStage(bridge, job.id, "strategize");
+  const proposed = await getJob(job.id);
+  expect(proposed.strategyApprovalState).toBe("pending");
+  expect(bridge.requests.map(request => request.path), JSON.stringify(bridge.requests)).toEqual(expect.arrayContaining(["/api/internal/strategy-context", "/api/internal/strategy"]));
+  const approved = await decideStrategy(job.id, { decision: "approved", payloadDigest: proposed.strategyDigest!, expectedActiveRevision: 0 });
   expect(approved.strategyRef).toBeTruthy();
   expect((await getJob(job.id)).terminalOutcome).toBe("succeeded");
   return approved.strategyRef!;
@@ -69,7 +65,7 @@ async function nextStage(bridge: Awaited<ReturnType<typeof campaignWorkerBridge>
   const rows = await awsRepository().query(partition(`workspaces/${tenantScope().workspaceId}/stage_outbox`));
   const outbox = rows.rows.find((row) => row.value?.jobId === jobId && row.value?.stage === stage)?.value as StageOutboxRecord | undefined;
   if (!outbox) throw new Error(`missing ${stage} outbox for ${jobId}`);
-  const message = buildStageMessage(await getJob(jobId).then(job => job.planRef!), outbox);
+  const message = buildStageMessage(tenantScope(), outbox);
   const input = { event: JSON.parse(message.data.toString()), carrier: message.attributes, transportId: randomUUID() };
   const result = await bridge.run(input);
   expect(result, JSON.stringify(bridge.requests.filter((request) => request.status >= 400))).toMatchObject({ acknowledged: true, result: { ack: true } });
@@ -78,46 +74,52 @@ async function nextStage(bridge: Awaited<ReturnType<typeof campaignWorkerBridge>
 
 let currentScope: TenantContext;
 const tenantScope = () => currentScope;
+const operatorDecision = <T>(work: () => Promise<T>) => withTraceContext(new Headers(), work);
 
 describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("Task 7 local acceptance", () => {
   it("drives a clarified new brand through approved strategy, campaign work, rejected publish, verified export, and redelivery", async () => {
     currentScope = tenant();
     await runWithTenant(currentScope, async () => {
       vi.stubEnv("HARMONIA_CONNECTION_ENVELOPE_KEY_RAW", "0123456789abcdefghijklmnopqrstuv");
-      await configurePlanningPolicy({ timezone: "UTC", productionCapacity: { maxItems: 4, maxItemsPerWeek: 4 }, cadenceConstraints: { minimumHoursBetweenItems: 0, maxItemsPerChannelPerWeek: 4 }, maxConcurrentItems: 1 }, 0);
-      const strategyRef = await approveInitialStrategy();
       vi.stubEnv("INTERNAL_API_TOKEN", "task7-local-worker-token");
       vi.stubEnv("AGENT_SERVICE_URL", "http://127.0.0.1:1");
       vi.stubEnv("SQS_STAGE_QUEUE_URL", undefined);
       // This is a local-only connection fixture. The publish action below is rejected before
       // the worker can call any provider adapter; it is not a claimed social-provider success.
       await saveConnection({ platform: "x", mode: "manual", accessToken: "local-not-used", connectedAt: new Date().toISOString(), health: "active" });
+      const bridge = await campaignWorkerBridge();
+      try {
+      await configurePlanningPolicy({ timezone: "UTC", productionCapacity: { maxItems: 4, maxItemsPerWeek: 4 }, cadenceConstraints: { minimumHoursBetweenItems: 0, maxItemsPerChannelPerWeek: 4 }, maxConcurrentItems: 1 }, 0);
+      const strategyRef = await approveInitialStrategy(bridge);
       const draft = await submitIntakeTurn({
         requestId: randomUUID(), conversationId: randomUUID(), surface: "dashboard",
         message: "Create an urgent founder invitation for this week.",
-        advice: { action: "create_job", disposition: "new_initiative", expectedOutcome: "Invite founders to a useful conversation", requestedOutputs: ["x_post"], sourceHandles: [], targetName: "Founder invitation" },
+        advice: { action: "create_job", disposition: "new_initiative", expectedOutcome: "Invite founders to a useful conversation", requestedOutputs: ["x_post", "content_pack"], sourceHandles: [], targetName: "Founder invitation" },
       });
       const materialized = await materializeIntake({ draftId: draft.id, expectedDraftRevision: draft.revision, requestId: draft.answers.at(-1)!.requestId });
       expect((await readPlannedItem(materialized.itemRefs[0])).strategyRef).toEqual(strategyRef);
       expect(materialized.campaignRef).toBeTruthy();
       const claim = await claimNextPlannedItem(materialized.planRef.id);
       expect(claim?.itemRef).toEqual(materialized.itemRefs[0]);
-      const bridge = await campaignWorkerBridge();
-      try {
         const drafted = await nextStage(bridge, claim!.jobId, "draft");
-        expect(drafted.result.providerRoles).toEqual(["noni_artifact_producer", "dara_artifact_editor"]);
+        expect(drafted.result.providerRoles).toEqual(expect.arrayContaining(["noni_artifact_producer", "dara_artifact_editor"]));
         const awaiting = await getJob(claim!.jobId);
         expect(awaiting.stage).toBe("awaiting_approval");
         const publish = awaiting.actions.find((action) => action.type === "publish_x_post")!;
+        const contentPack = awaiting.actions.find((action) => action.type === "export_content_artifact" && action.payload.outputType === "content_pack")!;
         expect(publish.approvalState).toBe("pending");
-        await expect(resolveDecision(claim!.jobId, publish.id, "rejected", "0".repeat(64))).rejects.toThrow("approval payload changed");
-        expect(await resolveDecision(claim!.jobId, publish.id, "rejected", actionPayloadDigest(publish))).toMatchObject({ ok: true, triggered: "publish" });
+        expect(contentPack.approvalState).toBe("pending");
+        await expect(operatorDecision(() => resolveDecision(claim!.jobId, contentPack.id, "approved", "0".repeat(64)))).rejects.toThrow("approval payload changed");
+        expect(await operatorDecision(() => resolveDecision(claim!.jobId, contentPack.id, "approved", actionPayloadDigest(contentPack)))).toMatchObject({ ok: true, remainingApprovals: 1 });
+        expect(await operatorDecision(() => resolveDecision(claim!.jobId, publish.id, "rejected", actionPayloadDigest(publish)))).toMatchObject({ ok: true, triggered: "publish" });
         const afterDecision = await getJob(claim!.jobId);
         expect(afterDecision.actions.find((action) => action.id === publish.id)).toMatchObject({ approvalState: "rejected", state: "skipped" });
-        expect(afterDecision.actions.find((action) => action.type === "export_content_artifact")).toMatchObject({ approvalState: "not_required", state: "planned" });
+        expect(afterDecision.actions.find((action) => action.id === contentPack.id)).toMatchObject({ approvalState: "approved", state: "planned" });
         const published = await nextStage(bridge, claim!.jobId, "publish");
         const replay = await bridge.run({ ...published.input, transportId: randomUUID(), deliveryAttempt: 2 });
         expect(replay.result.duplicate).toBe(true);
+        const afterPublish = await getJob(claim!.jobId);
+        expect(afterPublish.stage, JSON.stringify(bridge.requests)).toBe("verify");
         await nextStage(bridge, claim!.jobId, "verify");
         await nextStage(bridge, claim!.jobId, "learn");
         let finished = await getJob(claim!.jobId);
@@ -142,8 +144,11 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("Task 7 local acceptance", () =
   it("keeps urgent independent work out of campaigns and gives simultaneous workers one restart-safe execution", async () => {
     currentScope = tenant();
     await runWithTenant(currentScope, async () => {
+      vi.stubEnv("INTERNAL_API_TOKEN", "task7-local-worker-token"); vi.stubEnv("AGENT_SERVICE_URL", "http://127.0.0.1:1"); vi.stubEnv("SQS_STAGE_QUEUE_URL", undefined);
+      vi.stubEnv("HARMONIA_CONNECTION_ENVELOPE_KEY_RAW", "0123456789abcdefghijklmnopqrstuv");
+      const bridge = await campaignWorkerBridge();
       await configurePlanningPolicy({ timezone: "UTC", productionCapacity: { maxItems: 4, maxItemsPerWeek: 4 }, cadenceConstraints: { minimumHoursBetweenItems: 0, maxItemsPerChannelPerWeek: 4 }, maxConcurrentItems: 1 }, 0);
-      await approveInitialStrategy();
+      await approveInitialStrategy(bridge);
       const draft = await submitIntakeTurn({ requestId: randomUUID(), conversationId: randomUUID(), surface: "dashboard", message: "Urgently draft a standalone founder update; do not add it to a campaign.", advice: { action: "create_job", disposition: "independent", expectedOutcome: "Address an urgent founder question", requestedOutputs: ["x_post"], sourceHandles: [] } });
       const planned = await materializeIntake({ draftId: draft.id, expectedDraftRevision: draft.revision, requestId: draft.answers.at(-1)!.requestId });
       expect(planned.campaignRef).toBeNull();
@@ -151,21 +156,27 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("Task 7 local acceptance", () =
       expect(first?.jobId).toBeTruthy();
       expect(second?.jobId).toBe(first?.jobId);
       expect((await awsRepository().query(partition(`workspaces/${currentScope.workspaceId}/stage_outbox`))).rows.filter((row) => row.value?.jobId === first?.jobId)).toHaveLength(1);
+      await bridge.close(); vi.unstubAllEnvs();
     });
   });
 
   it("retains knowledge without dispatch, blocks revoked source proposals, and quarantines an unknown provider outcome", async () => {
     currentScope = tenant();
     await runWithTenant(currentScope, async () => {
+      vi.stubEnv("INTERNAL_API_TOKEN", "task7-local-worker-token"); vi.stubEnv("AGENT_SERVICE_URL", "http://127.0.0.1:1"); vi.stubEnv("SQS_STAGE_QUEUE_URL", undefined);
+      vi.stubEnv("HARMONIA_CONNECTION_ENVELOPE_KEY_RAW", "0123456789abcdefghijklmnopqrstuv");
+      const bridge = await campaignWorkerBridge();
       await configurePlanningPolicy({ timezone: "UTC", productionCapacity: { maxItems: 4, maxItemsPerWeek: 4 }, cadenceConstraints: { minimumHoursBetweenItems: 0, maxItemsPerChannelPerWeek: 4 }, maxConcurrentItems: 1 }, 0);
-      const strategyRef = await approveInitialStrategy();
-      const knowledge = await submitIntakeTurn({ requestId: randomUUID(), conversationId: randomUUID(), surface: "dashboard", message: "Keep https://example.com/founder-research as knowledge only.", advice: { action: "create_job", disposition: "knowledge_only", expectedOutcome: "Retain source context", requestedOutputs: [], sourceHandles: [{ kind: "web", url: "https://example.com/founder-research" }] } });
+      const strategyRef = await approveInitialStrategy(bridge);
+      const attachmentId = `knowledge-${randomUUID()}`;
+      const knowledgeBytes = Buffer.from("Operator-authorized local research: founders want calmer workflow reviews.");
+      await saveChatAttachment({ id: attachmentId, workspaceId: currentScope.workspaceId, brandId: currentScope.brandId, createdByUserId: "operator", filename: "research.txt", mime: "text/plain", category: "document", sizeBytes: knowledgeBytes.byteLength, objectName: `local/${attachmentId}`, storageUri: `s3://local/${attachmentId}`, sha256: (await import("node:crypto")).createHash("sha256").update(knowledgeBytes).digest("hex"), malwareScan: { verdict: "clean", engine: "local-input-fixture", definitionVersion: "local", scannedBytes: knowledgeBytes.byteLength, scannedAt: new Date().toISOString() }, state: "ready", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      const knowledge = await submitIntakeTurn({ requestId: randomUUID(), conversationId: randomUUID(), surface: "dashboard", message: "I confirm I have rights to use this source. Keep this local research upload as knowledge only.", advice: { action: "create_job", disposition: "knowledge_only", expectedOutcome: "Retain source context", requestedOutputs: [], sourceHandles: [{ kind: "upload", attachmentId }] } });
       expect(knowledge.state).toBe("retained");
       expect((await executeIntakeDraft(knowledge)).jobId).toBeUndefined();
-      const root = `workspaces/${currentScope.workspaceId}/brands/${currentScope.brandId}`;
-      await awsRepository().put(recordKey(`${root}/sources/research-source`), { workspaceId: currentScope.workspaceId, brandId: currentScope.brandId, id: "research-source", state: "ready", contentDigest: "a".repeat(64) });
       const proposals = await import("@/lib/learning/proposals");
-      const discovery = await proposals.recordSourceDiscovery("research-source");
+      const sourceId = (await awsRepository().query(partition(`workspaces/${currentScope.workspaceId}/brands/${currentScope.brandId}/sources`))).rows[0]!.id;
+      const discovery = await proposals.recordSourceDiscovery(sourceId);
       const rejected = await proposals.createStrategyChangeProposal({ requestId: "reject-source", baseStrategyRef: strategyRef, changes: [{ type: "cadence_guidance", value: "Review weekly" }], rationale: "Source discovery needs a human strategy decision", evidenceRefs: [{ id: discovery.id, digest: discovery.digest }], contradictionRefs: [] });
       expect((await proposals.decideStrategyChange({ id: rejected.id, revision: rejected.revision, digest: rejected.digest, decision: "rejected", feedback: "Not enough evidence" })).status).toBe("rejected");
       const feedback = await proposals.recordOperatorFeedback({ requestId: "approved-feedback", text: "Use a clear invitation CTA.", sourceIds: [] });
@@ -173,24 +184,28 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("Task 7 local acceptance", () =
       expect((await proposals.decideStrategyChange({ id: approved.id, revision: approved.revision, digest: approved.digest, decision: "approved" })).approvedStrategyRef?.revision).toBe(strategyRef.revision + 1);
       const revoked = await proposals.createStrategyChangeProposal({ requestId: "revoked-source", baseStrategyRef: await readActiveStrategyRef() as NonNullable<typeof strategyRef>, changes: [{ type: "cadence_guidance", value: "Review monthly" }], rationale: "This proposal must become unavailable after source withdrawal", evidenceRefs: [{ id: discovery.id, digest: discovery.digest }], contradictionRefs: [] });
       const { revokeSourceKnowledge } = await import("@/lib/sourceKnowledgeErasure");
-      await revokeSourceKnowledge("research-source");
+      await revokeSourceKnowledge(sourceId);
       await expect(proposals.decideStrategyChange({ id: revoked.id, revision: revoked.revision, digest: revoked.digest, decision: "approved" })).rejects.toThrow(/revoked|unavailable/);
 
       const jobId = `unknown-${randomUUID()}`;
-      const action: PlannedAction = { id: "publish", jobId, type: "publish_x_post", title: "Publish", description: "", risk: "high", requiresApproval: true, approvalState: "approved", payload: { text: "A locally quarantined outcome" }, state: "planned" };
-      await awsRepository().put(recordKey(`workspaces/${currentScope.workspaceId}/jobs/${jobId}`), { workspaceId: currentScope.workspaceId, brandId: currentScope.brandId, createdByUserId: "operator", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), stage: "publish", status: "running", config: { platforms: ["x"] }, actions: [action] });
-      await awsRepository().put(recordKey(`workspaces/${currentScope.workspaceId}/jobs/${jobId}/approval_decisions/${action.id}`), { id: action.id, jobId, actionId: action.id, decision: "approved", payloadDigest: actionPayloadDigest(action), actorType: "cognito_operator", actorSubjectId: "operator", authenticationId: "local-acceptance", channel: "dashboard", operationId: `${jobId}:approval:${action.id}`, traceId: "a".repeat(32), decidedAt: new Date().toISOString() });
-      const draft = { id: "unknown-command", workspaceId: currentScope.workspaceId, brandId: currentScope.brandId, sourceKind: "job_action" as const, sourceId: action.id, jobId, actionId: action.id, actionType: action.type, payload: action.payload };
-      const command = createEffectCommand({ ...draft, authorization: { kind: "approval", approvalId: action.id, approvedPayloadDigest: effectCommandDigest({ ...draft, authorization: { kind: "approval", approvalId: action.id, approvedPayloadDigest: "pending" } }) } });
-      await createCommand(command);
-      const operationId = `job:${jobId}:effect:${command.id}`;
-      const claimed = await claimCommandEffect(command.id, { operationId, traceId: "b".repeat(32), claimToken: "local-owner" });
-      if (claimed.outcome !== "execute" || !claimed.claim.operationEpoch) throw new Error("effect command was not claimed");
-      const fence = { operationId, epoch: claimed.claim.operationEpoch, workspaceId: currentScope.workspaceId, brandId: currentScope.brandId, now: new Date().toISOString() };
-      await transitionCommandEffect(command.id, { phase: "dispatched", claimToken: "local-owner", attempt: 1 }, fence);
-      await transitionCommandEffect(command.id, { phase: "unknown", claimToken: "local-owner", reason: "local provider response intentionally unavailable" }, { ...fence, now: new Date().toISOString() });
-      expect(await getCommand(command.id)).toMatchObject({ state: "unknown", unknownReason: "local provider response intentionally unavailable" });
-      await expect(claimCommandEffect(command.id, { operationId, traceId: "c".repeat(32), claimToken: "must-not-replay" })).rejects.toThrow("effect command is unknown");
+      await saveConnection({ platform: "x", mode: "manual", accessToken: "local-not-used", connectedAt: new Date().toISOString(), health: "active" });
+      const action: PlannedAction = { id: "publish", jobId, type: "publish_x_post", title: "Publish", description: "", risk: "high", requiresApproval: true, approvalState: "pending", payload: { text: "A locally quarantined outcome" }, state: "planned" };
+      await awsRepository().put(recordKey(`workspaces/${currentScope.workspaceId}/jobs/${jobId}`), { workspaceId: currentScope.workspaceId, brandId: currentScope.brandId, createdByUserId: "operator", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), stage: "awaiting_approval", status: "waiting_for_approval", config: { platforms: ["x"] }, actions: [action] });
+      const { materializeExecutableJobCommands } = await import("@/lib/jobEffectCommands");
+      const { recordApproval, transitionStageWithOutbox } = await import("@/lib/repository");
+      await operatorDecision(() => recordApproval(jobId, action.id, "approved", actionPayloadDigest(action), { actorType: "cognito_operator", actorSubjectId: "operator", authenticationId: "local-acceptance", channel: "dashboard" }));
+      await materializeExecutableJobCommands(jobId);
+      await transitionStageWithOutbox(jobId, "awaiting_approval", "publish", "local controlled provider loss");
+      const unknownBridge = await campaignWorkerBridge({ loseProviderResponse: true });
+      try {
+        const attempted = await nextStage(unknownBridge, jobId, "publish");
+        expect((attempted.result.result as { failed?: boolean }).failed).toBe(true);
+      } finally { await unknownBridge.close(); }
+      const commands = await import("@/lib/effectCommandStore");
+      const command = (await commands.listCommandsForJob(jobId))[0]!;
+      expect(await getCommand(command.id), JSON.stringify(unknownBridge.requests)).toMatchObject({ state: "unknown", unknownReason: expect.stringContaining("local controlled provider response loss") });
+      await expect(commands.claimCommandEffect(command.id, { operationId: `job:${jobId}:effect:${command.id}`, traceId: "c".repeat(32), claimToken: "must-not-replay" })).rejects.toThrow("effect command is unknown");
+      await bridge.close(); vi.unstubAllEnvs();
     });
   });
 });

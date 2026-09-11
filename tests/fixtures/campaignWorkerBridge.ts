@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 // Every HTTP request uses the shipped route handler and its authorization/persistence.
 const routes = [
   ["GET", /^\/api\/internal\/job\/([^/]+)$/, () => import("@/app/api/internal/job/[id]/route")],
+  ["GET", /^\/api\/internal\/connection\/([^/]+)$/, () => import("@/app/api/internal/connection/[platform]/route")],
+  ["GET", /^\/api\/internal\/insights$/, () => import("@/app/api/internal/insights/route")],
   ["GET", /^\/api\/internal\/job\/([^/]+)\/commands$/, () => import("@/app/api/internal/job/[id]/commands/route")],
   ["GET", /^\/api\/internal\/job\/([^/]+)\/receipts$/, () => import("@/app/api/internal/job/[id]/receipts/route")],
   ["GET", /^\/api\/internal\/content-artifacts\/([^/]+)$/, () => import("@/app/api/internal/content-artifacts/[id]/route")],
@@ -12,6 +14,8 @@ const routes = [
   ["POST", /^\/api\/internal\/artifacts$/, () => import("@/app/api/internal/artifacts/route")],
   ["POST", /^\/api\/internal\/content-artifacts\/claim$/, () => import("@/app/api/internal/content-artifacts/claim/route")],
   ["POST", /^\/api\/internal\/content-artifacts$/, () => import("@/app/api/internal/content-artifacts/route")],
+  ["POST", /^\/api\/internal\/strategy-context$/, () => import("@/app/api/internal/strategy-context/route")],
+  ["POST", /^\/api\/internal\/strategy$/, () => import("@/app/api/internal/strategy/route")],
   ["POST", /^\/api\/internal\/event-inbox\/claim$/, () => import("@/app/api/internal/event-inbox/claim/route")],
   ["POST", /^\/api\/internal\/event-inbox\/finalize$/, () => import("@/app/api/internal/event-inbox/finalize/route")],
   ["POST", /^\/api\/internal\/operation\/claim$/, () => import("@/app/api/internal/operation/claim/route")],
@@ -26,7 +30,7 @@ const routes = [
   ["POST", /^\/api\/internal\/publish\/([^/]+)\/complete$/, () => import("@/app/api/internal/publish/[id]/complete/route")],
 ] as const;
 
-export async function campaignWorkerBridge() {
+export async function campaignWorkerBridge(options: { loseProviderResponse?: boolean } = {}) {
   const requests: Array<{ path: string; status: number; body?: string }> = [];
   const server = createServer(async (incoming, outgoing) => {
     try {
@@ -37,8 +41,9 @@ export async function campaignWorkerBridge() {
       const headers = new Headers(); for (const [key, value] of Object.entries(incoming.headers)) if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(",") : value);
       const request = new Request(url, { method: incoming.method, headers, ...(parts.length ? { body: Buffer.concat(parts) } : {}) });
       const handlers = await route[2]() as Record<string, (request: Request, context: { params: Promise<{ id: string }> }) => Promise<Response>>;
-      const result = await handlers[incoming.method!](request, { params: Promise.resolve({ id: route[1].exec(url.pathname)?.[1] ?? "" }) });
-      const body = await result.text(); requests.push({ path: url.pathname, status: result.status, ...(result.status >= 400 ? { body } : {}) });
+      const param = route[1].exec(url.pathname)?.[1] ?? "";
+      const result = await handlers[incoming.method!](request, { params: Promise.resolve({ id: param, platform: param }) });
+      const body = await result.text(); requests.push({ path: url.pathname, status: result.status, ...(result.status >= 400 || url.pathname === "/api/internal/failure" ? { body } : {}) });
       outgoing.writeHead(result.status, Object.fromEntries(result.headers.entries())); outgoing.end(body);
     } catch (error) { requests.push({ path: incoming.url!, status: 500, body: String(error) }); outgoing.writeHead(500); outgoing.end(JSON.stringify({ error: String(error) })); }
   });
@@ -47,7 +52,7 @@ export async function campaignWorkerBridge() {
   return {
     requests,
     run: (payload: unknown) => new Promise<{ acknowledged: boolean; result: Record<string, unknown>; providerRoles: string[] }>((done, reject) => {
-      const child = execFile(resolve("agent/.venv/bin/python"), ["-m", "tests.campaign_worker_fixture"], { cwd: resolve("agent"), env: { ...process.env, WEB_INTERNAL_URL: `http://127.0.0.1:${address.port}`, MEMORY_BANK_ENABLED: "false", AWS_EC2_METADATA_DISABLED: "true" }, timeout: 45000 }, (error, stdout, stderr) => {
+      const child = execFile(resolve("agent/.venv/bin/python"), ["-m", "tests.campaign_worker_fixture"], { cwd: resolve("agent"), env: { ...process.env, WEB_INTERNAL_URL: `http://127.0.0.1:${address.port}`, MEMORY_BANK_ENABLED: "false", AWS_EC2_METADATA_DISABLED: "true", ...(options.loseProviderResponse ? { HARMONIA_LOCAL_EFFECT_RESPONSE_LOSS: "true" } : {}) }, timeout: 45000 }, (error, stdout, stderr) => {
         if (error) reject(new Error(`${error.message}\n${stderr}\n${JSON.stringify(requests.filter(request => request.status >= 400))}`));
         else { try { done(JSON.parse(stdout)); } catch { reject(new Error(`${stdout}\n${stderr}`)); } }
       });

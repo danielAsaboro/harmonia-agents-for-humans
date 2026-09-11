@@ -1,10 +1,13 @@
 import { createHash,randomUUID } from "node:crypto";
-import { recordKey, type DynamoTransaction } from "./dynamo";
+import { awsRepository, recordKey, type DynamoTransaction } from "./dynamo";
 
 import { createJob } from "./repository";
 import { sealManifest } from "./sourceRegistry";
 import { currentTenant,tenantSubjectId } from "./tenancy";
 import type { AnalysisResearchRequest,Job,OutputKind,SourceInput,SourceRecord,StrategyContext } from "./types";
+import type { IntakeDraft } from "./intake/contracts";
+import { intakeSourceKey } from "./intake/contracts";
+import { requireReadyAttachments } from "./chatAttachments";
 
 export interface CreateSourceJobInput {
   operatorBrief?: string;
@@ -69,4 +72,52 @@ export async function createSourceJob(input: CreateSourceJobInput): Promise<Job>
       transaction.insert(recordKey(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/source_payloads/${record.id}`), { sourceId: record.id, input: source, createdAt: now });
     });
   }, input.idempotentJobId);
+}
+
+/**
+ * Knowledge-only intake never starts production.  Local uploads have already
+ * passed the normal attachment scan, so retain their exact byte digest and
+ * rights binding as ready advisory source authority.  Remote retrieval is not
+ * claimed here: web and YouTube sources remain pending a normal source job.
+ */
+export async function retainKnowledgeOnlyIntake(draft: IntakeDraft): Promise<string[]> {
+  if (draft.state !== "retained" || draft.disposition !== "knowledge_only") throw new Error("knowledge-only intake is not retained");
+  // Keep remote handles in the retained intake record without claiming that a
+  // network fetch succeeded. Only local scanned uploads become ready evidence.
+  if (draft.sourceHandles.some(source => source.kind !== "upload")) return [];
+  const uploads = draft.sourceHandles.filter((source): source is Extract<typeof source, { kind: "upload" }> => source.kind === "upload");
+  const attachments = await requireReadyAttachments(uploads.map(source => source.attachmentId));
+  const byId = new Map(attachments.map(attachment => [attachment.id, attachment]));
+  const tenant = currentTenant();
+  const sourceIds = await awsRepository().atomic(async transaction => {
+    const ids: string[] = [];
+    for (const source of uploads) {
+      const attachment = byId.get(source.attachmentId);
+      const rightsAuthorizationId = draft.sourceRights[intakeSourceKey(source)];
+      if (!attachment?.sha256 || !rightsAuthorizationId) throw new Error("knowledge attachment authority is incomplete");
+      const id = digest(`${draft.id}:${intakeSourceKey(source)}`);
+      const key = recordKey(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/sources/${id}`);
+      const existing = await transaction.read(key);
+      if (!existing.present) {
+        const discovered = buildSourceRecord({ ...source, rightsAuthorizationId }, id, draft.updatedAt);
+        transaction.insert(key, {
+          ...discovered,
+          state: "ready",
+          contentDigest: attachment.sha256,
+          extractionReceiptId: `knowledge-intake:${draft.id}:${attachment.id}`,
+          updatedAt: new Date().toISOString(),
+        });
+        transaction.insert(recordKey(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/source_payloads/${id}`), {
+          sourceId: id,
+          input: { ...source, rightsAuthorizationId },
+          intakeDraftId: draft.id,
+          attachmentDigest: attachment.sha256,
+          retainedAt: new Date().toISOString(),
+        });
+      }
+      ids.push(id);
+    }
+    return ids;
+  });
+  return sourceIds;
 }

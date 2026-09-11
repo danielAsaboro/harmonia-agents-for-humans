@@ -458,7 +458,7 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
     return { __http: Response.json({ error: `intent parsing failed: ${e instanceof Error ? e.message : String(e)}` }, { status: 502 }) };
   }
 
-  if (["advance_plan", "manage_calendar", "append_deliverable"].includes(intent.intent) && intent.needsClarification && intent.clarifyingQuestion) {
+  if (["advance_plan", "manage_calendar"].includes(intent.intent) && intent.needsClarification && intent.clarifyingQuestion) {
     return { payload: { intent: intent.intent, reply: intent.clarifyingQuestion } };
   }
 
@@ -472,6 +472,8 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
         requestedOutputs: intent.desiredOutputs ?? [],
         channel: intent.platformRecommendations?.length === 1 ? intent.platformRecommendations[0] : undefined,
         dependencyItemIds: intent.dependencyItemIds ?? [], requiredAssetIds: intent.requiredAssetIds ?? [],
+        appendParseReceipt: intent.appendParseReceipt ?? null,
+        clarifyingQuestion: intent.needsClarification ? intent.clarifyingQuestion : undefined,
         sourceUrls: (intent.sources ?? []).flatMap(source => source.kind === "web" || source.kind === "youtube" ? [source.url] : []),
         attachmentIds: attachments.map(attachment => attachment.id),
       } : {}),

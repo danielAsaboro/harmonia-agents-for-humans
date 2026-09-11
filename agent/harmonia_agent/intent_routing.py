@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+import unicodedata
 from typing import Literal
 
 from pydantic import ConfigDict, Field, StrictBool, StrictInt, StrictStr, model_validator
@@ -141,7 +142,7 @@ class ConversationTurn(StrictModel):
     text: StrictStr = Field(min_length=1, max_length=2000)
 
 
-IntakeMissingField = Literal["expectedOutcome", "target", "rights", "requestedOutputs", "sources", "strategyContext", "activeStrategy"]
+IntakeMissingField = Literal["expectedOutcome", "target", "rights", "requestedOutputs", "sources", "strategyContext", "activeStrategy", "appendConstraints"]
 
 
 class IntakeClarification(StrictModel):
@@ -169,6 +170,78 @@ def source_urls_from_input(value: IntentRoutingInput) -> list[str]:
     return urls
 
 
+_APPEND_CORE_PATTERN = (
+    r"(?P<verb>add|append|schedule)\s+(?:a|an)\s+"
+    r"(?P<platform>x|twitter|linkedin)\s+(?P<kind>post|thread|article)\s+"
+    r"(?:called|named)\s+\"(?P<name>[^\"]+)\"\s+to\s+"
+    r"(?P<target_type>campaign|plan)\s+\"(?P<target>[^\"]+)\"\s+at\s+"
+    r"(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2}))"
+)
+_APPEND_FULL_PATTERN = re.compile(
+    rf"^{_APPEND_CORE_PATTERN}"
+    r"(?:,\s+only\s+after\s+(?P<dependency>[A-Za-z0-9][A-Za-z0-9_.:-]{0,199})\s+is\s+completed)?"
+    r"(?:,\s+(?:using|requiring|requires)\s+asset\s+\"(?P<asset>[^\"]+)\")?"
+    r"(?:,\s+using\s+(?P<source>https?://[^\s<>\"']*[A-Za-z0-9/_#=&%-]))?"
+    r"\.?$",
+    re.IGNORECASE,
+)
+_APPEND_CORE_PATTERN_COMPILED = re.compile(rf"^{_APPEND_CORE_PATTERN}", re.IGNORECASE)
+
+
+def normalize_append_text(value: str) -> str:
+    """Canonicalize only presentation differences covered by append grammar v1."""
+    normalized = unicodedata.normalize("NFKC", value).replace("“", '"').replace("”", '"')
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+class AppendParseReceipt(StrictModel):
+    grammarVersion: Literal["append-v1"]
+    normalizedText: StrictStr = Field(min_length=1, max_length=2_000)
+    consumedText: StrictStr = Field(min_length=1, max_length=2_000)
+
+    @model_validator(mode="after")
+    def enforce_full_consumption(self) -> "AppendParseReceipt":
+        if self.normalizedText != self.consumedText:
+            raise ValueError("append parse receipt must consume normalized input")
+        return self
+
+
+def _append_output(platform: str, kind: str) -> tuple[OutputConcept, SocialPlatform] | None:
+    normalized_platform: SocialPlatform = "x" if platform.casefold() in {"x", "twitter"} else "linkedin"
+    mapping: dict[tuple[str, str], OutputConcept] = {
+        ("x", "post"): "short_social_post",
+        ("x", "thread"): "social_thread",
+        ("linkedin", "post"): "professional_post",
+        ("linkedin", "article"): "article",
+    }
+    output = mapping.get((normalized_platform, kind.casefold()))
+    return (output, normalized_platform) if output else None
+
+
+def _append_classification_from_match(
+    match: re.Match[str], *, source_urls: list[str], receipt: AppendParseReceipt | None,
+    clarification: str | None = None,
+) -> IntentClassification:
+    output = _append_output(match.group("platform"), match.group("kind"))
+    if output is None:
+        raise ValueError("unsupported deterministic append output")
+    output_concept, platform = output
+    groups = match.groupdict()
+    return IntentClassification(
+        intent="append_deliverable", workPlacement="existing_plan_item",
+        targetName=match.group("target").strip(), deliverableName=match.group("name").strip(),
+        scheduledFor=match.group("timestamp"),
+        dependencyItemIds=[groups["dependency"]] if groups.get("dependency") else [],
+        requiredAssetIds=[groups["asset"].strip()] if groups.get("asset") else [],
+        userOutcome=f"Add {match.group('name').strip()}", sourceUrls=source_urls,
+        outputConcepts=[output_concept], platformRecommendations=[platform], assumptions=[],
+        missingField="appendConstraints" if clarification else None, resolvedField=None,
+        needsClarification=bool(clarification), clarifyingQuestion=clarification,
+        requiresRightsAttestation=False, effectRequested=False, jobId=None,
+        appendParseReceipt=receipt,
+    )
+
+
 def deterministic_intent_classification(
     value: IntentRoutingInput,
 ) -> IntentClassification | None:
@@ -186,53 +259,20 @@ def deterministic_intent_classification(
         # this routing input, so the model/durable host must resolve them.
         if value.attachmentCount:
             return None
-        constraint_message = re.sub(r"https?://[^\s<>\"']+", "", message)
-        target = re.search(r"\b(?:campaign|plan)\s+[\"“]([^\"”]+)[\"”]", value.message, re.IGNORECASE)
-        name = re.search(r"\b(?:called|named)\s+[\"“]([^\"”]+)[\"”]", value.message, re.IGNORECASE)
-        timestamp = re.search(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})", value.message)
-        dependency_matches = re.findall(
-            r"\bonly\s+after\s+([A-Za-z0-9][A-Za-z0-9_.:-]{0,199})\s+is\s+completed\b",
-            value.message,
-            re.IGNORECASE,
-        )
-        dependency_markers = re.findall(r"\b(?:after|depends?|dependency|dependencies)\b", constraint_message)
-        if dependency_markers and len(dependency_matches) != len(dependency_markers):
-            return None
-        asset_matches = re.findall(
-            r"\b(?:using|requiring|requires?)\s+asset\s+[\"“]([^\"”]+)[\"”]",
-            value.message,
-            re.IGNORECASE,
-        )
-        if len(asset_matches) != len(re.findall(r"\bassets?\b", constraint_message)):
-            return None
-        if urls:
-            source_matches = [
-                match.rstrip(".,;:!?)]}")
-                for match in re.findall(r"\busing\s+(https?://[^\s<>\"']+)", value.message, re.IGNORECASE)
-            ]
-            if source_matches != urls:
+        normalized = normalize_append_text(value.message)
+        exact = _APPEND_FULL_PATTERN.fullmatch(normalized)
+        if exact:
+            parsed_source = [exact.group("source")] if exact.group("source") else []
+            if parsed_source != urls or _append_output(exact.group("platform"), exact.group("kind")) is None:
                 return None
-        elif re.search(r"\b(?:source|reference|url)\b", constraint_message):
-            return None
-        outputs: list[OutputConcept] = []
-        platforms: list[SocialPlatform] = []
-        if re.search(r"\b(?:x|twitter)\s+(?:post|thread)\b", message):
-            outputs.append("social_thread" if "thread" in message else "short_social_post")
-            platforms.append("x")
-        if re.search(r"\blinkedin\s+(?:post|article)\b", message):
-            outputs.append("article" if "article" in message else "professional_post")
-            platforms.append("linkedin")
-        if target and name and timestamp and outputs:
-            return IntentClassification(
-                intent="append_deliverable", workPlacement="existing_plan_item",
-                targetName=target.group(1).strip(), deliverableName=name.group(1).strip(),
-                scheduledFor=timestamp.group(0), dependencyItemIds=dependency_matches,
-                requiredAssetIds=[asset.strip() for asset in asset_matches],
-                userOutcome=f"Add {name.group(1).strip()}", sourceUrls=urls,
-                outputConcepts=outputs, platformRecommendations=platforms,
-                assumptions=[], needsClarification=False, clarifyingQuestion=None,
-                requiresRightsAttestation=False, effectRequested=False, jobId=None,
-            )
+            receipt = AppendParseReceipt(grammarVersion="append-v1", normalizedText=normalized, consumedText=exact.group(0))
+            return _append_classification_from_match(exact, source_urls=parsed_source, receipt=receipt)
+        core = _APPEND_CORE_PATTERN_COMPILED.match(normalized)
+        if core and _append_output(core.group("platform"), core.group("kind")) is not None:
+            clause = normalized[core.end():].strip(" ,. ")
+            bounded_clause = clause[:140] or "the trailing text"
+            question = f'Restate the unsupported append clause "{bounded_clause}" using the exact dependency, asset, or source form.'
+            return _append_classification_from_match(core, source_urls=urls, receipt=None, clarification=question)
     if value.pendingClarification or re.search(r"\b(?:campaign|initiative|knowledge|planned|plan item)\b", message):
         return None
     if not urls and re.search(r"\b(?:create|make|generate|produce|draft|prepare)\b", message):
@@ -328,6 +368,7 @@ class IntentClassification(StrictModel):
     scheduledFor: StrictStr | None = Field(default=None, max_length=100)
     dependencyItemIds: list[StrictStr] = Field(default_factory=list, max_length=32)
     requiredAssetIds: list[StrictStr] = Field(default_factory=list, max_length=32)
+    appendParseReceipt: AppendParseReceipt | None = None
     userOutcome: StrictStr = Field(min_length=1, max_length=500)
     sourceUrls: list[StrictStr] = Field(max_length=10)
     outputConcepts: list[OutputConcept] = Field(max_length=8)
@@ -372,6 +413,7 @@ class IntentRoute(StrictModel):
     scheduledFor: StrictStr | None = Field(default=None, max_length=100)
     dependencyItemIds: list[StrictStr] = Field(default_factory=list, max_length=32)
     requiredAssetIds: list[StrictStr] = Field(default_factory=list, max_length=32)
+    appendParseReceipt: AppendParseReceipt | None = None
     userOutcome: StrictStr = Field(min_length=1, max_length=500)
     sourceUrls: list[StrictStr] = Field(max_length=10)
     outputConcepts: list[OutputConcept] = Field(max_length=8)

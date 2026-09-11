@@ -63,6 +63,11 @@ describe("Harmonia intent route client", () => {
       workPlacement: "existing_plan_item", targetName: "Launch",
       deliverableName: "Founder follow-up", scheduledFor: "2026-09-13T12:00:00Z",
       dependencyItemIds: ["item-first"], requiredAssetIds: [],
+      appendParseReceipt: {
+        grammarVersion: "append-v1",
+        normalizedText: 'Add an X post called "Founder follow-up" to campaign "Launch" at 2026-09-13T12:00:00Z, only after item-first is completed, using https://example.com/approved-source.',
+        consumedText: 'Add an X post called "Founder follow-up" to campaign "Launch" at 2026-09-13T12:00:00Z, only after item-first is completed, using https://example.com/approved-source.',
+      },
       strategyContext: null,
     }), { status: 200, headers: { "content-type": "application/json" } }));
 
@@ -78,6 +83,7 @@ describe("Harmonia intent route client", () => {
       intent: "append_deliverable", targetName: "Launch", deliverableName: "Founder follow-up",
       scheduledFor: "2026-09-13T12:00:00Z", dependencyItemIds: ["item-first"],
       requiredAssetIds: [], sourceUrls: ["https://example.com/approved-source"], effectAuthorized: false,
+      appendParseReceipt: { grammarVersion: "append-v1" },
     });
   });
 

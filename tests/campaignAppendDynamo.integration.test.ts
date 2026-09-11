@@ -120,9 +120,9 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("campaign append conversational
       await setupStrategyAndPolicy();
       const base = await createCampaign("Launch");
       const requestId = randomUUID();
-      const first = await send("dashboard", requestId, "Add the founder follow-up", appendIntent(base.planRef.id));
+      const first = await send("dashboard", requestId, `Add an X post called "Founder follow-up" to plan "${base.planRef.id}" at 2000-09-13T12:00:00Z.`, appendIntent(base.planRef.id));
       expect(first.response.status).toBe(200);
-      const changed = await send("dashboard", requestId, "Add a changed follow-up", appendIntent(base.planRef.id, "Changed follow-up"));
+      const changed = await send("dashboard", requestId, `Add an X post called "Changed follow-up" to plan "${base.planRef.id}" at 2000-09-13T12:00:00Z.`, appendIntent(base.planRef.id, "Changed follow-up"));
       expect(changed.response.status).toBe(502);
       expect(String(changed.body.error)).toContain("identity reused");
 
@@ -188,7 +188,7 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("campaign append conversational
 
       const asset = await commands.executePlanningChat({
         action: "append_deliverable", requestId: randomUUID(), targetName: "Launch",
-        message: 'Add an X post called "Asset follow-up" to campaign "Launch" at 2026-09-16T12:00:00Z using asset "asset-missing".',
+        message: 'Add an X post called "Asset follow-up" to campaign "Launch" at 2026-09-16T12:00:00Z, using asset "asset-missing".',
         deliverableName: "Asset follow-up", requestedOutputs: ["x_post"], channel: "x",
         scheduledFor: "2026-09-16T12:00:00Z", dependencyItemIds: [], requiredAssetIds: ["asset-missing"],
         sourceUrls: [], attachmentIds: [],

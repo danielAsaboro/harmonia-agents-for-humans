@@ -33,6 +33,11 @@ const routeSchema = z.object({
   scheduledFor: z.string().max(100).nullable().default(null),
   dependencyItemIds: z.array(z.string().min(1).max(200)).max(32).default([]),
   requiredAssetIds: z.array(z.string().min(1).max(200)).max(32).default([]),
+  appendParseReceipt: z.object({
+    grammarVersion: z.literal("append-v1"),
+    normalizedText: z.string().min(1).max(2_000),
+    consumedText: z.string().min(1).max(2_000),
+  }).strict().nullable().default(null),
   strategyContext: routedStrategyContextSchema.nullable(),
 }).superRefine((value, ctx) => {
   if (value.effectRequested !== (value.intent === "effect_request")) ctx.addIssue({ code: "custom", message: "effect request mismatch" });
@@ -43,6 +48,7 @@ const routeSchema = z.object({
       ctx.addIssue({ code: "custom", message: "complete append deliverable constraints required" });
     }
   }
+  if (value.appendParseReceipt && value.appendParseReceipt.normalizedText !== value.appendParseReceipt.consumedText) ctx.addIssue({ code: "custom", message: "append parse receipt must consume normalized input" });
   if (["establish_strategy", "revise_strategy"].includes(value.intent) && !value.needsClarification && !value.strategyContext) ctx.addIssue({ code: "custom", message: "strategy context is required before starting a strategy job" });
 });
 

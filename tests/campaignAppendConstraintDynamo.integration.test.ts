@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { handleChat } from "@/lib/chatHandler";
 import { awsRepository } from "@/lib/dynamo";
 import { submitIntakeTurn } from "@/lib/intake/repository";
+import { listJobs } from "@/lib/repository";
 import { runWithTenant, type TenantContext } from "@/lib/tenancy";
 import { decideStrategyProposal, insertStrategyProposal } from "@/lib/strategy/repository";
 import { strategyDigest } from "@/lib/strategyApproval";
@@ -62,6 +63,24 @@ async function setupCampaign() {
 
 describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("append constraints across actual Python classification and shared chat", () => {
   for (const surface of ["dashboard", "telegram"] as const) {
+    it(`appends an exact fully consumed grammar request on ${surface}`, async () => {
+      await runWithTenant(tenant(surface), async () => {
+        const base = await setupCampaign();
+        const message = 'Add an X post called "Launch follow-up" to campaign "Launch" at 2026-09-14T12:00:00Z.';
+        const response = await handleChat(new Request("http://localhost/api/chat", {
+          method: "POST",
+          body: JSON.stringify({ surface, conversationId: `${surface}-exact-append`, requestId: randomUUID(), message }),
+        }));
+        const body = await response.json() as Record<string, unknown>;
+        expect(response.status, JSON.stringify(body)).toBe(200);
+        expect(body.intent).toBe("append_deliverable");
+        expect(String(body.reply)).toContain("Added Launch follow-up");
+        const plan = await (await import("@/lib/campaigns/repository")).currentPlan(base.planRef.id);
+        expect(plan.ref.revision).toBe(2);
+        expect(plan.itemRefs).toHaveLength(2);
+      });
+    }, 20_000);
+
     it(`retains dependency and source constraints and blocks append on ${surface}`, async () => {
       await runWithTenant(tenant(surface), async () => {
         const base = await setupCampaign();
@@ -86,9 +105,47 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("append constraints across actu
           dependencyItemIds: ["item-first"],
           sourceUrls: ["https://example.com/approved-source"],
           attachmentIds: [],
+          appendParseReceipt: {
+            grammarVersion: "append-v1",
+            normalizedText: message,
+            consumedText: message,
+          },
         });
         expect((await (await import("@/lib/campaigns/repository")).currentPlan(base.planRef.id)).ref.revision).toBe(1);
       });
     }, 20_000);
+
+    for (const [label, clause] of [
+      ["only-when", "only when item-first succeeds."],
+      ["do-not-begin", "do not begin until item-first is completed."],
+    ] as const) {
+      it(`durably blocks the unconsumed ${label} clause on ${surface}`, async () => {
+        await runWithTenant(tenant(surface), async () => {
+          const base = await setupCampaign();
+          const message = `Add an X post called "Launch follow-up" to campaign "Launch" at 2026-09-14T12:00:00Z, ${clause}`;
+          const response = await handleChat(new Request("http://localhost/api/chat", {
+            method: "POST",
+            body: JSON.stringify({ surface, conversationId: `${surface}-${label}`, requestId: randomUUID(), message }),
+          }));
+          const body = await response.json() as Record<string, unknown>;
+          expect(response.status, JSON.stringify(body)).toBe(200);
+          expect(body.intent).toBe("append_deliverable");
+          expect(String(body.reply)).toContain("unsupported or unconsumed clause");
+          expect(String(body.reply)).toContain("No plan revision was created");
+
+          const campaigns = await import("@/lib/campaigns/repository");
+          expect((await campaigns.currentPlan(base.planRef.id)).itemRefs).toEqual(base.itemRefs);
+          expect(await listJobs()).toHaveLength(0);
+          const proposals = await (await import("@/lib/planning/commands")).listPlanningProposals();
+          expect(proposals).toHaveLength(1);
+          expect(proposals[0].input).toMatchObject({
+            action: "append_deliverable",
+            message,
+            appendParseReceipt: null,
+            clarifyingQuestion: expect.stringContaining(clause.slice(0, -1)),
+          });
+        });
+      }, 20_000);
+    }
   }
 });

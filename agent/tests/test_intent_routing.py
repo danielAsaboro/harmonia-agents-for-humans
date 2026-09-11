@@ -89,6 +89,28 @@ def test_exact_campaign_append_preserves_dependency_and_source_constraints():
     assert route.intent == "append_deliverable"
     assert route.dependencyItemIds == ["item-first"]
     assert route.sourceUrls == ["https://example.com/approved-source"]
+    assert route.appendParseReceipt is not None
+    assert route.appendParseReceipt.consumedText == route.appendParseReceipt.normalizedText
+
+
+@pytest.mark.parametrize("clause", [
+    "only when item-first succeeds.",
+    "do not begin until item-first is completed.",
+])
+def test_append_with_unconsumed_trailing_clause_returns_bounded_clarification(clause):
+    message = f'Add an X post called "Launch follow-up" to campaign "Launch" at 2026-09-14T12:00:00Z, {clause}'
+    route = deterministic_intent_classification(IntentRoutingInput(
+        message=message,
+        workspaceContext=context(strategyReady=True, planReady=True, calendarReady=True),
+        attachmentCount=0,
+    ))
+
+    assert route is not None
+    assert route.intent == "append_deliverable"
+    assert route.needsClarification is True
+    assert route.missingField == "appendConstraints"
+    assert route.appendParseReceipt is None
+    assert clause.rstrip(".") in route.clarifyingQuestion
 
 
 @pytest.mark.parametrize("message,attachment_count", [
@@ -105,7 +127,13 @@ def test_append_with_unparsed_constraints_falls_back_to_model(message, attachmen
         attachmentCount=attachment_count,
     )
 
-    assert deterministic_intent_classification(value) is None
+    route = deterministic_intent_classification(value)
+    if attachment_count:
+        assert route is None
+    else:
+        assert route is not None
+        assert route.needsClarification is True
+        assert route.appendParseReceipt is None
 
 
 def test_operation_projection_is_strict_and_accepts_current_jobs_proposals_and_all_durable_states():

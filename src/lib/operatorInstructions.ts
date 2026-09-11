@@ -3,7 +3,7 @@ import { z } from "zod";
 
 const digestSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const turnIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
-const resolvedFieldSchema = z.enum(["expectedOutcome", "target", "rights", "requestedOutputs", "sources", "strategyContext", "activeStrategy"]);
+const resolvedFieldSchema = z.enum(["expectedOutcome", "target", "rights", "requestedOutputs", "sources", "strategyContext", "activeStrategy", "appendConstraints"]);
 
 const canonical = (value: unknown): string => {
   if (value === null || typeof value === "boolean" || typeof value === "string") return JSON.stringify(value);

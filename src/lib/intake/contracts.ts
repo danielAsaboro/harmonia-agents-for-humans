@@ -6,7 +6,7 @@ import type { OperatorInstructionContext } from "../operatorInstructions";
 
 export const workPlacementSchema = z.enum(["independent", "existing_plan_item", "new_initiative", "knowledge_only"]);
 export const intakeActionSchema = z.enum(["create_job", "establish_strategy", "revise_strategy", "advance_plan"]);
-export const intakeMissingFieldSchema = z.enum(["expectedOutcome", "target", "rights", "requestedOutputs", "sources", "strategyContext", "activeStrategy"]);
+export const intakeMissingFieldSchema = z.enum(["expectedOutcome", "target", "rights", "requestedOutputs", "sources", "strategyContext", "activeStrategy", "appendConstraints"]);
 export const intakeClarificationSchema = z.object({ field: intakeMissingFieldSchema, question: z.string().trim().min(1).max(300) }).strict();
 export const sourceHandleSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("upload"), attachmentId: z.string().min(1) }).strict(),
@@ -58,6 +58,7 @@ export function intakeRequirementApplies(field: IntakeMissingField, input: Intak
     case "requestedOutputs": return input.disposition !== "knowledge_only" && input.action === "create_job";
     case "strategyContext": return input.disposition !== "knowledge_only" && ["establish_strategy", "revise_strategy"].includes(input.action);
     case "activeStrategy": return input.disposition !== "knowledge_only" && input.action === "revise_strategy";
+    case "appendConstraints": return false;
   }
 }
 

@@ -115,6 +115,8 @@ type PlanningChatInput = {
 const APPEND_CORE_GRAMMAR = String.raw`(?<verb>add|append|schedule)\s+(?:a|an)\s+(?<platform>x|twitter|linkedin)\s+(?<kind>post|thread|article)\s+(?:called|named)\s+"(?<name>[^"]+)"\s+to\s+(?<targetType>campaign|plan)\s+"(?<target>[^"]+)"\s+at\s+(?<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2}))`;
 const APPEND_FULL_GRAMMAR = new RegExp(String.raw`^${APPEND_CORE_GRAMMAR}(?:,\s+only\s+after\s+(?<dependency>[A-Za-z0-9][A-Za-z0-9_.:-]{0,199})\s+is\s+completed)?(?:,\s+(?:using|requiring|requires)\s+asset\s+"(?<asset>[^"]+)")?(?:,\s+using\s+(?<source>https?:\/\/[^\s<>"']*[A-Za-z0-9/_#=&%-]))?\.?$`, "i");
 const normalizeAppendText = (message: string) => message.normalize("NFKC").replace(/[“”]/g, '"').replace(/\s+/g, " ").trim();
+export const appendMessageSourceUrls = (message: string) => [...normalizeAppendText(message).matchAll(/https?:\/\/[^\s<>"']+/gi)]
+  .map(match => match[0].replace(/[.,;:!?)\]}]+$/, ""));
 type ExactAppendSyntax = { normalizedText: string; targetName: string; deliverableName: string; scheduledFor: string; dependencyItemIds: string[]; requiredAssetIds: string[]; sourceUrls: string[]; requestedOutputs: PlannedItem["requestedOutputs"]; channel: string };
 export function parseExactAppendSyntax(message: string): ExactAppendSyntax | null {
   const normalizedText = normalizeAppendText(message);
@@ -164,6 +166,7 @@ export async function executePlanningChat(input: PlanningChatInput): Promise<Pla
     const sourceUrls = [...new Set((input.sourceUrls ?? []).map(url => url.trim()).filter(Boolean))];
     const attachmentIds = [...new Set((input.attachmentIds ?? []).map(id => id.trim()).filter(Boolean))];
     const exactSyntax = parseExactAppendSyntax(input.message);
+    if (!sameConstraintSet(appendMessageSourceUrls(input.message), sourceUrls)) appendConstraintIssues.push("source URL constraints were not preserved exactly by routing");
     if (!exactSyntax) appendConstraintIssues.push("append request contains an unsupported or unconsumed clause");
     else {
       if (input.targetName?.trim() !== exactSyntax.targetName || input.deliverableName?.trim() !== exactSyntax.deliverableName || input.scheduledFor !== exactSyntax.scheduledFor) appendConstraintIssues.push("core append fields do not match the fully consumed request");
@@ -173,6 +176,8 @@ export async function executePlanningChat(input: PlanningChatInput): Promise<Pla
       if (!sameConstraintSet(exactSyntax.requestedOutputs, input.requestedOutputs ?? []) || input.channel !== exactSyntax.channel) appendConstraintIssues.push("output/channel constraints do not match the fully consumed request");
       if (input.appendParseReceipt && (input.appendParseReceipt.grammarVersion !== "append-v1" || input.appendParseReceipt.normalizedText !== exactSyntax.normalizedText || input.appendParseReceipt.consumedText !== exactSyntax.normalizedText)) appendConstraintIssues.push("append parse receipt does not prove full normalized input consumption");
     }
+    if (!exactSyntax && dependencyItemIds.length) appendConstraintIssues.push("dependency constraints could not be verified against a fully consumed request");
+    if (!exactSyntax && requiredAssetIds.length) appendConstraintIssues.push("asset constraints could not be verified against a fully consumed request");
     if (sourceUrls.some(url => { try { return !["http:", "https:"].includes(new URL(url).protocol); } catch { return true; } })) appendConstraintIssues.push("source URLs are invalid");
     if (sourceUrls.length) appendConstraintIssues.push("source URLs require source-rights and evidence binding before a plan item can be appended");
     if (attachmentIds.length) appendConstraintIssues.push("attachments require source-rights and evidence binding before a plan item can be appended");

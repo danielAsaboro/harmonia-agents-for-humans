@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseExactAppendSyntax } from "@/lib/planning/commands";
+import { appendMessageSourceUrls, parseExactAppendSyntax } from "@/lib/planning/commands";
 
 describe("append-v1 full-consumption grammar", () => {
   it("parses the complete positive and dependency/source forms", () => {
@@ -18,5 +18,11 @@ describe("append-v1 full-consumption grammar", () => {
     "do not begin until item-first is completed.",
   ])("rejects an unconsumed clause: %s", clause => {
     expect(parseExactAppendSyntax(`Add an X post called "Launch follow-up" to campaign "Launch" at 2026-09-14T12:00:00Z, ${clause}`)).toBeNull();
+  });
+
+  it("retains raw source URLs even when surrounding syntax is not in the grammar", () => {
+    const message = 'Add an X post called "Launch follow-up" to campaign "Launch" at 2026-09-14T12:00:00Z using https://example.com/source.';
+    expect(parseExactAppendSyntax(message)).toBeNull();
+    expect(appendMessageSourceUrls(message)).toEqual(["https://example.com/source"]);
   });
 });

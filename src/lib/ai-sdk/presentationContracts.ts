@@ -57,11 +57,11 @@ const receiptSummarySchema = z.object({
 /** Read-only pointers. Maya may explain these records but cannot turn them into authority. */
 const operationReferenceSchema = z.object({
   strategyId: id.optional(),
-  campaignIds: boundedList(id, 100).default([]),
-  planIds: boundedList(id, 100).default([]),
-  plannedItemIds: boundedList(id, 500).default([]),
-  resultIds: boundedList(id, 500).default([]),
-  proposalIds: boundedList(id, 100).default([]),
+  campaignIds: boundedList(id, 12_168).default([]),
+  planIds: boundedList(id, 12_168).default([]),
+  plannedItemIds: boundedList(id, 12_168).default([]),
+  resultIds: boundedList(id, 12_168).default([]),
+  proposalIds: boundedList(id, 12_168).default([]),
 }).strict();
 
 export const uiContextSchema = z.object({

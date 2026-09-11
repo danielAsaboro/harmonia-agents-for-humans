@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import pytest
+import json
+import subprocess
+from pathlib import Path
 from pydantic import ValidationError
 
 from harmonia_agent.intent_routing import (
@@ -61,7 +64,7 @@ def test_operation_projection_is_strict_and_accepts_current_jobs_proposals_and_a
             "proposedChanges": [{"id": "content-1", "kind": "content", "status": "proposed", "changes": ["topic=launch", "angle=proof"], "evidenceRefs": ["source-1"]}, {"id": "plan-1", "kind": "planning", "status": "declined", "changes": ["{}"], "evidenceRefs": [], "decision": "keep_existing_execution"}],
             "campaigns": [{"id": "campaign-1", "name": "Launch", "objective": "Earn trust"}],
             "plans": [{"id": "plan-1", "revision": 2, "reason": "Current calendar"}],
-            "plannedItems": [{"id": "item-1", "planId": "plan-1", "campaignId": None, "campaignLabel": "Independent work", "name": "Founder note", "objective": "Explain the launch", "channel": "x", "scheduledFor": "2026-09-11T10:00:00Z", "strategyRef": {"thesis": "Evidence-led growth", "strategyId": "strategy-1", "revision": 2, "digest": "a" * 64}, "metricIds": ["engagement"], "sourceEvidenceRefs": ["segment-1"], "declaredDependencies": ["asset-1:v1"], "requiredAssets": ["asset-1"], "evidenceState": "source_backed", "approvalState": "pending", "lifecycleState": "requires_disposition", "unresolvedDependencies": ["proposal pending"]}],
+            "plannedItems": [{"id": "item-1", "planId": "plan-1", "campaignId": None, "campaignLabel": "Independent work", "name": "Founder note", "objective": "Explain the launch", "channel": "x", "scheduledFor": "2026-09-11T10:00:00Z", "strategyRef": {"strategyId": "strategy-1", "revision": 2, "digest": "a" * 64}, "metricIds": ["engagement"], "sourceEvidenceRefs": ["segment-1"], "declaredDependencies": ["asset-1:v1"], "requiredAssets": ["asset-1"], "evidenceState": "source_backed", "approvalState": "pending", "lifecycleState": "requires_disposition", "unresolvedDependencies": ["proposal pending"]}],
             "results": [{"id": "result-1", "metric": "engagement", "availability": "failed", "checkedAt": "2026-09-11T10:00:00Z"}, {"id": "result-2", "metric": "reach", "availability": "pending_window"}],
             "currentJobs": [{"id": "job-1", "stage": "draft", "status": "running"}],
         }),
@@ -73,6 +76,21 @@ def test_operation_projection_is_strict_and_accepts_current_jobs_proposals_and_a
 
     invalid = payload.model_dump(mode="json")
     invalid["workspaceContext"]["operation"]["currentJobs"][0]["invented"] = "no"
+    with pytest.raises(ValidationError):
+        IntentRoutingInput.model_validate(invalid)
+
+
+def test_actual_typescript_workspace_projection_round_trips_to_strict_python_router():
+    root = Path(__file__).resolve().parents[2]
+    script = r'''import { projectWorkspaceContentContext } from "./src/lib/workspaceContentContext.ts";
+const d="a".repeat(64); const value=projectWorkspaceContentContext({goals:{topics:[]},jobs:[{id:"job-1",stage:"draft",status:"running"}],items:[],activeStrategy:null,plannedItems:[{ref:{id:"item-1",revision:1},planRef:{id:"plan-1",revision:1},campaignRef:null,strategyRef:{strategyId:"strategy-1",revision:1,digest:d},name:"One",objective:"Explain",channel:"x",scheduledFor:"2026-09-11T10:00:00Z",measurements:[{definition:{id:"engagement"}}],dependencies:[],requiredAssetIds:[],evidence:{mode:"source_backed",sourceBinding:{evidenceIds:["evidence-1"]}},lifecycle:{status:"awaiting_approval"}}]}); console.log(JSON.stringify({message:"status",attachmentCount:0,workspaceContext:value}));'''
+    serialized = subprocess.run([str(root / "node_modules/.bin/tsx"), "-e", script], cwd=root, capture_output=True, text=True, check=True).stdout
+    validated = IntentRoutingInput.model_validate(json.loads(serialized))
+    assert validated.workspaceContext.operation is not None
+    assert validated.workspaceContext.operation.plannedItems[0].strategyRef.strategyId == "strategy-1"
+
+    invalid = json.loads(serialized)
+    invalid["workspaceContext"]["operation"]["plannedItems"][0]["strategyRef"]["thesis"] = "not an item ref"
     with pytest.raises(ValidationError):
         IntentRoutingInput.model_validate(invalid)
 

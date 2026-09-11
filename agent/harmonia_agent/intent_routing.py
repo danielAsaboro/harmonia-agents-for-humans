@@ -55,12 +55,19 @@ class StrategyReference(StrictModel):
     digest: StrictStr = Field(min_length=64, max_length=64)
 
 
+class PlannedItemStrategyReference(StrictModel):
+    """The item pins an immutable strategy ref; it is not the active-strategy summary."""
+    strategyId: StrictStr = Field(min_length=1, max_length=200)
+    revision: StrictInt = Field(ge=1)
+    digest: StrictStr = Field(min_length=64, max_length=64)
+
+
 class OperationProposal(StrictModel):
     id: StrictStr = Field(min_length=1, max_length=200)
     kind: Literal["content", "strategy", "learning_strategy", "planning"]
     status: StrictStr = Field(min_length=1, max_length=100)
     changes: list[StrictStr] = Field(default_factory=list)
-    evidenceRefs: list[StrictStr] = Field(default_factory=list, max_length=500)
+    evidenceRefs: list[StrictStr] = Field(default_factory=list, max_length=12_168)
     revision: StrictInt | None = Field(default=None, ge=1)
     decision: StrictStr | None = Field(default=None, max_length=2_000)
 
@@ -86,9 +93,9 @@ class OperationPlannedItem(StrictModel):
     objective: StrictStr = Field(min_length=1, max_length=1_000)
     channel: StrictStr = Field(min_length=1, max_length=100)
     scheduledFor: StrictStr = Field(min_length=1, max_length=100)
-    strategyRef: StrategyReference
+    strategyRef: PlannedItemStrategyReference
     metricIds: list[StrictStr] = Field(default_factory=list, max_length=8)
-    sourceEvidenceRefs: list[StrictStr] = Field(default_factory=list, max_length=500)
+    sourceEvidenceRefs: list[StrictStr] = Field(default_factory=list, max_length=12_168)
     declaredDependencies: list[StrictStr] = Field(default_factory=list)
     requiredAssets: list[StrictStr] = Field(default_factory=list)
     evidenceState: Literal["source_backed", "operator_context", "unavailable"]

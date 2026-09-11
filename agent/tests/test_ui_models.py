@@ -48,6 +48,13 @@ def test_ui_context_accepts_read_only_operation_references() -> None:
     assert context.operation.plannedItemIds == ["item-1"]
 
 
+def test_ui_context_accepts_operation_reference_counts_beyond_the_old_caps() -> None:
+    payload = context_payload()
+    payload["operation"] = {"campaignIds": [f"campaign-{i}" for i in range(101)], "planIds": [], "plannedItemIds": [f"item-{i}" for i in range(501)], "resultIds": [f"result-{i}" for i in range(501)], "proposalIds": [f"proposal-{i}" for i in range(101)]}
+    context = UiContext.model_validate(payload)
+    assert len(context.operation.plannedItemIds) == 501
+
+
 def test_ui_context_requires_a_durable_run_id() -> None:
     payload = context_payload()
     del payload["runId"]

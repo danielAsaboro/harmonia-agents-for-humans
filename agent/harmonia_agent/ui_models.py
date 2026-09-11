@@ -82,11 +82,11 @@ class ReceiptSummary(StrictModel):
 class OperationReferences(StrictModel):
     """Read-only operating-loop identifiers; they never authorize a Maya action."""
     strategyId: str | None = Field(default=None, min_length=1, max_length=200)
-    campaignIds: list[str] = Field(default_factory=list, max_length=100)
-    planIds: list[str] = Field(default_factory=list, max_length=100)
-    plannedItemIds: list[str] = Field(default_factory=list, max_length=500)
-    resultIds: list[str] = Field(default_factory=list, max_length=500)
-    proposalIds: list[str] = Field(default_factory=list, max_length=100)
+    campaignIds: list[str] = Field(default_factory=list, max_length=12_168)
+    planIds: list[str] = Field(default_factory=list, max_length=12_168)
+    plannedItemIds: list[str] = Field(default_factory=list, max_length=12_168)
+    resultIds: list[str] = Field(default_factory=list, max_length=12_168)
+    proposalIds: list[str] = Field(default_factory=list, max_length=12_168)
 
 
 class UiContext(StrictModel):

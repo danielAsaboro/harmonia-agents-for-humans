@@ -92,4 +92,12 @@ describe("workspace content context", () => {
     }] } as never);
     expect(result.operation?.plannedItems[0].lifecycleState).toBe(status);
   });
+
+  it("retains every valid source evidence reference beyond the old 500-card cap", () => {
+    const evidenceIds = Array.from({ length: 501 }, (_, index) => `evidence-${index}`);
+    const result = projectWorkspaceContentContext({ goals: { topics: [] }, jobs: [], items: [], activeStrategy: null, plannedItems: [{
+      ref: { id: "item-evidence", revision: 1 }, planRef: { id: "plan", revision: 1 }, strategyRef: { strategyId: "strategy", revision: 1, digest: "a".repeat(64) }, campaignRef: null, name: "Evidence", objective: "Keep evidence", channel: "x", scheduledFor: "2026-09-20T09:00:00Z", measurements: [{ definition: { id: "m" } }], dependencies: [], requiredAssetIds: [], evidence: { mode: "source_backed", sourceBinding: { evidenceIds } }, lifecycle: { status: "planned" },
+    }] } as never);
+    expect(result.operation?.plannedItems[0].sourceEvidenceRefs).toEqual(evidenceIds);
+  });
 });

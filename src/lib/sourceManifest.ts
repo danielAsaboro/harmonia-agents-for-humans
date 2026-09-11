@@ -25,6 +25,7 @@ export interface CreateSourceJobInput {
 }
 
 const digest = (value: string) => createHash("sha256").update(value, "utf8").digest("hex");
+const canonicalSha256 = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 
 export function buildSourceRecord(input: SourceInput, id: string, now: string): SourceRecord {
   const tenant = currentTenant();
@@ -114,7 +115,7 @@ export async function retainKnowledgeOnlyIntake(draft: IntakeDraft): Promise<str
       if (attachment.id !== source.attachmentId
         || attachment.createdByUserId !== currentDraft.subjectId
         || attachment.state !== "ready"
-        || !attachment.sha256) {
+        || !canonicalSha256(attachment.sha256)) {
         throw new Error("knowledge attachment authority is incomplete");
       }
       const rightsAuthorizationId = currentDraft.sourceRights[sourceKey];
@@ -148,7 +149,7 @@ export async function retainKnowledgeOnlyIntake(draft: IntakeDraft): Promise<str
           updatedAt: new Date().toISOString(),
         });
         transaction.insert(recordKey(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/source_payloads/${id}`), {
-          sourceId: id,
+          sourceId: id, workspaceId: tenant.workspaceId, brandId: tenant.brandId,
           input: { ...source, rightsAuthorizationId },
           intakeDraftId: currentDraft.id,
           attachmentDigest: attachment.sha256,
@@ -158,13 +159,23 @@ export async function retainKnowledgeOnlyIntake(draft: IntakeDraft): Promise<str
         const retained = existing.value as unknown as SourceRecord;
         assertResourceWorkspace(tenant, retained);
         const payload = await transaction.read(recordKey(`workspaces/${tenant.workspaceId}/brands/${tenant.brandId}/source_payloads/${id}`));
-        const retainedPayload = payload.value as { attachmentDigest?: string; input?: { rightsAuthorizationId?: string; attachmentId?: string } } | undefined;
+        const retainedPayload = payload.value as {
+          workspaceId?: string; brandId?: string; sourceId?: string; intakeDraftId?: string;
+          attachmentDigest?: string; input?: { kind?: string; rightsAuthorizationId?: string; attachmentId?: string };
+        } | undefined;
         if (!payload.present
+          || retained.id !== id
+          || retained.state !== "ready"
           || retained.provider !== "upload"
           || retained.providerResourceId !== source.attachmentId
           || retained.contentDigest !== attachment.sha256
           || retained.rightsAuthorizationId !== rightsAuthorizationId
+          || retainedPayload?.workspaceId !== tenant.workspaceId
+          || retainedPayload?.brandId !== tenant.brandId
+          || retainedPayload?.sourceId !== id
+          || retainedPayload?.intakeDraftId !== currentDraft.id
           || retainedPayload?.attachmentDigest !== attachment.sha256
+          || retainedPayload?.input?.kind !== "upload"
           || retainedPayload?.input?.rightsAuthorizationId !== rightsAuthorizationId
           || retainedPayload?.input?.attachmentId !== source.attachmentId) {
           throw new Error("retained knowledge source no longer matches intake authority");

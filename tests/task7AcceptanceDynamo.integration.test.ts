@@ -181,6 +181,9 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("Task 7 local acceptance", () =
       const knowledgeDigest = (await import("node:crypto")).createHash("sha256").update(knowledgeBytes).digest("hex");
       expect(retainedSource.value).toMatchObject({ state: "ready", contentDigest: knowledgeDigest, rightsAuthorizationId: knowledgeRightsId });
       expect((await awsRepository().read(recordKey(`workspaces/${currentScope.workspaceId}/brands/${currentScope.brandId}/source_payloads/${retainedSource.id}`))).value).toMatchObject({
+        workspaceId: currentScope.workspaceId,
+        brandId: currentScope.brandId,
+        sourceId: retainedSource.id,
         intakeDraftId: knowledge.id,
         attachmentDigest: knowledgeDigest,
         input: { attachmentId, rightsAuthorizationId: knowledgeRightsId },
@@ -264,6 +267,34 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("Task 7 local acceptance", () =
       await executeIntakeDraft(stale.draft);
       await awsRepository().patch(recordKey(`workspaces/${currentScope.workspaceId}/chat_attachments/${stale.attachmentId}`), { sha256: "f".repeat(64), updatedAt: new Date().toISOString() });
       await expect(executeIntakeDraft(stale.draft)).rejects.toThrow("retained knowledge source no longer matches intake authority");
+
+      for (const [label, sha256] of [["short", "abc"], ["nonhex", "g".repeat(64)], ["uppercase", "A".repeat(64)]] as const) {
+        const malformed = await createKnowledgeDraft(`malformed-${label}`);
+        await awsRepository().patch(recordKey(`workspaces/${currentScope.workspaceId}/chat_attachments/${malformed.attachmentId}`), { sha256, updatedAt: new Date().toISOString() });
+        await expect(executeIntakeDraft(malformed.draft)).rejects.toThrow("knowledge attachment authority is incomplete");
+      }
+
+      const retainedForReplay = async (label: string) => {
+        const replay = await createKnowledgeDraft(`replay-${label}`);
+        await executeIntakeDraft(replay.draft);
+        const row = (await awsRepository().query(partition(`${root}/sources`))).rows.find(candidate => candidate.value?.providerResourceId === replay.attachmentId)!;
+        return { ...replay, sourceId: row.id };
+      };
+      const corruptedSourceId = await retainedForReplay("source-id");
+      await awsRepository().patch(recordKey(`${root}/sources/${corruptedSourceId.sourceId}`), { id: "corrupted-source-id" });
+      await expect(executeIntakeDraft(corruptedSourceId.draft)).rejects.toThrow("retained knowledge source no longer matches intake authority");
+
+      const corruptedState = await retainedForReplay("source-state");
+      await awsRepository().patch(recordKey(`${root}/sources/${corruptedState.sourceId}`), { state: "discovered" });
+      await expect(executeIntakeDraft(corruptedState.draft)).rejects.toThrow("retained knowledge source no longer matches intake authority");
+
+      const corruptedPayloadScope = await retainedForReplay("payload-scope");
+      await awsRepository().patch(recordKey(`${root}/source_payloads/${corruptedPayloadScope.sourceId}`), { workspaceId: "other-workspace", brandId: "other-brand" });
+      await expect(executeIntakeDraft(corruptedPayloadScope.draft)).rejects.toThrow("retained knowledge source no longer matches intake authority");
+
+      const corruptedPayloadLink = await retainedForReplay("payload-link");
+      await awsRepository().patch(recordKey(`${root}/source_payloads/${corruptedPayloadLink.sourceId}`), { sourceId: "other-source", intakeDraftId: "other-draft" });
+      await expect(executeIntakeDraft(corruptedPayloadLink.draft)).rejects.toThrow("retained knowledge source no longer matches intake authority");
       const retained = await awsRepository().query(partition(`${root}/sources`));
       expect(retained.rows.filter(row => [revoked.attachmentId, missing.attachmentId, mismatched.attachmentId].includes(String(row.value?.providerResourceId)))).toHaveLength(0);
       expect(retained.rows.find(row => row.value?.providerResourceId === stale.attachmentId)?.value).toMatchObject({ contentDigest: stale.sha256, rightsAuthorizationId: stale.rightsId });

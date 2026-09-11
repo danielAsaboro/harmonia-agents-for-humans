@@ -7,6 +7,7 @@ import { decideStrategy, getJob, saveConnection } from "@/lib/repository";
 import { configurePlanningPolicy, readItemState, readPlannedItem } from "@/lib/campaigns/repository";
 import { submitIntakeTurn } from "@/lib/intake/repository";
 import { executeIntakeDraft } from "@/lib/intake/commands";
+import { intakeSourceKey } from "@/lib/intake/contracts";
 import { materializeIntake } from "@/lib/planning/commands";
 import { claimNextPlannedItem } from "@/lib/planning/selection";
 import { resolveDecision } from "@/lib/decisions";
@@ -174,8 +175,32 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("Task 7 local acceptance", () =
       const knowledge = await submitIntakeTurn({ requestId: randomUUID(), conversationId: randomUUID(), surface: "dashboard", message: "I confirm I have rights to use this source. Keep this local research upload as knowledge only.", advice: { action: "create_job", disposition: "knowledge_only", expectedOutcome: "Retain source context", requestedOutputs: [], sourceHandles: [{ kind: "upload", attachmentId }] } });
       expect(knowledge.state).toBe("retained");
       expect((await executeIntakeDraft(knowledge)).jobId).toBeUndefined();
+      const knowledgeRightsId = knowledge.sourceRights[intakeSourceKey({ kind: "upload", attachmentId })];
+      const retainedRows = await awsRepository().query(partition(`workspaces/${currentScope.workspaceId}/brands/${currentScope.brandId}/sources`));
+      const retainedSource = retainedRows.rows.find(row => row.value?.providerResourceId === attachmentId)!;
+      const knowledgeDigest = (await import("node:crypto")).createHash("sha256").update(knowledgeBytes).digest("hex");
+      expect(retainedSource.value).toMatchObject({ state: "ready", contentDigest: knowledgeDigest, rightsAuthorizationId: knowledgeRightsId });
+      expect((await awsRepository().read(recordKey(`workspaces/${currentScope.workspaceId}/brands/${currentScope.brandId}/source_payloads/${retainedSource.id}`))).value).toMatchObject({
+        intakeDraftId: knowledge.id,
+        attachmentDigest: knowledgeDigest,
+        input: { attachmentId, rightsAuthorizationId: knowledgeRightsId },
+      });
+
+      const mixedAttachmentId = `mixed-knowledge-${randomUUID()}`;
+      const mixedBytes = Buffer.from("A second local source remains authoritative even beside an unretrieved remote reference.");
+      const mixedDigest = (await import("node:crypto")).createHash("sha256").update(mixedBytes).digest("hex");
+      await saveChatAttachment({ id: mixedAttachmentId, workspaceId: currentScope.workspaceId, brandId: currentScope.brandId, createdByUserId: "operator", filename: "mixed-research.txt", mime: "text/plain", category: "document", sizeBytes: mixedBytes.byteLength, objectName: `local/${mixedAttachmentId}`, storageUri: `s3://local/${mixedAttachmentId}`, sha256: mixedDigest, malwareScan: { verdict: "clean", engine: "local-input-fixture", definitionVersion: "local", scannedBytes: mixedBytes.byteLength, scannedAt: new Date().toISOString() }, state: "ready", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      const remoteUrl = "https://example.com/unretrieved-knowledge";
+      const mixed = await submitIntakeTurn({ requestId: randomUUID(), conversationId: randomUUID(), surface: "dashboard", message: "I confirm I have rights to use this source. Retain this uploaded research with the remote reference as knowledge only.", advice: { action: "create_job", disposition: "knowledge_only", expectedOutcome: "Retain mixed source context", requestedOutputs: [], sourceHandles: [{ kind: "web", url: remoteUrl }, { kind: "upload", attachmentId: mixedAttachmentId }] } });
+      expect((await executeIntakeDraft(mixed)).jobId).toBeUndefined();
+      const mixedRightsId = mixed.sourceRights[intakeSourceKey({ kind: "upload", attachmentId: mixedAttachmentId })];
+      const mixedRows = await awsRepository().query(partition(`workspaces/${currentScope.workspaceId}/brands/${currentScope.brandId}/sources`));
+      const mixedSource = mixedRows.rows.find(row => row.value?.providerResourceId === mixedAttachmentId)!;
+      expect(mixedSource.value).toMatchObject({ state: "ready", contentDigest: mixedDigest, rightsAuthorizationId: mixedRightsId });
+      expect(mixed.sourceHandles).toContainEqual({ kind: "web", url: remoteUrl });
+      expect(mixedRows.rows.find(row => row.value?.providerResourceId === remoteUrl)).toBeUndefined();
       const proposals = await import("@/lib/learning/proposals");
-      const sourceId = (await awsRepository().query(partition(`workspaces/${currentScope.workspaceId}/brands/${currentScope.brandId}/sources`))).rows[0]!.id;
+      const sourceId = retainedSource.id;
       const discovery = await proposals.recordSourceDiscovery(sourceId);
       const rejected = await proposals.createStrategyChangeProposal({ requestId: "reject-source", baseStrategyRef: strategyRef, changes: [{ type: "cadence_guidance", value: "Review weekly" }], rationale: "Source discovery needs a human strategy decision", evidenceRefs: [{ id: discovery.id, digest: discovery.digest }], contradictionRefs: [] });
       expect((await proposals.decideStrategyChange({ id: rejected.id, revision: rejected.revision, digest: rejected.digest, decision: "rejected", feedback: "Not enough evidence" })).status).toBe("rejected");
@@ -208,4 +233,40 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("Task 7 local acceptance", () =
       await bridge.close(); vi.unstubAllEnvs();
     });
   });
+
+  it("fences missing, revoked, mismatched, and stale knowledge authority before retention", async () => {
+    currentScope = tenant();
+    await runWithTenant(currentScope, async () => {
+      const createKnowledgeDraft = async (label: string) => {
+        const attachmentId = `${label}-${randomUUID()}`;
+        const bytes = Buffer.from(`Locally authorized knowledge authority fixture: ${label}`);
+        const sha256 = (await import("node:crypto")).createHash("sha256").update(bytes).digest("hex");
+        await saveChatAttachment({ id: attachmentId, workspaceId: currentScope.workspaceId, brandId: currentScope.brandId, createdByUserId: "operator", filename: `${label}.txt`, mime: "text/plain", category: "document", sizeBytes: bytes.byteLength, objectName: `local/${attachmentId}`, storageUri: `s3://local/${attachmentId}`, sha256, malwareScan: { verdict: "clean", engine: "local-input-fixture", definitionVersion: "local", scannedBytes: bytes.byteLength, scannedAt: new Date().toISOString() }, state: "ready", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+        const draft = await submitIntakeTurn({ requestId: randomUUID(), conversationId: randomUUID(), surface: "dashboard", message: "I confirm I have rights to use this source. Retain this local upload as knowledge only.", advice: { action: "create_job", disposition: "knowledge_only", expectedOutcome: `Retain ${label}`, requestedOutputs: [], sourceHandles: [{ kind: "upload", attachmentId }] } });
+        const source = { kind: "upload" as const, attachmentId };
+        return { attachmentId, draft, sha256, rightsId: draft.sourceRights[intakeSourceKey(source)] };
+      };
+      const root = `workspaces/${currentScope.workspaceId}/brands/${currentScope.brandId}`;
+
+      const revoked = await createKnowledgeDraft("revoked");
+      await awsRepository().patch(recordKey(`${root}/source_rights/${revoked.rightsId}`), { revokedAt: new Date().toISOString() });
+      await expect(executeIntakeDraft(revoked.draft)).rejects.toThrow("source rights authorization revoked");
+
+      const missing = await createKnowledgeDraft("missing");
+      await awsRepository().remove(recordKey(`${root}/source_rights/${missing.rightsId}`));
+      await expect(executeIntakeDraft(missing.draft)).rejects.toThrow("source rights authorization missing");
+
+      const mismatched = await createKnowledgeDraft("mismatched");
+      await awsRepository().patch(recordKey(`${root}/source_rights/${mismatched.rightsId}`), { sourceHandleDigest: "0".repeat(64) });
+      await expect(executeIntakeDraft(mismatched.draft)).rejects.toThrow("source rights binding mismatch");
+
+      const stale = await createKnowledgeDraft("stale");
+      await executeIntakeDraft(stale.draft);
+      await awsRepository().patch(recordKey(`workspaces/${currentScope.workspaceId}/chat_attachments/${stale.attachmentId}`), { sha256: "f".repeat(64), updatedAt: new Date().toISOString() });
+      await expect(executeIntakeDraft(stale.draft)).rejects.toThrow("retained knowledge source no longer matches intake authority");
+      const retained = await awsRepository().query(partition(`${root}/sources`));
+      expect(retained.rows.filter(row => [revoked.attachmentId, missing.attachmentId, mismatched.attachmentId].includes(String(row.value?.providerResourceId)))).toHaveLength(0);
+      expect(retained.rows.find(row => row.value?.providerResourceId === stale.attachmentId)?.value).toMatchObject({ contentDigest: stale.sha256, rightsAuthorizationId: stale.rightsId });
+    });
+  }, 60_000);
 });

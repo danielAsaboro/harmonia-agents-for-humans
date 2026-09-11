@@ -123,7 +123,13 @@ export type OutputKind =
   | "carousel_spec" | "social_image" | "quote_card" | "diagram"
   | "short_clip" | "reel" | "generated_video" | "generated_music" | "editorial_calendar" | "content_pack";
 
-export interface ProposedOutput { id: string; outputType: OutputKind; quantity: number; destinations: string[]; evidenceRefs: string[]; costClass: "local" | "provider_metered"; approvalClass: "strategy" | "effect" }
+export interface ProposedOutput {
+  id: string; outputType: OutputKind; quantity: number; destinations: string[]; evidenceRefs: string[];
+  costClass: "local" | "provider_metered"; approvalClass: "strategy" | "effect";
+  providerAvailability?: "not_required" | "configured" | "not_configured";
+  liveVerification?: "not_applicable" | "not_verified" | "verified";
+  childOutputIds?: string[];
+}
 export interface CampaignOutputPlan { id: string; desiredOutputs: OutputKind[]; allowedOutputs: OutputKind[]; outputs: ProposedOutput[]; digest: string }
 
 export interface JobConfig {

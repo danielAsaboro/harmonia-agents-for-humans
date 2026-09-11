@@ -9,7 +9,7 @@ import { workPlacementSchema, intakeMissingFieldSchema, type IntakeAdvice } from
 const outputConcept = z.enum([
   "short_social_post", "social_thread", "professional_post", "article", "newsletter",
   "caption", "carousel", "social_image", "quote_card", "diagram", "short_video",
-  "calendar", "content_package",
+  "generated_video", "generated_music", "calendar", "content_package",
 ]);
 const socialPlatform = z.enum(["x", "linkedin", "linkedin-organization", "instagram", "tiktok"]);
 const routedStrategyContextSchema = strategyContextSchema.extend({
@@ -95,5 +95,6 @@ export const OUTPUT_CONCEPT_TO_KIND = {
   short_social_post: "x_post", social_thread: "x_thread", professional_post: "linkedin_post",
   article: "blog_article", newsletter: "newsletter", caption: "caption", carousel: "carousel_spec",
   social_image: "social_image", quote_card: "quote_card", diagram: "diagram", short_video: "short_clip",
+  generated_video: "generated_video", generated_music: "generated_music",
   calendar: "editorial_calendar", content_package: "content_pack",
 } as const;

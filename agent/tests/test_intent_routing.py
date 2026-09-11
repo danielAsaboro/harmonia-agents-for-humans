@@ -58,6 +58,22 @@ def test_router_does_not_invent_default_outputs():
     assert deterministic_intent_classification(value) is None
 
 
+def test_direct_media_request_is_routed_without_substituting_a_social_post():
+    value = IntentRoutingInput(
+        message="Generate a social image, a generated video, and instrumental music for the launch.",
+        workspaceContext=context(),
+        attachmentCount=0,
+    )
+
+    route = deterministic_intent_classification(value)
+
+    assert route is not None
+    assert route.intent == "one_off_content"
+    assert route.outputConcepts == ["social_image", "generated_video", "generated_music"]
+    assert route.platformRecommendations == []
+    assert route.effectRequested is False
+
+
 def strategy_context():
     return {
         "company": "Harmonia",

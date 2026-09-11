@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { CampaignOutputPlan, NormalizedSource, OutputKind, ProposedOutput, SourceAnalysis } from "./types";
-import { OUTPUT_CAPABILITIES } from "./outputCapabilities";
+import { OUTPUT_CAPABILITIES, outputCapabilityStatus } from "./outputCapabilities";
 
 export interface OutputEligibilityIssue { outputType: OutputKind; code: "not_allowed" | "video_evidence_required" | "missing_evidence"; message: string }
 
@@ -22,7 +22,7 @@ export function sealOutputPlan(input: Omit<CampaignOutputPlan, "digest">): Campa
 }
 
 export function proposeOutputPlan(jobId: string, desiredOutputs: OutputKind[], allowedOutputs: OutputKind[], analysis: SourceAnalysis): CampaignOutputPlan {
-  const unavailable = desiredOutputs.filter((output) => OUTPUT_CAPABILITIES[output].state === "unavailable");
+  const unavailable = desiredOutputs.filter((output) => !outputCapabilityStatus(output).supported);
   if (unavailable.length) throw new Error(`unavailable output: ${unavailable.join(", ")}`);
   const allowed = new Set(allowedOutputs); const sourceRefs = [...new Set([...analysis.moments.flatMap((moment) => moment.sourceSegmentRefs), ...analysis.angles.flatMap((angle) => angle.evidenceKind === "source" ? angle.evidenceRefs.filter((ref) => ref.includes(":")) : [])])];
   const timedRefs = [...new Set(analysis.moments.flatMap((moment) => moment.sourceSegmentRefs))];
@@ -30,9 +30,26 @@ export function proposeOutputPlan(jobId: string, desiredOutputs: OutputKind[], a
     const clip = outputType === "short_clip" || outputType === "reel"; const evidenceRefs = clip ? timedRefs : sourceRefs;
     if (!evidenceRefs.length) return [];
     const capability = OUTPUT_CAPABILITIES[outputType];
-    return [{ id: `output-${index + 1}-${outputType}`, outputType, quantity: 1, destinations: capability.publisher ? [capability.publisher] : [], evidenceRefs, costClass: capability.costClass, approvalClass: capability.approvalClass }];
+    const availability = outputCapabilityStatus(outputType);
+    return [{
+      id: `output-${index + 1}-${outputType}`,
+      outputType,
+      quantity: 1,
+      destinations: capability.publisher ? [capability.publisher] : [],
+      evidenceRefs,
+      costClass: capability.costClass,
+      approvalClass: capability.approvalClass,
+      providerAvailability: availability.providerAvailability,
+      liveVerification: availability.liveVerification,
+    }];
   });
-  return sealOutputPlan({ id: `output-plan-${jobId}`, desiredOutputs, allowedOutputs, outputs });
+  const childOutputIds = outputs
+    .filter((output) => output.outputType !== "content_pack" && output.outputType !== "editorial_calendar")
+    .map((output) => output.id);
+  const outputsWithLineage = outputs.map((output) => output.outputType === "content_pack"
+    ? { ...output, childOutputIds }
+    : output);
+  return sealOutputPlan({ id: `output-plan-${jobId}`, desiredOutputs, allowedOutputs, outputs: outputsWithLineage });
 }
 
 export function planOutputProjection(

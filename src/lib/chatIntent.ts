@@ -1,6 +1,6 @@
 import type { OutputKind, StrategyContext } from "./types";
 import { outputKindSchema } from "./contracts";
-import { OUTPUT_CAPABILITIES } from "./outputCapabilities";
+import { outputCapabilityStatus } from "./outputCapabilities";
 import { OUTPUT_CONCEPT_TO_KIND, requestIntentRoute } from "./agentRouteClient";
 import { loadWorkspaceContentContext, type WorkspaceContentContext } from "./workspaceContentContext";
 import type { WorkPlacement, IntakeMissingField, IntakeAdvice } from "./intake/contracts";
@@ -40,7 +40,7 @@ export function normalizeParsedIntent(value: unknown): ParsedIntent {
   }) : [];
   const desiredOutputs = Array.isArray(raw.desiredOutputs) ? raw.desiredOutputs.flatMap((item) => {
     const parsed = outputKindSchema.safeParse(item);
-    return parsed.success && OUTPUT_CAPABILITIES[parsed.data].state !== "unavailable" ? [parsed.data] : [];
+    return parsed.success && outputCapabilityStatus(parsed.data).supported ? [parsed.data] : [];
   }) : [];
   return {
     intent,
@@ -81,6 +81,13 @@ export function parseLocalIntent(message: string): ParsedIntent {
   if (/\bstatus\b/.test(lower)) return { intent: "status", jobId };
   const libraryName = trimmed.match(/\b(?:brand\s+)?library\s+["“]([^"”]+)["”]/i)?.[1]?.trim();
   const urls = trimmed.match(URL_RE) ?? [];
+  const directOutputs: OutputKind[] = [];
+  if (/\b(?:social\s+)?(?:image|visual|graphic)\b/i.test(trimmed)) directOutputs.push("social_image");
+  if (/\b(?:generated\s+|text[-\s]to[-\s])video\b/i.test(trimmed)) directOutputs.push("generated_video");
+  if (/\b(?:instrumental\s+)?(?:music|soundtrack)\b/i.test(trimmed)) directOutputs.push("generated_music");
+  if (directOutputs.length && /\b(?:create|make|generate|produce|draft|prepare)\b/i.test(trimmed)) {
+    return { intent: "create_job", sources: [], desiredOutputs: [...new Set(directOutputs)] };
+  }
   if (urls.length || libraryName || trimmed.length >= 20) {
     const sources: ChatSourceDescriptor[] = urls.map((url) => ({ kind: YOUTUBE_RE.test(url) ? "youtube" : "web", url }));
     return { intent: "create_job", sources, libraryName };
@@ -94,7 +101,7 @@ export async function parseIntent(message: string, attachmentCount = 0, recentCo
   const sources: ChatSourceDescriptor[] = route.sourceUrls.map((url) => ({ kind: YOUTUBE_RE.test(url) ? "youtube" : "web", url }));
   const desiredOutputs = route.outputConcepts.map((concept) => OUTPUT_CONCEPT_TO_KIND[concept]).flatMap((kind) => {
     const parsed = outputKindSchema.safeParse(kind);
-    return parsed.success && OUTPUT_CAPABILITIES[parsed.data].state !== "unavailable" ? [parsed.data] : [];
+    return parsed.success && outputCapabilityStatus(parsed.data).supported ? [parsed.data] : [];
   });
   const common = { missingField: route.missingField, resolvedField: route.resolvedField, workPlacement: route.workPlacement ?? undefined, targetName: route.targetName ?? undefined, sources, desiredOutputs, jobId: route.jobId ?? undefined, userOutcome: route.userOutcome, assumptions: route.assumptions, needsClarification: route.needsClarification, clarifyingQuestion: route.clarifyingQuestion ?? undefined, requiresRightsAttestation: route.requiresRightsAttestation, workspaceContext, platformRecommendations: route.platformRecommendations, connectionSuggestions: route.connectionSuggestions, strategyContext: route.strategyContext ?? undefined };
   if (route.intent === "repurpose_source" || route.intent === "one_off_content") return { intent: "create_job", ...common };

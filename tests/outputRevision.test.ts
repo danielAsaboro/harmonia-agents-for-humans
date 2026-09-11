@@ -19,6 +19,11 @@ it.each([
   expect(() => planOutputRevision(value, 2, ["linkedin_post"])).toThrow();
 });
 
-it("rejects a pack with no text child instead of creating an impossible plan", () => {
-  expect(() => planOutputRevision(job, 2, ["content_pack", "short_clip"])).toThrow(/child/);
+it("rejects a pack with no child instead of creating an impossible plan", () => {
+  expect(() => planOutputRevision(job, 2, ["content_pack"])).toThrow(/child/);
+});
+
+it("allows a content pack with requested media children", () => {
+  expect(planOutputRevision(job, 2, ["content_pack", "social_image", "generated_video"]).config.desiredOutputs)
+    .toEqual(["content_pack", "social_image", "generated_video"]);
 });

@@ -8,8 +8,23 @@ describe("output modality eligibility", () => {
   it("allows text and image outputs from document evidence", () => expect(validateOutputEligibility(plan(["x_post", "linkedin_post", "social_image"]), [document])).toEqual([]));
   it("rejects source clips without video time evidence", () => expect(validateOutputEligibility(plan(["short_clip"]), [document])).toContainEqual(expect.objectContaining({ code: "video_evidence_required" })));
   it("keeps generated video distinct from source clips", () => { expect(outputKindSchema.parse("generated_video")).toBe("generated_video"); expect(outputKindSchema.parse("short_clip")).toBe("short_clip"); });
-  it("rejects an unavailable desired output instead of silently dropping it", () => {
-    expect(() => proposeOutputPlan("job-1", ["generated_music"], ["generated_music"], { sourceDigest: "a".repeat(64), summary: "Proof", moments: [{ id: "m1", title: "Proof", startSec: 0, endSec: 1, hook: "Hook", quote: "Proof", sourceSegmentRefs: ["s1:p1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }], angles: [], assumptions: [], confidence: "high" })).toThrow("unavailable output");
+  it("keeps an unconfigured media request as an exact reviewable proposal", () => {
+    const proposal = proposeOutputPlan("job-1", ["generated_music"], ["generated_music"], { sourceDigest: "a".repeat(64), summary: "Proof", moments: [{ id: "m1", title: "Proof", startSec: 0, endSec: 1, hook: "Hook", quote: "Proof", sourceSegmentRefs: ["s1:p1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }], angles: [], assumptions: [], confidence: "high" });
+    expect(proposal.desiredOutputs).toEqual(["generated_music"]);
+    expect(proposal.outputs).toEqual([expect.objectContaining({
+      outputType: "generated_music",
+      costClass: "provider_metered",
+      providerAvailability: "not_configured",
+      liveVerification: "not_verified",
+    })]);
+  });
+  it("binds a content pack to its requested media children", () => {
+    const proposal = proposeOutputPlan("job-1", ["social_image", "generated_video", "content_pack"], ["social_image", "generated_video", "content_pack"], { sourceDigest: "a".repeat(64), summary: "Proof", moments: [{ id: "m1", title: "Proof", startSec: 0, endSec: 1, hook: "Hook", quote: "Proof", sourceSegmentRefs: ["s1:p1"], visualEvidenceIds: [], assumptions: [], confidence: "high" }], angles: [], assumptions: [], confidence: "high" });
+    const pack = proposal.outputs.find((output) => output.outputType === "content_pack");
+    expect(pack).toMatchObject({
+      childOutputIds: ["output-1-social_image", "output-2-generated_video"],
+      evidenceRefs: ["s1:p1"],
+    });
   });
   it("reconstructs only a missing derived output projection from persisted authority", () => {
     const analysis = { sourceDigest: "a".repeat(64), summary: "Proof", moments: [{ id: "m1", title: "Proof", startSec: 0, endSec: 1, hook: "Hook", quote: "Proof", sourceSegmentRefs: ["s1:p1"], visualEvidenceIds: [], assumptions: [], confidence: "high" as const }], angles: [], assumptions: [], confidence: "high" as const };

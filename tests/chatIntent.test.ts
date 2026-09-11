@@ -62,6 +62,13 @@ describe("local intent grammar", () => {
     });
   });
 
+  it("keeps direct image, video, and music requests in the normal job route", () => {
+    expect(parseLocalIntent("Create a social image, generated video, and instrumental music for the launch")).toMatchObject({
+      intent: "create_job",
+      desiredOutputs: ["social_image", "generated_video", "generated_music"],
+    });
+  });
+
   it("keeps operator instructions separate from factual source evidence", async () => {
     const res = parseLocalIntent("Announce our usage-based billing launch for AI agent workloads today");
     expect(res.intent).toBe("create_job");

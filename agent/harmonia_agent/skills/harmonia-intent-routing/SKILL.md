@@ -19,8 +19,9 @@ Translate the operator's desired outcome, not their familiarity with Harmonia's 
 6. Route requests for a schedule, campaign sequence, or next month/quarter to `advance_plan` or `manage_calendar`.
 7. Route supplied URLs or attachments that should become content to `repurpose_source`.
 8. Route bounded announcements, posts, and campaigns without a source to `one_off_content`; inherit approved workspace context when present and state assumptions when absent.
-9. Route questions about state, drafts, receipts, or proof to `status_evidence`.
-10. Route requests to publish, export, sync, or otherwise cause an external effect to `effect_request`; classification never grants approval.
+9. Preserve direct requests for a social image, generated video, or instrumental music as their exact output concepts. Do not replace an unavailable provider with a social post; report provider availability separately from support and live verification.
+10. Route questions about state, drafts, receipts, or proof to `status_evidence`.
+11. Route requests to publish, export, sync, or otherwise cause an external effect to `effect_request`; classification never grants approval.
 11. Use `conversation` for greetings, capability questions, and genuinely non-operational conversation.
 
 ## Output concepts

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { outputKindSchema } from "./contracts";
-import { OUTPUT_CAPABILITIES } from "./outputCapabilities";
+import { outputCapabilityStatus } from "./outputCapabilities";
 
 export const outputRevisionSchema = z.object({
   expectedControlEpoch: z.number().int().nonnegative(),
@@ -17,8 +17,8 @@ export function planOutputRevision(job: {
     throw new Error("output correction requires a failed pre-strategy job without prepared effects");
   }
   if (new Set(desiredOutputs).size !== desiredOutputs.length) throw new Error("duplicate outputs");
-  if (desiredOutputs.some((kind) => OUTPUT_CAPABILITIES[kind].state === "unavailable")) throw new Error("unavailable output");
-  const children = new Set(["x_post", "x_thread", "linkedin_post", "blog_article", "newsletter", "caption", "carousel_spec", "quote_card", "diagram"]);
+  if (desiredOutputs.some((kind) => !outputCapabilityStatus(kind).supported)) throw new Error("unsupported output");
+  const children = new Set(["x_post", "x_thread", "linkedin_post", "blog_article", "newsletter", "caption", "carousel_spec", "social_image", "quote_card", "diagram", "short_clip", "reel", "generated_video", "generated_music"]);
   if (desiredOutputs.includes("content_pack") && !desiredOutputs.some((kind) => children.has(kind))) {
     throw new Error("content pack requires at least one supported child content output");
   }

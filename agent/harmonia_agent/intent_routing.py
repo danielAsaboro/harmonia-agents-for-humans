@@ -23,7 +23,8 @@ IntentName = Literal[
 OutputConcept = Literal[
     "short_social_post", "social_thread", "professional_post", "article",
     "newsletter", "caption", "carousel", "social_image", "quote_card",
-    "diagram", "short_video", "calendar", "content_package",
+    "diagram", "short_video", "generated_video", "generated_music",
+    "calendar", "content_package",
 ]
 SocialPlatform = Literal["x", "linkedin", "linkedin-organization", "instagram", "tiktok"]
 
@@ -101,6 +102,29 @@ def deterministic_intent_classification(
     message = value.message.casefold()
     if value.pendingClarification or value.recentConversation or re.search(r"\b(?:campaign|initiative|knowledge|planned|plan item)\b", message):
         return None
+    if not urls and re.search(r"\b(?:create|make|generate|produce|draft|prepare)\b", message):
+        outputs: list[OutputConcept] = []
+        if re.search(r"\b(?:social\s+)?(?:image|visual|graphic)\b", message):
+            outputs.append("social_image")
+        if re.search(r"\b(?:generated\s+|text[-\s]to[-\s])video\b", message):
+            outputs.append("generated_video")
+        if re.search(r"\b(?:instrumental\s+)?(?:music|soundtrack)\b", message):
+            outputs.append("generated_music")
+        if outputs:
+            return IntentClassification(
+                intent="one_off_content",
+                workPlacement="independent",
+                userOutcome="Create the exact requested media outputs for operator review.",
+                sourceUrls=[],
+                outputConcepts=outputs,
+                platformRecommendations=[],
+                assumptions=[],
+                needsClarification=False,
+                clarifyingQuestion=None,
+                requiresRightsAttestation=False,
+                effectRequested=False,
+                jobId=None,
+            )
     if urls and re.search(
         r"\b(?:repurpose|transcribe|analy[sz]e|clip|turn|transform|convert)\b",
         message,

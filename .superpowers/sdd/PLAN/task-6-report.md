@@ -17,6 +17,7 @@
 - Cross-runtime repair: `IntentRoutingInput` now uses strict nested models for the exact operation projection, including active strategy, typed proposal kinds/changes/evidence/revisions/decisions, campaigns, plans, all planned-item lifecycle fields, all learning availability states, and `currentJobs`. Unknown fields remain forbidden at every nesting level.
 - Repair round three: planned-item strategy pins now use a separate strict `{ strategyId, revision, digest }` model from the richer active-strategy summary. The operation projection preserves all source evidence references through the durable 12,168-reference contract. Maya's operation catalog accepts the same full valid capacity.
 - Planning proposal projection now renders source replacement and calendar/measurement records with type, item reference, source handles, rights authorizations, operator brief, exact input, reasons, guarded authority, disposition, and derived evidence references.
+- Repair round four: a generic durable command in `needs_details` is now projected as `incomplete_command`, never as a source replacement. Source replacements retain their intake draft ID; guarded calendar/measurement proposals retain their decision, deciding actor, and decision time alongside the exact persisted review fields.
 
 ## TDD and verification
 

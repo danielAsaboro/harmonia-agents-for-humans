@@ -11,7 +11,7 @@ import { listStrategyProposals } from "./strategy/repository";
 
 export interface WorkspaceOperationContext {
   activeStrategy: { thesis: string; strategyId: string; revision: number; digest: string } | null;
-  proposedChanges: Array<{ id: string; kind: "content" | "strategy" | "learning_strategy" | "planning"; status: string; changes: string[]; evidenceRefs: string[]; revision?: number; decision?: string }>;
+  proposedChanges: Array<{ id: string; kind: "content" | "strategy" | "learning_strategy" | "incomplete_command" | "source_replacement" | "calendar_change" | "measurement_change"; status: string; changes: string[]; evidenceRefs: string[]; revision?: number; decision?: string }>;
   campaigns: Array<{ id: string; name: string; objective: string }>;
   plans: Array<{ id: string; revision: number; reason: string }>;
   plannedItems: Array<{
@@ -34,9 +34,40 @@ export interface WorkspaceContentContext {
   operation?: WorkspaceOperationContext;
 }
 
+type PlanningProposalKind = Extract<WorkspaceOperationContext["proposedChanges"][number]["kind"], "incomplete_command" | "source_replacement" | "calendar_change" | "measurement_change">;
+
+/** Preserve the durable record's actual shape; generic commands are never called source replacements. */
+export function projectPlanningProposal(proposal: Record<string, unknown>): WorkspaceOperationContext["proposedChanges"][number] {
+  const sourceHandles = Array.isArray(proposal.sourceHandles) ? proposal.sourceHandles : [];
+  const sourceRights = proposal.sourceRights && typeof proposal.sourceRights === "object" && !Array.isArray(proposal.sourceRights) ? Object.entries(proposal.sourceRights as Record<string, unknown>) : [];
+  const guarded = Array.isArray(proposal.guarded) ? proposal.guarded : [];
+  const input = proposal.input ?? null;
+  const declared = proposal.type;
+  const kind: PlanningProposalKind = declared === "calendar_change" || declared === "measurement_change" ? declared : proposal.intakeDraftId !== undefined || proposal.itemRef !== undefined || sourceHandles.length ? "source_replacement" : "incomplete_command";
+  const evidenceRefs = [
+    ...sourceHandles.map(handle => typeof handle === "object" && handle !== null && "url" in handle ? String(handle.url) : typeof handle === "object" && handle !== null && "attachmentId" in handle ? `attachment:${String(handle.attachmentId)}` : JSON.stringify(handle)),
+    ...sourceRights.map(([sourceKey, authorizationId]) => `rights:${sourceKey}:${String(authorizationId)}`),
+    ...guarded.map(guard => typeof guard === "object" && guard !== null && "authorityDigest" in guard ? `authority:${String(guard.authorityDigest)}` : JSON.stringify(guard)),
+  ];
+  return {
+    id: String(proposal.id), kind, status: String(proposal.state ?? "unavailable"),
+    changes: [
+      `type=${String(declared ?? kind)}`, `intakeDraftId=${String(proposal.intakeDraftId ?? "")}`,
+      `itemRef=${JSON.stringify(proposal.itemRef ?? (typeof input === "object" && input !== null && "itemRef" in input ? input.itemRef : null))}`,
+      `sourceHandles=${JSON.stringify(sourceHandles)}`, `sourceRights=${JSON.stringify(Object.fromEntries(sourceRights))}`,
+      `operatorBrief=${String(proposal.operatorBrief ?? "")}`, `input=${JSON.stringify(input)}`,
+      `digest=${String(proposal.digest ?? "")}`, `state=${String(proposal.state ?? "")}`, `reason=${String(proposal.reason ?? "")}`,
+      `reasons=${JSON.stringify(proposal.reasons ?? [])}`, `guarded=${JSON.stringify(guarded)}`,
+      `actor=${String(proposal.actor ?? "")}`, `decision=${String(proposal.decision ?? "")}`,
+      `decidedBy=${String(proposal.decidedBy ?? "")}`, `decidedAt=${String(proposal.decidedAt ?? "")}`,
+    ], evidenceRefs,
+    ...(typeof proposal.decision === "string" ? { decision: proposal.decision } : typeof proposal.decidedAt === "string" ? { decision: proposal.decidedAt } : {}),
+  };
+}
+
 const bounded = (value: string, limit: number) => value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
 
-export function projectWorkspaceContentContext(input: { goals: OperatorGoals; jobs: Job[]; items: ContentItem[]; activeStrategy: ApprovedStrategyRevision | null; plans?: PlanRevision[]; campaigns?: Array<{ ref: { id: string }; name: string; objective: string }>; proposedChanges?: Array<{ id: string; kind?: "content" | "strategy" | "learning_strategy" | "planning"; status: string; changes?: string[]; evidenceRefs?: string[]; revision?: number; decision?: string }>; results?: Array<{ id: string; availability?: string; metric?: string; checkedAt?: string }>; plannedItems?: Awaited<ReturnType<typeof plannedCalendar>>; now?: Date }): WorkspaceContentContext {
+export function projectWorkspaceContentContext(input: { goals: OperatorGoals; jobs: Job[]; items: ContentItem[]; activeStrategy: ApprovedStrategyRevision | null; plans?: PlanRevision[]; campaigns?: Array<{ ref: { id: string }; name: string; objective: string }>; proposedChanges?: Array<{ id: string; kind?: WorkspaceOperationContext["proposedChanges"][number]["kind"]; status: string; changes?: string[]; evidenceRefs?: string[]; revision?: number; decision?: string }>; results?: Array<{ id: string; availability?: string; metric?: string; checkedAt?: string }>; plannedItems?: Awaited<ReturnType<typeof plannedCalendar>>; now?: Date }): WorkspaceContentContext {
   const now = (input.now ?? new Date()).getTime();
   const strategy = input.activeStrategy?.strategy;
   const plan = input.plans?.find(plan => input.activeStrategy && strategyDigest(plan.strategyRef) === strategyDigest(input.activeStrategy.ref));
@@ -100,31 +131,7 @@ export async function loadWorkspaceContentContext(): Promise<WorkspaceContentCon
     ...contentProposals.map(proposal => ({ id: proposal.id, kind: "content" as const, status: proposal.status, changes: [`topic=${proposal.topic}`, `angle=${proposal.angle}`, `suggestedPost=${proposal.suggestedPost}`], evidenceRefs: proposal.sources, decision: proposal.decidedAt })),
     ...strategyProposals.map(proposal => ({ id: proposal.id, kind: "strategy" as const, status: proposal.approval?.decision ?? "pending", changes: [JSON.stringify(proposal.strategy)], evidenceRefs: proposal.evidenceLineage, revision: proposal.attempt, decision: proposal.approval?.decidedAt })),
     ...learning.proposals.map(proposal => ({ id: proposal.id, kind: "learning_strategy" as const, status: proposal.status, changes: proposal.changes.map(change => JSON.stringify(change)), evidenceRefs: proposal.evidenceRefs.map(ref => ref.id), revision: proposal.revision, decision: proposal.feedback ?? proposal.decidedAt })),
-    ...planningProposals.map(proposal => {
-      const sourceHandles = Array.isArray(proposal.sourceHandles) ? proposal.sourceHandles : [];
-      const sourceRights = proposal.sourceRights && typeof proposal.sourceRights === "object" && !Array.isArray(proposal.sourceRights) ? Object.entries(proposal.sourceRights as Record<string, unknown>) : [];
-      const guarded = Array.isArray(proposal.guarded) ? proposal.guarded : [];
-      const input = proposal.input ?? null;
-      const evidenceRefs = [
-        ...sourceHandles.map(handle => typeof handle === "object" && handle !== null && "url" in handle ? String(handle.url) : typeof handle === "object" && handle !== null && "attachmentId" in handle ? `attachment:${String(handle.attachmentId)}` : JSON.stringify(handle)),
-        ...sourceRights.map(([sourceKey, authorizationId]) => `rights:${sourceKey}:${String(authorizationId)}`),
-        ...guarded.map(guard => typeof guard === "object" && guard !== null && "authorityDigest" in guard ? `authority:${String(guard.authorityDigest)}` : JSON.stringify(guard)),
-      ];
-      return {
-        id: String(proposal.id), kind: "planning" as const, status: String(proposal.state ?? "unavailable"),
-        changes: [
-          `type=${String(proposal.type ?? "source_replacement")}`,
-          `itemRef=${JSON.stringify(proposal.itemRef ?? (typeof input === "object" && input !== null && "itemRef" in input ? input.itemRef : null))}`,
-          `sourceHandles=${JSON.stringify(sourceHandles)}`,
-          `sourceRights=${JSON.stringify(Object.fromEntries(sourceRights))}`,
-          `operatorBrief=${String(proposal.operatorBrief ?? "")}`,
-          `input=${JSON.stringify(input)}`,
-          `reasons=${JSON.stringify(proposal.reasons ?? proposal.reason ?? [])}`,
-          `guarded=${JSON.stringify(guarded)}`,
-        ], evidenceRefs,
-        decision: typeof proposal.decision === "string" ? proposal.decision : typeof proposal.decidedAt === "string" ? proposal.decidedAt : undefined,
-      };
-    }),
+    ...planningProposals.map(projectPlanningProposal),
   ];
   return projectWorkspaceContentContext({ goals, jobs, items, plannedItems, campaigns, proposedChanges: [...new Map(changes.map(change => [change.id, change])).values()], results: learning.observations.map(observation => ({ id: observation.id, metric: observation.measurement.definition.id, availability: observation.availability, checkedAt: observation.observedAt })), ...strategyContext });
 }

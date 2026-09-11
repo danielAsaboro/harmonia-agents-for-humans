@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { projectWorkspaceContentContext } from "@/lib/workspaceContentContext";
+import { projectPlanningProposal, projectWorkspaceContentContext } from "@/lib/workspaceContentContext";
 import type { Job, ContentItem } from "@/lib/types";
 import type { ApprovedStrategyRevision } from "@/lib/strategy/contracts";
 import type { PlanRevision } from "@/lib/campaigns/contracts";
 
 describe("workspace content context", () => {
+  it("projects durable planning proposal shapes without inventing source replacement", () => {
+    expect(projectPlanningProposal({ id: "command-1", state: "needs_details", input: { action: "advance_plan" }, digest: "d", reason: "Need target", actor: "operator", at: "2026-09-11T10:00:00Z" })).toMatchObject({ kind: "incomplete_command", status: "needs_details", changes: expect.arrayContaining(["input={\"action\":\"advance_plan\"}", "digest=d", "state=needs_details", "reason=Need target", "actor=operator"]) });
+    expect(projectPlanningProposal({ id: "sources-1", state: "pending_approval", intakeDraftId: "draft-1", itemRef: { id: "item-1" }, sourceHandles: [{ url: "https://example.com/source" }], sourceRights: { "web:https://example.com/source": "rights-1" }, operatorBrief: "Replace source", reason: "Explicit revision needed" })).toMatchObject({ kind: "source_replacement", evidenceRefs: ["https://example.com/source", "rights:web:https://example.com/source:rights-1"], changes: expect.arrayContaining(["intakeDraftId=draft-1"]) });
+    expect(projectPlanningProposal({ id: "calendar-1", type: "calendar_change", state: "declined", input: { itemRef: { id: "item-1" } }, reasons: ["claimed"], guarded: [{ itemRef: { id: "item-1" }, authorityDigest: "a".repeat(64) }], decision: "keep_existing_execution", decidedBy: "operator", decidedAt: "2026-09-11T11:00:00Z" })).toMatchObject({ kind: "calendar_change", decision: "keep_existing_execution", evidenceRefs: [`authority:${"a".repeat(64)}`], changes: expect.arrayContaining(["decidedBy=operator", "decidedAt=2026-09-11T11:00:00Z"]) });
+  });
   it("never treats approved job fields or operator goals as active authority", () => {
     const result = projectWorkspaceContentContext({ goals: { topics: ["draft goals"] }, items: [], jobs: [{ id: "old", strategyApprovalState: "approved", contentStrategy: { thesis: "Old" }, editorialPlan: { summary: "Old plan" } }] as unknown as Job[], activeStrategy: null } as never);
     expect(result.strategyReady).toBe(false);

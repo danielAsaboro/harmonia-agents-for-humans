@@ -61,7 +61,7 @@ def test_operation_projection_is_strict_and_accepts_current_jobs_proposals_and_a
         "message": "status", "attachmentCount": 0,
         "workspaceContext": context(operation={
             "activeStrategy": {"thesis": "Evidence-led growth", "strategyId": "strategy-1", "revision": 2, "digest": "a" * 64},
-            "proposedChanges": [{"id": "content-1", "kind": "content", "status": "proposed", "changes": ["topic=launch", "angle=proof"], "evidenceRefs": ["source-1"]}, {"id": "plan-1", "kind": "planning", "status": "declined", "changes": ["{}"], "evidenceRefs": [], "decision": "keep_existing_execution"}],
+            "proposedChanges": [{"id": "content-1", "kind": "content", "status": "proposed", "changes": ["topic=launch", "angle=proof"], "evidenceRefs": ["source-1"]}, {"id": "plan-1", "kind": "calendar_change", "status": "declined", "changes": ["{}"], "evidenceRefs": [], "decision": "keep_existing_execution"}],
             "campaigns": [{"id": "campaign-1", "name": "Launch", "objective": "Earn trust"}],
             "plans": [{"id": "plan-1", "revision": 2, "reason": "Current calendar"}],
             "plannedItems": [{"id": "item-1", "planId": "plan-1", "campaignId": None, "campaignLabel": "Independent work", "name": "Founder note", "objective": "Explain the launch", "channel": "x", "scheduledFor": "2026-09-11T10:00:00Z", "strategyRef": {"strategyId": "strategy-1", "revision": 2, "digest": "a" * 64}, "metricIds": ["engagement"], "sourceEvidenceRefs": ["segment-1"], "declaredDependencies": ["asset-1:v1"], "requiredAssets": ["asset-1"], "evidenceState": "source_backed", "approvalState": "pending", "lifecycleState": "requires_disposition", "unresolvedDependencies": ["proposal pending"]}],

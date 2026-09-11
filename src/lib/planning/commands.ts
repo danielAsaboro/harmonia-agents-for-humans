@@ -8,7 +8,7 @@ export { disposePlanningProposal } from "./dispositions";
 import { getActiveStrategy, readActiveStrategyRef } from "../strategy/repository";
 import { strategyDigest } from "../strategyApproval";
 import { sourceAnalysisDigest } from "../sourceAnalysis";
-import { authorityKey, campaignRoot, currentPlan, listCurrentPlans, pointerKey, readItemState, readPlannedItem, readPlanningPolicy, scopedRef, writeCampaign, withItemProductionContext, assertItemProductionContext, readCampaign } from "../campaigns/repository";
+import { authorityKey, campaignRoot, currentPlan, listCurrentPlans, listPlanningAssets, pointerKey, readItemState, readPlannedItem, readPlanningPolicy, scopedRef, writeCampaign, withItemProductionContext, assertItemProductionContext, readCampaign } from "../campaigns/repository";
 import { readPlannedExecutionAuthority } from "./executionAuthority";
 import type { AuthorityRef, PlannedItem, PlannedItemState, PlanningMaterialization, PlanningPolicy, PlanRevision } from "../campaigns/contracts";
 import { configureMeasurementSchema, pinMeasurement } from "../learning/contracts";
@@ -107,7 +107,17 @@ type PlanningChatInput = {
   channel?: string;
   dependencyItemIds?: string[];
   requiredAssetIds?: string[];
+  sourceUrls?: string[];
+  attachmentIds?: string[];
 };
+const appendMessageUrls = (message: string) => [...message.matchAll(/https?:\/\/[^\s<>"']+/gi)]
+  .map(match => match[0].replace(/[.,;:!?)\]}]+$/, ""));
+const appendMessageDependencies = (message: string) => [...message.matchAll(/\bonly\s+after\s+([A-Za-z0-9][A-Za-z0-9_.:-]{0,199})\s+is\s+completed\b/gi)]
+  .map(match => match[1]);
+const appendMessageAssets = (message: string) => [...message.matchAll(/\b(?:using|requiring|requires?)\s+asset\s+["“]([^"”]+)["”]/gi)]
+  .map(match => match[1].trim());
+const appendConstraintText = (message: string) => message.replace(/https?:\/\/[^\s<>"']+/gi, "");
+const sameConstraintSet = (left: string[], right: string[]) => digest([...new Set(left)].sort()) === digest([...new Set(right)].sort());
 export async function executePlanningChat(input: PlanningChatInput): Promise<PlanningChatResult> {
   requireContentOperator(currentTenant());
   if (!input.requestId) throw new Error("durable planning command identity required");
@@ -135,7 +145,25 @@ export async function executePlanningChat(input: PlanningChatInput): Promise<Pla
     ...campaignTargets.map(campaign => ({ planIds: plans.filter(plan => plan.campaignRef?.id === campaign.id).map(plan => plan.ref.id).sort(), itemId: undefined })),
     ...(!name && plans.length === 1 ? [{ planIds: [plans[0].ref.id], itemId: undefined }] : []),
   ];
+  const appendConstraintIssues: string[] = [];
   if (input.action === "append_deliverable") {
+    const dependencyItemIds = [...new Set((input.dependencyItemIds ?? []).map(id => id.trim()).filter(Boolean))];
+    const requiredAssetIds = [...new Set((input.requiredAssetIds ?? []).map(id => id.trim()).filter(Boolean))];
+    const sourceUrls = [...new Set((input.sourceUrls ?? []).map(url => url.trim()).filter(Boolean))];
+    const attachmentIds = [...new Set((input.attachmentIds ?? []).map(id => id.trim()).filter(Boolean))];
+    const rawUrls = appendMessageUrls(input.message);
+    const rawDependencies = appendMessageDependencies(input.message);
+    const rawAssets = appendMessageAssets(input.message);
+    const constraintText = appendConstraintText(input.message);
+    const dependencyMarkerCount = [...constraintText.matchAll(/\b(?:after|depends?|dependency|dependencies)\b/gi)].length;
+    const assetMarkerCount = [...constraintText.matchAll(/\bassets?\b/gi)].length;
+    if (!sameConstraintSet(rawUrls, sourceUrls)) appendConstraintIssues.push("source URL constraints were not preserved exactly by routing");
+    if (/\b(?:source|reference|url)\b/i.test(constraintText)) appendConstraintIssues.push("source constraints require an exact URL or attached source");
+    if (dependencyMarkerCount !== rawDependencies.length || !sameConstraintSet(rawDependencies, dependencyItemIds)) appendConstraintIssues.push("dependency constraints were not preserved in exact item syntax");
+    if (assetMarkerCount !== rawAssets.length || !sameConstraintSet(rawAssets, requiredAssetIds)) appendConstraintIssues.push("asset constraints were not preserved in exact quoted-asset syntax");
+    if (sourceUrls.some(url => { try { return !["http:", "https:"].includes(new URL(url).protocol); } catch { return true; } })) appendConstraintIssues.push("source URLs are invalid");
+    if (sourceUrls.length) appendConstraintIssues.push("source URLs require source-rights and evidence binding before a plan item can be appended");
+    if (attachmentIds.length) appendConstraintIssues.push("attachments require source-rights and evidence binding before a plan item can be appended");
     const appendPlanIds = new Set([
       ...planTargets.map(plan => plan.ref.id),
       ...campaignTargets.flatMap(campaign => plans.filter(plan => plan.campaignRef?.id === campaign.id && plan.campaignRef.revision === campaign.revision).map(plan => plan.ref.id)),
@@ -143,19 +171,22 @@ export async function executePlanningChat(input: PlanningChatInput): Promise<Pla
     const plan = appendPlanIds.size === 1 ? plans.find(plan => plan.ref.id === [...appendPlanIds][0]) : undefined;
     const dependencyRefs: AuthorityRef[] = [];
     let dependencyResolutionFailed = false;
-    for (const dependencyName of input.dependencyItemIds ?? []) {
+    for (const dependencyName of dependencyItemIds) {
       const normalized = dependencyName.toLocaleLowerCase();
       const matches = items.filter(item => item.planRef.id === plan?.ref.id && [item.name, item.ref.id, `${item.ref.id}:v${item.ref.revision}`].some(value => value.toLocaleLowerCase() === normalized));
       if (matches.length !== 1) dependencyResolutionFailed = true;
       else dependencyRefs.push(matches[0].ref);
     }
+    if (dependencyResolutionFailed) appendConstraintIssues.push("dependency item IDs must resolve exactly once inside the selected plan");
+    const planningAssets = await listPlanningAssets();
+    if (requiredAssetIds.some(id => !planningAssets.some(asset => asset.id === id))) appendConstraintIssues.push("required asset IDs must resolve in this workspace");
     const channel = input.channel
       ?? (input.requestedOutputs?.some(output => output.startsWith("x_")) ? "x"
         : input.requestedOutputs?.includes("linkedin_post") ? "linkedin"
           : undefined);
     const complete = plan && input.deliverableName?.trim() && input.scheduledFor
       && /(?:Z|[+-]\d{2}:\d{2})$/.test(input.scheduledFor) && Number.isFinite(Date.parse(input.scheduledFor))
-      && input.requestedOutputs?.length && channel && !dependencyResolutionFailed;
+      && input.requestedOutputs?.length && channel && !dependencyResolutionFailed && appendConstraintIssues.length === 0;
     if (complete) {
       return audited(async tx => {
         const result = await addPlannedDeliverable({
@@ -163,7 +194,7 @@ export async function executePlanningChat(input: PlanningChatInput): Promise<Pla
           name: input.deliverableName!.trim(), operatorBrief: input.message,
           requestedOutputs: input.requestedOutputs!, channel, scheduledFor: input.scheduledFor!,
           dependencies: [...new Map(dependencyRefs.map(ref => [digest(ref), ref])).values()],
-          requiredAssetIds: [...new Set((input.requiredAssetIds ?? []).map(id => id.trim()).filter(Boolean))],
+          requiredAssetIds,
         }, tx);
         return {
           outcome: "applied", ...result,
@@ -194,11 +225,11 @@ export async function executePlanningChat(input: PlanningChatInput): Promise<Pla
     const row = await tx.read(key); if (row.present && row.value?.digest !== digest(input)) throw new Error("planning command identity reused");
     const append = input.action === "append_deliverable";
     const reason = append
-      ? "Exactly one current campaign or plan, a deliverable name, supported output/channel, explicit timestamp with offset, and unambiguous dependencies are required"
+      ? [...appendConstraintIssues, "Exactly one current campaign or plan, a deliverable name, supported output/channel, explicit timestamp with offset, and unambiguous dependencies/assets are required"].join("; ")
       : "Exact current plan/item and an unambiguous timestamp with offset are required for calendar changes";
     if (!row.present) tx.insert(key, { workspaceId: currentTenant().workspaceId, brandId: currentTenant().brandId, input, digest: digest(input), state: "needs_details", reason, actor: tenantSubjectId(currentTenant()), at: new Date().toISOString() });
     return { outcome: "proposal", proposalId, reply: append
-      ? `Saved planning proposal ${proposalId}. Specify exactly one current campaign or plan, the deliverable name and outputs, and an ISO date/time with timezone offset. Dependency names or IDs must resolve once inside that plan. ${plans.length} plan(s) and ${items.length} item(s) are available.`
+      ? `Saved planning proposal ${proposalId}. ${appendConstraintIssues.length ? `${appendConstraintIssues.join("; ")}. No plan revision was created. ` : ""}Specify exactly one current campaign or plan, the deliverable name and outputs, and an ISO date/time with timezone offset. Dependency names or IDs and required asset IDs must resolve inside that plan and workspace. ${plans.length} plan(s) and ${items.length} item(s) are available.`
       : `Saved planning proposal ${proposalId}. Specify the exact planned item and an ISO date/time with timezone offset to change its schedule, or the plan to advance. ${plans.length} plan(s) and ${items.length} item(s) are available.` };
   });
 }
@@ -241,6 +272,8 @@ export async function addPlannedDeliverable(input: { planId: string; expectedRev
       await readPlannedItem(dependency, tx);
       if (!plan.itemRefs.some(ref => digest(ref) === digest(dependency))) throw new Error("dependency must be an exact item in this plan");
     }
+    const planningAssets = await listPlanningAssets(tx);
+    if (input.requiredAssetIds.some(id => !planningAssets.some(asset => asset.id === id))) throw new Error("required asset must exist in this workspace");
     const item: PlannedItem = withItemProductionContext({ ref, workspaceId: ref.workspaceId, brandId: ref.brandId, planRef, campaignRef: plan.campaignRef, strategyRef: plan.strategyRef, name: input.name, objective: input.name, operatorBrief: input.operatorBrief, requestedOutputs: input.requestedOutputs, channel: input.channel, scheduledFor: new Date(input.scheduledFor).toISOString(), dependencies: input.dependencies, requiredAssetIds: input.requiredAssetIds, measurements: input.measurements, evidence: { mode: "operator_context", operatorBrief: input.operatorBrief, contextDigest: sourceAnalysisDigest(input.operatorBrief), evidenceIds: [], factualClaimsAllowed: false }, productionContext: { mode: "operator_context", policyRef: policy.ref }, createdAt: now });
     const conflicts = calendarConflicts(item, await plannedCalendar(tx), policy);
     if (conflicts.length) throw new Error(`calendar proposal required: ${conflicts.join("; ")}`);

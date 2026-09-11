@@ -181,9 +181,39 @@ def deterministic_intent_classification(
         and re.search(r"\b(?:post|thread|article|newsletter|caption|carousel|image|video|music|deliverable)\b", message)
     )
     if append_requested:
+        # The deterministic shortcut is safe only when every optional authority
+        # constraint has an exact syntax. Attachments have no identifiers in
+        # this routing input, so the model/durable host must resolve them.
+        if value.attachmentCount:
+            return None
+        constraint_message = re.sub(r"https?://[^\s<>\"']+", "", message)
         target = re.search(r"\b(?:campaign|plan)\s+[\"“]([^\"”]+)[\"”]", value.message, re.IGNORECASE)
         name = re.search(r"\b(?:called|named)\s+[\"“]([^\"”]+)[\"”]", value.message, re.IGNORECASE)
         timestamp = re.search(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})", value.message)
+        dependency_matches = re.findall(
+            r"\bonly\s+after\s+([A-Za-z0-9][A-Za-z0-9_.:-]{0,199})\s+is\s+completed\b",
+            value.message,
+            re.IGNORECASE,
+        )
+        dependency_markers = re.findall(r"\b(?:after|depends?|dependency|dependencies)\b", constraint_message)
+        if dependency_markers and len(dependency_matches) != len(dependency_markers):
+            return None
+        asset_matches = re.findall(
+            r"\b(?:using|requiring|requires?)\s+asset\s+[\"“]([^\"”]+)[\"”]",
+            value.message,
+            re.IGNORECASE,
+        )
+        if len(asset_matches) != len(re.findall(r"\bassets?\b", constraint_message)):
+            return None
+        if urls:
+            source_matches = [
+                match.rstrip(".,;:!?)]}")
+                for match in re.findall(r"\busing\s+(https?://[^\s<>\"']+)", value.message, re.IGNORECASE)
+            ]
+            if source_matches != urls:
+                return None
+        elif re.search(r"\b(?:source|reference|url)\b", constraint_message):
+            return None
         outputs: list[OutputConcept] = []
         platforms: list[SocialPlatform] = []
         if re.search(r"\b(?:x|twitter)\s+(?:post|thread)\b", message):
@@ -196,8 +226,9 @@ def deterministic_intent_classification(
             return IntentClassification(
                 intent="append_deliverable", workPlacement="existing_plan_item",
                 targetName=target.group(1).strip(), deliverableName=name.group(1).strip(),
-                scheduledFor=timestamp.group(0), dependencyItemIds=[], requiredAssetIds=[],
-                userOutcome=f"Add {name.group(1).strip()}", sourceUrls=[],
+                scheduledFor=timestamp.group(0), dependencyItemIds=dependency_matches,
+                requiredAssetIds=[asset.strip() for asset in asset_matches],
+                userOutcome=f"Add {name.group(1).strip()}", sourceUrls=urls,
                 outputConcepts=outputs, platformRecommendations=platforms,
                 assumptions=[], needsClarification=False, clarifyingQuestion=None,
                 requiresRightsAttestation=False, effectRequested=False, jobId=None,

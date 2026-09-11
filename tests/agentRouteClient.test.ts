@@ -55,19 +55,19 @@ describe("Harmonia intent route client", () => {
 
   it("accepts a typed append-deliverable route without granting effect authority", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      intent: "append_deliverable", userOutcome: "Add a founder follow-up", sourceUrls: [],
+      intent: "append_deliverable", userOutcome: "Add a founder follow-up", sourceUrls: ["https://example.com/approved-source"],
       outputConcepts: ["short_social_post"], assumptions: [], needsClarification: false,
       platformRecommendations: ["x"], connectionSuggestions: [], missingField: null,
       resolvedField: null, clarifyingQuestion: null, requiresRightsAttestation: false,
       effectRequested: false, effectAuthorized: false, jobId: null,
       workPlacement: "existing_plan_item", targetName: "Launch",
       deliverableName: "Founder follow-up", scheduledFor: "2026-09-13T12:00:00Z",
-      dependencyItemIds: ["launch-post"], requiredAssetIds: ["launch-graphic"],
+      dependencyItemIds: ["item-first"], requiredAssetIds: [],
       strategyContext: null,
     }), { status: 200, headers: { "content-type": "application/json" } }));
 
     const route = await requestIntentRoute({
-      message: 'Add an X post called "Founder follow-up" to campaign "Launch" at 2026-09-13T12:00:00Z.',
+      message: 'Add an X post called "Founder follow-up" to campaign "Launch" at 2026-09-13T12:00:00Z, only after item-first is completed, using https://example.com/approved-source.',
       workspaceContext: context, attachmentCount: 0, recentConversation: [],
     }, {
       baseUrl: "http://localhost:8080", token: "token", fetchImpl,
@@ -76,8 +76,8 @@ describe("Harmonia intent route client", () => {
 
     expect(route).toMatchObject({
       intent: "append_deliverable", targetName: "Launch", deliverableName: "Founder follow-up",
-      scheduledFor: "2026-09-13T12:00:00Z", dependencyItemIds: ["launch-post"],
-      requiredAssetIds: ["launch-graphic"], effectAuthorized: false,
+      scheduledFor: "2026-09-13T12:00:00Z", dependencyItemIds: ["item-first"],
+      requiredAssetIds: [], sourceUrls: ["https://example.com/approved-source"], effectAuthorized: false,
     });
   });
 

@@ -160,4 +160,48 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("campaign append conversational
       expect((await (await import("@/lib/campaigns/repository")).currentPlan(planId)).ref.revision).toBe(1);
     });
   });
+
+  it("persists or visibly rejects source, attachment, and asset constraints instead of dropping them", async () => {
+    await runWithTenant(tenant(), async () => {
+      await setupStrategyAndPolicy();
+      const base = await createCampaign("Launch");
+      const campaigns = await import("@/lib/campaigns/repository");
+      const commands = await import("@/lib/planning/commands");
+
+      const droppedSource = await send(
+        "dashboard",
+        randomUUID(),
+        'Add an X post called "Source follow-up" to campaign "Launch" at 2026-09-14T12:00:00Z using https://example.com/source.',
+        appendIntent("Launch", "Source follow-up"),
+      );
+      expect(String(droppedSource.body.reply)).toContain("source URL constraints were not preserved exactly");
+
+      const attachment = await commands.executePlanningChat({
+        action: "append_deliverable", requestId: randomUUID(), targetName: "Launch",
+        message: 'Add an X post called "Attachment follow-up" to campaign "Launch" at 2026-09-15T12:00:00Z.',
+        deliverableName: "Attachment follow-up", requestedOutputs: ["x_post"], channel: "x",
+        scheduledFor: "2026-09-15T12:00:00Z", dependencyItemIds: [], requiredAssetIds: [],
+        sourceUrls: [], attachmentIds: ["attachment-ready"],
+      });
+      expect(attachment.outcome).toBe("proposal");
+      expect(attachment.reply).toContain("attachments require source-rights and evidence binding");
+
+      const asset = await commands.executePlanningChat({
+        action: "append_deliverable", requestId: randomUUID(), targetName: "Launch",
+        message: 'Add an X post called "Asset follow-up" to campaign "Launch" at 2026-09-16T12:00:00Z using asset "asset-missing".',
+        deliverableName: "Asset follow-up", requestedOutputs: ["x_post"], channel: "x",
+        scheduledFor: "2026-09-16T12:00:00Z", dependencyItemIds: [], requiredAssetIds: ["asset-missing"],
+        sourceUrls: [], attachmentIds: [],
+      });
+      expect(asset.outcome).toBe("proposal");
+      expect(asset.reply).toContain("required asset IDs must resolve in this workspace");
+      expect((await campaigns.currentPlan(base.planRef.id)).ref.revision).toBe(1);
+
+      const proposals = await commands.listPlanningProposals();
+      expect(proposals.map(proposal => proposal.input)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ attachmentIds: ["attachment-ready"] }),
+        expect.objectContaining({ requiredAssetIds: ["asset-missing"] }),
+      ]));
+    });
+  });
 });

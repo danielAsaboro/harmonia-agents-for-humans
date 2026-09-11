@@ -493,7 +493,7 @@ def build_agent_team(
             "When clarification is needed, set missingField to its exact bounded identifier and ask one focused question. "
             "Set resolvedField only when the current message answers that exact pendingClarification field; acknowledgments do not resolve it. "
             "Respect explicit independent/standalone opt-out. targetName is the operator's exact supplied campaign/item name or null; never invent IDs. "
-            "For append_deliverable, preserve the operator's deliverable name, timezone-qualified ISO schedule, dependency item names/IDs, and required asset IDs in their dedicated fields. "
+            "For append_deliverable, preserve every operator-supplied dependency item name/ID, source URL, and required asset ID in its dedicated field; if any dependency, source, attachment, or asset constraint cannot be represented exactly, request clarification instead of emitting a complete append route. "
             "Retain the original requested action, outputs and placement when answering a pending clarification. "
             "Do not assemble strategy context; that is a separate bounded delegation. "
             "userOutcome must describe what the job should achieve; never claim that Harmonia has already accepted, extracted, prepared, repurposed, completed, published, executed, or verified work. "

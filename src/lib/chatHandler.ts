@@ -472,6 +472,8 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
         requestedOutputs: intent.desiredOutputs ?? [],
         channel: intent.platformRecommendations?.length === 1 ? intent.platformRecommendations[0] : undefined,
         dependencyItemIds: intent.dependencyItemIds ?? [], requiredAssetIds: intent.requiredAssetIds ?? [],
+        sourceUrls: (intent.sources ?? []).flatMap(source => source.kind === "web" || source.kind === "youtube" ? [source.url] : []),
+        attachmentIds: attachments.map(attachment => attachment.id),
       } : {}),
     });
     return { payload: { intent: intent.intent, reply: result.reply } satisfies ChatResponse };

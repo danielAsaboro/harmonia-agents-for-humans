@@ -76,6 +76,38 @@ def test_exact_campaign_append_is_host_classified_with_typed_constraints():
     assert route.effectRequested is False
 
 
+def test_exact_campaign_append_preserves_dependency_and_source_constraints():
+    value = IntentRoutingInput(
+        message='Add an X post called "Launch follow-up" to campaign "Launch" at 2026-09-14T12:00:00Z, only after item-first is completed, using https://example.com/approved-source.',
+        workspaceContext=context(strategyReady=True, planReady=True, calendarReady=True),
+        attachmentCount=0,
+    )
+
+    route = deterministic_intent_classification(value)
+
+    assert route is not None
+    assert route.intent == "append_deliverable"
+    assert route.dependencyItemIds == ["item-first"]
+    assert route.sourceUrls == ["https://example.com/approved-source"]
+
+
+@pytest.mark.parametrize("message,attachment_count", [
+    ('Add an X post called "Follow-up" to campaign "Launch" at 2026-09-14T12:00:00Z after the launch is completed.', 0),
+    ('Add an X post called "Follow-up" to campaign "Launch" at 2026-09-14T12:00:00Z using an asset from the library.', 0),
+    ('Add an X post called "Follow-up" to campaign "Launch" at 2026-09-14T12:00:00Z using asset "asset-one" and another asset.', 0),
+    ('Add an X post called "Follow-up" to campaign "Launch" at 2026-09-14T12:00:00Z using the approved source.', 0),
+    ('Add an X post called "Follow-up" to campaign "Launch" at 2026-09-14T12:00:00Z.', 1),
+])
+def test_append_with_unparsed_constraints_falls_back_to_model(message, attachment_count):
+    value = IntentRoutingInput(
+        message=message,
+        workspaceContext=context(strategyReady=True, planReady=True, calendarReady=True),
+        attachmentCount=attachment_count,
+    )
+
+    assert deterministic_intent_classification(value) is None
+
+
 def test_operation_projection_is_strict_and_accepts_current_jobs_proposals_and_all_durable_states():
     payload = IntentRoutingInput.model_validate({
         "message": "status", "attachmentCount": 0,

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { operatorInstructionContextSchema, type OperatorInstructionContext } from "./operatorInstructions";
 
 const usd = z.string().regex(/^\d+\.\d{6}$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -61,16 +62,17 @@ export const generatedMusicSpecSchema = z.object({
  * rather than executor defaults.  A worker may only submit this exact envelope.
  */
 export const sealedProviderRequestSchema = z.discriminatedUnion("provider", [
-  z.object({ provider: z.literal("nova_canvas"), model: z.literal(NOVA_CANVAS_CAPABILITIES["nova-canvas"].model), request: generatedImageSpecSchema }).strict(),
-  z.object({ provider: z.literal("nova_reel"), model: z.literal(NOVA_REEL_CAPABILITIES["nova-reel"].model), request: generatedVideoSpecSchema }).strict(),
-  z.object({ provider: z.literal("elevenlabs"), model: z.literal(ELEVENLABS_CAPABILITIES["elevenlabs-music"].model), request: generatedMusicSpecSchema }).strict(),
+  z.object({ provider: z.literal("nova_canvas"), model: z.literal(NOVA_CANVAS_CAPABILITIES["nova-canvas"].model), request: generatedImageSpecSchema, instructionContext: operatorInstructionContextSchema.optional() }).strict(),
+  z.object({ provider: z.literal("nova_reel"), model: z.literal(NOVA_REEL_CAPABILITIES["nova-reel"].model), request: generatedVideoSpecSchema, instructionContext: operatorInstructionContextSchema.optional() }).strict(),
+  z.object({ provider: z.literal("elevenlabs"), model: z.literal(ELEVENLABS_CAPABILITIES["elevenlabs-music"].model), request: generatedMusicSpecSchema, instructionContext: operatorInstructionContextSchema.optional() }).strict(),
 ]);
 export type SealedProviderRequest = z.infer<typeof sealedProviderRequestSchema>;
 
-export function sealProviderRequest(spec: GeneratedVideoSpec | GeneratedMusicSpec | GeneratedImageSpec): SealedProviderRequest {
-  if (spec.modelCapability === "nova-canvas") return { provider: "nova_canvas", model: NOVA_CANVAS_CAPABILITIES["nova-canvas"].model, request: spec };
-  if (spec.modelCapability === "nova-reel") return { provider: "nova_reel", model: NOVA_REEL_CAPABILITIES["nova-reel"].model, request: spec };
-  return { provider: "elevenlabs", model: ELEVENLABS_CAPABILITIES["elevenlabs-music"].model, request: spec };
+export function sealProviderRequest(spec: GeneratedVideoSpec | GeneratedMusicSpec | GeneratedImageSpec, instructionContext?: OperatorInstructionContext): SealedProviderRequest {
+  const context = instructionContext ? { instructionContext: operatorInstructionContextSchema.parse(instructionContext) } : {};
+  if (spec.modelCapability === "nova-canvas") return { provider: "nova_canvas", model: NOVA_CANVAS_CAPABILITIES["nova-canvas"].model, request: spec, ...context };
+  if (spec.modelCapability === "nova-reel") return { provider: "nova_reel", model: NOVA_REEL_CAPABILITIES["nova-reel"].model, request: spec, ...context };
+  return { provider: "elevenlabs", model: ELEVENLABS_CAPABILITIES["elevenlabs-music"].model, request: spec, ...context };
 }
 
 export function sealedProviderForOperation(operation: { executionAuthority: string; payload: unknown }): SealedProviderRequest | null {
@@ -159,6 +161,7 @@ export const videoProductionPlanSchema = z.object({
     destinations: z.array(z.string().min(1).max(128)).max(16),
     promptDigest: digest,
   }).strict().optional(),
+  instructionContext: operatorInstructionContextSchema.optional(),
   packTextChildren: z.array(packTextChildSchema).max(100).default([]),
 }).strict().superRefine((value, context) => {
   if (Number(value.maximumCostUsd) < Number(value.estimatedCostUsd)) context.addIssue({ code: "custom", path: ["maximumCostUsd"], message: "maximum cost must cover estimated cost" });
@@ -395,13 +398,13 @@ export function compileProductionOperations(plan: VideoProductionPlan): Producti
   const paid: ProductionOperation[] = [];
   for (const [index, image] of plan.images.entries()) {
     const id = `${plan.id}:generate_image:image-${index + 1}`;
-    const payload = sealProviderRequest(image);
+    const payload = sealProviderRequest(image, plan.instructionContext);
     paid.push({ id, jobId: plan.jobId, type: "generate_image", dependsOn: [], payload, requestDigest: sha(payload), estimatedCostUsd: plan.operationCostsUsd[id], executionAuthority: "production_mandate" });
   }
   for (const scene of [...plan.scenes].sort((a, b) => a.order - b.order)) if (scene.video) {
     const type = "generate_video";
     const id = `${plan.id}:${type}:${scene.id}`;
-    const payload = sealProviderRequest(scene.video);
+    const payload = sealProviderRequest(scene.video, plan.instructionContext);
     const requestDigest = sha(payload);
     const conditioningIds = [scene.video.sourceImageArtifact]
       .filter((reference): reference is VerifiedProductionArtifactRef => Boolean(reference))
@@ -410,7 +413,7 @@ export function compileProductionOperations(plan: VideoProductionPlan): Producti
   }
   if (plan.soundtrack) {
     const id = `${plan.id}:generate_music`;
-    const payload = sealProviderRequest(plan.soundtrack);
+    const payload = sealProviderRequest(plan.soundtrack, plan.instructionContext);
     const requestDigest = sha(payload);
     paid.push({ id, jobId: plan.jobId, type: "generate_music", dependsOn: [], payload, requestDigest, estimatedCostUsd: plan.operationCostsUsd[id], executionAuthority: "production_mandate" });
   }

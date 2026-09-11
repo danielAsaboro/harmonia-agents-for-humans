@@ -121,6 +121,12 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("durable intake commands", () =
     expect(replay.answers).toHaveLength(1);
     const job = await getJob(replay.jobId!);
     expect(job.config.operatorBrief).toBe(input.message);
+    expect(job.config.originalOperatorBrief).toBe(input.message);
+    expect(job.config.instructionContext).toMatchObject({
+      originalOperatorBrief: input.message,
+      resolvedInstructions: input.message,
+      answerTurnIds: [],
+    });
     expect(job.config.desiredOutputs).toEqual(["x_post"]);
     expect(job.config.allowedOutputs).toEqual(["x_post"]);
     await expect(submitIntakeTurn({ ...input, message: "Changed" })).rejects.toThrow("reused");

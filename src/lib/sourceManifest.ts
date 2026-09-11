@@ -4,7 +4,7 @@ import { awsRepository, recordKey, type DynamoTransaction } from "./dynamo";
 import { createJob } from "./repository";
 import { sealManifest } from "./sourceRegistry";
 import { assertResourceWorkspace, currentTenant,tenantSubjectId } from "./tenancy";
-import type { AnalysisResearchRequest,Job,OutputKind,SourceInput,SourceRecord,StrategyContext } from "./types";
+import type { AnalysisResearchRequest,Job,JobConfig,OutputKind,SourceInput,SourceRecord,StrategyContext } from "./types";
 import type { IntakeDraft } from "./intake/contracts";
 import { intakeSourceKey } from "./intake/contracts";
 import type { ChatAttachment } from "./chatAttachments";
@@ -12,6 +12,8 @@ import { intakeDraftKey } from "./intake/repository";
 
 export interface CreateSourceJobInput {
   operatorBrief?: string;
+  originalOperatorBrief?: JobConfig["originalOperatorBrief"];
+  instructionContext?: JobConfig["instructionContext"];
   librarySnapshotId?: string;
   directSources: SourceInput[];
   desiredOutputs: OutputKind[];
@@ -55,6 +57,8 @@ export async function createSourceJob(input: CreateSourceJobInput): Promise<Job>
     allowedOutputs,
     platforms: input.platforms,
     ...(input.operatorBrief ? { operatorBrief: input.operatorBrief } : {}),
+    ...(input.originalOperatorBrief ? { originalOperatorBrief: input.originalOperatorBrief } : {}),
+    ...(input.instructionContext ? { instructionContext: input.instructionContext } : {}),
     ...(input.strategyContext ? { strategyContext: input.strategyContext } : {}),
     ...(input.analysisResearchRequest ? { analysisResearchRequest: input.analysisResearchRequest } : {}),
     ...(input.intake ? { intake: input.intake } : {}),

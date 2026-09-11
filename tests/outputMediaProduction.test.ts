@@ -2,9 +2,26 @@ import { describe, expect, it } from "vitest";
 import { compileProductionOperations, productionPlanDigest } from "@/lib/mediaProduction";
 import { bindTextArtifactsToMediaPack, planRequestedMediaProduction } from "@/lib/outputMediaProduction";
 import type { CampaignOutputPlan, Job } from "@/lib/types";
+import { sealOperatorInstructionContext } from "@/lib/operatorInstructions";
 
 const digest = "a".repeat(64);
-const job: Pick<Job, "id" | "workspaceId" | "brandId" | "config"> = { id: "job-media-1", workspaceId: "workspace-1", brandId: "brand-1", config: { operatorBrief: "Create a calm launch visual with a precise product story.", desiredOutputs: [], allowedOutputs: [], platforms: [] } };
+const instructionContext = sealOperatorInstructionContext({
+  draftId: "b".repeat(64), revision: 3, originalOperatorBrief: "Create launch media.",
+  answers: [
+    { requestId: "initial-brief", message: "Create launch media." },
+    { requestId: "answer-subject-colors", message: "Feature a copper robot on midnight blue." },
+    { requestId: "answer-outcome", message: "Drive waitlist signups.", resolvedField: "expectedOutcome" },
+  ],
+});
+const job: Pick<Job, "id" | "workspaceId" | "brandId" | "config"> = {
+  id: "job-media-1", workspaceId: "workspace-1", brandId: "brand-1",
+  config: {
+    operatorBrief: instructionContext.resolvedInstructions,
+    originalOperatorBrief: instructionContext.originalOperatorBrief,
+    instructionContext,
+    desiredOutputs: [], allowedOutputs: [], platforms: [],
+  },
+};
 const outputPlan = {
   id: "output-plan-1", digest, desiredOutputs: ["social_image", "generated_video", "generated_music"], allowedOutputs: ["social_image", "generated_video", "generated_music"],
   outputs: [
@@ -27,7 +44,30 @@ describe("routed media production proposal", () => {
     expect(operations.find((operation) => operation.type === "assemble_media_pack")).toMatchObject({ dependsOn: paidIds });
     expect(plan!.outputRequest).toMatchObject({ outputPlanId: "output-plan-1", outputPlanDigest: digest, outputIds: ["image-1", "video-1", "music-1"], contentRevision: 1, destinations: ["content_pack"] });
     expect(plan!.maximumCostUsd).toBe("1.100000");
+    expect(plan!.instructionContext).toEqual(instructionContext);
+    expect(plan!.goal).toBe(instructionContext.resolvedInstructions);
+    for (const operation of operations.filter((operation) => operation.executionAuthority === "production_mandate")) {
+      expect(operation.payload).toMatchObject({ instructionContext });
+      expect(operation.payload.request).toMatchObject({ prompt: instructionContext.resolvedInstructions });
+    }
     expect(productionPlanDigest(plan!)).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("binds clarification provenance into the approval digest even when creative text is unchanged", () => {
+    const plan = planRequestedMediaProduction({
+      job, outputPlan,
+      pricing: { version: "test-pricing", canvasPerImage: "0.500000", reelPerSecond: "0.080000", musicPerSecond: "0.004000" },
+    })!;
+    const changedProvenance = sealOperatorInstructionContext({
+      draftId: instructionContext.intakeDraftId, revision: instructionContext.intakeRevision,
+      originalOperatorBrief: instructionContext.originalOperatorBrief,
+      answers: [
+        { requestId: "initial-brief", message: instructionContext.originalOperatorBrief },
+        { requestId: "different-subject-turn", message: "Feature a copper robot on midnight blue." },
+        { requestId: "different-outcome-turn", message: "Drive waitlist signups.", resolvedField: "expectedOutcome" },
+      ],
+    });
+    expect(productionPlanDigest({ ...plan, instructionContext: changedProvenance })).not.toBe(productionPlanDigest(plan));
   });
 
   it("does not make a production plan where no provider media was selected", () => {

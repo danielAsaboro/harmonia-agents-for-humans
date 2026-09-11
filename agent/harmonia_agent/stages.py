@@ -482,6 +482,8 @@ def _strategy_input(job: dict[str, Any], insights: dict[str, Any]) -> Strategist
         campaign=CampaignContext(
             evidenceId="context:campaign",
             operatorBrief=(job.get("config") or {}).get("operatorBrief"),
+            originalOperatorBrief=(job.get("config") or {}).get("originalOperatorBrief"),
+            instructionContext=(job.get("config") or {}).get("instructionContext"),
             **{key: context[key] for key in ("businessObjectives", "campaignObjectives", "audiences", "funnelStage", "intendedConversion", "requestedChannels", "supportedChannels")},
             horizonWeeks=int(context.get("horizonWeeks") or 4),
         ),
@@ -680,6 +682,8 @@ async def run_draft(job_id: str) -> None:
             "sourceBinding": snapshot["sourceBinding"],
             "editorialItem": selected.model_dump(mode="json"),
             "operatorBrief": (job.get("config") or {}).get("operatorBrief"),
+            "originalOperatorBrief": (job.get("config") or {}).get("originalOperatorBrief"),
+            "instructionContext": (job.get("config") or {}).get("instructionContext"),
             "outputPlanId": output_plan["id"], "outputPlanDigest": output_plan["digest"],
             "requests": [{"id": item["id"], "outputType": item["outputType"], "evidenceRefs": item["evidenceRefs"]} for item in requested],
             "evidence": [{"id": ref, "text": evidence_by_id[ref]} for ref in required_refs],

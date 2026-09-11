@@ -7,6 +7,7 @@ import type { SourceInput } from "../types";
 import { materializeIntake } from "../planning/commands";
 import { readActiveStrategyRef } from "../strategy/repository";
 import { claimNextPlannedItem } from "../planning/selection";
+import { sealOperatorInstructionContext } from "../operatorInstructions";
 
 export { evaluateIntake } from "./contracts";
 export { submitIntakeTurn };
@@ -28,6 +29,7 @@ export async function executeIntakeDraft(input: IntakeDraft): Promise<IntakeDraf
   }
   if (draft.state !== "ready" || draft.disposition === "knowledge_only") return draft;
   const intake = { draftId: draft.id, action: draft.action, disposition: draft.disposition, expectedOutcome: draft.expectedOutcome, target: draft.target, strategyBaseRef: draft.strategyBaseRef };
+  const instructionContext = sealOperatorInstructionContext({ draftId: draft.id, revision: draft.revision, originalOperatorBrief: draft.originalOperatorBrief, answers: draft.answers });
   const setup = (tx: Parameters<typeof bindIntakeJob>[0], jobId: string) => bindIntakeJob(tx, draft, jobId);
   const idempotentJobId = `intake-${draft.id}`;
   const directSources: SourceInput[] = [];
@@ -36,7 +38,7 @@ export async function executeIntakeDraft(input: IntakeDraft): Promise<IntakeDraf
     const rightsAuthorizationId = await readIntakeSourceRights(draft, source);
     directSources.push({ ...source, rightsAuthorizationId });
   }
-  const config = { operatorBrief: draft.originalOperatorBrief, desiredOutputs: draft.requestedOutputs, allowedOutputs: draft.requestedOutputs,
+  const config = { operatorBrief: instructionContext.resolvedInstructions, originalOperatorBrief: draft.originalOperatorBrief, instructionContext, desiredOutputs: draft.requestedOutputs, allowedOutputs: draft.requestedOutputs,
     platforms: draft.strategyContext?.supportedChannels ?? [], strategyContext: draft.strategyContext, intake };
   try {
     if (directSources.length) await createSourceJob({ ...config, directSources, idempotentJobId, setup });

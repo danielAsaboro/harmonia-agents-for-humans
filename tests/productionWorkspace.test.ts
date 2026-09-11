@@ -4,6 +4,16 @@ import { describe, expect, it } from "vitest";
 import type { JobFull } from "@/components/jobTypes";
 import { ProductionWorkspace } from "@/components/studio/ProductionWorkspace";
 import { compileProductionOperations, productionPlanDigest, videoProductionPlanSchema } from "@/lib/mediaProduction";
+import { sealOperatorInstructionContext } from "@/lib/operatorInstructions";
+
+const instructionContext = sealOperatorInstructionContext({
+  draftId: "b".repeat(64), revision: 3, originalOperatorBrief: "Create launch media.",
+  answers: [
+    { requestId: "initial-brief", message: "Create launch media." },
+    { requestId: "answer-subject-colors", message: "Use a copper robot on midnight blue." },
+    { requestId: "answer-outcome", message: "Drive waitlist signups.", resolvedField: "expectedOutcome" },
+  ],
+});
 
 const plan = videoProductionPlanSchema.parse({
   id: "media-plan-1", jobId: "job-1", workspaceId: "workspace-1", brandId: "brand-1", revision: 1,
@@ -17,6 +27,7 @@ const plan = videoProductionPlanSchema.parse({
   narration: [],
   constraints: { allowLikeness: false, allowGeneratedVocals: false, requireLicensedSources: true },
   pricingVersion: "2026-08-31", operationCostsUsd: { "media-plan-1:generate_video:scene-1": "0.320000" }, estimatedCostUsd: "0.320000", maximumCostUsd: "0.400000",
+  instructionContext,
 });
 const digest = productionPlanDigest(plan);
 const operations = compileProductionOperations(plan);
@@ -42,6 +53,10 @@ describe("production workspace", () => {
     expect(html).toContain("nova-reel");
     expect(html).toContain("waiting_provider");
     expect(html).toContain(operations[0].requestDigest);
+    expect(html).toContain("Create launch media.");
+    expect(html).toContain("Use a copper robot on midnight blue.");
+    expect(html).toContain("answer-subject-colors");
+    expect(html).toContain("answer-outcome");
     expect(html).not.toContain("Approve publication");
   });
 });

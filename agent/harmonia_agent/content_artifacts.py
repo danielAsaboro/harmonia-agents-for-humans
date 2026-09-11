@@ -5,6 +5,7 @@ import json
 from typing import Annotated, Literal
 from pydantic import Field, field_validator, model_validator
 from .agent_models import StrictModel, StrategyRef, StrategySourceBinding, OperatorSourceBinding, EditorialPlanItem
+from .operator_instructions import OperatorInstructionContext
 
 
 class Section(StrictModel):
@@ -404,7 +405,9 @@ class ArtifactProductionInput(StrictModel):
     strategyRef: StrategyRef
     sourceBinding: StrategySourceBinding | OperatorSourceBinding
     editorialItem: EditorialPlanItem
-    operatorBrief: str | None = Field(default=None, min_length=1, max_length=2000)
+    operatorBrief: str | None = Field(default=None, min_length=1, max_length=20000)
+    originalOperatorBrief: str | None = Field(default=None, min_length=1, max_length=20000)
+    instructionContext: OperatorInstructionContext | None = None
     outputPlanId: str = Field(min_length=1)
     outputPlanDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
     requests: list[ArtifactRequest] = Field(min_length=1, max_length=30)
@@ -424,6 +427,8 @@ class ArtifactProductionInput(StrictModel):
                 raise ValueError("this output requires authoritative source evidence")
             if self.operatorBrief != self.sourceBinding.operatorBrief:
                 raise ValueError("operator context brief mismatch")
+            if self.originalOperatorBrief != self.sourceBinding.originalOperatorBrief or self.instructionContext != self.sourceBinding.instructionContext:
+                raise ValueError("operator instruction provenance mismatch")
         elif not self.evidence or any(not request.evidenceRefs for request in self.requests):
             raise ValueError("source-backed production requires factual evidence")
         if self.sourceBinding.strategyRef != self.strategyRef or not set(self.editorialItem.evidenceRefs) <= set(self.sourceBinding.evidenceIds):

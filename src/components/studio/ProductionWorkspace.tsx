@@ -36,6 +36,12 @@ export function ProductionWorkspace({ job, busy = false, onSeal, onDecide }: Pro
       </div>
       <details className="mt-3 rounded-xl border border-black/10 p-3">
         <summary className="cursor-pointer text-xs font-bold">Storyboard, model rationale, and operation graph</summary>
+        {plan.instructionContext ? <div className="mt-3 rounded-lg border border-black/10 bg-[#f3f0e8] p-3 text-xs">
+          <b>Resolved operator instructions</b>
+          <p className="mt-1 whitespace-pre-wrap">{plan.instructionContext.resolvedInstructions}</p>
+          <p className="mt-2 text-black/55"><b>Original brief:</b> {plan.instructionContext.originalOperatorBrief}</p>
+          <p className="mt-1 font-mono text-[8px] text-black/45">Answer turns: {plan.instructionContext.answerTurnIds.join(", ") || "none"} · intake {plan.instructionContext.intakeDraftId} v{plan.instructionContext.intakeRevision} · {plan.instructionContext.contextDigest}</p>
+        </div> : null}
         <ol className="mt-3 space-y-2">
           {plan.scenes.map((scene) => <li key={scene.id} className="rounded-lg bg-[#f3f0e8] p-2 text-xs"><b>{scene.order}. {scene.purpose}</b><span className="ml-2 font-mono text-[8px] text-black/45">{scene.startSec}s–{scene.startSec + scene.durationSec}s · {scene.video?.modelCapability ?? "source"}</span>{scene.video ? <code className="mt-1 block whitespace-pre-wrap break-all text-[8px]">{JSON.stringify(scene.video)}</code> : null}</li>)}
         </ol>

@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, field_validator, model_validator, model_serializer
 from .learning_models import LearningContext
+from .operator_instructions import OperatorInstructionContext
 
 
 class StrictModel(BaseModel):
@@ -455,7 +456,9 @@ class CompanyContext(StrictModel):
 
 
 class CampaignContext(StrictModel):
-    operatorBrief: str | None = Field(default=None, min_length=1, max_length=2000)
+    operatorBrief: str | None = Field(default=None, min_length=1, max_length=20000)
+    originalOperatorBrief: str | None = Field(default=None, min_length=1, max_length=20000)
+    instructionContext: OperatorInstructionContext | None = None
     evidenceId: str = Field(min_length=1, max_length=100)
     businessObjectives: list[str] = Field(min_length=1, max_length=8)
     campaignObjectives: list[str] = Field(min_length=1, max_length=8)
@@ -729,6 +732,8 @@ class OperatorSourceBinding(StrictModel):
     contextDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
     evidenceIds: list[str] = Field(max_length=0)
     factualClaimsAllowed: Literal[False]
+    originalOperatorBrief: str | None = Field(default=None, min_length=1, max_length=20000)
+    instructionContext: OperatorInstructionContext | None = None
 
 
 class EditorialPlanningSnapshot(StrictModel):

@@ -7,6 +7,7 @@ import { hasRightsAttestation, sourceRightsAuthorization, sourceRightsAuthorizat
 import { requireContentOperator } from "../authority";
 import { strategyDigest } from "../strategyApproval";
 import { evaluateIntake, intakeAdviceSchema, intakeSourceKey, intakeRequirementApplies, intakeClarificationApplies, type IntakeAdvice, type IntakeDraft, type IntakeTarget, type IntakeSourceHandle, type IntakeMissingField } from "./contracts";
+import { sealOperatorInstructionContext } from "../operatorInstructions";
 
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const turnDigest = (message: string, attachmentIds: string[]) => hash([message, [...attachmentIds].sort()]);
@@ -123,7 +124,7 @@ export async function submitIntakeTurn(input: IntakeTurn): Promise<IntakeDraft> 
     const draft: IntakeDraft = { ...merged, ...assessment, id, workspaceId: tenant.workspaceId, brandId: tenant.brandId,
       subjectId: tenantSubjectId(tenant), conversationId: input.conversationId, operationId: prior?.operationId ?? input.requestId,
       surface: input.surface, originalOperatorBrief: prior?.originalOperatorBrief ?? input.message,
-      answers: [...(prior?.answers ?? []), { requestId: input.requestId, message: input.message, at: now }],
+      answers: [...(prior?.answers ?? []), { requestId: input.requestId, message: input.message, at: now, resolvedField: advice.resolvedField ?? null }],
       sourceRights, state: assessment.missingFields.length ? "clarifying" : merged.disposition === "knowledge_only" ? "retained" : merged.disposition === "existing_plan_item" || (!sourceHandles.length && !["establish_strategy", "revise_strategy"].includes(merged.action)) ? "ready_for_planning" : "ready",
       revision: (prior?.revision ?? 0) + 1, idempotencyKey: id,
       strategyBaseRef: prior ? prior.strategyBaseRef : active,
@@ -149,7 +150,8 @@ export async function bindIntakeJob(tx: DynamoTransaction, draft: IntakeDraft, j
     if (!current.target || !targets.some(target => target.campaignId === current.target?.campaignId && target.planId === current.target?.planId && target.itemId === current.target?.itemId)) throw new Error("planned intake target is no longer authorized");
   }
   if ((["establish_strategy", "revise_strategy"].includes(current.action) || current.disposition === "existing_plan_item") && strategyDigest(active) !== strategyDigest(current.strategyBaseRef)) throw new Error("active strategy changed; revise the intake against its current revision");
-  tx.put(intakeDraftKey(draft.id), { ...current, state: "dispatched", jobId, revision: current.revision + 1, updatedAt: new Date().toISOString() });
+  const instructionContext = sealOperatorInstructionContext({ draftId: current.id, revision: current.revision, originalOperatorBrief: current.originalOperatorBrief, answers: current.answers });
+  tx.put(intakeDraftKey(draft.id), { ...current, instructionContext, state: "dispatched", jobId, revision: current.revision + 1, updatedAt: new Date().toISOString() });
 }
 
 export async function readIntakeSourceRights(draft: IntakeDraft, source: IntakeSourceHandle, reader: StrategyReader = awsRepository()): Promise<string> {

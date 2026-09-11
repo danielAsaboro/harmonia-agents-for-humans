@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { strategyRefSchema, planningSourceBindingSchema } from "./strategy/contracts";
+import { operatorInstructionContextSchema } from "./operatorInstructions";
 
 export const sourceInputSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("youtube"), url: z.string().url(), rightsAuthorizationId: z.string().min(1) }).strict(),
@@ -15,7 +16,9 @@ export const OUTPUT_KINDS = [
 export const outputKindSchema = z.enum(OUTPUT_KINDS);
 
 export const createJobInputSchema = z.object({
-  operatorBrief: z.string().min(1).max(2000).optional(),
+  operatorBrief: z.string().min(1).max(20000).optional(),
+  originalOperatorBrief: z.string().min(1).max(20000).optional(),
+  instructionContext: operatorInstructionContextSchema.optional(),
   librarySnapshotId: z.string().min(1).optional(),
   directSources: z.array(sourceInputSchema).max(10).default([]),
   desiredOutputs: z.array(outputKindSchema).min(1),

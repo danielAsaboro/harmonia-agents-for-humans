@@ -38,6 +38,9 @@ export function planRequestedMediaProduction(input: {
   if (!selected.length) return null;
   const brief = input.job.config.operatorBrief;
   if (!brief) throw new Error("direct media production requires the operator brief that supplied the requested content");
+  const instructionContext = input.job.config.instructionContext;
+  if (instructionContext && instructionContext.resolvedInstructions !== brief) throw new Error("media production instructions differ from their intake provenance");
+  if (instructionContext && input.job.config.originalOperatorBrief !== instructionContext.originalOperatorBrief) throw new Error("original operator brief differs from its intake provenance");
   const pricing = configuredPricing(new Set(selected.map((output) => output.outputType)), input.pricing);
   const id = stablePlanId(input.job.id);
   const revision = input.revision ?? 1;
@@ -65,6 +68,7 @@ export function planRequestedMediaProduction(input: {
     constraints: { allowLikeness: false, allowGeneratedVocals: false, requireLicensedSources: true },
     pricingVersion: pricing.version, operationCostsUsd, estimatedCostUsd: estimate, maximumCostUsd: estimate,
     outputRequest: { outputPlanId: input.outputPlan.id, outputPlanDigest: input.outputPlan.digest, outputIds: [...selected.map((output) => output.id), ...(contentPack ? [contentPack.id] : [])], contentRevision: revision, destinations, promptDigest: promptHash(brief) },
+    ...(instructionContext ? { instructionContext } : {}),
   });
 }
 

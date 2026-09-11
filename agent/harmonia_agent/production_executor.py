@@ -26,6 +26,7 @@ from .generative_media import (
 )
 from .usage import InvocationContext, media_usage_record
 from .telemetry import current_trace_id
+from .operator_instructions import validate_provider_instruction_binding
 from .production_media import (
     CompositionCompileError,
     MediaInspectionError,
@@ -598,12 +599,18 @@ def execute_production_operation(
         raise ProductionExecutionProtocolError("executor received a non-paid production operation")
 
     sealed_request = operation.get("payload")
-    if not isinstance(sealed_request, dict) or set(sealed_request) != {"provider", "model", "request"}:
+    if not isinstance(sealed_request, dict) or set(sealed_request) not in ({"provider", "model", "request"}, {"provider", "model", "request", "instructionContext"}):
         raise ProductionExecutionProtocolError("production operation is missing its sealed provider/model request")
     provider = sealed_request.get("provider")
     expected_provider = "elevenlabs" if operation_type == "generate_music" else "nova_canvas" if operation_type == "generate_image" else "nova_reel"
     if provider != expected_provider or not isinstance(sealed_request.get("model"), str) or not isinstance(sealed_request.get("request"), dict):
         raise ProductionExecutionProtocolError("production provider does not match the sealed operation")
+    instruction_context = sealed_request.get("instructionContext")
+    if instruction_context is not None:
+        try:
+            validate_provider_instruction_binding(sealed_request)
+        except ValueError as exc:
+            raise ProductionExecutionProtocolError("sealed operator instruction provenance is invalid") from exc
     role = "elevenlabs_generator" if provider == "elevenlabs" else "nova_canvas_generator" if provider == "nova_canvas" else "nova_reel_generator"
     model_request = (
         validate_elevenlabs_request(sealed_request["request"])

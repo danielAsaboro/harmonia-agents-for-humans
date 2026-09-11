@@ -2,6 +2,7 @@ import { z } from "zod";
 import { outputKindSchema, strategyContextSchema } from "../contracts";
 import { strategyRefSchema } from "../strategy/contracts";
 import { strategyDigest } from "../strategyApproval";
+import type { OperatorInstructionContext } from "../operatorInstructions";
 
 export const workPlacementSchema = z.enum(["independent", "existing_plan_item", "new_initiative", "knowledge_only"]);
 export const intakeActionSchema = z.enum(["create_job", "establish_strategy", "revise_strategy", "advance_plan"]);
@@ -32,7 +33,8 @@ export interface IntakeDraft extends IntakeAdvice {
   id: string; workspaceId: string; brandId: string; subjectId: string;
   conversationId: string; operationId: string; surface: "dashboard" | "telegram";
   originalOperatorBrief: string;
-  answers: Array<{ requestId: string; message: string; at: string }>;
+  answers: Array<{ requestId: string; message: string; at: string; resolvedField: IntakeMissingField | null }>;
+  instructionContext?: OperatorInstructionContext;
   missingFields: IntakeMissingField[];
   question?: string;
   target?: IntakeTarget;

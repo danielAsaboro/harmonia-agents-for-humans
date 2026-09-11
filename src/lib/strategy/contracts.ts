@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ContentStrategy, StrategyApproval, StrategyInvocationContext } from "../types";
+import { operatorInstructionContextSchema } from "../operatorInstructions";
 
 export const strategyRefSchema = z.object({
   workspaceId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
@@ -22,6 +23,7 @@ export const operatorSourceBindingSchema = z.object({
   mode: z.literal("operator_context"), jobId: z.string().min(1).max(100), strategyRef: strategyRefSchema,
   operatorBrief: z.string().trim().min(1).max(20000), contextDigest: z.string().regex(/^[a-f0-9]{64}$/),
   evidenceIds: z.array(z.never()).length(0), factualClaimsAllowed: z.literal(false),
+  originalOperatorBrief: z.string().min(1).max(20000).optional(), instructionContext: operatorInstructionContextSchema.optional(),
 }).strict();
 export const planningSourceBindingSchema = z.union([strategySourceBindingSchema, operatorSourceBindingSchema]);
 export type PlanningSourceBinding = z.infer<typeof planningSourceBindingSchema>;

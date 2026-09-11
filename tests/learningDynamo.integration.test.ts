@@ -160,6 +160,9 @@ print('ok')`;
     // The operational pointer is mutable state. It must not be able to roll an
     // approved strategy back to the earlier valid cohort member after revocation.
     await awsRepository().patch(secondCollectionKey, { observationId: second.observationId });
+    await expect(api.listLearningObservations()).rejects.toThrow(/head|lineage|revoked/);
+    const recovery = await api.recoverLearning();
+    expect(recovery.failures.some(failure => failure.includes(second.id))).toBe(true);
     await expect(readStrategyRevision(decision.approvedStrategyRef!)).rejects.toThrow(/head|lineage|revoked/);
     await p.revokeLearningEvidence(evaluation.id, "Withdraw underlying evidence");
     await expect(readStrategyRevision(decision.approvedStrategyRef!)).rejects.toThrow("revoked");

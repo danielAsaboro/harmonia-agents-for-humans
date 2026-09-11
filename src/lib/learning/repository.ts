@@ -108,14 +108,18 @@ function appendObservationHeadTransition(tx: DynamoTransaction, collection: Coll
   const body = { workspaceId: collection.workspaceId, brandId: collection.brandId, collectionId: collection.id, observation: { id: observation.id, digest: observation.digest }, previous, recordedAt: observation.observedAt };
   tx.insert(observationHeadKey(collection.id, observation.id), { ...body, digest: strategyDigest(body) });
 }
+async function readAuthoritativeCollectionObservation(collection: Collection, reader: StrategyReader): Promise<PerformanceObservation> {
+  const head = await authoritativeObservationHead(collection, reader);
+  if (collection.observationId !== head.observation.id) throw new InvalidLearningEvidence("mutable collection observation head mismatch");
+  const observation = await readObservation(head.observation.id, reader);
+  if (observation.digest !== head.observation.digest) throw new InvalidLearningEvidence("observation head digest mismatch");
+  return observation;
+}
 export async function assertObservationUsable(observation: PerformanceObservation, reader: StrategyReader = awsRepository(), requireAvailable = true) {
   if (observation.availability === "revoked" || (requireAvailable && observation.availability !== "available")) throw new InvalidLearningEvidence("observation evidence unavailable or revoked");
   const collection = await readRequired<Collection>(learningKey("observation_outbox", observation.collectionId), reader);
   await validBinding(collection, reader);
-  const head = await authoritativeObservationHead(collection, reader);
-  if (collection.observationId !== head.observation.id) throw new InvalidLearningEvidence("mutable collection observation head mismatch");
-  const current = await readObservation(head.observation.id, reader);
-  if (current.digest !== head.observation.digest) throw new InvalidLearningEvidence("observation head digest mismatch");
+  const current = await readAuthoritativeCollectionObservation(collection, reader);
   if (current.availability === "revoked" || (requireAvailable && collection.state !== "completed")) throw new InvalidLearningEvidence("observation revoked or unresolved");
   let successor = current;
   const visited = new Set<string>();
@@ -351,7 +355,7 @@ export async function recordOperatorObservation(input: { collectionId: string; r
 export async function listLearningObservations(): Promise<PerformanceObservation[]> {
   const rows = await awsRepository().query(partition(`${campaignRoot()}/observation_outbox`)); const observations: PerformanceObservation[] = [];
   for (const row of rows.rows) {
-    const c = row.value as unknown as Collection, o = await readObservation(c.observationId);
+    const c = row.value as unknown as Collection, o = await readAuthoritativeCollectionObservation(c, awsRepository());
     if (o.availability === "revoked") { observations.push(o); continue; }
     try { await validBinding(c, awsRepository()); observations.push(o); }
     catch (error) { if (!(error instanceof InvalidLearningEvidence)) throw error; observations.push(await invalidateCollection(c.id, error.message)); }
@@ -360,7 +364,7 @@ export async function listLearningObservations(): Promise<PerformanceObservation
 }
 async function invalidateCollection(id: string, reason: string) {
   return awsRepository().atomic(async tx => {
-    const key = learningKey("observation_outbox", id), c = await readRequired<Collection>(key, tx), old = await readObservation(c.observationId, tx);
+    const key = learningKey("observation_outbox", id), c = await readRequired<Collection>(key, tx), old = await readAuthoritativeCollectionObservation(c, tx);
     if (old.availability === "revoked") return old;
     if (!c.dispatch) await settleCollectionCost(tx, c, "released", new Date().toISOString());
     const observation = buildObservation(c, { availability: "revoked", value: null, reason }, new Date().toISOString(), { provider: "host", evidenceRefs: [old.id] });
@@ -391,7 +395,7 @@ export async function recoverLearning() {
   for (const row of rows.rows) {
     try {
       const c = row.value as unknown as Collection;
-      let observation = await readObservation(c.observationId);
+      let observation = await readAuthoritativeCollectionObservation(c, awsRepository());
       try { await validBinding(c, awsRepository()); } catch (error) { if (!(error instanceof InvalidLearningEvidence)) throw error; observation = await invalidateCollection(c.id, error.message); }
       await persistEvaluationForObservation(observation);
     } catch (error) { failures.push(`${row.id}: ${error instanceof Error ? error.message : "evaluation recovery failed"}`); }

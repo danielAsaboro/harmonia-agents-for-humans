@@ -46,7 +46,7 @@ const plan = {
     },
     overlays: [], captions: [], transitions: [],
   }],
-  narration: [],
+  images: [], narration: [], packTextChildren: [],
   constraints: { allowLikeness: false, allowGeneratedVocals: false, requireLicensedSources: true },
   pricingVersion: "2026-08-31",
   operationCostsUsd: { "plan-1:generate_video:scene-1": "0.320000" },

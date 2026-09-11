@@ -21,6 +21,16 @@ export const NOVA_REEL_CAPABILITIES = {
 export const ELEVENLABS_CAPABILITIES = {
   "elevenlabs-music": { model: "music_v1", durations: [30], maximumDurationSec: 600, instrumental: true, usdPerSecond: null, preview: false },
 } as const;
+export const NOVA_CANVAS_CAPABILITIES = {
+  "nova-canvas": { model: "amazon.nova-canvas-v1:0", resolutions: ["1024x1024"], outputCount: 1, preview: false },
+} as const;
+export const generatedImageSpecSchema = z.object({
+  modelCapability: z.literal("nova-canvas"),
+  prompt: z.string().min(1).max(4000),
+  width: z.literal(1024),
+  height: z.literal(1024),
+  outputCount: z.literal(1),
+}).strict();
 export const generatedVideoSpecSchema = z.object({
   modelCapability: z.literal("nova-reel"),
   mode: z.enum(["text_to_video", "image_to_video"]),
@@ -110,14 +120,24 @@ const narrationClipSchema = z.object({
     context.addIssue({ code: "custom", path: ["artifact", "mime"], message: "narration artifact must be audio" });
   }
 });
+const packTextChildSchema = z.object({ artifactId: z.string().min(1), digest, mime: z.enum(["text/markdown", "application/json"]) }).strict();
 
 export const videoProductionPlanSchema = z.object({
   id: identifier, jobId: identifier, workspaceId: identifier, brandId: identifier, revision: z.number().int().positive(),
   goal: z.string().min(1), audience: z.string().min(1), tone: z.array(z.string().min(1)).min(1),
   target: z.object({ platform: z.string().min(1), durationSec: z.number().positive(), aspectRatio: z.enum(["16:9", "9:16"]), resolution: z.enum(["720p", "1080p", "4k"]), frameRate: z.union([z.literal(24), z.literal(25), z.literal(30), z.literal(60)]), format: z.literal("mp4") }).strict(),
-  scenes: z.array(sceneSchema).min(1), narration: z.array(narrationClipSchema).max(100), soundtrack: generatedMusicSpecSchema.optional(),
+  scenes: z.array(sceneSchema), images: z.array(generatedImageSpecSchema).max(8).default([]), narration: z.array(narrationClipSchema).max(100), soundtrack: generatedMusicSpecSchema.optional(),
   constraints: z.object({ allowLikeness: z.boolean(), allowGeneratedVocals: z.boolean(), requireLicensedSources: z.boolean() }).strict(),
   pricingVersion: z.string().min(1), operationCostsUsd: z.record(z.string().regex(/^[A-Za-z0-9:_-]{1,512}$/), usd), estimatedCostUsd: usd, maximumCostUsd: usd,
+  outputRequest: z.object({
+    outputPlanId: identifier,
+    outputPlanDigest: digest,
+    outputIds: z.array(identifier).min(1).max(16),
+    contentRevision: z.number().int().positive(),
+    destinations: z.array(z.string().min(1).max(128)).max(16),
+    promptDigest: digest,
+  }).strict().optional(),
+  packTextChildren: z.array(packTextChildSchema).max(100).default([]),
 }).strict().superRefine((value, context) => {
   if (Number(value.maximumCostUsd) < Number(value.estimatedCostUsd)) context.addIssue({ code: "custom", path: ["maximumCostUsd"], message: "maximum cost must cover estimated cost" });
   if (!value.constraints.allowGeneratedVocals && value.soundtrack && !value.soundtrack.instrumental) context.addIssue({ code: "custom", path: ["soundtrack"], message: "generated vocals are forbidden by the plan" });
@@ -148,11 +168,18 @@ export const videoProductionPlanSchema = z.object({
     }
     artifactIdentities.set(reference.artifactId, identity);
   }
+  if (!value.scenes.length && !value.images.length && !value.soundtrack) {
+    context.addIssue({ code: "custom", path: ["scenes"], message: "plan requires at least one generated or source media output" });
+  }
+  if (new Set(value.packTextChildren.map((child) => child.artifactId)).size !== value.packTextChildren.length) {
+    context.addIssue({ code: "custom", path: ["packTextChildren"], message: "pack text children must have unique artifact identities" });
+  }
   const requiredOperationIds = value.scenes.flatMap((scene) => {
     if (!scene.video) return [];
     const type = "generate_video";
     return [`${value.id}:${type}:${scene.id}`];
   });
+  value.images.forEach((_image, index) => requiredOperationIds.push(`${value.id}:generate_image:image-${index + 1}`));
   if (value.soundtrack) requiredOperationIds.push(`${value.id}:generate_music`);
   requiredOperationIds.sort();
   const quotedOperationIds = Object.keys(value.operationCostsUsd).sort();
@@ -165,9 +192,10 @@ export const videoProductionPlanSchema = z.object({
 
 export type GeneratedVideoSpec = z.infer<typeof generatedVideoSpecSchema>;
 export type GeneratedMusicSpec = z.infer<typeof generatedMusicSpecSchema>;
+export type GeneratedImageSpec = z.infer<typeof generatedImageSpecSchema>;
 export type VideoProductionPlan = z.infer<typeof videoProductionPlanSchema>;
 
-const operationTypes = ["extract_source_segment", "normalize_media", "generate_video", "generate_music", "generate_image", "generate_voice", "resolve_media", "build_composition", "render_composition", "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production", "repair_media", "inspect_delivery", "evaluate_delivery", "assemble_export", "publish_external"] as const;
+const operationTypes = ["extract_source_segment", "normalize_media", "generate_video", "generate_music", "generate_image", "generate_voice", "resolve_media", "build_composition", "render_composition", "mix_audio", "ffmpeg_finalize", "inspect_media", "evaluate_production", "repair_media", "inspect_delivery", "evaluate_delivery", "assemble_export", "assemble_media_pack", "publish_external"] as const;
 export const productionOperationSchema = z.object({ id: z.string().min(1), jobId: z.string().min(1), type: z.enum(operationTypes), dependsOn: z.array(z.string().min(1)), payload: z.record(z.string(), z.unknown()), requestDigest: digest, estimatedCostUsd: usd.optional(), executionAuthority: z.enum(["production_mandate", "internal", "publication_approval"]) }).strict().superRefine((value, context) => {
   if (value.executionAuthority === "production_mandate" && !value.estimatedCostUsd) context.addIssue({ code: "custom", path: ["estimatedCostUsd"], message: "paid operation requires a sealed cost quote" });
   if (value.executionAuthority !== "production_mandate" && value.estimatedCostUsd) context.addIssue({ code: "custom", path: ["estimatedCostUsd"], message: "only paid operations carry cost quotes" });
@@ -227,7 +255,7 @@ function canonical(value: unknown): string {
 }
 
 const sha = (value: unknown) => createHash("sha256").update(canonical(value)).digest("hex");
-export function generatedMediaRequestDigest(spec: GeneratedVideoSpec | GeneratedMusicSpec): string { return sha(spec); }
+export function generatedMediaRequestDigest(spec: GeneratedVideoSpec | GeneratedMusicSpec | GeneratedImageSpec): string { return sha(spec); }
 export function productionPlanDigest(plan: VideoProductionPlan): string { return sha(videoProductionPlanSchema.parse(plan)); }
 
 export function productionApprovalStillValid(
@@ -315,10 +343,10 @@ export function assertProductionMandateAuthorizes(input: {
   return input.operation;
 }
 
-export function estimateGeneratedMediaCost(spec: GeneratedVideoSpec | GeneratedMusicSpec, overrides: Record<string, string> = {}): string {
+export function estimateGeneratedMediaCost(spec: GeneratedVideoSpec | GeneratedMusicSpec | GeneratedImageSpec, overrides: Record<string, string> = {}): string {
   const rate = Number(overrides[spec.modelCapability]);
   if (!Number.isFinite(rate) || rate <= 0) throw new Error(`pricing unavailable for ${spec.modelCapability}`);
-  return (rate * ("mode" in spec ? spec.durationSec : spec.targetDurationSec)).toFixed(6);
+  return (rate * ("mode" in spec ? spec.durationSec : "targetDurationSec" in spec ? spec.targetDurationSec : 1)).toFixed(6);
 }
 
 export function compileProductionOperations(plan: VideoProductionPlan): ProductionOperation[] {
@@ -343,6 +371,10 @@ export function compileProductionOperations(plan: VideoProductionPlan): Producti
     executionAuthority: "internal",
   }));
   const paid: ProductionOperation[] = [];
+  for (const [index, image] of plan.images.entries()) {
+    const id = `${plan.id}:generate_image:image-${index + 1}`;
+    paid.push({ id, jobId: plan.jobId, type: "generate_image", dependsOn: [], payload: image, requestDigest: generatedMediaRequestDigest(image), estimatedCostUsd: plan.operationCostsUsd[id], executionAuthority: "production_mandate" });
+  }
   for (const scene of [...plan.scenes].sort((a, b) => a.order - b.order)) if (scene.video) {
     const type = "generate_video";
     const id = `${plan.id}:${type}:${scene.id}`;
@@ -356,6 +388,17 @@ export function compileProductionOperations(plan: VideoProductionPlan): Producti
     const id = `${plan.id}:generate_music`;
     const requestDigest = generatedMediaRequestDigest(plan.soundtrack);
     paid.push({ id, jobId: plan.jobId, type: "generate_music", dependsOn: [], payload: plan.soundtrack, requestDigest, estimatedCostUsd: plan.operationCostsUsd[id], executionAuthority: "production_mandate" });
+  }
+  // A request for provider media alone is a deliverable in its own right. Do
+  // not force it through a video compositor: assemble an archive whose sealed
+  // children are exactly the paid operation artifacts in this immutable graph.
+  if (!plan.scenes.length) {
+    const planDigest = productionPlanDigest(plan);
+    return [...resolved, ...paid, {
+      id: `${plan.id}:assemble_export`, jobId: plan.jobId, type: "assemble_export", dependsOn: paid.map((item) => item.id),
+      payload: { planDigest, childOperationIds: paid.map((item) => item.id).sort() },
+      requestDigest: sha({ type: "assemble_export", planDigest, childOperationIds: paid.map((item) => item.id).sort() }), executionAuthority: "internal",
+    }];
   }
   const buildId = `${plan.id}:build_composition`;
   const chain: ProductionOperation[] = [
@@ -398,5 +441,12 @@ export function compileProductionOperations(plan: VideoProductionPlan): Producti
     requestDigest: sha({ type: exportType, planDigest }),
     executionAuthority: "internal",
   });
+  if (plan.images.length || plan.outputRequest) {
+    const childOperationIds = paid.map((item) => item.id).sort();
+    chain.push({
+      id: `${plan.id}:assemble_media_pack`, jobId: plan.jobId, type: "assemble_media_pack", dependsOn: childOperationIds,
+      payload: { planDigest, childOperationIds, packTextChildren: plan.packTextChildren }, requestDigest: sha({ type: "assemble_media_pack", planDigest, childOperationIds, packTextChildren: plan.packTextChildren }), executionAuthority: "internal",
+    });
+  }
   return [...resolved, ...paid, ...chain];
 }

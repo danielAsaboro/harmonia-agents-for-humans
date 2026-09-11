@@ -2,10 +2,11 @@
 import json
 from unittest.mock import Mock
 import pytest
-from harmonia_agent.generative_media import AwsMediaTransport, NovaReelGenerator, ElevenLabsGenerator, MediaOperationPending, MediaProtocolError, MediaProviderError, validate_nova_reel_request, validate_elevenlabs_request, estimate_media_cost
+from harmonia_agent.generative_media import AwsMediaTransport, NovaReelGenerator, NovaCanvasGenerator, ElevenLabsGenerator, MediaOperationPending, MediaProtocolError, MediaProviderError, validate_nova_canvas_request, validate_nova_reel_request, validate_elevenlabs_request, estimate_media_cost
 
 VIDEO = dict(modelCapability="nova-reel", mode="text_to_video", prompt="Calm abstract light", durationSec=6, aspectRatio="16:9", resolution="720p", outputCount=1)
 MUSIC = dict(modelCapability="elevenlabs-music", prompt="Quiet instrumental", instrumental=True, outputCount=1)
+IMAGE = dict(modelCapability="nova-canvas", prompt="Calm product launch visual", width=1024, height=1024, outputCount=1)
 PREFIX = "s3://private/workspaces/w/jobs/j/claims/c/"
 
 def test_paid_gate_prevents_client_construction(monkeypatch):
@@ -50,6 +51,18 @@ def test_music_defaults_to_thirty_and_requires_instrumental():
     with pytest.raises(MediaProtocolError): validate_elevenlabs_request({**MUSIC, "instrumental": False})
     with pytest.raises(MediaProtocolError): validate_elevenlabs_request({**MUSIC, "lyricsMode": "none"})
     with pytest.raises(MediaProtocolError): validate_nova_reel_request({**VIDEO, "durationSec": 8})
+
+def test_canvas_contract_generates_one_png_without_a_hidden_default(monkeypatch):
+    client = Mock()
+    client.invoke_model.return_value = {"body": Mock(read=lambda: json.dumps({"images": ["iVBORw0KGgo="]}).encode())}
+    monkeypatch.setattr("harmonia_agent.generative_media.boto3.client", lambda *a, **k: client)
+    request = validate_nova_canvas_request(IMAGE)
+    result = NovaCanvasGenerator(transport=AwsMediaTransport(enabled=True, generative_enabled=True)).generate(
+        request=request, provider_operation_id="nova-canvas:claim-1", estimated_cost_usd="0.500000",
+    )
+    assert result.mime == "image/png" and result.provider_id == "nova-canvas:claim-1"
+    assert client.invoke_model.call_args.kwargs["body"]
+    with pytest.raises(MediaProtocolError): validate_nova_canvas_request({**IMAGE, "width": 512})
 
 def test_elevenlabs_real_http_contract(monkeypatch):
     response = Mock(status_code=200, content=b"audio", headers={"song-id": "song-1"})

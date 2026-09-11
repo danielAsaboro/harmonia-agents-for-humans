@@ -70,7 +70,7 @@ export interface PaidProductionOperationClaim {
   leaseExpiresAt: string;
   attempt: number;
   inputDigests: Array<{ operationId: string; digest: string }>;
-  provider?: "nova_reel" | "elevenlabs";
+  provider?: "nova_canvas" | "nova_reel" | "elevenlabs";
   providerOperationId?: string;
   nextPollAt?: string;
   artifact?: {
@@ -126,7 +126,7 @@ export interface ProductionPlanWorkspaceOperation {
   estimatedCostUsd?: string;
   state: "pending" | ProductionOperationClaim["state"];
   attempt: number;
-  provider?: "nova_reel" | "elevenlabs";
+  provider?: "nova_canvas" | "nova_reel" | "elevenlabs";
   providerOperationId?: string;
   artifact?: { mime: string; digest: string; sizeBytes: number };
   metadata?: Record<string, unknown>;
@@ -1114,7 +1114,7 @@ export async function claimProductionOperation(
 export async function startProductionProviderSubmission(
   planId: string,
   operationId: string,
-  input: { claimId: string; claimToken: string; provider: "nova_reel" | "elevenlabs" },
+  input: { claimId: string; claimToken: string; provider: "nova_canvas" | "nova_reel" | "elevenlabs" },
 ): Promise<PaidProductionOperationClaim> {
   const tenant = currentTenant();
   requireService(tenant);
@@ -1160,7 +1160,7 @@ export async function startProductionProviderSubmission(
       brandId: tenant.brandId,
       now: new Date(),
     });
-    const expectedProvider = operation.type === "generate_music" ? "elevenlabs" : "nova_reel";
+    const expectedProvider = operation.type === "generate_music" ? "elevenlabs" : operation.type === "generate_image" ? "nova_canvas" : "nova_reel";
     if (input.provider !== expectedProvider) throw new Error("provider does not match sealed production operation");
     const updated: PaidProductionOperationClaim = {
       ...claim,
@@ -1179,7 +1179,7 @@ export async function recordProductionProviderOperation(
   input: {
     claimId: string;
     claimToken: string;
-    provider: "nova_reel" | "elevenlabs";
+    provider: "nova_canvas" | "nova_reel" | "elevenlabs";
     providerOperationId: string;
     nextPollAt: string;
   },
@@ -1275,8 +1275,8 @@ export async function completePaidProductionOperation(
     const revision = assertRevision(revisionSnap.value);
     const operation = revision.operations.find((candidate) => candidate.id === operationId);
     if (!operation) throw new Error("production operation not found in immutable revision");
-    const expectedProvider = operation.type === "generate_music" ? "elevenlabs" : "nova_reel";
-    const expectedMimePrefix = expectedProvider === "elevenlabs" ? "audio/" : "video/";
+    const expectedProvider = operation.type === "generate_music" ? "elevenlabs" : operation.type === "generate_image" ? "nova_canvas" : "nova_reel";
+    const expectedMimePrefix = expectedProvider === "elevenlabs" ? "audio/" : expectedProvider === "nova_canvas" ? "image/" : "video/";
     if (claim.provider !== expectedProvider || !input.artifact.mime.startsWith(expectedMimePrefix)) {
       throw new Error("production artifact does not match its sealed provider operation");
     }

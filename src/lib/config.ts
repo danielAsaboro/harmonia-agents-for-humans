@@ -13,6 +13,7 @@ const envSchema = z.object({
   MODEL_PRICING_VERSION: z.string().min(1).default("unconfigured"),
   ELEVENLABS_MUSIC_COST_PER_SECOND_USD: z.preprocess((value) => value === "" ? undefined : value, z.string().regex(/^\d+\.\d{6}$/).optional()),
   NOVA_REEL_COST_PER_SECOND_USD: z.preprocess((value) => value === "" ? undefined : value, z.string().regex(/^\d+\.\d{6}$/).optional()),
+  NOVA_CANVAS_COST_PER_IMAGE_USD: z.preprocess((value) => value === "" ? undefined : value, z.string().regex(/^\d+\.\d{6}$/).optional()),
   DEFAULT_JOB_BUDGET_USD: z.string().regex(/^\d+\.\d{1,6}$/).default("5.00"),
   DEFAULT_JOB_APPROVAL_THRESHOLD_USD: z.string().regex(/^\d+\.\d{1,6}$/).default("0.25"),
   DEFAULT_WORKSPACE_BUDGET_USD: z.string().regex(/^\d+\.\d{1,6}$/).default("100.00"),

@@ -19,6 +19,8 @@ from .generative_media import (
     MediaOperationPending,
     MediaProviderError,
     NovaReelGenerator,
+    NovaCanvasGenerator,
+    validate_nova_canvas_request,
     validate_elevenlabs_request,
     validate_nova_reel_request,
 )
@@ -167,6 +169,8 @@ def _artifact_extension(mime: str) -> str:
         "video/mp4": ".mp4",
         "audio/mpeg": ".mp3",
         "audio/wav": ".wav",
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
         "application/zip": ".zip",
         "application/json": ".json",
     }.get(mime, ".bin")
@@ -454,28 +458,57 @@ def _execute_internal_operation(
             data = output.read_bytes()
             mime = "video/mp4"
             metadata = {"kind": "deterministic_repair", "receipt": repair_receipt, "inspection": inspect_media(output)}
-        elif operation_type == "assemble_export":
-            final_input = next((value for key, value in downloaded.items() if key.endswith(":repair_media")), None)
-            qa_input = next((value for key, value in downloaded.items() if key.endswith(":evaluate_delivery")), None)
-            if final_input is None or final_input[1] != "video/mp4" or qa_input is None or qa_input[1] != "application/json":
-                raise ProductionExecutionProtocolError("content pack inputs are incomplete")
-            pack = workspace / "pack"
-            pack.mkdir()
-            (pack / "final.mp4").write_bytes(final_input[0])
-            (pack / "qa.json").write_bytes(qa_input[0])
-            create_delivery_previews(
-                pack / "final.mp4", pack / "thumbnail.jpg", pack / "contact-sheet.jpg",
-            )
-            receipt = {
-                "schemaVersion": 1,
-                "planId": plan_id,
-                "planDigest": claim["planDigest"],
-                "artifacts": {key: value[2] for key, value in sorted(downloaded.items())},
-            }
-            (pack / "export-receipt.json").write_bytes(_json_bytes(receipt))
-            data = create_deterministic_archive(pack)
-            mime = "application/zip"
-            metadata = {"kind": "content_pack", "receipt": receipt}
+        elif operation_type in {"assemble_export", "assemble_media_pack"}:
+            if operation_type == "assemble_media_pack" or (
+                not plan.get("scenes") and isinstance(operation.get("payload"), dict) and operation["payload"].get("childOperationIds")
+            ):
+                payload = operation.get("payload")
+                expected_ids = sorted(payload.get("childOperationIds") or []) if isinstance(payload, dict) else []
+                if not expected_ids or sorted(downloaded) != expected_ids:
+                    raise ProductionExecutionProtocolError("media pack children do not match the sealed production graph")
+                pack = workspace / "pack"
+                pack.mkdir()
+                children: list[dict[str, Any]] = []
+                for index, operation_id in enumerate(expected_ids, start=1):
+                    child_data, child_mime, child_digest = downloaded[operation_id]
+                    if child_mime not in {"image/png", "image/jpeg", "video/mp4", "audio/mpeg", "audio/wav"}:
+                        raise ProductionExecutionProtocolError("media pack child has an unsupported verified MIME type")
+                    filename = f"{index:02d}-{child_digest}{_artifact_extension(child_mime)}"
+                    (pack / filename).write_bytes(child_data)
+                    children.append({"operationId": operation_id, "digest": child_digest, "mime": child_mime, "sizeBytes": len(child_data), "path": filename})
+                receipt = {
+                    "schemaVersion": 1, "kind": "generated_media_pack", "planId": plan_id,
+                    "planDigest": claim["planDigest"], "children": children,
+                    "outputRequest": plan.get("outputRequest"),
+                    "textChildren": payload.get("packTextChildren") if isinstance(payload, dict) else [],
+                }
+                (pack / "export-receipt.json").write_bytes(_json_bytes(receipt))
+                (pack / "text-artifacts.json").write_bytes(_json_bytes(receipt["textChildren"]))
+                data = create_deterministic_archive(pack)
+                mime = "application/zip"
+                metadata = {"kind": "generated_media_pack", "receipt": receipt}
+            else:
+                final_input = next((value for key, value in downloaded.items() if key.endswith(":repair_media")), None)
+                qa_input = next((value for key, value in downloaded.items() if key.endswith(":evaluate_delivery")), None)
+                if final_input is None or final_input[1] != "video/mp4" or qa_input is None or qa_input[1] != "application/json":
+                    raise ProductionExecutionProtocolError("content pack inputs are incomplete")
+                pack = workspace / "pack"
+                pack.mkdir()
+                (pack / "final.mp4").write_bytes(final_input[0])
+                (pack / "qa.json").write_bytes(qa_input[0])
+                create_delivery_previews(
+                    pack / "final.mp4", pack / "thumbnail.jpg", pack / "contact-sheet.jpg",
+                )
+                receipt = {
+                    "schemaVersion": 1,
+                    "planId": plan_id,
+                    "planDigest": claim["planDigest"],
+                    "artifacts": {key: value[2] for key, value in sorted(downloaded.items())},
+                }
+                (pack / "export-receipt.json").write_bytes(_json_bytes(receipt))
+                data = create_deterministic_archive(pack)
+                mime = "application/zip"
+                metadata = {"kind": "content_pack", "receipt": receipt}
         else:
             raise ProductionExecutionProtocolError(f"unsupported internal production operation: {operation_type}")
     completed = _upload_internal_result(
@@ -536,14 +569,16 @@ def execute_production_operation(
     if not isinstance(sealed_cost, str) or sealed_cost != claim.get("reservedCostUsd"):
         raise ProductionExecutionProtocolError("production claim cost does not match the sealed operation")
     operation_type = operation.get("type")
-    if operation_type not in {"generate_video", "generate_music"}:
+    if operation_type not in {"generate_image", "generate_video", "generate_music"}:
         raise ProductionExecutionProtocolError("executor received a non-paid production operation")
 
-    provider = "elevenlabs" if operation_type == "generate_music" else "nova_reel"
-    role = "elevenlabs_generator" if provider == "elevenlabs" else "nova_reel_generator"
+    provider = "elevenlabs" if operation_type == "generate_music" else "nova_canvas" if operation_type == "generate_image" else "nova_reel"
+    role = "elevenlabs_generator" if provider == "elevenlabs" else "nova_canvas_generator" if provider == "nova_canvas" else "nova_reel_generator"
     model_request = (
         validate_elevenlabs_request(operation.get("payload"))
         if provider == "elevenlabs"
+        else validate_nova_canvas_request(operation.get("payload"))
+        if provider == "nova_canvas"
         else validate_nova_reel_request(operation.get("payload"))
     )
     model = str(model_request["providerModel"])
@@ -631,9 +666,9 @@ def execute_production_operation(
         return {"outcome": "failed", "reason": reason}
 
     active_provider_id = str(persisted_provider_id) if persisted_provider_id else None
-    if provider == "elevenlabs" and persisted_provider_id:
+    if provider in {"elevenlabs", "nova_canvas"} and persisted_provider_id:
         raise ProductionExecutionProtocolError(
-            "persisted ElevenLabs identity cannot be resubmitted or resumed by this provider interface"
+            "persisted synchronous provider identity cannot be resubmitted or resumed; reconcile its outcome"
         )
     if not persisted_provider_id:
         try:
@@ -716,6 +751,17 @@ def execute_production_operation(
                 conditioning_media=conditioning_media,
                 estimated_cost_usd=sealed_cost,
             )
+        elif provider == "nova_canvas":
+            # Canvas is synchronous and does not return a provider operation ID. Seal a
+            # deterministic submission identity before invoking it, so a lost response
+            # is durable uncertainty rather than a replayable paid call.
+            canvas_submission_id = f"nova-canvas:{claim['id']}"
+            persist_provider(canvas_submission_id)
+            generated = NovaCanvasGenerator(transport=transport).generate(
+                request=model_request,
+                provider_operation_id=canvas_submission_id,
+                estimated_cost_usd=sealed_cost,
+            )
         else:
             generated = ElevenLabsGenerator(transport=transport).generate(
                 request=model_request,
@@ -736,7 +782,11 @@ def execute_production_operation(
         raise
 
     try:
-        inspection = inspect_generated_media_bytes(generated.data, generated.mime)
+        inspection = (
+            inspect_conditioning_image_bytes(generated.data, generated.mime)
+            if generated.mime.startswith("image/")
+            else inspect_generated_media_bytes(generated.data, generated.mime)
+        )
         digest = hashlib.sha256(generated.data).hexdigest()
         provider_metadata = {
             "provider": provider,

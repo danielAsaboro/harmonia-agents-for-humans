@@ -84,6 +84,16 @@ def test_ordinary_media_words_preserve_all_requested_outputs():
     assert route.outputConcepts == ["social_image", "generated_video", "generated_music"]
 
 
+def test_direct_media_request_remains_deterministic_across_a_conversation():
+    route = deterministic_intent_classification(IntentRoutingInput(
+        message="Make an image, video, and music for the launch.",
+        workspaceContext=context(), attachmentCount=0,
+        recentConversation=[{"role": "user", "text": "We are preparing the launch."}],
+    ))
+    assert route is not None
+    assert route.outputConcepts == ["social_image", "generated_video", "generated_music"]
+
+
 def strategy_context():
     return {
         "company": "Harmonia",

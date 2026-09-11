@@ -36,6 +36,14 @@ def _operation() -> dict:
     }
 
 
+def _image_operation() -> dict:
+    return {
+        "id": "plan-1:generate_image:image-1", "jobId": "job-1", "type": "generate_image", "dependsOn": [],
+        "payload": {"modelCapability": "nova-canvas", "prompt": "calm launch visual", "width": 1024, "height": 1024, "outputCount": 1},
+        "requestDigest": "b" * 64, "estimatedCostUsd": "0.500000", "executionAuthority": "production_mandate",
+    }
+
+
 def _claim(*, provider_operation_id: str | None = None) -> dict:
     claim = {
         "kind": "paid",
@@ -53,6 +61,34 @@ def _claim(*, provider_operation_id: str | None = None) -> dict:
     if provider_operation_id:
         claim.update(provider="nova_reel", providerOperationId=provider_operation_id)
     return {"outcome": "execute", "claim": claim, "operation": _operation(), "inputs": []}
+
+
+def test_canvas_executor_seals_submission_before_invoking_and_uploads_png(monkeypatch):
+    operation = _image_operation()
+    decision = _claim()
+    decision["operation"] = operation
+    decision["claim"]["operationId"] = operation["id"]
+    decision["claim"]["reservedCostUsd"] = "0.500000"
+    records: list[dict] = []
+    monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: decision)
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(aws_region="us-east-1", allow_paid_aws=True, generative_media_enabled=True, media_output_bucket="media-bucket"))
+    monkeypatch.setattr(production_executor, "AwsMediaTransport", lambda **_kwargs: object())
+    monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: None)
+    monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **kwargs: records.append({"submission": kwargs["provider"]}))
+    provider_ids: list[str] = []
+    monkeypatch.setattr(production_executor, "record_production_provider_operation", lambda *_args, **kwargs: (provider_ids.append(kwargs["provider_operation_id"]), records.append(kwargs)))
+    monkeypatch.setattr(production_executor, "upload_production_artifact", lambda *_args, **kwargs: {"state": "succeeded", "artifact": kwargs})
+    monkeypatch.setattr(production_executor, "report_usage", lambda _payload: None)
+    monkeypatch.setattr(production_executor, "inspect_conditioning_image_bytes", lambda data, mime: {"video": {"width": 1024, "height": 1024}})
+    def canvas(_self, *, request, provider_operation_id, estimated_cost_usd):
+        assert provider_ids == [provider_operation_id]
+        assert request["prompt"] == "calm launch visual" and estimated_cost_usd == "0.500000"
+        return GeneratedMedia(data=b"png", mime="image/png", model="amazon.nova-canvas-v1:0", provider_id=provider_operation_id, duration_sec=0, estimated_cost_usd=estimated_cost_usd)
+    monkeypatch.setattr(production_executor.NovaCanvasGenerator, "generate", canvas)
+    result = production_executor.execute_production_operation("plan-1", operation["id"], claim_token="worker-1", plan_revision=1, plan_digest="a" * 64)
+    assert result["outcome"] == "succeeded"
+    assert records[0] == {"submission": "nova_canvas"}
+    assert records[1]["provider"] == "nova_canvas"
 
 
 def _conditioned_claim(*, provider_operation_id: str | None = None) -> dict:

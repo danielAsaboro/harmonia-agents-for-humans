@@ -24,6 +24,19 @@ class MediaOperationPending(MediaProviderError):
 
 NOVA_REEL_CAPABILITIES = {"nova-reel": {"model": "amazon.nova-reel-v1:1", "durations": set(range(6, 121, 6)), "resolutions": {"720p"}, "modes": {"text_to_video", "image_to_video"}, "usdPerSecond": None}}
 ELEVENLABS_CAPABILITIES = {"elevenlabs-music": {"model": "music_v1", "maximumDurationSec": 600, "fixedCostUsd": None}}
+NOVA_CANVAS_CAPABILITIES = {"nova-canvas": {"model": "amazon.nova-canvas-v1:0", "width": 1024, "height": 1024}}
+
+def validate_nova_canvas_request(request):
+    value = dict(request)
+    allowed = {"modelCapability", "prompt", "width", "height", "outputCount"}
+    derived = {"providerModel", "mediaKind"}
+    if not set(value).issubset(allowed | derived) or not allowed.issubset(value) or value.get("modelCapability") != "nova-canvas":
+        raise MediaProtocolError("invalid Nova Canvas request")
+    if not isinstance(value["prompt"], str) or not 1 <= len(value["prompt"]) <= 4000:
+        raise MediaProtocolError("Nova Canvas prompt is invalid")
+    if value["width"] != 1024 or value["height"] != 1024 or value["outputCount"] != 1:
+        raise MediaProtocolError("unsupported Nova Canvas output configuration")
+    return {**value, "providerModel": NOVA_CANVAS_CAPABILITIES["nova-canvas"]["model"], "mediaKind": "image"}
 
 def _validate_conditioning_reference(reference):
     if not isinstance(reference, dict) or set(reference) != {"artifactId", "digest", "mime", "sizeBytes", "rightsAuthorizationId"}:
@@ -90,6 +103,21 @@ class AwsMediaTransport:
         if source_image: params["images"] = [source_image]
         body = {**({"taskType": "TEXT_VIDEO", "textToVideoParams": params} if duration_sec == 6 else {"taskType": "MULTI_SHOT_AUTOMATED", "multiShotAutomatedParams": {"text": prompt}}), "videoGenerationConfig": {"durationSeconds": duration_sec, "fps": 24, "dimension": "1280x720", **({"seed": seed} if seed is not None else {})}}
         return _aws_call(boto3.client("bedrock-runtime", region_name=self.region, config=Config(retries={"max_attempts": 0})).start_async_invoke, modelId=model, modelInput=body, clientRequestToken=sha256(storage_uri.encode()).hexdigest(), outputDataConfig={"s3OutputDataConfig": {"s3Uri": storage_uri}})
+    def generate_nova_canvas(self, *, model, prompt, width, height):
+        self._admit()
+        response = _aws_call(
+            boto3.client("bedrock-runtime", region_name=self.region, config=Config(retries={"max_attempts": 0})).invoke_model,
+            modelId=model, contentType="application/json", accept="application/json",
+            body=json.dumps({"taskType": "TEXT_IMAGE", "textToImageParams": {"text": prompt}, "imageGenerationConfig": {"numberOfImages": 1, "quality": "standard", "height": height, "width": width}}),
+        )
+        body = json.loads(response["body"].read())
+        images = body.get("images")
+        if body.get("error") or not isinstance(images, list) or len(images) != 1:
+            raise MediaProtocolError("Nova Canvas returned no single image")
+        data = _decode(images[0], media="Nova Canvas image")
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise MediaProtocolError("Nova Canvas returned malformed PNG")
+        return {"data": data, "metadata": _common_provider_provenance(body)}
     def poll_nova_reel(self, operation_name, model):
         self._admit()
         return _aws_call(boto3.client("bedrock-runtime", region_name=self.region).get_async_invoke, invocationArn=operation_name)
@@ -213,6 +241,13 @@ class NovaReelGenerator:
         data = self.transport.download_s3(uri, authorized_output_prefix)
         if not data: raise MediaProtocolError("empty generated video")
         return GeneratedMedia(data, "video/mp4", request["providerModel"], operation, request["durationSec"], estimated_cost_usd, {"s3Uri": uri})
+
+class NovaCanvasGenerator:
+    def __init__(self, *, transport): self.transport = transport
+    def generate(self, *, request, provider_operation_id, estimated_cost_usd):
+        request = validate_nova_canvas_request(request)
+        result = self.transport.generate_nova_canvas(model=request["providerModel"], prompt=request["prompt"], width=request["width"], height=request["height"])
+        return GeneratedMedia(result["data"], "image/png", request["providerModel"], provider_operation_id, 0, estimated_cost_usd, result.get("metadata") or {})
 
 class ElevenLabsGenerator:
     def __init__(self, *, transport): self.transport = transport

@@ -5,6 +5,7 @@ import {
   createProductionMandate,
   estimateGeneratedMediaCost,
   generatedMusicSpecSchema,
+  generatedImageSpecSchema,
   generatedVideoSpecSchema,
   mediaOperationSchema,
   productionApprovalStillValid,
@@ -20,6 +21,9 @@ const videoSpec = generatedVideoSpecSchema.parse({
 const musicSpec = generatedMusicSpecSchema.parse({
   modelCapability: "elevenlabs-music", prompt: "Warm minimal electronic soundtrack, 100 BPM", instrumental: true,
   targetDurationSec: 30, outputCount: 1,
+});
+const imageSpec = generatedImageSpecSchema.parse({
+  modelCapability: "nova-canvas", prompt: "A calm blue product launch visual", width: 1024, height: 1024, outputCount: 1,
 });
 const sourceRef = {
   artifactId: "018f47a2-4f40-7b1f-b19f-8f6b916b7d11",
@@ -82,6 +86,18 @@ const basePlan = {
 } as const;
 
 describe("media production contracts", () => {
+  it("seals direct Nova Canvas work as an exact paid operation", () => {
+    const plan = videoProductionPlanSchema.parse({
+      ...basePlan, id: "plan-image", scenes: [], soundtrack: undefined, images: [imageSpec],
+      operationCostsUsd: { "plan-image:generate_image:image-1": "0.500000" },
+      estimatedCostUsd: "0.500000", maximumCostUsd: "0.500000",
+    });
+    const operation = compileProductionOperations(plan).find((item) => item.type === "generate_image");
+    expect(operation).toMatchObject({
+      id: "plan-image:generate_image:image-1", payload: imageSpec, estimatedCostUsd: "0.500000", executionAuthority: "production_mandate",
+    });
+    expect(generatedImageSpecSchema.safeParse({ ...imageSpec, width: 512 }).success).toBe(false);
+  });
   it("validates instrumental music duration and its 30-second default", () => {
     const soundtrack = {
       modelCapability: "elevenlabs-music" as const,

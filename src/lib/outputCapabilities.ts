@@ -51,7 +51,7 @@ export function outputCapabilityStatus(
   const enabled = options.generativeMediaEnabled ?? process.env.GENERATIVE_MEDIA_ENABLED === "true";
   const configured = paid
     && enabled
-    && (capability.mediaProvider !== "nova_reel"
+    && (!(["nova_reel", "nova_canvas"] as readonly string[]).includes(capability.mediaProvider)
       || Boolean(options.mediaOutputBucket ?? process.env.MEDIA_OUTPUT_BUCKET ?? process.env.S3_BUCKET))
     && (capability.mediaProvider !== "elevenlabs"
       || Boolean(options.elevenLabsApiKey ?? process.env.ELEVENLABS_API_KEY));

@@ -100,7 +100,7 @@ def deterministic_intent_classification(
     """Classify syntax that carries no model judgment; return None when ambiguous."""
     urls = source_urls_from_input(value)
     message = value.message.casefold()
-    if value.pendingClarification or value.recentConversation or re.search(r"\b(?:campaign|initiative|knowledge|planned|plan item)\b", message):
+    if value.pendingClarification or re.search(r"\b(?:campaign|initiative|knowledge|planned|plan item)\b", message):
         return None
     if not urls and re.search(r"\b(?:create|make|generate|produce|draft|prepare)\b", message):
         outputs: list[OutputConcept] = []

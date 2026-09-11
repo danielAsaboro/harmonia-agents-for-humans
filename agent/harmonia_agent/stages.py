@@ -657,6 +657,11 @@ async def run_draft(job_id: str) -> None:
         output_plan = recovered.get("plan")
     if not isinstance(output_plan, dict):
         raise AgentProtocolError("campaign output plan recovery did not return a plan")
+    media_requested = [item for item in (output_plan.get("outputs") or []) if item.get("outputType") in {"social_image", "generated_video", "generated_music"}]
+    if media_requested:
+        proposal = web_post("/api/internal/output-media-production", {"jobId": job_id})
+        if proposal.get("outcome") not in {"proposed", "already_proposed"}:
+            raise AgentProtocolError("requested media production proposal was not persisted")
     requested = [item for item in (output_plan.get("outputs") or []) if item.get("outputType") in artifact_output_types]
     if requested:
         source_package = get_source_manifest(job_id) if analysis_json else {}; evidence_by_id: dict[str, str] = {}
@@ -698,6 +703,8 @@ async def run_draft(job_id: str) -> None:
         submission_result.setdefault("finalReview", None)
         from .role_models import load_role_model_catalog
         web_post("/api/internal/content-artifacts", {"jobId": job_id, "stage": "draft", "operation": "complete", "producerModel": load_role_model_catalog().copywriter.model_id, "editorialPlanId": editorial_plan.planId, "editorialPlanDigest": stored_digest, "editorialItemId": selected.id, "briefId": selected.briefId, "result": submission_result})
+        return
+    if media_requested:
         return
     raise AgentProtocolError("campaign output plan contains no supported typed content artifacts")
 

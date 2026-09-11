@@ -21,7 +21,12 @@ it("separates media support, provider configuration, and live verification", () 
       providerAvailability: "not_configured",
       liveVerification: "not_verified",
     });
-    expect(outputCapabilityStatus(kind, { allowPaidProviders: true })).toEqual({
+    expect(outputCapabilityStatus(kind, {
+      allowPaidProviders: true,
+      generativeMediaEnabled: true,
+      mediaOutputBucket: "media-output",
+      elevenLabsApiKey: "test-key",
+    })).toEqual({
       supported: true,
       providerAvailability: "configured",
       liveVerification: "not_verified",

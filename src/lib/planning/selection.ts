@@ -23,7 +23,7 @@ export async function plannedItemAdmission(tx: DynamoTransaction, item: PlannedI
   if (strategyDigest(active) !== strategyDigest(item.strategyRef)) reasons.push("active strategy changed; plan approval required");
   for (const ref of item.dependencies) { const dependency = await readItemState(ref, tx); if (dependency.status !== "completed") reasons.push(`dependency ${ref.id} is ${dependency.status}`); }
   for (const assetId of item.requiredAssetIds) if (assets.find(asset => asset.id === assetId)?.status !== "ready") reasons.push(`asset ${assetId} is not ready`);
-  if (item.evidence.mode === "operator_context" && item.requestedOutputs.some(output => !["x_post", "linkedin_post", "caption", "content_pack"].includes(output))) reasons.push("selected output requires factual source evidence");
+  if (item.evidence.mode === "operator_context" && item.requestedOutputs.some(output => !["x_post", "linkedin_post", "caption", "social_image", "generated_video", "generated_music", "content_pack"].includes(output))) reasons.push("selected output requires factual source evidence");
   if (state.dispositionProposalId) reasons.push(`execution disposition required: ${state.dispositionProposalId}`);
   if (["completed", "cancelled", "requires_disposition"].includes(state.status)) reasons.push(`planned item is ${state.status}`);
   const execution = await readPlannedExecutionAuthority(tx, item, state);

@@ -33,7 +33,12 @@ export interface OutputCapabilityStatus {
 /** Configuration status never claims that a provider was invoked or verified. */
 export function outputCapabilityStatus(
   kind: OutputKind,
-  options: { allowPaidProviders?: boolean } = {},
+  options: {
+    allowPaidProviders?: boolean;
+    generativeMediaEnabled?: boolean;
+    mediaOutputBucket?: string;
+    elevenLabsApiKey?: string;
+  } = {},
 ): OutputCapabilityStatus {
   const capability = OUTPUT_CAPABILITIES[kind];
   if (capability.state === "unavailable") {
@@ -42,11 +47,17 @@ export function outputCapabilityStatus(
   if (!capability.mediaProvider) {
     return { supported: true, providerAvailability: "not_required", liveVerification: "not_applicable" };
   }
+  const paid = options.allowPaidProviders ?? process.env.HARMONIA_ALLOW_PAID_AWS === "true";
+  const enabled = options.generativeMediaEnabled ?? process.env.GENERATIVE_MEDIA_ENABLED === "true";
+  const configured = paid
+    && enabled
+    && (capability.mediaProvider !== "nova_reel"
+      || Boolean(options.mediaOutputBucket ?? process.env.MEDIA_OUTPUT_BUCKET ?? process.env.S3_BUCKET))
+    && (capability.mediaProvider !== "elevenlabs"
+      || Boolean(options.elevenLabsApiKey ?? process.env.ELEVENLABS_API_KEY));
   return {
     supported: true,
-    providerAvailability: (options.allowPaidProviders ?? process.env.HARMONIA_ALLOW_PAID_AWS === "true")
-      ? "configured"
-      : "not_configured",
+    providerAvailability: configured ? "configured" : "not_configured",
     liveVerification: "not_verified",
   };
 }

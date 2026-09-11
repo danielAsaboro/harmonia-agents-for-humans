@@ -420,7 +420,7 @@ class ArtifactProductionInput(StrictModel):
         if isinstance(self.sourceBinding, OperatorSourceBinding):
             if self.evidence or any(request.evidenceRefs for request in self.requests):
                 raise ValueError("operator context cannot manufacture factual evidence")
-            if any(request.outputType not in {"x_post", "linkedin_post", "caption", "content_pack"} for request in self.requests):
+            if any(request.outputType not in {"x_post", "linkedin_post", "caption", "social_image", "generated_video", "generated_music", "content_pack"} for request in self.requests):
                 raise ValueError("this output requires authoritative source evidence")
             if self.operatorBrief != self.sourceBinding.operatorBrief:
                 raise ValueError("operator context brief mismatch")

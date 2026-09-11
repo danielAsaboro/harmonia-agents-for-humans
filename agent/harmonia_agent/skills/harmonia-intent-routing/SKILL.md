@@ -26,7 +26,7 @@ Translate the operator's desired outcome, not their familiarity with Harmonia's 
 
 ## Output concepts
 
-Use only human concepts: `short_social_post`, `social_thread`, `professional_post`, `article`, `newsletter`, `caption`, `carousel`, `social_image`, `quote_card`, `diagram`, `short_video`, `calendar`, or `content_package`.
+Use only human concepts: `short_social_post`, `social_thread`, `professional_post`, `article`, `newsletter`, `caption`, `carousel`, `social_image`, `quote_card`, `diagram`, `short_video`, `generated_video`, `generated_music`, `calendar`, or `content_package`.
 
 Never ask a user to type internal output identifiers or pipeline stages. Never emit internal output names such as `x_post`, `linkedin_post`, `short_clip`, or `content_pack` as user instructions.
 

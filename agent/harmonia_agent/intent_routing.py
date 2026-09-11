@@ -106,7 +106,7 @@ def deterministic_intent_classification(
         outputs: list[OutputConcept] = []
         if re.search(r"\b(?:social\s+)?(?:image|visual|graphic)\b", message):
             outputs.append("social_image")
-        if re.search(r"\b(?:generated\s+|text[-\s]to[-\s])video\b", message):
+        if re.search(r"\b(?:(?:generated\s+|text[-\s]to[-\s])?video)\b", message):
             outputs.append("generated_video")
         if re.search(r"\b(?:instrumental\s+)?(?:music|soundtrack)\b", message):
             outputs.append("generated_music")

@@ -69,6 +69,13 @@ describe("local intent grammar", () => {
     });
   });
 
+  it("recognizes ordinary media wording without internal provider terms", () => {
+    expect(parseLocalIntent("Make an image, video and music for launch day")).toMatchObject({
+      intent: "create_job",
+      desiredOutputs: ["social_image", "generated_video", "generated_music"],
+    });
+  });
+
   it("keeps operator instructions separate from factual source evidence", async () => {
     const res = parseLocalIntent("Announce our usage-based billing launch for AI agent workloads today");
     expect(res.intent).toBe("create_job");

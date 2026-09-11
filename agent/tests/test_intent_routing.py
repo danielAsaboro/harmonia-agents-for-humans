@@ -74,6 +74,16 @@ def test_direct_media_request_is_routed_without_substituting_a_social_post():
     assert route.effectRequested is False
 
 
+def test_ordinary_media_words_preserve_all_requested_outputs():
+    route = deterministic_intent_classification(IntentRoutingInput(
+        message="Make an image, video and music for launch day.",
+        workspaceContext=context(),
+        attachmentCount=0,
+    ))
+    assert route is not None
+    assert route.outputConcepts == ["social_image", "generated_video", "generated_music"]
+
+
 def strategy_context():
     return {
         "company": "Harmonia",

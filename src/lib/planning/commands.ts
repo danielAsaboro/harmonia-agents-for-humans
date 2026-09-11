@@ -78,7 +78,10 @@ export async function materializeIntake(input: { draftId: string; expectedDraftR
         const peers = await plannedCalendar(tx);
         const reasons = calendarConflicts(item, peers, policy);
         if (!active.strategy.channelRoles.some(role => role.channel === channel && role.operationallySupported)) reasons.push("channel outside approved strategy");
-        if (draft.requestedOutputs.some(output => !["x_post", "linkedin_post", "caption", "content_pack"].includes(output))) reasons.push("selected output requires factual source evidence");
+        // Operator context may authorize original creative media, but never factual
+        // claims or source-derived clips. Source-backed outputs retain their
+        // evidence requirement in the production contracts.
+        if (draft.requestedOutputs.some(output => !["x_post", "linkedin_post", "caption", "social_image", "generated_video", "generated_music", "content_pack"].includes(output))) reasons.push("selected output requires factual source evidence");
         const plan: PlanRevision = { ref, workspaceId: ref.workspaceId, brandId: ref.brandId, campaignRef: campaign?.ref ?? null, strategyRef: active.ref, policyRef: policy.ref, itemRefs: [itemRef], reason: draft.expectedOutcome, createdAt: now, createdBy: tenantSubjectId(currentTenant()) };
         tx.insert(authorityKey("plan_revisions", ref), plan); tx.put(pointerKey("plans", ref.id), ref);
         tx.insert(authorityKey("planned_item_revisions", itemRef), item);

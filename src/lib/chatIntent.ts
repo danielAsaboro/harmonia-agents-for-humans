@@ -83,7 +83,7 @@ export function parseLocalIntent(message: string): ParsedIntent {
   const urls = trimmed.match(URL_RE) ?? [];
   const directOutputs: OutputKind[] = [];
   if (/\b(?:social\s+)?(?:image|visual|graphic)\b/i.test(trimmed)) directOutputs.push("social_image");
-  if (/\b(?:generated\s+|text[-\s]to[-\s])video\b/i.test(trimmed)) directOutputs.push("generated_video");
+  if (/\b(?:(?:generated\s+|text[-\s]to[-\s])?video)\b/i.test(trimmed)) directOutputs.push("generated_video");
   if (/\b(?:instrumental\s+)?(?:music|soundtrack)\b/i.test(trimmed)) directOutputs.push("generated_music");
   if (directOutputs.length && /\b(?:create|make|generate|produce|draft|prepare)\b/i.test(trimmed)) {
     return { intent: "create_job", sources: [], desiredOutputs: [...new Set(directOutputs)] };

@@ -45,8 +45,8 @@ export async function replayChatRunUntilTerminal(input: ReplayChatRunInput): Pro
   throw new Error("Chat replay did not reach a terminal event before timeout");
 }
 
-export function useHarmoniaChat() {
-  const transport = useMemo(() => new DurableChatTransport<HarmoniaMessage>(), []);
+export function useHarmoniaChat(options: { onRunId?: (runId: string) => void } = {}) {
+  const transport = useMemo(() => new DurableChatTransport<HarmoniaMessage>({ onRunId: options.onRunId }), [options.onRunId]);
   const chat = useChat<HarmoniaMessage>({ transport });
   const run = useMemo(() => {
     const message = [...chat.messages].reverse().find((candidate) => candidate.role === "assistant");

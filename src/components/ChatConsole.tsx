@@ -106,16 +106,23 @@ export default function ChatConsole({ conversationId }: { conversationId?: strin
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<"conversation" | "canvas">("conversation");
+  const [runBindingRevision, setRunBindingRevision] = useState(0);
   const completedRuns = useRef(new Set<string>());
   const runConversations = useRef(new Map<string, string>());
   const pendingRunConversation = useRef<string | null>(null);
   const submittedConversationId = useRef<string | null>(conversationId ?? null);
   const detailRequest = useRef<AbortController | null>(null);
-  const chat = useHarmoniaChat();
+  const bindRun = useCallback((runId: string) => {
+    const target = pendingRunConversation.current;
+    if (target) { runConversations.current.set(runId, target); pendingRunConversation.current = null; setRunBindingRevision(value => value + 1); }
+  }, []);
+  const chat = useHarmoniaChat({ onRunId: bindRun });
 
   useEffect(() => {
     if (!conversationId) return;
     setActiveConversationId(conversationId);
+    detailRequest.current?.abort();
+    setDetail(null); setDetailError(null); setDetailLoading(false); setSelectedArtifactId(null);
   }, [conversationId]);
 
   useEffect(() => {
@@ -154,11 +161,13 @@ export default function ChatConsole({ conversationId }: { conversationId?: strin
       return;
     }
     if (run.status === "running" || completedRuns.current.has(run.runId)) return;
-    completedRuns.current.add(run.runId);
     const conversationId = conversationForRun(run.runId, runConversations.current);
+    // An ultra-fast terminal stream can render before an old transport implementation
+    // exposes its header. Leave it pending; never lose it by marking it complete.
     if (!conversationId) return;
+    completedRuns.current.add(run.runId);
     setMessages((current) => [...current, { id: `run-${run.runId}`, conversationId, role: "assistant", text: run.status === "complete" ? run.text : run.error ?? "Chat run failed", run, surface: "dashboard", at: new Date().toISOString() }]);
-  }, [chat.run]);
+  }, [chat.run, runBindingRevision]);
 
   const sessions = useMemo(() => groupSessions(messages), [messages]);
   useEffect(() => {
@@ -318,7 +327,7 @@ export default function ChatConsole({ conversationId }: { conversationId?: strin
     <button type="button" aria-label="Close past conversations" className="fixed inset-0 z-40 bg-black/20 backdrop-blur-[1px]" onClick={() => setHistoryOpen(false)} />
     <aside id="past-conversations" aria-label="Past conversations" className="fixed inset-y-3 right-3 z-50 flex w-[min(360px,calc(100vw-24px))] flex-col overflow-hidden rounded-[24px] border border-black/10 bg-[#f4f0e8] shadow-2xl">
       <header className="flex items-center gap-3 border-b border-black/10 px-5 py-4"><div><p className="font-mono text-[8px] uppercase tracking-[0.16em] text-[#77736b]">Conversation archive</p><h2 className="text-lg font-extrabold tracking-tight">Past conversations</h2></div><button type="button" onClick={() => setHistoryOpen(false)} className="ml-auto grid h-8 w-8 place-items-center rounded-full bg-[#ded8ce] text-lg" aria-label="Close">×</button></header>
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">{[...sessions].reverse().map((session) => { const current = activeConversationId === session.conversationId; return <button key={session.id} type="button" onClick={() => { setActiveConversationId(session.conversationId); submittedConversationId.current = session.conversationId; router.push(conversationPath(session.conversationId)); setHistoryOpen(false); }} className={`mb-2 w-full rounded-[16px] border p-3 text-left transition ${current ? "border-[#11110f] bg-[#d9ff43]" : "border-black/10 bg-white/65 hover:bg-white"}`}><div className="flex items-center gap-2 font-mono text-[8px] uppercase tracking-[0.1em] text-[#68645d]"><span>{dayLabel(session.day)}</span><span className="ml-auto">{session.messages.length} turns</span></div><p className="mt-2 line-clamp-2 text-sm font-bold leading-snug">{sessionPreview(session) || "Untitled conversation"}</p><p className="mt-1 text-[10px] text-[#77736b]">{session.surface === "telegram" ? "Telegram" : "Studio"}</p></button>; })}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">{[...sessions].reverse().map((session) => { const current = activeConversationId === session.conversationId; return <button key={session.id} type="button" onClick={() => { detailRequest.current?.abort(); setDetail(null); setDetailError(null); setDetailLoading(false); setSelectedArtifactId(null); setActiveConversationId(session.conversationId); submittedConversationId.current = session.conversationId; router.push(conversationPath(session.conversationId)); setHistoryOpen(false); }} className={`mb-2 w-full rounded-[16px] border p-3 text-left transition ${current ? "border-[#11110f] bg-[#d9ff43]" : "border-black/10 bg-white/65 hover:bg-white"}`}><div className="flex items-center gap-2 font-mono text-[8px] uppercase tracking-[0.1em] text-[#68645d]"><span>{dayLabel(session.day)}</span><span className="ml-auto">{session.messages.length} turns</span></div><p className="mt-2 line-clamp-2 text-sm font-bold leading-snug">{sessionPreview(session) || "Untitled conversation"}</p><p className="mt-1 text-[10px] text-[#77736b]">{session.surface === "telegram" ? "Telegram" : "Studio"}</p></button>; })}</div>
     </aside>
   </> : null;
 

@@ -1,5 +1,5 @@
 import { contentStrategySchema } from "../contracts";
-import { awsRepository, type DynamoTransaction, type RecordKey, type StoredRecord, recordKey } from "../dynamo";
+import { awsRepository, partition, type DynamoTransaction, type RecordKey, type StoredRecord, recordKey } from "../dynamo";
 import { applyStrategyDecision, strategyDigest, type StrategyDecisionInput } from "../strategyApproval";
 import { assertResourceWorkspace, currentTenant, tenantSubjectId } from "../tenancy";
 import { strategyRefSchema, type ApprovedStrategyRevision, type StrategyProposal, type StrategyRef } from "./contracts";
@@ -66,6 +66,12 @@ export async function readStrategyProposal(id: string, reader: StrategyReader = 
   assertResourceWorkspace(currentTenant(), proposal);
   if (proposal.id !== id || strategyDigest(proposal.strategy) !== proposal.digest) throw new Error("strategy proposal binding mismatch");
   return proposal;
+}
+
+/** Complete durable proposal read for current-operation projections. */
+export async function listStrategyProposals(): Promise<StrategyProposal[]> {
+  const rows = await awsRepository().query(partition(`${root()}/strategy_proposals`));
+  return Promise.all(rows.rows.map(row => readStrategyProposal(row.id)));
 }
 
 export async function decideStrategyProposal(tx: DynamoTransaction, id: string, input: StrategyDecisionInput) {

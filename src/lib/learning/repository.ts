@@ -407,6 +407,12 @@ export async function listLearningContext() {
   const observations = await listLearningObservations(); const { listStrategyChangeProposals, listEvaluationEvidence } = await import("./proposals");
   return { observations: observations.slice(-100), evaluations: (await listEvaluationEvidence()).map(e => e.evaluation!).slice(-50), proposals: (await listStrategyChangeProposals()).slice(-50), authority: "host_persisted" as const, memoryAuthority: "derived_recall_only" as const };
 }
+/** Complete durable learning records for the operator workspace; inference keeps its bounded context separately. */
+export async function listAllLearningOperation() {
+  const observations = await listLearningObservations();
+  const { listStrategyChangeProposals, listEvaluationEvidence } = await import("./proposals");
+  return { observations, evaluations: (await listEvaluationEvidence()).map(e => e.evaluation!), proposals: await listStrategyChangeProposals() };
+}
 export async function learningInsights() {
   const history = await listLearningContext();
   const { validateLearningReference } = await import("./proposals");

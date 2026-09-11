@@ -162,6 +162,12 @@ export async function plannedCalendar(reader = awsRepository() as import("../str
   }
   return items;
 }
+
+/** Planning proposals are durable review records, never inferred from current items. */
+export async function listPlanningProposals(): Promise<Array<Record<string, unknown>>> {
+  const rows = await awsRepository().query(partition(`${campaignRoot()}/planning_proposals`));
+  return rows.rows.map(row => ({ id: row.id, ...(row.value as Record<string, unknown>) }));
+}
 export async function addPlannedDeliverable(input: { planId: string; expectedRevision: number; requestId: string; name: string; operatorBrief: string; requestedOutputs: PlannedItem["requestedOutputs"]; channel: string; scheduledFor: string; dependencies: AuthorityRef[]; requiredAssetIds: string[]; measurements?: PlannedItem["measurements"] }) {
   requireContentOperator(currentTenant());
   if (!input.name.trim() || !input.operatorBrief.trim() || !input.requestedOutputs.length || !Number.isFinite(Date.parse(input.scheduledFor))) throw new Error("complete planned deliverable required");

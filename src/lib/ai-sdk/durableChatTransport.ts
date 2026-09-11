@@ -1,6 +1,6 @@
 import { DefaultChatTransport, type ChatTransport, type UIMessage, type UIMessageChunk } from "ai";
 
-interface DurableChatTransportOptions { fetchImpl?: typeof fetch }
+interface DurableChatTransportOptions { fetchImpl?: typeof fetch; onRunId?: (runId: string) => void }
 
 export class DurableChatTransport<MESSAGE extends UIMessage> implements ChatTransport<MESSAGE> {
   private readonly delegate: DefaultChatTransport<MESSAGE>;
@@ -13,7 +13,8 @@ export class DurableChatTransport<MESSAGE extends UIMessage> implements ChatTran
       api: "/api/chat/stream",
       fetch: async (input, init) => {
         const response = await fetchImpl(input, init);
-        this.runId = response.headers.get("x-chat-run-id") ?? this.runId;
+        const runId = response.headers.get("x-chat-run-id");
+        if (runId) { this.runId = runId; options.onRunId?.(runId); }
         return response;
       },
       prepareSendMessagesRequest: ({ messages, body }) => {

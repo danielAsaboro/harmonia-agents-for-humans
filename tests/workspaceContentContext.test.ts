@@ -66,7 +66,7 @@ describe("workspace content context", () => {
 
     expect(result.operation?.activeStrategy?.thesis).toBe("Grow with operator proof");
     expect(result.operation?.campaigns).toEqual([{ id: "campaign-1", name: "Founder proof", objective: "Build trust" }]);
-    expect(result.operation?.plannedItems[0]).toMatchObject({ campaignId: null, campaignLabel: "Independent work", metricIds: ["engagement"], evidenceState: "operator_context", approvalState: "pending", dependencyState: "blocked" });
+    expect(result.operation?.plannedItems[0]).toMatchObject({ campaignId: null, campaignLabel: "Independent work", metricIds: ["engagement"], evidenceState: "operator_context", approvalState: "pending", lifecycleState: "blocked" });
     expect(result.operation?.plannedItems[0].unresolvedDependencies).toEqual(["asset:demo-video"]);
     expect(result.operation?.results).toEqual([{ id: "observation-1", metric: "engagement", availability: "unavailable", checkedAt: "2026-09-11T10:00:00Z" }]);
   });
@@ -79,9 +79,17 @@ describe("workspace content context", () => {
       proposedChanges: [{ id: "proposal-pending", status: "pending", changes: ["Move cadence to weekly"], decision: "operator review pending" }, { id: "proposal-revoked", status: "revoked", changes: ["Do not use revoked evidence"] }],
       results: ["available", "pending_window", "stale", "revoked", "unavailable"].map((availability, index) => ({ id: `result-${availability}`, metric: `metric-${index}`, availability })),
     } as never);
-    expect(result.recentJobs).toHaveLength(5);
+    expect(result.recentJobs).toHaveLength(26);
     expect(result.operation?.campaigns).toHaveLength(26);
-    expect(result.operation?.proposedChanges).toContainEqual({ id: "proposal-pending", status: "pending", changes: ["Move cadence to weekly"], decision: "operator review pending" });
+    expect(result.operation?.proposedChanges).toContainEqual({ id: "proposal-pending", kind: "content", status: "pending", changes: ["Move cadence to weekly"], evidenceRefs: [], decision: "operator review pending" });
     expect(result.operation?.results.map(item => item.availability)).toEqual(["available", "pending_window", "stale", "revoked", "unavailable"]);
+  });
+
+  it.each(["planned", "running", "awaiting_approval", "completed", "failed", "cancelled", "blocked", "requires_disposition"] as const)("preserves durable planned-item state %s exactly", (status) => {
+    const result = projectWorkspaceContentContext({ goals: { topics: [] }, jobs: [], items: [], activeStrategy: null, plannedItems: [{
+      ref: { id: `item-${status}`, revision: 1 }, planRef: { id: "plan", revision: 1 }, strategyRef: { strategyId: "strategy", revision: 1, digest: "a".repeat(64) }, campaignRef: null,
+      name: status, objective: status, channel: "x", scheduledFor: "2026-09-20T09:00:00Z", evidence: { mode: "operator_context", contextDigest: "b".repeat(64) }, measurements: [{ definition: { id: "m" } }], dependencies: [], requiredAssetIds: [], lifecycle: { status },
+    }] } as never);
+    expect(result.operation?.plannedItems[0].lifecycleState).toBe(status);
   });
 });

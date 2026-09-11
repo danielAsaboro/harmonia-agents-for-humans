@@ -3,6 +3,7 @@ import { appendEvent, getJob, saveCampaignOutputPlan } from "@/lib/repository";
 import { internalRoute } from "@/lib/internalHandler";
 import { isInternalAuthorized, unauthorized } from "@/lib/internalAuth";
 import { planOutputProjection } from "@/lib/outputPlanning";
+import { mediaCapabilityConfiguration } from "@/lib/outputCapabilityServer";
 
 const schema = z.object({ jobId: z.string().min(1) }).strict();
 
@@ -17,6 +18,7 @@ export async function POST(request: Request) {
       job.config.desiredOutputs,
       job.config.allowedOutputs ?? job.config.desiredOutputs,
       job.sourceAnalysis,
+      mediaCapabilityConfiguration(),
     );
     if (result.outcome === "reconstructed") {
       await saveCampaignOutputPlan(jobId, result.plan);

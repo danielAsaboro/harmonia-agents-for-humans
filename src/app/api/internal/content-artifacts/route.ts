@@ -12,6 +12,7 @@ import { bindTextArtifactsToMediaPack } from "@/lib/outputMediaProduction";
 import { getProductionPlanWorkspaceForJob, proposeProductionPlan, sealProductionPlan } from "@/lib/productionPlanStore";
 import { productionPlanDigest } from "@/lib/mediaProduction";
 
+
 export async function POST(req: Request) {
   if (!isInternalAuthorized(req)) return unauthorized();
   return internalRoute(req, artifactProductionSubmissionSchema, async (body) => {

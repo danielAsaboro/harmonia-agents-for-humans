@@ -58,10 +58,11 @@ export function planOutputProjection(
   desiredOutputs: OutputKind[],
   allowedOutputs: OutputKind[],
   analysis: SourceAnalysis,
+  capabilities?: MediaCapabilityConfiguration,
 ): { outcome: "existing" | "reconstructed"; plan: CampaignOutputPlan } {
   if (existing) return { outcome: "existing", plan: existing };
   return {
     outcome: "reconstructed",
-    plan: proposeOutputPlan(jobId, desiredOutputs, allowedOutputs, analysis),
+    plan: proposeOutputPlan(jobId, desiredOutputs, allowedOutputs, analysis, capabilities),
   };
 }

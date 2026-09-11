@@ -1185,6 +1185,8 @@ function requireJobDoc(snap: StoredRecord): Job & {
     artifactProductionDigest: data.artifactProductionDigest,
     artifactProductionCallbackDigest: data.artifactProductionCallbackDigest,
     artifactProductionCallbackClaimedAt: data.artifactProductionCallbackClaimedAt,
+    artifactProductionCallbackCreatedAt: data.artifactProductionCallbackCreatedAt,
+    artifactProductionCallbackTraceId: data.artifactProductionCallbackTraceId,
     failure: data.failure,
     strategyRef: data.strategyRef,
     strategyProposalId: data.strategyProposalId,
@@ -1999,7 +2001,7 @@ export async function finalizeArtifactProduction(
     const active = job.activeProductionLineage;
     if (!active || active.editorialPlanId !== lineage.editorialPlanId || active.editorialPlanDigest !== lineage.editorialPlanDigest || active.editorialItemId !== lineage.editorialItemId || active.briefId !== lineage.briefId) throw new Error("production lineage mismatch");
     const linkedActions = actions.map((action) => ({ ...action, ...lineage })); const updatedAt = new Date().toISOString();
-    tx.patch(ref, { artifactProductionResult: productionResult, contentArtifacts: artifacts, artifactProductionDigest: traceDigest, artifactProductionCallbackDigest: REMOVE_FIELD, artifactProductionCallbackClaimedAt: REMOVE_FIELD, actions: linkedActions, ...(needsApproval ? { stage: "awaiting_approval", status: "waiting_for_approval" } : {}), updatedAt });
+    tx.patch(ref, { artifactProductionResult: productionResult, contentArtifacts: artifacts, artifactProductionDigest: traceDigest, artifactProductionCallbackDigest: REMOVE_FIELD, artifactProductionCallbackClaimedAt: REMOVE_FIELD, artifactProductionCallbackCreatedAt: REMOVE_FIELD, artifactProductionCallbackTraceId: REMOVE_FIELD, actions: linkedActions, ...(needsApproval ? { stage: "awaiting_approval", status: "waiting_for_approval" } : {}), updatedAt });
     const itemState = await readItemState(job.plannedItemRef, tx);
     tx.put(authorityKey("planned_item_states", job.plannedItemRef), { ...itemState, status: needsApproval ? "awaiting_approval" : "running", updatedAt });
     for (const artifact of artifacts) {
@@ -2012,19 +2014,21 @@ export async function finalizeArtifactProduction(
 }
 
 /** Reserve one durable callback before it can mutate a production-plan revision. */
-export async function claimArtifactProductionCallback(jobId: string, productionResult: import("./contentArtifacts/submission").ArtifactProductionResult) {
+export async function claimArtifactProductionCallback(jobId: string, productionResult: import("./contentArtifacts/submission").ArtifactProductionResult, identity?: { createdAt: string; traceId: string }) {
   const traceDigest = createHash("sha256").update(canonicalJson(productionResult), "utf8").digest("hex");
   return db().atomic(async (tx) => {
     const ref = jobRef(jobId); const snap = await tx.read(ref); const job = await resolveJobStrategy(requireJobDoc(snap), tx);
-    if (job.artifactProductionResult && job.artifactProductionDigest === traceDigest) return { outcome: "already_applied" as const, traceDigest };
+    if (job.artifactProductionResult && job.artifactProductionDigest === traceDigest) return { outcome: "already_applied" as const, traceDigest, createdAt: job.artifactProductionCallbackCreatedAt, traceId: job.artifactProductionCallbackTraceId };
     if (job.artifactProductionCallbackDigest && job.artifactProductionCallbackDigest !== traceDigest) throw new Error("another artifact production callback is active");
     const now = new Date();
     const claimedAt = job.artifactProductionCallbackClaimedAt ? Date.parse(job.artifactProductionCallbackClaimedAt) : Number.NaN;
     if (job.artifactProductionCallbackDigest === traceDigest && Number.isFinite(claimedAt) && now.getTime() - claimedAt < 5 * 60 * 1000) {
-      return { outcome: "in_progress" as const, traceDigest };
+      return { outcome: "in_progress" as const, traceDigest, createdAt: job.artifactProductionCallbackCreatedAt!, traceId: job.artifactProductionCallbackTraceId! };
     }
-    tx.patch(ref, { artifactProductionCallbackDigest: traceDigest, artifactProductionCallbackClaimedAt: now.toISOString(), updatedAt: now.toISOString() });
-    return { outcome: "execute" as const, traceDigest };
+    const createdAt = job.artifactProductionCallbackCreatedAt ?? identity?.createdAt ?? now.toISOString();
+    const traceId = job.artifactProductionCallbackTraceId ?? identity?.traceId ?? "0".repeat(32);
+    tx.patch(ref, { artifactProductionCallbackDigest: traceDigest, artifactProductionCallbackClaimedAt: now.toISOString(), artifactProductionCallbackCreatedAt: createdAt, artifactProductionCallbackTraceId: traceId, updatedAt: now.toISOString() });
+    return { outcome: "execute" as const, traceDigest, createdAt, traceId };
   });
 }
 

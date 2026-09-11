@@ -16,12 +16,12 @@ export async function POST(req: Request) {
   if (!isInternalAuthorized(req)) return unauthorized();
   return internalRoute(req, artifactProductionSubmissionSchema, async (body) => {
     const job = await getJob(body.jobId);
-    const callback = await claimArtifactProductionCallback(body.jobId, body.result);
+    const callback = await claimArtifactProductionCallback(body.jobId, body.result, { createdAt: new Date().toISOString(), traceId: currentTraceId() });
     if (callback.outcome === "already_applied") return Response.json({ ok: true, alreadyApplied: true });
     if (callback.outcome === "in_progress") return Response.json({ ok: true, inProgress: true }, { status: 202 });
     if (job.stage !== "draft" && job.stage !== "awaiting_approval") return Response.json({ error: `job stage is '${job.stage}'` }, { status: 409 });
     const plan = job.campaignOutputPlan; if (!plan) return Response.json({ error: "campaign output plan is missing" }, { status: 409 });
-    const acceptedReviews = body.result.finalReview?.reviews ?? body.result.firstReview.reviews; const traceId = currentTraceId(); const now = new Date().toISOString();
+    const acceptedReviews = body.result.finalReview?.reviews ?? body.result.firstReview.reviews; const traceId = callback.traceId; const now = callback.createdAt;
     const sealDraft = (draft: (typeof body.result.accepted.artifacts)[number], payload = draft.payload) => {
       const planned = plan.outputs.find((item) => item.id === draft.outputPlanItemId); if (!planned || planned.outputType !== draft.outputType) throw new Error(`artifact ${draft.id} is outside the output plan`);
       if (draft.sourceSegmentRefs.some((ref) => !planned.evidenceRefs.includes(ref))) throw new Error(`artifact ${draft.id} references evidence outside its output-plan item`);

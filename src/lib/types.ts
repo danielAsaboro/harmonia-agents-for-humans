@@ -335,6 +335,8 @@ export interface Job {
   artifactProductionDigest?: string;
   artifactProductionCallbackDigest?: string;
   artifactProductionCallbackClaimedAt?: string;
+  artifactProductionCallbackCreatedAt?: string;
+  artifactProductionCallbackTraceId?: string;
   budget?: JobBudget;
   failure?: {
     stage: Stage;

@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
-import { awsRepository, partition, recordKey, type DynamoTransaction } from "../dynamo";
+import { awsRepository, partition, recordKey, DynamoTransaction, type PartitionQuery, type RecordPage } from "../dynamo";
 import { assertResourceWorkspace, currentTenant, tenantSubjectId } from "../tenancy";
 import { requireContentOperator } from "../authority";
 import { applyReservation, applyReleasedReservation, microsToUsd, canReserve, exceedsApprovalThreshold, usdToMicros } from "../costs";
@@ -16,7 +16,15 @@ import { evaluateObservations } from "./evaluation";
 export const learningKey = (collection: string, id: string) => { if (!/^[A-Za-z0-9_.:-]{1,180}$/.test(id)) throw new Error("invalid learning authority id"); return recordKey(`${campaignRoot()}/${collection}/${id}`); };
 export class InvalidLearningEvidence extends Error {}
 type LearningJob = Job & { actions: PlannedAction[]; verifications: VerificationResult[] };
+type ObservationHeadTransition = {
+  workspaceId: string; brandId: string; collectionId: string;
+  observation: { id: string; digest: string };
+  previous: { id: string; digest: string } | null;
+  recordedAt: string; digest: string;
+};
 const jobKey = (id: string) => { if (!/^[A-Za-z0-9_-]{1,100}$/.test(id)) throw new Error("invalid job id"); return recordKey(`workspaces/${currentTenant().workspaceId}/jobs/${id}`); };
+const observationHeadPartition = (collectionId: string) => `${campaignRoot()}/observation_head_transitions/${collectionId}`;
+const observationHeadKey = (collectionId: string, observationId: string) => recordKey(`${observationHeadPartition(collectionId)}/${observationId}`);
 export async function assertLearningSources(sourceIds: string[], reader: StrategyReader = awsRepository()) {
   for (const sourceId of sourceIds) {
     const source = await readRequired<{ workspaceId: string; brandId: string; state: string }>(learningKey("sources", sourceId), reader);
@@ -47,11 +55,67 @@ export async function readObservation(id: string, reader: StrategyReader = awsRe
   if (strategyDigest(body) !== digest) throw new Error("observation authority digest mismatch");
   return observation;
 }
+function headTransitionBody(transition: ObservationHeadTransition) {
+  const { digest: _digest, ...body } = transition;
+  return body;
+}
+function assertHeadTransition(collection: Collection, transition: ObservationHeadTransition, recordId: string) {
+  assertResourceWorkspace(currentTenant(), transition);
+  if (transition.collectionId !== collection.id || transition.observation.id !== recordId || strategyDigest(headTransitionBody(transition)) !== transition.digest) throw new InvalidLearningEvidence("observation head transition digest mismatch");
+}
+async function readObservationHeadTransitions(collection: Collection, reader: StrategyReader): Promise<RecordPage> {
+  const query = partition(observationHeadPartition(collection.id));
+  if (reader instanceof DynamoTransaction) return reader.read(query);
+  const queryable = reader as StrategyReader & { query?: (input: PartitionQuery) => Promise<RecordPage> };
+  if (queryable.query) return queryable.query(query);
+  throw new InvalidLearningEvidence("observation head transition reader unavailable");
+}
+/** The append-only transition partition, rather than the mutable collection pointer, names the authoritative head. */
+export async function authoritativeObservationHead(collection: Collection, reader: StrategyReader = awsRepository()): Promise<ObservationHeadTransition> {
+  const rows = await readObservationHeadTransitions(collection, reader);
+  if (!rows.rows.length) throw new InvalidLearningEvidence("observation head transition missing");
+  const transitions = rows.rows.map(row => {
+    const transition = row.value as unknown as ObservationHeadTransition;
+    assertHeadTransition(collection, transition, row.id);
+    return transition;
+  });
+  for (const transition of transitions) {
+    const observation = await readObservation(transition.observation.id, reader);
+    if (observation.collectionId !== collection.id || observation.digest !== transition.observation.digest) throw new InvalidLearningEvidence("observation head transition observation mismatch");
+  }
+  const byObservationId = new Map(transitions.map(transition => [transition.observation.id, transition]));
+  if (byObservationId.size !== transitions.length) throw new InvalidLearningEvidence("duplicate observation head transition");
+  const successors = new Set<string>();
+  let roots = 0;
+  for (const transition of transitions) {
+    if (!transition.previous) { roots += 1; continue; }
+    const previous = byObservationId.get(transition.previous.id);
+    if (!previous || previous.observation.digest !== transition.previous.digest) throw new InvalidLearningEvidence("observation head predecessor mismatch");
+    successors.add(transition.previous.id);
+  }
+  const heads = transitions.filter(transition => !successors.has(transition.observation.id));
+  if (roots !== 1 || heads.length !== 1) throw new InvalidLearningEvidence("observation head transition fork or orphan");
+  const head = heads[0];
+  const visited = new Set<string>();
+  for (let current: ObservationHeadTransition | undefined = head; current; current = current.previous ? byObservationId.get(current.previous.id) : undefined) {
+    if (visited.has(current.observation.id)) throw new InvalidLearningEvidence("observation head transition cycle");
+    visited.add(current.observation.id);
+  }
+  if (visited.size !== transitions.length) throw new InvalidLearningEvidence("observation head transition orphan");
+  return head;
+}
+function appendObservationHeadTransition(tx: DynamoTransaction, collection: Collection, observation: PerformanceObservation, previous: ObservationHeadTransition["observation"] | null) {
+  const body = { workspaceId: collection.workspaceId, brandId: collection.brandId, collectionId: collection.id, observation: { id: observation.id, digest: observation.digest }, previous, recordedAt: observation.observedAt };
+  tx.insert(observationHeadKey(collection.id, observation.id), { ...body, digest: strategyDigest(body) });
+}
 export async function assertObservationUsable(observation: PerformanceObservation, reader: StrategyReader = awsRepository(), requireAvailable = true) {
   if (observation.availability === "revoked" || (requireAvailable && observation.availability !== "available")) throw new InvalidLearningEvidence("observation evidence unavailable or revoked");
   const collection = await readRequired<Collection>(learningKey("observation_outbox", observation.collectionId), reader);
   await validBinding(collection, reader);
-  const current = await readObservation(collection.observationId, reader);
+  const head = await authoritativeObservationHead(collection, reader);
+  if (collection.observationId !== head.observation.id) throw new InvalidLearningEvidence("mutable collection observation head mismatch");
+  const current = await readObservation(head.observation.id, reader);
+  if (current.digest !== head.observation.digest) throw new InvalidLearningEvidence("observation head digest mismatch");
   if (current.availability === "revoked" || (requireAvailable && collection.state !== "completed")) throw new InvalidLearningEvidence("observation revoked or unresolved");
   let successor = current;
   const visited = new Set<string>();
@@ -76,9 +140,14 @@ export async function insertObservation(tx: DynamoTransaction, observation: Perf
   const key = learningKey("performance_observations", observation.id), old = await tx.read(key);
   if (old.present) { if (old.value?.digest !== observation.digest) throw new Error("observation identity reused"); return; }
   const collection = await tx.read(learningKey("observation_outbox", observation.collectionId));
-  const previous = collection.present ? await readObservation(String(collection.value!.observationId), tx) : null;
+  const currentCollection = collection.present ? collection.value as unknown as Collection : null;
+  const head = currentCollection ? await authoritativeObservationHead(currentCollection, tx) : null;
+  if (currentCollection && currentCollection.observationId !== head!.observation.id) throw new InvalidLearningEvidence("mutable collection observation head mismatch");
+  const previous = head ? await readObservation(head.observation.id, tx) : null;
+  if (previous && previous.digest !== head!.observation.digest) throw new InvalidLearningEvidence("observation head digest mismatch");
   tx.insert(key, observation);
   tx.insert(learningKey("observation_lineage", observation.id), { workspaceId: observation.workspaceId, brandId: observation.brandId, collectionId: observation.collectionId, observation: { id: observation.id, digest: observation.digest }, previous: previous ? { id: previous.id, digest: previous.digest } : null });
+  if (currentCollection) appendObservationHeadTransition(tx, currentCollection, observation, head!.observation);
 }
 /** Recovery calls this for completed items. Definition, anchor and provider target are frozen once. */
 export async function scheduleCompletedJob(jobId: string, now = new Date().toISOString()): Promise<Collection[]> {
@@ -125,7 +194,7 @@ export async function scheduleCompletedJob(jobId: string, now = new Date().toISO
       else if (m.window.anchor === "publication" && (!verification || !receipt)) value = { availability: "unavailable", value: null, reason: "no_verified_publication" };
       const observation = buildObservation(collection, value, now, { provider: "host", evidenceRefs: delivery && value.availability === "available" ? verifies.map(v => `verification:${jobId}:${v.id}`) : [] });
       collection.observationId = observation.id; if (value.availability !== "pending_window") collection.state = "completed";
-      await insertObservation(tx, observation); tx.insert(learningKey("observation_outbox", id), collection); result.push(collection);
+      await insertObservation(tx, observation); tx.insert(learningKey("observation_outbox", id), collection); appendObservationHeadTransition(tx, collection, observation, null); result.push(collection);
     }
     tx.insert(index, { workspaceId: item.workspaceId, brandId: item.brandId, collectionIds: result.map(c => c.id) }); return result;
   });

@@ -151,8 +151,16 @@ print('ok')`;
     expect((await p.readLearningEvidence(evaluation.id)).evaluation).toEqual(evaluation);
     const historicalKey = api.learningKey("performance_observations", second.observationId), original = (await awsRepository().read(historicalKey)).value!, { digest: _digest, ...body } = original; void _digest;
     await awsRepository().put(historicalKey, { ...body, reason: "tampered", digest: strategyDigest({ ...body, reason: "tampered" }) });
-    await expect(readStrategyRevision(decision.approvedStrategyRef!)).rejects.toThrow(/digest|lineage|cohort/);
+    await expect(readStrategyRevision(decision.approvedStrategyRef!)).rejects.toThrow(/digest|head|lineage|cohort/);
     await awsRepository().put(historicalKey, original);
+    const secondCollectionKey = api.learningKey("observation_outbox", second.id);
+    await api.revokeLearningObservations({ jobId: claim.jobId }, "Withdraw collection evidence");
+    const revokedCollection = await awsRepository().read(secondCollectionKey);
+    expect(await api.readObservation(String(revokedCollection.value?.observationId))).toMatchObject({ availability: "revoked" });
+    // The operational pointer is mutable state. It must not be able to roll an
+    // approved strategy back to the earlier valid cohort member after revocation.
+    await awsRepository().patch(secondCollectionKey, { observationId: second.observationId });
+    await expect(readStrategyRevision(decision.approvedStrategyRef!)).rejects.toThrow(/head|lineage|revoked/);
     await p.revokeLearningEvidence(evaluation.id, "Withdraw underlying evidence");
     await expect(readStrategyRevision(decision.approvedStrategyRef!)).rejects.toThrow("revoked");
     expect((await p.listStrategyChangeProposals()).find(p => p.id === proposal.id)).toMatchObject({ status: "approved", evidenceStatus: "revoked" });

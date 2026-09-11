@@ -44,6 +44,7 @@ from .web_client import (
     claim_production_operation,
     download_production_artifact,
     download_production_source,
+    get_content_artifact,
     record_production_provider_operation,
     record_production_operation_failure,
     report_usage,
@@ -162,6 +163,17 @@ def _target_dimensions(plan: dict[str, Any]) -> tuple[int, int]:
 
 def _json_bytes(value: Any) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _content_artifact_bytes(artifact: dict[str, Any], expected_digest: str) -> bytes:
+    """Recreate the host's canonical artifact digest before adding it to a pack."""
+    copy = dict(artifact)
+    copy.pop("contentDigest", None)
+    data = _json_bytes(copy)
+    actual = hashlib.sha256(data).hexdigest()
+    if actual != expected_digest or artifact.get("contentDigest") != expected_digest:
+        raise ProductionExecutionProtocolError("authoritative text artifact digest mismatch")
+    return data
 
 
 def _artifact_extension(mime: str) -> str:
@@ -476,14 +488,25 @@ def _execute_internal_operation(
                     filename = f"{index:02d}-{child_digest}{_artifact_extension(child_mime)}"
                     (pack / filename).write_bytes(child_data)
                     children.append({"operationId": operation_id, "digest": child_digest, "mime": child_mime, "sizeBytes": len(child_data), "path": filename})
+                text_children = payload.get("packTextChildren") if isinstance(payload, dict) else []
+                if not isinstance(text_children, list):
+                    raise ProductionExecutionProtocolError("sealed text pack children are malformed")
+                archived_text: list[dict[str, Any]] = []
+                for index, text_child in enumerate(text_children, start=1):
+                    if not isinstance(text_child, dict) or not isinstance(text_child.get("artifactId"), str) or not isinstance(text_child.get("digest"), str):
+                        raise ProductionExecutionProtocolError("sealed text pack child is malformed")
+                    artifact = get_content_artifact(str(claim["jobId"]), text_child["artifactId"], text_child["digest"])
+                    text_data = _content_artifact_bytes(artifact, text_child["digest"])
+                    filename = f"text-{index:02d}-{text_child['digest']}.json"
+                    (pack / filename).write_bytes(text_data)
+                    archived_text.append({"artifactId": text_child["artifactId"], "digest": text_child["digest"], "mime": text_child.get("mime"), "sizeBytes": len(text_data), "path": filename})
                 receipt = {
                     "schemaVersion": 1, "kind": "generated_media_pack", "planId": plan_id,
                     "planDigest": claim["planDigest"], "children": children,
                     "outputRequest": plan.get("outputRequest"),
-                    "textChildren": payload.get("packTextChildren") if isinstance(payload, dict) else [],
+                    "textChildren": archived_text,
                 }
                 (pack / "export-receipt.json").write_bytes(_json_bytes(receipt))
-                (pack / "text-artifacts.json").write_bytes(_json_bytes(receipt["textChildren"]))
                 data = create_deterministic_archive(pack)
                 mime = "application/zip"
                 metadata = {"kind": "generated_media_pack", "receipt": receipt}
@@ -772,6 +795,11 @@ def execute_production_operation(
         persist_provider(exc.operation_name)
         return {"outcome": "waiting_provider", "providerOperationId": exc.operation_name}
     except MediaProviderError as exc:
+        if provider == "nova_canvas":
+            # Canvas has no provider polling surface. Once its durable submission
+            # identity exists, a transient response cannot be safely retried.
+            quarantine(exc, "uncertain")
+            return {"outcome": "uncertain", "providerOperationId": active_provider_id}
         if active_provider_id and not exc.permanent:
             persist_provider(active_provider_id)
             return {"outcome": "waiting_provider", "providerOperationId": active_provider_id}

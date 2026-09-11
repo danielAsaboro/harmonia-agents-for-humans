@@ -36,7 +36,7 @@ export function planRequestedMediaProduction(input: {
   const selected = input.outputPlan.outputs.filter((output) => ["social_image", "generated_video", "generated_music"].includes(output.outputType));
   const contentPack = input.outputPlan.outputs.find((output) => output.outputType === "content_pack");
   if (!selected.length) return null;
-  const brief = input.job.config.operatorBrief?.trim();
+  const brief = input.job.config.operatorBrief;
   if (!brief) throw new Error("direct media production requires the operator brief that supplied the requested content");
   const pricing = configuredPricing(input.pricing);
   const id = stablePlanId(input.job.id);
@@ -47,7 +47,9 @@ export function planRequestedMediaProduction(input: {
     id: `scene-${output.id}-${index + 1}`, order: index + 1, startSec: index * 6, durationSec: 6, purpose: "operator-requested generated video",
     video: { modelCapability: "nova-reel" as const, mode: "text_to_video" as const, prompt: brief, durationSec: 6, aspectRatio: "16:9" as const, resolution: "720p" as const, outputCount: 1 as const }, overlays: [], captions: [], transitions: [],
   })));
-  const wantsMusic = selected.some((output) => output.outputType === "generated_music");
+  const musicOutputs = selected.filter((output) => output.outputType === "generated_music");
+  if (musicOutputs.some((output) => output.quantity !== 1)) throw new Error("generated music currently supports exactly one output per request");
+  const wantsMusic = musicOutputs.length === 1;
   const soundtrack = wantsMusic ? { modelCapability: "elevenlabs-music" as const, prompt: brief, instrumental: true as const, targetDurationSec: 30, outputCount: 1 as const } : undefined;
   const operationCostsUsd: Record<string, string> = {};
   images.forEach((_image, index) => { operationCostsUsd[`${id}:generate_image:image-${index + 1}`] = pricing.canvasPerImage; });

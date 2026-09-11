@@ -91,6 +91,24 @@ def test_canvas_executor_seals_submission_before_invoking_and_uploads_png(monkey
     assert records[1]["provider"] == "nova_canvas"
 
 
+def test_canvas_transient_after_submission_is_durable_uncertainty_not_provider_wait(monkeypatch):
+    operation = _image_operation(); decision = _claim(); decision["operation"] = operation
+    decision["claim"]["operationId"] = operation["id"]; decision["claim"]["reservedCostUsd"] = "0.500000"
+    failures: list[dict] = []
+    monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: decision)
+    monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(aws_region="us-east-1", allow_paid_aws=True, generative_media_enabled=True, media_output_bucket="media-bucket"))
+    monkeypatch.setattr(production_executor, "AwsMediaTransport", lambda **_kwargs: object())
+    monkeypatch.setattr(production_executor, "reserve_budget", lambda _payload: None)
+    monkeypatch.setattr(production_executor, "start_production_provider_submission", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(production_executor, "record_production_provider_operation", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(production_executor, "record_production_operation_failure", lambda *_args, **kwargs: failures.append(kwargs))
+    monkeypatch.setattr(production_executor, "resolve_budget_reservation", lambda _payload: None)
+    monkeypatch.setattr(production_executor.NovaCanvasGenerator, "generate", lambda *_args, **_kwargs: (_ for _ in ()).throw(MediaProviderError("timeout", permanent=False)))
+    result = production_executor.execute_production_operation("plan-1", operation["id"], claim_token="worker-1", plan_revision=1, plan_digest="a" * 64)
+    assert result["outcome"] == "uncertain"
+    assert failures[-1]["outcome"] == "uncertain"
+
+
 def _conditioned_claim(*, provider_operation_id: str | None = None) -> dict:
     reference = {
         "artifactId": "018f47a2-4f40-7b1f-b19f-8f6b916b7d13",

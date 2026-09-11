@@ -11,11 +11,16 @@ import { materializeExecutableJobCommands } from "@/lib/jobEffectCommands";
 import { bindTextArtifactsToMediaPack } from "@/lib/outputMediaProduction";
 import { getProductionPlanWorkspaceForJob, proposeProductionPlan, sealProductionPlan } from "@/lib/productionPlanStore";
 import { productionPlanDigest } from "@/lib/mediaProduction";
+import { canonicalJson } from "@/lib/recordReplay/integrity";
+import { createHash } from "node:crypto";
 
 export async function POST(req: Request) {
   if (!isInternalAuthorized(req)) return unauthorized();
   return internalRoute(req, artifactProductionSubmissionSchema, async (body) => {
-    const job = await getJob(body.jobId); if (job.stage !== "draft" && job.stage !== "awaiting_approval") return Response.json({ error: `job stage is '${job.stage}'` }, { status: 409 });
+    const job = await getJob(body.jobId);
+    const submittedDigest = createHash("sha256").update(canonicalJson(body.result), "utf8").digest("hex");
+    if (job.artifactProductionResult && job.artifactProductionDigest === submittedDigest) return Response.json({ ok: true, alreadyApplied: true });
+    if (job.stage !== "draft" && job.stage !== "awaiting_approval") return Response.json({ error: `job stage is '${job.stage}'` }, { status: 409 });
     const plan = job.campaignOutputPlan; if (!plan) return Response.json({ error: "campaign output plan is missing" }, { status: 409 });
     const acceptedReviews = body.result.finalReview?.reviews ?? body.result.firstReview.reviews; const traceId = currentTraceId(); const now = new Date().toISOString();
     const sealDraft = (draft: (typeof body.result.accepted.artifacts)[number], payload = draft.payload) => {

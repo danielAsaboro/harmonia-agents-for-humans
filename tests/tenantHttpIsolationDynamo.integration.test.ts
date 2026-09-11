@@ -100,6 +100,13 @@ describe.skipIf(!emulator)("HTTP tenant isolation", () => {
       workspaceId: authenticatedWorkspaceId,
     });
     expect(body.job.workspaceId).not.toBe(foreignWorkspaceId);
+    expect(body.job.campaignOutputPlan).toBeUndefined();
+    expect(Object.keys(body.job.outputCapabilityStatuses)).toHaveLength(16);
+    expect(body.job.outputCapabilityStatuses).toMatchObject({
+      social_image: { supported: true, providerAvailability: "not_configured", liveVerification: "not_verified" },
+      generated_video: { supported: true, providerAvailability: "not_configured", liveVerification: "not_verified" },
+      generated_music: { supported: true, providerAvailability: "not_configured", liveVerification: "not_verified" },
+    });
   });
 
   it("refreshes an encrypted session and prevents refresh from recreating a revoked session", async () => {

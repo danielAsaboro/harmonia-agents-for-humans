@@ -14,6 +14,7 @@ import {
   claimSelectedEditorialItem,
   db,
   getJob,
+  rejectArtifactProductionCallback,
 } from "@/lib/repository";
 import {
   approveProductionPlan,
@@ -183,6 +184,20 @@ describe.skipIf(!emulator)("content artifact callback HTTP recovery", () => {
       ...prepared.lineage,
       result,
     };
+    const invalidPostDraft = {
+      ...postDraft,
+      sourceSegmentRefs: ["fabricated:segment-1"],
+    };
+    const invalidResult = {
+      original: { artifacts: [invalidPostDraft] },
+      firstReview: {
+        reviews: [{ artifactId: invalidPostDraft.id, decision: "accept" as const, checks, issues: [] }],
+      },
+      revision: null,
+      finalReview: null,
+      accepted: { artifacts: [invalidPostDraft] },
+    };
+    const invalidBody = { ...body, result: invalidResult };
 
     const firstNow = "2026-09-11T09:00:00.000Z";
     const secondNow = "2026-09-11T10:00:00.000Z";
@@ -195,6 +210,59 @@ describe.skipIf(!emulator)("content artifact callback HTTP recovery", () => {
     const crashWindow: {
       approved: Awaited<ReturnType<typeof getProductionPlanWorkspaceForJob>>;
     } = { approved: null };
+
+    let signalClaimed!: () => void;
+    let releaseInvalid!: () => void;
+    let invalidTraceDigest = "";
+    const invalidClaimed = new Promise<void>((resolve) => { signalClaimed = resolve; });
+    const invalidGate = new Promise<void>((resolve) => { releaseInvalid = resolve; });
+    const invalidPromise = withContentArtifactsPostTestDependencies({
+      now: () => firstNow,
+      afterArtifactClaim: async ({ traceDigest }) => {
+        invalidTraceDigest = traceDigest;
+        signalClaimed();
+        await invalidGate;
+      },
+    }, () => POST(request(invalidBody, "9".repeat(32))));
+    await invalidClaimed;
+
+    await expect(runWithTenant(operatorScope, () => rejectArtifactProductionCallback(
+      prepared.job.id,
+      invalidTraceDigest,
+      "unowned-rejection-token",
+      "attempted authority bypass",
+    ))).rejects.toThrow("artifact production callback rejection ownership mismatch");
+
+    const concurrentReplacement = await POST(request(body, "8".repeat(32)));
+    expect(concurrentReplacement.status).toBe(500);
+    await expect(concurrentReplacement.json()).resolves.toEqual({
+      error: "another artifact production callback is active",
+    });
+
+    releaseInvalid();
+    const invalidResponse = await invalidPromise;
+    expect(invalidResponse.status).toBe(422);
+    const invalidPayload = await invalidResponse.json() as {
+      error: string;
+      rejection: { traceDigest: string; reason: string; receiptDigest: string; claimTokenDigest: string };
+    };
+    expect(invalidPayload.error).toContain("references evidence outside its output-plan item");
+    expect(invalidPayload.rejection).toMatchObject({
+      reason: expect.stringContaining("references evidence outside its output-plan item"),
+      receiptDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      claimTokenDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+
+    const afterInvalidRejection = await runWithTenant(operatorScope, () => getJob(prepared.job.id));
+    expect(afterInvalidRejection.artifactProductionCallbackDigest).toBeUndefined();
+    expect(afterInvalidRejection.artifactProductionCallbackClaimTokenDigest).toBeUndefined();
+    expect(afterInvalidRejection.artifactProductionCallbackLeaseExpiresAt).toBeUndefined();
+    expect(afterInvalidRejection.artifactProductionResult).toBeUndefined();
+
+    const invalidReplay = await POST(request(invalidBody, "7".repeat(32)));
+    expect(invalidReplay.status).toBe(422);
+    const replayPayload = await invalidReplay.json() as typeof invalidPayload;
+    expect(replayPayload.rejection).toEqual(invalidPayload.rejection);
 
     const post = (req: Request) => withContentArtifactsPostTestDependencies({
       now: () => ambientNow,
@@ -239,7 +307,7 @@ describe.skipIf(!emulator)("content artifact callback HTTP recovery", () => {
     expect(claimedAfterCrash.artifactProductionResult).toBeUndefined();
     await awsRepository().patch(
       recordKey(`workspaces/${workspaceId}/jobs/${prepared.job.id}`),
-      { artifactProductionCallbackClaimedAt: "2000-01-01T00:00:00.000Z" },
+      { artifactProductionCallbackClaimedAt: "2000-01-01T00:00:00.000Z", artifactProductionCallbackLeaseExpiresAt: "2000-01-01T00:05:00.000Z" },
     );
 
     ambientNow = secondNow;
@@ -278,6 +346,17 @@ describe.skipIf(!emulator)("content artifact callback HTTP recovery", () => {
     ));
     expect(revisions.rows).toHaveLength(1);
     expect(revisions.rows[0].value?.contentDigest).toBe(callbackArtifacts[0][0].contentDigest);
+
+    const invalidReplayAfterFinalization = await POST(request(invalidBody, "6".repeat(32)));
+    expect(invalidReplayAfterFinalization.status).toBe(422);
+    const finalReplayPayload = await invalidReplayAfterFinalization.json() as typeof invalidPayload;
+    expect(finalReplayPayload.rejection).toEqual(invalidPayload.rejection);
+
+    const rejection = await awsRepository().read(recordKey(
+      `workspaces/${workspaceId}/jobs/${prepared.job.id}/artifact_callback_rejections/${invalidPayload.rejection.traceDigest}`,
+    ));
+    expect(rejection.present).toBe(true);
+    expect(rejection.value).toEqual(invalidPayload.rejection);
   }, 60_000);
 
   afterAll(async () => {

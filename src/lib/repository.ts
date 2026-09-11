@@ -1187,6 +1187,8 @@ function requireJobDoc(snap: StoredRecord): Job & {
     artifactProductionCallbackClaimedAt: data.artifactProductionCallbackClaimedAt,
     artifactProductionCallbackCreatedAt: data.artifactProductionCallbackCreatedAt,
     artifactProductionCallbackTraceId: data.artifactProductionCallbackTraceId,
+    artifactProductionCallbackClaimTokenDigest: data.artifactProductionCallbackClaimTokenDigest,
+    artifactProductionCallbackLeaseExpiresAt: data.artifactProductionCallbackLeaseExpiresAt,
     failure: data.failure,
     strategyRef: data.strategyRef,
     strategyProposalId: data.strategyProposalId,
@@ -1990,18 +1992,22 @@ export async function finalizeArtifactProduction(
   artifacts: import("./contentArtifacts/contracts").ContentArtifact[],
   actions: PlannedAction[],
   needsApproval: boolean,
+  claimToken: string,
 ) {
   const traceDigest = createHash("sha256").update(canonicalJson(productionResult), "utf8").digest("hex");
+  const claimTokenDigest = createHash("sha256").update(claimToken, "utf8").digest("hex");
   return db().atomic(async (tx) => {
     const ref = jobRef(jobId); const snap = await tx.read(ref); const job = await resolveJobStrategy(requireJobDoc(snap), tx);
     if (!job.plannedItemRef || !job.planRef) throw new Error("durable planned item authority required for production");
     if (job.artifactProductionResult && job.artifactProductionDigest === traceDigest) return { outcome: "already_applied" as const };
     if (job.artifactProductionCallbackDigest !== traceDigest) throw new Error("artifact production callback is not durably claimed");
+    if (job.artifactProductionCallbackClaimTokenDigest !== claimTokenDigest) throw new Error("artifact production callback claim ownership mismatch");
+    if (!job.artifactProductionCallbackLeaseExpiresAt || Date.parse(job.artifactProductionCallbackLeaseExpiresAt) <= Date.now()) throw new Error("artifact production callback lease expired");
     assertSelectedProductionAuthority(job, lineage, "drafting");
     const active = job.activeProductionLineage;
     if (!active || active.editorialPlanId !== lineage.editorialPlanId || active.editorialPlanDigest !== lineage.editorialPlanDigest || active.editorialItemId !== lineage.editorialItemId || active.briefId !== lineage.briefId) throw new Error("production lineage mismatch");
     const linkedActions = actions.map((action) => ({ ...action, ...lineage })); const updatedAt = new Date().toISOString();
-    tx.patch(ref, { artifactProductionResult: productionResult, contentArtifacts: artifacts, artifactProductionDigest: traceDigest, artifactProductionCallbackDigest: REMOVE_FIELD, artifactProductionCallbackClaimedAt: REMOVE_FIELD, artifactProductionCallbackCreatedAt: REMOVE_FIELD, artifactProductionCallbackTraceId: REMOVE_FIELD, actions: linkedActions, ...(needsApproval ? { stage: "awaiting_approval", status: "waiting_for_approval" } : {}), updatedAt });
+    tx.patch(ref, { artifactProductionResult: productionResult, contentArtifacts: artifacts, artifactProductionDigest: traceDigest, artifactProductionCallbackDigest: REMOVE_FIELD, artifactProductionCallbackClaimedAt: REMOVE_FIELD, artifactProductionCallbackCreatedAt: REMOVE_FIELD, artifactProductionCallbackTraceId: REMOVE_FIELD, artifactProductionCallbackClaimTokenDigest: REMOVE_FIELD, artifactProductionCallbackLeaseExpiresAt: REMOVE_FIELD, actions: linkedActions, ...(needsApproval ? { stage: "awaiting_approval", status: "waiting_for_approval" } : {}), updatedAt });
     const itemState = await readItemState(job.plannedItemRef, tx);
     tx.put(authorityKey("planned_item_states", job.plannedItemRef), { ...itemState, status: needsApproval ? "awaiting_approval" : "running", updatedAt });
     for (const artifact of artifacts) {
@@ -2014,21 +2020,76 @@ export async function finalizeArtifactProduction(
 }
 
 /** Reserve one durable callback before it can mutate a production-plan revision. */
-export async function claimArtifactProductionCallback(jobId: string, productionResult: import("./contentArtifacts/submission").ArtifactProductionResult, identity?: { createdAt: string; traceId: string }) {
+export interface ArtifactProductionCallbackRejection {
+  state: "rejected";
+  jobId: string;
+  traceDigest: string;
+  reason: string;
+  rejectedAt: string;
+  releasedAt: string;
+  createdAt: string;
+  traceId: string;
+  claimTokenDigest: string;
+  receiptDigest: string;
+}
+
+function artifactCallbackRejectionRef(jobId: string, traceDigest: string) {
+  return recordKey(`workspaces/${currentTenant().workspaceId}/jobs/${jobId}/artifact_callback_rejections/${traceDigest}`);
+}
+
+/** Reserve one callback digest under an owner-bound lease. Rejected digests are terminal. */
+export async function claimArtifactProductionCallback(jobId: string, productionResult: import("./contentArtifacts/submission").ArtifactProductionResult, identity: { createdAt: string; traceId: string; claimToken: string }) {
   const traceDigest = createHash("sha256").update(canonicalJson(productionResult), "utf8").digest("hex");
+  const claimTokenDigest = createHash("sha256").update(identity.claimToken, "utf8").digest("hex");
   return db().atomic(async (tx) => {
     const ref = jobRef(jobId); const snap = await tx.read(ref); const job = await resolveJobStrategy(requireJobDoc(snap), tx);
+    const rejection = await tx.read(artifactCallbackRejectionRef(jobId, traceDigest));
+    if (rejection.present) return { outcome: "rejected" as const, traceDigest, rejection: rejection.value as unknown as ArtifactProductionCallbackRejection };
     if (job.artifactProductionResult && job.artifactProductionDigest === traceDigest) return { outcome: "already_applied" as const, traceDigest, createdAt: job.artifactProductionCallbackCreatedAt, traceId: job.artifactProductionCallbackTraceId };
     if (job.artifactProductionCallbackDigest && job.artifactProductionCallbackDigest !== traceDigest) throw new Error("another artifact production callback is active");
     const now = new Date();
-    const claimedAt = job.artifactProductionCallbackClaimedAt ? Date.parse(job.artifactProductionCallbackClaimedAt) : Number.NaN;
-    if (job.artifactProductionCallbackDigest === traceDigest && Number.isFinite(claimedAt) && now.getTime() - claimedAt < 5 * 60 * 1000) {
+    const leaseExpiresAt = job.artifactProductionCallbackLeaseExpiresAt ? Date.parse(job.artifactProductionCallbackLeaseExpiresAt) : Number.NaN;
+    if (job.artifactProductionCallbackDigest === traceDigest && Number.isFinite(leaseExpiresAt) && now.getTime() < leaseExpiresAt) {
       return { outcome: "in_progress" as const, traceDigest, createdAt: job.artifactProductionCallbackCreatedAt!, traceId: job.artifactProductionCallbackTraceId! };
     }
-    const createdAt = job.artifactProductionCallbackCreatedAt ?? identity?.createdAt ?? now.toISOString();
-    const traceId = job.artifactProductionCallbackTraceId ?? identity?.traceId ?? "0".repeat(32);
-    tx.patch(ref, { artifactProductionCallbackDigest: traceDigest, artifactProductionCallbackClaimedAt: now.toISOString(), artifactProductionCallbackCreatedAt: createdAt, artifactProductionCallbackTraceId: traceId, updatedAt: now.toISOString() });
+    const createdAt = job.artifactProductionCallbackCreatedAt ?? identity.createdAt;
+    const traceId = job.artifactProductionCallbackTraceId ?? identity.traceId;
+    const nextLeaseExpiresAt = new Date(now.getTime() + 5 * 60 * 1000).toISOString();
+    tx.patch(ref, { artifactProductionCallbackDigest: traceDigest, artifactProductionCallbackClaimedAt: now.toISOString(), artifactProductionCallbackCreatedAt: createdAt, artifactProductionCallbackTraceId: traceId, artifactProductionCallbackClaimTokenDigest: claimTokenDigest, artifactProductionCallbackLeaseExpiresAt: nextLeaseExpiresAt, updatedAt: now.toISOString() });
     return { outcome: "execute" as const, traceDigest, createdAt, traceId };
+  });
+}
+
+/** Permanently reject an invalid claimed digest and release only its owning lease. */
+export async function rejectArtifactProductionCallback(
+  jobId: string,
+  traceDigest: string,
+  claimToken: string,
+  reason: string,
+  rejectedAt = new Date().toISOString(),
+): Promise<ArtifactProductionCallbackRejection> {
+  const boundedReason = reason.trim().slice(0, 2000);
+  if (!boundedReason) throw new Error("artifact callback rejection reason required");
+  const claimTokenDigest = createHash("sha256").update(claimToken, "utf8").digest("hex");
+  return db().atomic(async (tx) => {
+    const ref = jobRef(jobId);
+    const snap = await tx.read(ref);
+    const job = await resolveJobStrategy(requireJobDoc(snap), tx);
+    const rejectionRef = artifactCallbackRejectionRef(jobId, traceDigest);
+    const prior = await tx.read(rejectionRef);
+    if (prior.present) {
+      const rejection = prior.value as unknown as ArtifactProductionCallbackRejection;
+      if (rejection.claimTokenDigest !== claimTokenDigest) throw new Error("artifact production callback rejection ownership mismatch");
+      return rejection;
+    }
+    if (job.artifactProductionCallbackDigest !== traceDigest) throw new Error("artifact production callback is not durably claimed");
+    if (job.artifactProductionCallbackClaimTokenDigest !== claimTokenDigest) throw new Error("artifact production callback rejection ownership mismatch");
+    if (!job.artifactProductionCallbackLeaseExpiresAt || Date.parse(job.artifactProductionCallbackLeaseExpiresAt) <= Date.parse(rejectedAt)) throw new Error("artifact production callback lease expired");
+    const unsigned = { state: "rejected" as const, jobId, traceDigest, reason: boundedReason, rejectedAt, releasedAt: rejectedAt, createdAt: job.artifactProductionCallbackCreatedAt!, traceId: job.artifactProductionCallbackTraceId!, claimTokenDigest };
+    const rejection: ArtifactProductionCallbackRejection = { ...unsigned, receiptDigest: createHash("sha256").update(canonicalJson(unsigned), "utf8").digest("hex") };
+    tx.insert(rejectionRef, rejection);
+    tx.patch(ref, { artifactProductionCallbackDigest: REMOVE_FIELD, artifactProductionCallbackClaimedAt: REMOVE_FIELD, artifactProductionCallbackCreatedAt: REMOVE_FIELD, artifactProductionCallbackTraceId: REMOVE_FIELD, artifactProductionCallbackClaimTokenDigest: REMOVE_FIELD, artifactProductionCallbackLeaseExpiresAt: REMOVE_FIELD, updatedAt: rejectedAt });
+    return rejection;
   });
 }
 

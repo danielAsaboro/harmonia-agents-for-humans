@@ -94,8 +94,8 @@ describe.skipIf(!emulator)("production plan DynamoDB aggregate", () => {
     });
     const result = { original: { artifacts: [] }, firstReview: { reviews: [] }, revision: null, finalReview: null, accepted: { artifacts: [] } } as never;
     const [first, duplicate] = await Promise.all([
-      runWithTenant(serviceScope, () => claimArtifactProductionCallback(callbackJobId, result)),
-      runWithTenant(serviceScope, () => claimArtifactProductionCallback(callbackJobId, result)),
+      runWithTenant(serviceScope, () => claimArtifactProductionCallback(callbackJobId, result, { createdAt: new Date().toISOString(), traceId: "1".repeat(32), claimToken: "first-owner" })),
+      runWithTenant(serviceScope, () => claimArtifactProductionCallback(callbackJobId, result, { createdAt: new Date().toISOString(), traceId: "2".repeat(32), claimToken: "duplicate-owner" })),
     ]);
     expect([first.outcome, duplicate.outcome].sort()).toEqual(["execute", "in_progress"]);
     const plan = videoProductionPlanSchema.parse({ ...basePlan, id: callbackPlanId, jobId: callbackJobId, revision: 1, operationCostsUsd: { [`${callbackPlanId}:generate_video:scene-1`]: "0.320000", [`${callbackPlanId}:generate_music`]: "0.120000" }, outputRequest: { outputPlanId: "output-callback", outputPlanDigest: "a".repeat(64), outputIds: ["image-1"], contentRevision: 1, destinations: ["content_pack"], promptDigest: "b".repeat(64) } });
@@ -107,8 +107,8 @@ describe.skipIf(!emulator)("production plan DynamoDB aggregate", () => {
     // Fabricate the crash window: the callback claim and approved bound plan
     // remain, but final artifact digest was never written. Lease recovery must
     // reuse revision 2 rather than proposing/revoking another revision.
-    await awsRepository().patch(recordKey(`workspaces/${workspaceId}/jobs/${callbackJobId}`), { artifactProductionCallbackClaimedAt: "2000-01-01T00:00:00.000Z" });
-    const recovered = await runWithTenant(serviceScope, () => claimArtifactProductionCallback(callbackJobId, result));
+    await awsRepository().patch(recordKey(`workspaces/${workspaceId}/jobs/${callbackJobId}`), { artifactProductionCallbackClaimedAt: "2000-01-01T00:00:00.000Z", artifactProductionCallbackLeaseExpiresAt: "2000-01-01T00:05:00.000Z" });
+    const recovered = await runWithTenant(serviceScope, () => claimArtifactProductionCallback(callbackJobId, result, { createdAt: new Date().toISOString(), traceId: "3".repeat(32), claimToken: "recovery-owner" }));
     expect(recovered.outcome).toBe("execute");
     const workspace = await runWithTenant(serviceScope, () => getProductionPlanWorkspaceForJob(callbackJobId));
     expect(workspace?.aggregate).toMatchObject({ currentRevision: 2, state: "approved" });

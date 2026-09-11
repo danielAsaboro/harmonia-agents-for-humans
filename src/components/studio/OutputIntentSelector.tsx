@@ -18,11 +18,12 @@ export function outputLabel(kind: OutputKind): string {
 export function OutputIntentSelector({ selected, onChange, disabled, capabilityStatus = {} }: { selected: OutputKind[]; onChange: (outputs: OutputKind[]) => void; disabled?: boolean; capabilityStatus?: Partial<Record<OutputKind, OutputCapabilityStatus>> }) {
   return <div className="flex gap-1 overflow-x-auto" aria-label="Desired outputs">
     {(Object.entries(OUTPUT_CAPABILITIES) as Array<[OutputKind, (typeof OUTPUT_CAPABILITIES)[OutputKind]]>).map(([id, capability]) => {
-      const active = selected.includes(id); const unavailable = capability.state === "unavailable";
       const status = capabilityStatus[id] ?? { supported: capability.state !== "unavailable", providerAvailability: capability.mediaProvider ? "not_configured" : "not_required", liveVerification: capability.mediaProvider ? "not_verified" : "not_applicable" };
-      const providerLabel = status.providerAvailability === "configured" ? "Provider configured" : status.providerAvailability === "not_configured" ? "Provider not configured" : STATE_LABEL[capability.state];
-      const verificationLabel = status.liveVerification === "not_verified" ? "Live verification pending" : null;
-      return <button key={id} type="button" disabled={disabled || unavailable} aria-pressed={active} aria-label={`${LABELS[id]} — ${STATE_LABEL[capability.state]} — ${providerLabel}${verificationLabel ? ` — ${verificationLabel}` : ""}`} onClick={() => onChange(active ? selected.filter((item) => item !== id) : [...selected, id])} className={`shrink-0 rounded-full border px-2 py-1 text-[8px] font-bold ${active ? "border-black bg-black text-white" : "border-black/15 bg-white/60 text-black/55"} disabled:cursor-not-allowed disabled:opacity-45`}>
+      const active = selected.includes(id); const unavailable = capability.state === "unavailable" || !status.supported;
+      const stateLabel = unavailable ? "Unavailable" : STATE_LABEL[capability.state];
+      const providerLabel = status.providerAvailability === "configured" ? "Provider configured" : status.providerAvailability === "not_configured" ? "Provider not configured" : stateLabel;
+      const verificationLabel = status.liveVerification === "not_verified" ? "Live verification pending" : status.liveVerification === "verified" ? "Live verified" : null;
+      return <button key={id} type="button" disabled={disabled || unavailable} aria-pressed={active} aria-label={`${LABELS[id]} — ${stateLabel} — ${providerLabel}${verificationLabel ? ` — ${verificationLabel}` : ""}`} onClick={() => onChange(active ? selected.filter((item) => item !== id) : [...selected, id])} className={`shrink-0 rounded-full border px-2 py-1 text-[8px] font-bold ${active ? "border-black bg-black text-white" : "border-black/15 bg-white/60 text-black/55"} disabled:cursor-not-allowed disabled:opacity-45`}>
         <span>{LABELS[id]}</span><span className="ml-1 font-normal">· {providerLabel}{verificationLabel ? ` · ${verificationLabel}` : ""}</span>
       </button>;
     })}

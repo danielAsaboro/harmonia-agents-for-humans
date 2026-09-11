@@ -1,6 +1,8 @@
 import type { AnalysisResearchRequest, AnalysisSearchEvidence, ApprovalDecision, CampaignOutputPlan, EvidenceRef, Angle, ContentStrategy, EditorialPlan, EditorialPlanningSnapshot, EffectClaimSummary, Job, JobConfig, JobSourceManifest, Moment, NormalizedSource, PlannedAction, Receipt, SourceAnalysis, SourceRecord, Stage, StrategyApproval } from "@/lib/types";
 import type { ContentArtifact } from "@/lib/contentArtifacts/contracts";
 import type { ProductionPlanWorkspaceView } from "@/lib/productionPlanStore";
+import type { OutputCapabilityStatus } from "@/lib/outputCapabilities";
+import type { OutputKind } from "@/lib/types";
 
 export interface JobSummary {
   id: string;
@@ -17,6 +19,7 @@ export interface JobSummary {
 }
 
 export interface JobFull extends JobSummary {
+  outputCapabilityStatuses?: Record<OutputKind, OutputCapabilityStatus>;
   campaignOutputPlan?: CampaignOutputPlan;
   contentStrategy?: ContentStrategy;
   strategyDigest?: string;

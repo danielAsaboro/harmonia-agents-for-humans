@@ -1,5 +1,6 @@
 import { getConfig, type Config } from "./config";
-import type { MediaCapabilityConfiguration } from "./outputCapabilities";
+import { OUTPUT_CAPABILITIES, outputCapabilityStatus, type MediaCapabilityConfiguration, type OutputCapabilityStatus } from "./outputCapabilities";
+import type { OutputKind } from "./types";
 
 /** Keep private provider credentials on the server while exposing only facts. */
 export function mediaCapabilityConfiguration(config: Config = getConfig()): MediaCapabilityConfiguration {
@@ -16,4 +17,21 @@ export function mediaCapabilityConfiguration(config: Config = getConfig()): Medi
     novaReelModel: config.NOVA_REEL_MODEL_ID,
     elevenLabsMusicModel: config.ELEVENLABS_MUSIC_MODEL_ID,
   };
+}
+
+/** Project complete server-side capability truth without exposing provider secrets. */
+export function serverOutputCapabilityStatuses(
+  config?: Config,
+  liveVerifiedKinds: readonly OutputKind[] = [],
+): Record<OutputKind, OutputCapabilityStatus> {
+  // API routes can project capability facts even for locally retained jobs
+  // whose read path does not otherwise require the complete runtime config.
+  const mediaConfiguration = mediaCapabilityConfiguration(config ?? process.env as unknown as Config);
+  const verified = new Set(liveVerifiedKinds);
+  return Object.fromEntries((Object.keys(OUTPUT_CAPABILITIES) as OutputKind[]).map((kind) => {
+    const status = outputCapabilityStatus(kind, mediaConfiguration);
+    return [kind, verified.has(kind) && status.liveVerification === "not_verified"
+      ? { ...status, liveVerification: "verified" as const }
+      : status];
+  })) as Record<OutputKind, OutputCapabilityStatus>;
 }

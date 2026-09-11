@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { parseConfig } from "@/lib/config";
-import { mediaCapabilityConfiguration } from "@/lib/outputCapabilityServer";
+import { mediaCapabilityConfiguration, serverOutputCapabilityStatuses } from "@/lib/outputCapabilityServer";
 import { outputCapabilityStatus } from "@/lib/outputCapabilities";
+import { OUTPUT_CAPABILITIES } from "@/lib/outputCapabilities";
 
 const environment = {
   INTERNAL_API_TOKEN: "internal", AGENT_SERVICE_URL: "http://127.0.0.1:8080", S3_BUCKET: "durable",
@@ -17,5 +18,13 @@ describe("server media capability configuration", () => {
     expect(status).not.toHaveProperty("elevenLabsApiKey");
     expect(outputCapabilityStatus("generated_music", status).providerAvailability).toBe("configured");
     expect(outputCapabilityStatus("generated_video", { ...status, novaReelModel: "amazon.nova-reel-v9:0" }).providerAvailability).toBe("not_configured");
+  });
+
+  it("projects every capability and preserves durable live verification separately", () => {
+    const statuses = serverOutputCapabilityStatuses(parseConfig(environment), ["generated_music"]);
+    expect(Object.keys(statuses)).toHaveLength(Object.keys(OUTPUT_CAPABILITIES).length);
+    expect(statuses.social_image).toEqual({ supported: true, providerAvailability: "configured", liveVerification: "not_verified" });
+    expect(statuses.generated_video).toEqual({ supported: true, providerAvailability: "configured", liveVerification: "not_verified" });
+    expect(statuses.generated_music).toEqual({ supported: true, providerAvailability: "configured", liveVerification: "verified" });
   });
 });

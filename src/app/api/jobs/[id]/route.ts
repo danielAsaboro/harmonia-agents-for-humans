@@ -5,6 +5,7 @@ import { listCommandEffectClaimsForJob } from "@/lib/effectCommandStore";
 import { actionPayloadDigest } from "@/lib/idempotency";
 import { planJobDeletion } from "@/lib/lifecycle";
 import { getProductionPlanWorkspaceForJob } from "@/lib/productionPlanStore";
+import { serverOutputCapabilityStatuses } from "@/lib/outputCapabilityServer";
 import { eraseJobData,getJob,listApprovalDecisions,listAssets,listEffectClaims,listEvents,listReceipts,listReplayObservations,listUsageRecords } from "@/lib/repository";
 import { artifactBucket,getArtifact,readS3Object } from "@/lib/storage";
 import { currentTenant } from "@/lib/tenancy";
@@ -187,8 +188,9 @@ async function get(
       candidate.operationId === claim.operationId && candidate.idempotencyKey === claim.idempotencyKey,
     ) === index,
   );
+  const liveVerifiedKinds = job.campaignOutputPlan?.outputs.flatMap((output) => output.liveVerification === "verified" ? [output.outputType] : []) ?? [];
   return Response.json({
-    job: { ...job, sourceRecords, normalizedSources, productionPlan, actions: job.actions.map((action) => ({ ...action, payloadDigest: actionPayloadDigest(action) })) },
+    job: { ...job, sourceRecords, normalizedSources, productionPlan, outputCapabilityStatuses: serverOutputCapabilityStatuses(undefined, liveVerifiedKinds), actions: job.actions.map((action) => ({ ...action, payloadDigest: actionPayloadDigest(action) })) },
     events,
     receipts,
     decisions,

@@ -2,7 +2,6 @@
 import { useState } from "react";
 import { apiFetch } from "@/lib/clientApi";
 import type { JobFull } from "@/components/jobTypes";
-import type { OutputCapabilityStatus } from "@/lib/outputCapabilities";
 import { OutputIntentSelector } from "./OutputIntentSelector";
 import type { OutputKind } from "@/lib/types";
 
@@ -10,7 +9,6 @@ export function OutputCorrection({ job }: { job: JobFull }) {
   const [selected, setSelected] = useState<OutputKind[]>(job.config.desiredOutputs ?? []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const capabilityStatus: Partial<Record<OutputKind, OutputCapabilityStatus>> = Object.fromEntries((job.campaignOutputPlan?.outputs ?? []).flatMap((output) => output.providerAvailability && output.liveVerification ? [[output.outputType, { supported: true, providerAvailability: output.providerAvailability, liveVerification: output.liveVerification }]] : []));
   if (job.status !== "failed" || !["collect_sources", "extract_sources", "understand"].includes(job.stage) || job.actions.length) return null;
   async function save() {
     setBusy(true); setError("");
@@ -24,7 +22,7 @@ export function OutputCorrection({ job }: { job: JobFull }) {
   }
   return <details className="mb-5 border border-black/20 bg-white p-4"><summary className="cursor-pointer font-bold">Correct requested outputs</summary>
     <p className="my-3 text-sm">Review the exact outputs before retrying. A content pack needs at least one written child output. This records your change without restarting the job or granting publishing approval.</p>
-    <OutputIntentSelector selected={selected} onChange={setSelected} disabled={busy} capabilityStatus={capabilityStatus} />
+    <OutputIntentSelector selected={selected} onChange={setSelected} disabled={busy} capabilityStatus={job.outputCapabilityStatuses ?? {}} />
     {error ? <p role="alert" className="mt-2 text-red-700">{error}</p> : null}
     <button disabled={busy || !selected.length} onClick={() => void save()} className="mt-4 bg-black px-4 py-2 text-sm text-white">Save output correction</button>
   </details>;

@@ -3,7 +3,8 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { cognitoPrincipal, servicePrincipal } from "@/lib/authority";
 import { createArtifactStore } from "@/lib/artifactStore";
-import { db } from "@/lib/repository";
+import { claimArtifactProductionCallback, db } from "@/lib/repository";
+import { bindTextArtifactsToMediaPack } from "@/lib/outputMediaProduction";
 import { compileProductionOperations, createProductionMandate, generatedMusicSpecSchema, generatedVideoSpecSchema, productionPlanDigest, videoProductionPlanSchema } from "@/lib/mediaProduction";
 import {
   approveProductionPlan,
@@ -85,6 +86,34 @@ function wake(plan: typeof basePlan, claimToken: string, expectedInternalRun = 0
 }
 
 describe.skipIf(!emulator)("production plan DynamoDB aggregate", () => {
+  it("serializes identical artifact callbacks and recovers an expired post-bind lease without revising an approved pack", async () => {
+    const unique = Date.now(); const callbackJobId = `production-callback-${unique}`; const callbackPlanId = `plan-callback-${unique}`;
+    await awsRepository().put(recordKey(`workspaces/${workspaceId}`), { defaultBrandId: brandId });
+    await awsRepository().put(recordKey(`workspaces/${workspaceId}/jobs/${callbackJobId}`), {
+      id: callbackJobId, workspaceId, brandId, status: "running", stage: "draft", config: { desiredOutputs: [], allowedOutputs: [], platforms: [] }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    const result = { original: { artifacts: [] }, firstReview: { reviews: [] }, revision: null, finalReview: null, accepted: { artifacts: [] } } as never;
+    const [first, duplicate] = await Promise.all([
+      runWithTenant(serviceScope, () => claimArtifactProductionCallback(callbackJobId, result)),
+      runWithTenant(serviceScope, () => claimArtifactProductionCallback(callbackJobId, result)),
+    ]);
+    expect([first.outcome, duplicate.outcome].sort()).toEqual(["execute", "in_progress"]);
+    const plan = videoProductionPlanSchema.parse({ ...basePlan, id: callbackPlanId, jobId: callbackJobId, revision: 1, operationCostsUsd: { [`${callbackPlanId}:generate_video:scene-1`]: "0.320000", [`${callbackPlanId}:generate_music`]: "0.120000" }, outputRequest: { outputPlanId: "output-callback", outputPlanDigest: "a".repeat(64), outputIds: ["image-1"], contentRevision: 1, destinations: ["content_pack"], promptDigest: "b".repeat(64) } });
+    await runWithTenant(serviceScope, () => proposeProductionPlan(plan));
+    const bound = bindTextArtifactsToMediaPack(plan, [{ id: "copy-callback", contentDigest: "c".repeat(64), mimeType: "text/markdown" }]);
+    await runWithTenant(serviceScope, () => proposeProductionPlan(bound));
+    await runWithTenant(operatorScope, () => sealProductionPlan(bound.id, { planDigest: productionPlanDigest(bound) }));
+    await runWithTenant(operatorScope, () => approveProductionPlan(bound.id, { planDigest: productionPlanDigest(bound), expiresAt: "2099-01-01T00:00:00.000Z" }));
+    // Fabricate the crash window: the callback claim and approved bound plan
+    // remain, but final artifact digest was never written. Lease recovery must
+    // reuse revision 2 rather than proposing/revoking another revision.
+    await awsRepository().patch(recordKey(`workspaces/${workspaceId}/jobs/${callbackJobId}`), { artifactProductionCallbackClaimedAt: "2000-01-01T00:00:00.000Z" });
+    const recovered = await runWithTenant(serviceScope, () => claimArtifactProductionCallback(callbackJobId, result));
+    expect(recovered.outcome).toBe("execute");
+    const workspace = await runWithTenant(serviceScope, () => getProductionPlanWorkspaceForJob(callbackJobId));
+    expect(workspace?.aggregate).toMatchObject({ currentRevision: 2, state: "approved" });
+    expect(workspace?.revision.plan.packTextChildren).toEqual(bound.packTextChildren);
+  });
   it("persists plans with explicitly undefined optional media fields", async () => {
     const optionalJobId = `production-optional-${Date.now()}`;
     const optionalPlanId = `plan-optional-${Date.now()}`;

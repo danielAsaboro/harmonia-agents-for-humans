@@ -8,7 +8,7 @@ import { insertExecutionJob, retryFailedJobWithOutbox } from "../repository";
 import { proposeOutputPlan, sealOutputPlan } from "../outputPlanning";
 import { OUTPUT_CAPABILITIES } from "../outputCapabilities";
 import { sealManifest } from "../sourceRegistry";
-import type { JobConfig, JobSourceManifest } from "../types";
+import type { Job, JobConfig, JobSourceManifest } from "../types";
 import type { AuthorityRef, PlannedItem, PlannedItemState } from "../campaigns/contracts";
 import { readPlannedExecutionAuthority } from "./executionAuthority";
 import { captureReplacementSources } from "./dispositions";
@@ -16,21 +16,45 @@ import { intakeDraftKey } from "../intake/repository";
 import type { IntakeDraft } from "../intake/contracts";
 import { buildSourceRecord } from "../sourceManifest";
 
-export async function plannedItemAdmission(tx: DynamoTransaction, item: PlannedItem, asOf: string): Promise<string[]> {
+export async function plannedItemAdmission(
+  tx: DynamoTransaction,
+  item: PlannedItem,
+  asOf: string,
+  options: { claimedTransientRetry?: Pick<Job, "id" | "plannedItemRef" | "strategyRef" | "failure" | "controlEpoch"> } = {},
+): Promise<string[]> {
   const plan = await currentPlan(item.planRef.id, tx); const policy = await readPlanningPolicy(tx);
   const active = await readActiveStrategyRef(tx); const assets = await listPlanningAssets(tx); const calendar = await plannedCalendar(tx);
   const state = await readItemState(item.ref, tx);
   const reasons = calendarConflicts(item, calendar, policy);
+  const execution = await readPlannedExecutionAuthority(tx, item, state);
+  const storedJob = execution.body.job as Pick<Job, "plannedItemRef" | "strategyRef" | "failure" | "controlEpoch"> | null;
+  const retry = options.claimedTransientRetry;
+  const exactClaimedRetry = Boolean(
+    retry
+    && execution.claimed
+    && storedJob
+    && state.jobId === retry.id
+    && retry.plannedItemRef
+    && strategyDigest(retry.plannedItemRef) === strategyDigest(item.ref)
+    && strategyDigest(storedJob.plannedItemRef) === strategyDigest(item.ref)
+    && retry.strategyRef
+    && strategyDigest(retry.strategyRef) === strategyDigest(item.strategyRef)
+    && strategyDigest(storedJob.strategyRef) === strategyDigest(item.strategyRef)
+    && retry.failure?.retryable === true
+    && storedJob.failure?.retryable === true
+    && strategyDigest(storedJob.failure) === strategyDigest(retry.failure)
+    && storedJob.controlEpoch === retry.controlEpoch,
+  );
+  if (retry && !exactClaimedRetry) reasons.push("claimed transient retry authority does not match the pinned planned execution");
   if (!plan.itemRefs.some(ref => strategyDigest(ref) === strategyDigest(item.ref))) reasons.push("planned item binding is no longer current");
   if (calendar.filter(other => other.ref.id !== item.ref.id && ["running", "awaiting_approval"].includes(other.lifecycle.status)).length >= policy.maxConcurrentItems) reasons.push("production concurrency occupied");
   if (Date.parse(item.productionReadyAt ?? item.scheduledFor) > Date.parse(asOf)) reasons.push("production schedule is not due");
-  if (strategyDigest(active) !== strategyDigest(item.strategyRef)) reasons.push("active strategy changed; plan approval required");
+  if (strategyDigest(active) !== strategyDigest(item.strategyRef) && !exactClaimedRetry) reasons.push("active strategy changed; plan approval required");
   for (const ref of item.dependencies) { const dependency = await readItemState(ref, tx); if (dependency.status !== "completed") reasons.push(`dependency ${ref.id} is ${dependency.status}`); }
   for (const assetId of item.requiredAssetIds) if (assets.find(asset => asset.id === assetId)?.status !== "ready") reasons.push(`asset ${assetId} is not ready`);
   if (item.evidence.mode === "operator_context" && item.requestedOutputs.some(output => !["x_post", "linkedin_post", "caption", "social_image", "generated_video", "generated_music", "content_pack"].includes(output))) reasons.push("selected output requires factual source evidence");
   if (state.dispositionProposalId) reasons.push(`execution disposition required: ${state.dispositionProposalId}`);
   if (["completed", "cancelled", "requires_disposition"].includes(state.status)) reasons.push(`planned item is ${state.status}`);
-  const execution = await readPlannedExecutionAuthority(tx, item, state);
   if (execution.unknown) reasons.push("unknown effect outcome requires reconciliation");
   if (execution.claimed && !state.jobId) reasons.push("execution authority lacks its item binding; reconciliation required");
   return reasons;

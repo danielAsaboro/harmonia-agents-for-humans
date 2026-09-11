@@ -1520,7 +1520,7 @@ async function retryJobInTransaction(tx: DynamoTransaction, job: Job, stage: Sta
         }
       }
       const item = await readPlannedItem(job.plannedItemRef, tx);
-      const reasons = await plannedItemAdmission(tx, item, new Date().toISOString());
+      const reasons = await plannedItemAdmission(tx, item, new Date().toISOString(), job.failure.retryable ? { claimedTransientRetry: job } : {});
       if (job.controlState !== "running") reasons.push(`execution is ${job.controlState}`);
       if (reasons.length) {
         const next = { ...unboundState, status: "failed", retryPending: true, ...(authorization ? { permanentRetryAuthorizationId: authorization.id } : {}), reason: reasons.join("; "), updatedAt: new Date().toISOString() };

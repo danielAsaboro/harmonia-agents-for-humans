@@ -4,6 +4,11 @@ import { describe, expect, it } from "vitest";
 import { projectPlanningProposal } from "@/lib/workspaceContentContext";
 
 describe("exact planning proposal review", () => {
+  it("requires an explicit reviewed brief selection when source-backed rebase mapping is ambiguous", async () => {
+    const { PlanningProposalDecisionView } = await import("@/components/PlanningProposalReview");
+    const html = renderToStaticMarkup(createElement(PlanningProposalDecisionView, { proposal: { type: "strategy_rebase", state: "pending_approval", editorialRebases: [{ itemRef: { id: "source-item", revision: 1 }, defaultBriefId: null, previousItem: {}, candidates: [{ briefId: "replacement", item: { objective: "Invite workflow review", ctaIntent: "Request a review", primaryKpi: "Qualified requests" } }] }] }, authorityDigest: "b".repeat(64), busy: false, onDecide: () => {} }));
+    expect(html).toContain("Choose the current brief for source-item"); expect(html).toContain("<select"); expect(html).toContain('value="replacement"'); expect(html).toMatch(/<button[^>]*disabled/);
+  });
   it("projects strategy rebase authority as an actionable revision proposal", () => {
     const projection = projectPlanningProposal({ id: "a".repeat(64), type: "strategy_rebase", state: "pending_approval", expectedPlanRef: { id: "plan", revision: 7 }, targetStrategyRef: { strategyId: "direction", revision: 3 }, guarded: [] });
     expect(projection.kind).toBe("strategy_rebase");

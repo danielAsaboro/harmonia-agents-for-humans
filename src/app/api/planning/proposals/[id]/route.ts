@@ -6,9 +6,10 @@ import { disposePlanningProposal } from "@/lib/planning/commands";
 import { planningDispositionDigest } from "@/lib/planning/dispositions";
 import { assertResourceWorkspace, currentTenant } from "@/lib/tenancy";
 import { AuthorityError } from "@/lib/authority";
+import { authorityRefSchema } from "@/lib/campaigns/contracts";
 
 const idSchema = z.string().regex(/^[a-f0-9]{64}$/);
-const disposition = z.object({ requestId: z.string().min(1).max(200), expectedAuthorityDigest: z.string().regex(/^[a-f0-9]{64}$/), decision: z.enum(["keep_existing_execution", "rebase_to_current_strategy", "accept_source_replacement", "cancel", "reject"]) }).strict();
+const disposition = z.object({ requestId: z.string().min(1).max(200), expectedAuthorityDigest: z.string().regex(/^[a-f0-9]{64}$/), decision: z.enum(["keep_existing_execution", "rebase_to_current_strategy", "accept_source_replacement", "cancel", "reject"]), editorialMappings: z.array(z.object({ itemRef: authorityRefSchema, briefId: z.string().min(1).max(100) }).strict()).max(48).optional() }).strict();
 type RouteContext = { params: Promise<{ id: string }> };
 export const GET = tenantHandler(async (_req: Request, { params }: RouteContext) => {
   const id = idSchema.parse((await params).id); const row = await awsRepository().read(recordKey(`${campaignRoot()}/planning_proposals/${id}`));

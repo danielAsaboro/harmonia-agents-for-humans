@@ -12,6 +12,7 @@ import { readPlannedExecutionAuthority } from "./executionAuthority";
 import type { SourceInput } from "../types";
 import { sourceAnalysisDigest } from "../sourceAnalysis";
 import { sealOperatorInstructionContext, type OperatorInstructionContext } from "../operatorInstructions";
+import { buildEditorialRebaseReview, resolveEditorialRebase, type EditorialRebaseReview, type EditorialMapping } from "./editorialRebase";
 import { calendarConflicts, plannedCalendar } from "./commands";
 
 type Guard = { itemRef: AuthorityRef; authorityDigest: string };
@@ -21,12 +22,13 @@ export interface RevisionProposal {
   guarded: Guard[]; previousStates: PlannedItemState[]; input?: unknown;
   intakeDraftId?: string; intakeRevision?: number; sourceInputs?: SourceInput[]; sourceAuthority?: unknown;
   operatorBrief?: string; instructionContext?: OperatorInstructionContext; actor: string; at: string;
+  editorialRebases?: EditorialRebaseReview[];
 }
 const proposalKey = (id: string) => recordKey(`${campaignRoot()}/planning_proposals/${id}`);
 export function planningDispositionDigest(proposal: Record<string, unknown>): string {
   if (["source_replacement", "strategy_rebase"].includes(String(proposal.type))) {
-    const { state: _state, decision: _decision, decidedBy: _actor, decidedAt: _at, result: _result, ...authority } = proposal;
-    void _state; void _decision; void _actor; void _at; void _result;
+    const { state: _state, decision: _decision, decidedBy: _actor, decidedAt: _at, result: _result, editorialMappings: _mappings, ...authority } = proposal;
+    void _state; void _decision; void _actor; void _at; void _result; void _mappings;
     return digest(authority);
   }
   return digest(proposal.guarded);
@@ -55,15 +57,17 @@ export async function captureReplacementSources(tx: DynamoTransaction, draft: In
 }
 
 /** Called in the strategy promotion transaction; completed and claimed work keeps its authority. */
-export async function proposeQueuedStrategyDispositions(tx: DynamoTransaction, targetStrategyRef: StrategyRef) {
+export async function proposeQueuedStrategyDispositions(tx: DynamoTransaction, targetStrategyRef: StrategyRef, targetStrategy: import("../types").ContentStrategy) {
   const plans = await listCurrentPlans(tx); if (!plans.length) return;
+  if (digest(targetStrategy) !== targetStrategyRef.digest) throw new Error("current strategy required for editorial rebase proposals");
   const policy = await readPlanningPolicy(tx); const now = new Date().toISOString();
   for (const plan of plans) {
-    const guarded: Guard[] = []; const previousStates: PlannedItemState[] = [];
+    const guarded: Guard[] = []; const previousStates: PlannedItemState[] = []; const editorialRebases: EditorialRebaseReview[] = [];
     for (const ref of plan.itemRefs) {
       const item = await readPlannedItem(ref, tx); const state = await readItemState(ref, tx);
       if (digest(item.strategyRef) === digest(targetStrategyRef) || ["completed", "cancelled"].includes(state.status)) continue;
       const authority = await readPlannedExecutionAuthority(tx, item, state); if (authority.claimed) continue;
+      const editorial = buildEditorialRebaseReview(item, targetStrategy); if (editorial) editorialRebases.push(editorial);
       // An exact new active revision supersedes older, now stale pending decisions.
       if (state.dispositionProposalId) {
         const old = await tx.read(proposalKey(state.dispositionProposalId));
@@ -75,7 +79,7 @@ export async function proposeQueuedStrategyDispositions(tx: DynamoTransaction, t
     if (!guarded.length) continue;
     const id = digest(["strategy_rebase", plan.ref, targetStrategyRef]);
     const proposal: RevisionProposal = { workspaceId: plan.workspaceId, brandId: plan.brandId, type: "strategy_rebase", state: "pending_approval", expectedPlanRef: plan.ref, targetStrategyRef, policyRef: policy.ref, guarded, previousStates, actor: tenantSubjectId(currentTenant()), at: now };
-    tx.insert(proposalKey(id), proposal);
+    tx.insert(proposalKey(id), { ...proposal, editorialRebases });
     for (const previous of previousStates) tx.put(authorityKey("planned_item_states", previous.ref), { ...previous, status: "requires_disposition", dispositionProposalId: id, reason: "Active strategy changed; approve a rebase or cancel queued work", updatedAt: now });
   }
 }
@@ -108,7 +112,7 @@ export async function proposeSourceReplacement(tx: DynamoTransaction, draft: Int
 }
 
 export type PlanningDecision = "keep_existing_execution" | "rebase_to_current_strategy" | "cancel" | "reject" | "accept_source_replacement";
-export async function disposePlanningProposal(input: { proposalId: string; expectedAuthorityDigest: string; decision: PlanningDecision; requestId: string }) {
+export async function disposePlanningProposal(input: { proposalId: string; expectedAuthorityDigest: string; decision: PlanningDecision; requestId: string; editorialMappings?: EditorialMapping[] }) {
   requireContentOperator(currentTenant());
   return awsRepository().atomic(async tx => {
     const receiptKey = recordKey(`${campaignRoot()}/planning_commands/${digest([tenantSubjectId(currentTenant()), input.requestId])}`);
@@ -155,6 +159,8 @@ export async function disposePlanningProposal(input: { proposalId: string; expec
         const policy = await readPlanningPolicy(tx);
         if (digest(policy.ref) !== digest(proposal.policyRef)) throw new Error("planning policy changed; new approval required");
         const active = await getActiveStrategy(tx); if (!active) throw new Error("active strategy required");
+        const mappings = input.editorialMappings ?? [];
+        if (mappings.some(mapping => !(proposal.editorialRebases ?? []).some(review => digest(review.itemRef) === digest(mapping.itemRef)))) throw new Error("editorial mapping is outside reviewed planned items");
         let sources: Awaited<ReturnType<typeof captureReplacementSources>> | undefined;
         if (proposal.type === "source_replacement") {
           const draft = await readIntakeDraft(proposal.intakeDraftId!, tx);
@@ -178,16 +184,18 @@ export async function disposePlanningProposal(input: { proposalId: string; expec
           const conflicts = calendarConflicts(item, calendar, policy); if (conflicts.length) throw new Error(`calendar constraints changed: ${conflicts.join("; ")}`);
           const { lifecycle: _lifecycle, ...definition } = item as PlannedItem & { lifecycle?: PlannedItemState }; void _lifecycle;
           let evidence = definition.evidence; let productionContext = definition.productionContext;
+          let editorialItem: import("../types").EditorialPlanItem | null = null;
           if (sources && digest(item.ref) === digest(raw.itemRef)) {
             evidence = { mode: "source_intake", sourceInputs: sources.inputs, authorityDigest: sourceAnalysisDigest(sources.authority) };
             productionContext = { mode: "source_intake", policyRef: policy.ref, intakeDraftId: proposal.intakeDraftId!, intakeRevision: proposal.intakeRevision!, sourceInputs: sources.inputs, sourceAuthority: sources.authority };
           } else if (evidence.mode === "source_backed" && productionContext.mode === "source_backed") {
+            if (proposal.type === "strategy_rebase") editorialItem = resolveEditorialRebase(item, active.strategy, proposal.editorialRebases ?? [], mappings);
             evidence = { ...evidence, sourceBinding: { ...evidence.sourceBinding, strategyRef: proposal.targetStrategyRef } };
-            productionContext = { ...productionContext, snapshot: { ...productionContext.snapshot, sourceBinding: evidence.sourceBinding }, plan: { ...productionContext.plan, approvedStrategyDigest: proposal.targetStrategyRef.digest } };
+            productionContext = { ...productionContext, ...(editorialItem ? { item: editorialItem } : {}), snapshot: { ...productionContext.snapshot, sourceBinding: evidence.sourceBinding }, plan: { ...productionContext.plan, approvedStrategyDigest: proposal.targetStrategyRef.digest } };
           }
           const ref = replacements.get(digest(item.ref))!;
           const replacingSources = sources && digest(item.ref) === digest(raw.itemRef);
-          const next = withItemProductionContext({ ...definition, ...(replacingSources ? { operatorBrief: proposal.operatorBrief!, originalOperatorBrief: proposal.instructionContext!.originalOperatorBrief, instructionContext: proposal.instructionContext } : {}), ref, planRef, strategyRef: proposal.targetStrategyRef, dependencies: item.dependencies.map(ref => replacements.get(digest(ref)) ?? ref), evidence, productionContext, createdAt: now });
+          const next = withItemProductionContext({ ...definition, ...(editorialItem ? { name: editorialItem.campaignTheme, objective: editorialItem.objective } : {}), ...(replacingSources ? { operatorBrief: proposal.operatorBrief!, originalOperatorBrief: proposal.instructionContext!.originalOperatorBrief, instructionContext: proposal.instructionContext } : {}), ref, planRef, strategyRef: proposal.targetStrategyRef, dependencies: item.dependencies.map(ref => replacements.get(digest(ref)) ?? ref), evidence, productionContext, createdAt: now });
           tx.insert(authorityKey("planned_item_revisions", ref), next);
           tx.insert(authorityKey("planned_item_states", ref), { ref, workspaceId: ref.workspaceId, brandId: ref.brandId, status: "planned", updatedAt: now });
         }
@@ -196,7 +204,7 @@ export async function disposePlanningProposal(input: { proposalId: string; expec
         result = { outcome: sources ? "sources_replaced" : "rebased", proposalId: input.proposalId, planRef, itemRefs: [...replacements.values()] };
       }
     }
-    tx.put(key, { ...raw, state: ["rebased", "sources_replaced"].includes(String(result.outcome)) ? "approved" : "declined", decision: input.decision, decidedBy: tenantSubjectId(currentTenant()), decidedAt: now, result });
+    tx.put(key, { ...raw, state: ["rebased", "sources_replaced"].includes(String(result.outcome)) ? "approved" : "declined", decision: input.decision, ...(input.editorialMappings ? { editorialMappings: input.editorialMappings } : {}), decidedBy: tenantSubjectId(currentTenant()), decidedAt: now, result });
     tx.insert(receiptKey, { workspaceId: currentTenant().workspaceId, brandId: currentTenant().brandId, digest: digest(input), result }); return result;
   });
 }

@@ -30,7 +30,11 @@ async def exercise(payload):
             return {"strategist_result": {"strategy": candidate}}
         if role == "noni_artifact_producer":
             text = "Imagine a calmer way to build. What would your team try next?" if "different" in supplied.operatorBrief.lower() else "Imagine your next great workflow. What would you create?"
-            return {"semantic_artifact_draft": {"title": "Imagine your next workflow", "sourceSegmentRefs": [], "payloadJson": json.dumps({"kind": "x_post", "text": text})}}
+            refs = []
+            if supplied.evidence:
+                text = f"{supplied.evidence[0].text} {supplied.editorialItem.ctaIntent}"
+                refs = [evidence.id for evidence in supplied.evidence]
+            return {"semantic_artifact_draft": {"title": "Imagine your next workflow", "sourceSegmentRefs": refs, "payloadJson": json.dumps({"kind": "x_post", "text": text})}}
         if role == "dara_artifact_editor":
             return {"semantic_artifact_review": {"decision": "accept", "checks": [{"kind": kind, "passed": True, "note": "Creative invitation makes no factual claims."} for kind in ("grounding", "brief", "brand", "format", "cta", "safety", "clarity")], "issues": []}}
         raise AssertionError(f"Unexpected provider role: {role}")

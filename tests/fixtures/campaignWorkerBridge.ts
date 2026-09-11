@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 // Every HTTP request uses the shipped route handler and its authorization/persistence.
 const routes = [
+  ["GET", /^\/api\/internal\/source-manifest$/, () => import("@/app/api/internal/source-manifest/route")],
   ["GET", /^\/api\/internal\/job\/([^/]+)$/, () => import("@/app/api/internal/job/[id]/route")],
   ["GET", /^\/api\/internal\/connection\/([^/]+)$/, () => import("@/app/api/internal/connection/[platform]/route")],
   ["GET", /^\/api\/internal\/insights$/, () => import("@/app/api/internal/insights/route")],

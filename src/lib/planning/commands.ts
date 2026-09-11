@@ -94,8 +94,20 @@ export async function materializeIntake(input: { draftId: string; expectedDraftR
     });
   } catch (error) { const result = await readReceipt(); if (result) return result; throw error; }
 }
-type PlanningChatResult = { outcome: string; reply: string; proposalId?: string; claim?: import("./selection").PlannedClaim | null };
-export async function executePlanningChat(input: { action: "advance_plan" | "manage_calendar"; message: string; requestId: string; targetName?: string }): Promise<PlanningChatResult> {
+type PlanningChatResult = { outcome: string; reply: string; proposalId?: string; claim?: import("./selection").PlannedClaim | null; planRef?: AuthorityRef; itemRef?: AuthorityRef };
+type PlanningChatInput = {
+  action: "advance_plan" | "manage_calendar" | "append_deliverable";
+  message: string;
+  requestId: string;
+  targetName?: string;
+  deliverableName?: string;
+  scheduledFor?: string;
+  requestedOutputs?: PlannedItem["requestedOutputs"];
+  channel?: string;
+  dependencyItemIds?: string[];
+  requiredAssetIds?: string[];
+};
+export async function executePlanningChat(input: PlanningChatInput): Promise<PlanningChatResult> {
   requireContentOperator(currentTenant());
   if (!input.requestId) throw new Error("durable planning command identity required");
   const receiptKey = recordKey(`${campaignRoot()}/planning_chat_receipts/${digest([tenantSubjectId(currentTenant()), input.requestId])}`);
@@ -113,7 +125,7 @@ export async function executePlanningChat(input: { action: "advance_plan" | "man
   const name = input.targetName?.toLocaleLowerCase();
   const targets = items.filter(item => name && [item.name, item.ref.id, `${item.planRef.id}/${item.ref.id}`].some(value => value?.toLocaleLowerCase() === name));
   const planTargets = plans.filter(plan => name === plan.ref.id.toLocaleLowerCase());
-  const campaignRefs = [...new Map(plans.flatMap(plan => plan.campaignRef ? [[plan.campaignRef.id, plan.campaignRef] as const] : [])).values()];
+  const campaignRefs = [...new Map(plans.flatMap(plan => plan.campaignRef ? [[`${plan.campaignRef.id}:v${plan.campaignRef.revision}`, plan.campaignRef] as const] : [])).values()];
   const campaignTargets = [];
   for (const ref of campaignRefs) { const campaign = await readCampaign(ref); if (name && [ref.id, campaign.name].some(value => value.toLocaleLowerCase() === name)) campaignTargets.push(ref); }
   const scopes = [
@@ -122,6 +134,43 @@ export async function executePlanningChat(input: { action: "advance_plan" | "man
     ...campaignTargets.map(campaign => ({ planIds: plans.filter(plan => plan.campaignRef?.id === campaign.id).map(plan => plan.ref.id).sort(), itemId: undefined })),
     ...(!name && plans.length === 1 ? [{ planIds: [plans[0].ref.id], itemId: undefined }] : []),
   ];
+  if (input.action === "append_deliverable") {
+    const appendPlanIds = new Set([
+      ...planTargets.map(plan => plan.ref.id),
+      ...campaignTargets.flatMap(campaign => plans.filter(plan => plan.campaignRef?.id === campaign.id && plan.campaignRef.revision === campaign.revision).map(plan => plan.ref.id)),
+    ]);
+    const plan = appendPlanIds.size === 1 ? plans.find(plan => plan.ref.id === [...appendPlanIds][0]) : undefined;
+    const dependencyRefs: AuthorityRef[] = [];
+    let dependencyResolutionFailed = false;
+    for (const dependencyName of input.dependencyItemIds ?? []) {
+      const normalized = dependencyName.toLocaleLowerCase();
+      const matches = items.filter(item => item.planRef.id === plan?.ref.id && [item.name, item.ref.id, `${item.ref.id}:v${item.ref.revision}`].some(value => value.toLocaleLowerCase() === normalized));
+      if (matches.length !== 1) dependencyResolutionFailed = true;
+      else dependencyRefs.push(matches[0].ref);
+    }
+    const channel = input.channel
+      ?? (input.requestedOutputs?.some(output => output.startsWith("x_")) ? "x"
+        : input.requestedOutputs?.includes("linkedin_post") ? "linkedin"
+          : undefined);
+    const complete = plan && input.deliverableName?.trim() && input.scheduledFor
+      && /(?:Z|[+-]\d{2}:\d{2})$/.test(input.scheduledFor) && Number.isFinite(Date.parse(input.scheduledFor))
+      && input.requestedOutputs?.length && channel && !dependencyResolutionFailed;
+    if (complete) {
+      return audited(async tx => {
+        const result = await addPlannedDeliverable({
+          planId: plan.ref.id, expectedRevision: plan.ref.revision, requestId: input.requestId,
+          name: input.deliverableName!.trim(), operatorBrief: input.message,
+          requestedOutputs: input.requestedOutputs!, channel, scheduledFor: input.scheduledFor!,
+          dependencies: [...new Map(dependencyRefs.map(ref => [digest(ref), ref])).values()],
+          requiredAssetIds: [...new Set((input.requiredAssetIds ?? []).map(id => id.trim()).filter(Boolean))],
+        }, tx);
+        return {
+          outcome: "applied", ...result,
+          reply: `Added ${input.deliverableName!.trim()} as planned item ${result.itemRef.id} on plan ${result.planRef.id} revision ${result.planRef.revision}, scheduled for ${new Date(input.scheduledFor!).toISOString()}.`,
+        };
+      });
+    }
+  }
   if (input.action === "advance_plan" && scopes.length === 1) {
     const { claimNextInTransaction } = await import("./selection");
     const scope = scopes[0];
@@ -142,8 +191,14 @@ export async function executePlanningChat(input: { action: "advance_plan" | "man
   const key = recordKey(`${campaignRoot()}/planning_proposals/${proposalId}`);
   return audited(async tx => {
     const row = await tx.read(key); if (row.present && row.value?.digest !== digest(input)) throw new Error("planning command identity reused");
-    if (!row.present) tx.insert(key, { workspaceId: currentTenant().workspaceId, brandId: currentTenant().brandId, input, digest: digest(input), state: "needs_details", reason: "Exact current plan/item and an unambiguous timestamp with offset are required for calendar changes", actor: tenantSubjectId(currentTenant()), at: new Date().toISOString() });
-    return { outcome: "proposal", proposalId, reply: `Saved planning proposal ${proposalId}. Specify the exact planned item and an ISO date/time with timezone offset to change its schedule, or the plan to advance. ${plans.length} plan(s) and ${items.length} item(s) are available.` };
+    const append = input.action === "append_deliverable";
+    const reason = append
+      ? "Exactly one current campaign or plan, a deliverable name, supported output/channel, explicit timestamp with offset, and unambiguous dependencies are required"
+      : "Exact current plan/item and an unambiguous timestamp with offset are required for calendar changes";
+    if (!row.present) tx.insert(key, { workspaceId: currentTenant().workspaceId, brandId: currentTenant().brandId, input, digest: digest(input), state: "needs_details", reason, actor: tenantSubjectId(currentTenant()), at: new Date().toISOString() });
+    return { outcome: "proposal", proposalId, reply: append
+      ? `Saved planning proposal ${proposalId}. Specify exactly one current campaign or plan, the deliverable name and outputs, and an ISO date/time with timezone offset. Dependency names or IDs must resolve once inside that plan. ${plans.length} plan(s) and ${items.length} item(s) are available.`
+      : `Saved planning proposal ${proposalId}. Specify the exact planned item and an ISO date/time with timezone offset to change its schedule, or the plan to advance. ${plans.length} plan(s) and ${items.length} item(s) are available.` };
   });
 }
 export async function plannedCalendar(reader = awsRepository() as import("../strategy/repository").StrategyReader, includeCancelled = false): Promise<Array<PlannedItem & { lifecycle: PlannedItemState }>> {
@@ -168,10 +223,11 @@ export async function listPlanningProposals(): Promise<Array<Record<string, unkn
   const rows = await awsRepository().query(partition(`${campaignRoot()}/planning_proposals`));
   return rows.rows.map(row => ({ id: row.id, ...(row.value as Record<string, unknown>) }));
 }
-export async function addPlannedDeliverable(input: { planId: string; expectedRevision: number; requestId: string; name: string; operatorBrief: string; requestedOutputs: PlannedItem["requestedOutputs"]; channel: string; scheduledFor: string; dependencies: AuthorityRef[]; requiredAssetIds: string[]; measurements?: PlannedItem["measurements"] }) {
+export async function addPlannedDeliverable(input: { planId: string; expectedRevision: number; requestId: string; name: string; operatorBrief: string; requestedOutputs: PlannedItem["requestedOutputs"]; channel: string; scheduledFor: string; dependencies: AuthorityRef[]; requiredAssetIds: string[]; measurements?: PlannedItem["measurements"] }, transaction?: DynamoTransaction) {
   requireContentOperator(currentTenant());
-  if (!input.name.trim() || !input.operatorBrief.trim() || !input.requestedOutputs.length || !Number.isFinite(Date.parse(input.scheduledFor))) throw new Error("complete planned deliverable required");
-  return awsRepository().atomic(async tx => {
+  if (!input.requestId || !input.name.trim() || !input.operatorBrief.trim() || !input.requestedOutputs.length || !Number.isFinite(Date.parse(input.scheduledFor)) || !/(?:Z|[+-]\d{2}:\d{2})$/.test(input.scheduledFor)) throw new Error("complete planned deliverable required");
+  const atomic = transaction ? <T>(work: (tx: DynamoTransaction) => Promise<T>) => work(transaction) : awsRepository().atomic.bind(awsRepository());
+  return atomic(async tx => {
     const receiptKey = recordKey(`${campaignRoot()}/planning_commands/${digest([tenantSubjectId(currentTenant()), input.requestId])}`);
     const receipt = await tx.read(receiptKey);
     if (receipt.present) { if (receipt.value?.digest !== digest(input)) throw new Error("planning command identity reused"); return receipt.value!.result as { planRef: AuthorityRef; itemRef: AuthorityRef }; }

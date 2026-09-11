@@ -56,6 +56,26 @@ def test_work_placement_is_not_bypassed_by_explicit_source_syntax():
         assert deterministic_intent_classification(value) is None
 
 
+def test_exact_campaign_append_is_host_classified_with_typed_constraints():
+    value = IntentRoutingInput(
+        message='Add an X post called "Founder follow-up" to campaign "Launch" at 2026-09-13T12:00:00Z.',
+        workspaceContext=context(strategyReady=True, planReady=True, calendarReady=True),
+        attachmentCount=0,
+    )
+
+    route = deterministic_intent_classification(value)
+
+    assert route is not None
+    assert route.intent == "append_deliverable"
+    assert route.workPlacement == "existing_plan_item"
+    assert route.targetName == "Launch"
+    assert route.deliverableName == "Founder follow-up"
+    assert route.scheduledFor == "2026-09-13T12:00:00Z"
+    assert route.outputConcepts == ["short_social_post"]
+    assert route.platformRecommendations == ["x"]
+    assert route.effectRequested is False
+
+
 def test_operation_projection_is_strict_and_accepts_current_jobs_proposals_and_all_durable_states():
     payload = IntentRoutingInput.model_validate({
         "message": "status", "attachmentCount": 0,

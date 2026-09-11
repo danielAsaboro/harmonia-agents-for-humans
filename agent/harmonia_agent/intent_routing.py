@@ -16,7 +16,7 @@ SKILL_DIR = pathlib.Path(__file__).parent / "skills" / "harmonia-intent-routing"
 CONTEXT_SKILL_DIR = pathlib.Path(__file__).parent / "skills" / "harmonia-context-assembly"
 
 IntentName = Literal[
-    "establish_strategy", "revise_strategy", "advance_plan", "manage_calendar",
+    "establish_strategy", "revise_strategy", "advance_plan", "manage_calendar", "append_deliverable",
     "repurpose_source", "one_off_content", "status_evidence", "effect_request",
     "conversation",
 ]
@@ -175,6 +175,33 @@ def deterministic_intent_classification(
     """Classify syntax that carries no model judgment; return None when ambiguous."""
     urls = source_urls_from_input(value)
     message = value.message.casefold()
+    append_requested = (
+        re.search(r"\b(?:add|append|schedule)\b", message)
+        and re.search(r"\b(?:campaign|plan)\b", message)
+        and re.search(r"\b(?:post|thread|article|newsletter|caption|carousel|image|video|music|deliverable)\b", message)
+    )
+    if append_requested:
+        target = re.search(r"\b(?:campaign|plan)\s+[\"“]([^\"”]+)[\"”]", value.message, re.IGNORECASE)
+        name = re.search(r"\b(?:called|named)\s+[\"“]([^\"”]+)[\"”]", value.message, re.IGNORECASE)
+        timestamp = re.search(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})", value.message)
+        outputs: list[OutputConcept] = []
+        platforms: list[SocialPlatform] = []
+        if re.search(r"\b(?:x|twitter)\s+(?:post|thread)\b", message):
+            outputs.append("social_thread" if "thread" in message else "short_social_post")
+            platforms.append("x")
+        if re.search(r"\blinkedin\s+(?:post|article)\b", message):
+            outputs.append("article" if "article" in message else "professional_post")
+            platforms.append("linkedin")
+        if target and name and timestamp and outputs:
+            return IntentClassification(
+                intent="append_deliverable", workPlacement="existing_plan_item",
+                targetName=target.group(1).strip(), deliverableName=name.group(1).strip(),
+                scheduledFor=timestamp.group(0), dependencyItemIds=[], requiredAssetIds=[],
+                userOutcome=f"Add {name.group(1).strip()}", sourceUrls=[],
+                outputConcepts=outputs, platformRecommendations=platforms,
+                assumptions=[], needsClarification=False, clarifyingQuestion=None,
+                requiresRightsAttestation=False, effectRequested=False, jobId=None,
+            )
     if value.pendingClarification or re.search(r"\b(?:campaign|initiative|knowledge|planned|plan item)\b", message):
         return None
     if not urls and re.search(r"\b(?:create|make|generate|produce|draft|prepare)\b", message):
@@ -266,6 +293,10 @@ class IntentClassification(StrictModel):
     intent: IntentName
     workPlacement: Literal["independent", "existing_plan_item", "new_initiative", "knowledge_only"] | None = None
     targetName: StrictStr | None = Field(default=None, max_length=200)
+    deliverableName: StrictStr | None = Field(default=None, max_length=500)
+    scheduledFor: StrictStr | None = Field(default=None, max_length=100)
+    dependencyItemIds: list[StrictStr] = Field(default_factory=list, max_length=32)
+    requiredAssetIds: list[StrictStr] = Field(default_factory=list, max_length=32)
     userOutcome: StrictStr = Field(min_length=1, max_length=500)
     sourceUrls: list[StrictStr] = Field(max_length=10)
     outputConcepts: list[OutputConcept] = Field(max_length=8)
@@ -285,6 +316,9 @@ class IntentClassification(StrictModel):
             raise ValueError("effectRequested must match the effect_request intent")
         if self.needsClarification != bool(self.clarifyingQuestion) or self.needsClarification != bool(self.missingField):
             raise ValueError("clarifyingQuestion must match needsClarification")
+        if self.intent == "append_deliverable" and not self.needsClarification:
+            if self.workPlacement != "existing_plan_item" or not self.targetName or not self.deliverableName or not self.scheduledFor or not re.search(r"(?:Z|[+-]\d{2}:\d{2})$", self.scheduledFor) or not self.outputConcepts:
+                raise ValueError("complete append deliverable constraints required")
         return self
 
 
@@ -303,6 +337,10 @@ class IntentRoute(StrictModel):
     intent: IntentName
     workPlacement: Literal["independent", "existing_plan_item", "new_initiative", "knowledge_only"] | None = None
     targetName: StrictStr | None = Field(default=None, max_length=200)
+    deliverableName: StrictStr | None = Field(default=None, max_length=500)
+    scheduledFor: StrictStr | None = Field(default=None, max_length=100)
+    dependencyItemIds: list[StrictStr] = Field(default_factory=list, max_length=32)
+    requiredAssetIds: list[StrictStr] = Field(default_factory=list, max_length=32)
     userOutcome: StrictStr = Field(min_length=1, max_length=500)
     sourceUrls: list[StrictStr] = Field(max_length=10)
     outputConcepts: list[OutputConcept] = Field(max_length=8)
@@ -327,6 +365,9 @@ class IntentRoute(StrictModel):
             raise ValueError("effectRequested must match the effect_request intent")
         if self.needsClarification != bool(self.clarifyingQuestion) or self.needsClarification != bool(self.missingField):
             raise ValueError("clarifyingQuestion must match needsClarification")
+        if self.intent == "append_deliverable" and not self.needsClarification:
+            if self.workPlacement != "existing_plan_item" or not self.targetName or not self.deliverableName or not self.scheduledFor or not re.search(r"(?:Z|[+-]\d{2}:\d{2})$", self.scheduledFor) or not self.outputConcepts:
+                raise ValueError("complete append deliverable constraints required")
         if not set(self.connectionSuggestions).issubset(self.platformRecommendations):
             raise ValueError("connection suggestions must be recommended platforms")
         if re.search(

@@ -485,7 +485,7 @@ def build_agent_team(
             "elicited; never make the operator repeat it. Infer user-level output concepts, never internal registry names. "
             "Return the strict route only; routing cannot authorize an external effect. The JSON "
             "object must contain exactly these schema keys: intent, userOutcome, sourceUrls, "
-            "outputConcepts, platformRecommendations, assumptions, "
+            "outputConcepts, platformRecommendations, assumptions, deliverableName, scheduledFor, dependencyItemIds, requiredAssetIds, "
             "needsClarification, missingField, resolvedField, clarifyingQuestion, requiresRightsAttestation, effectRequested, "
             "jobId, workPlacement and targetName. Classify work placement separately from action: "
             "independent, existing_plan_item, new_initiative, or knowledge_only; use null for non-work conversation. "
@@ -493,6 +493,7 @@ def build_agent_team(
             "When clarification is needed, set missingField to its exact bounded identifier and ask one focused question. "
             "Set resolvedField only when the current message answers that exact pendingClarification field; acknowledgments do not resolve it. "
             "Respect explicit independent/standalone opt-out. targetName is the operator's exact supplied campaign/item name or null; never invent IDs. "
+            "For append_deliverable, preserve the operator's deliverable name, timezone-qualified ISO schedule, dependency item names/IDs, and required asset IDs in their dedicated fields. "
             "Retain the original requested action, outputs and placement when answering a pending clarification. "
             "Do not assemble strategy context; that is a separate bounded delegation. "
             "userOutcome must describe what the job should achieve; never claim that Harmonia has already accepted, extracted, prepared, repurposed, completed, published, executed, or verified work. "
@@ -1975,7 +1976,7 @@ def _validate_run_output_unwrapped(
                 "unambiguous operational request was downgraded to conversation"
             )
         if (
-            route.intent in {"advance_plan", "manage_calendar"}
+            route.intent in {"advance_plan", "manage_calendar", "append_deliverable"}
             and not routing_input.workspaceContext.strategyReady
         ):
             raise AgentProtocolError(

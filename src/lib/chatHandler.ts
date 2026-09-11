@@ -458,9 +458,20 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
     return { __http: Response.json({ error: `intent parsing failed: ${e instanceof Error ? e.message : String(e)}` }, { status: 502 }) };
   }
 
-  if (intent.intent === "advance_plan" || intent.intent === "manage_calendar") {
+  if (intent.needsClarification && intent.clarifyingQuestion) return { payload: { intent: intent.intent, reply: intent.clarifyingQuestion } };
+
+  if (intent.intent === "advance_plan" || intent.intent === "manage_calendar" || intent.intent === "append_deliverable") {
+    if (!requestId) return { __http: Response.json({ error: "durable planning requestId is required" }, { status: 400 }) };
     const { executePlanningChat } = await import("./planning/commands");
-    const result = await executePlanningChat({ action: intent.intent, message, requestId: requestId ?? "", targetName: intent.targetName });
+    const result = await executePlanningChat({
+      action: intent.intent, message, requestId, targetName: intent.targetName,
+      ...(intent.intent === "append_deliverable" ? {
+        deliverableName: intent.deliverableName, scheduledFor: intent.scheduledFor,
+        requestedOutputs: intent.desiredOutputs ?? [],
+        channel: intent.platformRecommendations?.length === 1 ? intent.platformRecommendations[0] : undefined,
+        dependencyItemIds: intent.dependencyItemIds ?? [], requiredAssetIds: intent.requiredAssetIds ?? [],
+      } : {}),
+    });
     return { payload: { intent: intent.intent, reply: result.reply } satisfies ChatResponse };
   }
   if (["create_job", "establish_strategy", "revise_strategy"].includes(intent.intent)
@@ -488,8 +499,6 @@ async function buildResponse(req: Request, message: string, surface: "dashboard"
     return { payload: { intent: action, reply: `${intakeReply(draft)}${connectionGuidance(intent.connectionSuggestions)}`, intakeDraft: draft,
       ...(job ? { jobId: job.id, job: toCard(job) } : {}) } satisfies ChatResponse };
   }
-  if (intent.needsClarification && intent.clarifyingQuestion) return { payload: { intent: intent.intent, reply: intent.clarifyingQuestion } };
-
   switch (intent.intent) {
     case "effect_request":
       return { payload: { intent: intent.intent, reply: "I can prepare that effect, but routing a request does not authorize it. Open the pending work, review the exact digest-bound action, and confirm only the action you want executed." } satisfies ChatResponse };

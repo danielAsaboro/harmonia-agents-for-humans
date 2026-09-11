@@ -53,6 +53,34 @@ describe("Harmonia intent route client", () => {
     expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toMatchObject({ message: "Announce our launch", workspaceContext: { strategyReady: true }, recentConversation: [{ role: "user", text: "We sell developer tools." }] });
   });
 
+  it("accepts a typed append-deliverable route without granting effect authority", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      intent: "append_deliverable", userOutcome: "Add a founder follow-up", sourceUrls: [],
+      outputConcepts: ["short_social_post"], assumptions: [], needsClarification: false,
+      platformRecommendations: ["x"], connectionSuggestions: [], missingField: null,
+      resolvedField: null, clarifyingQuestion: null, requiresRightsAttestation: false,
+      effectRequested: false, effectAuthorized: false, jobId: null,
+      workPlacement: "existing_plan_item", targetName: "Launch",
+      deliverableName: "Founder follow-up", scheduledFor: "2026-09-13T12:00:00Z",
+      dependencyItemIds: ["launch-post"], requiredAssetIds: ["launch-graphic"],
+      strategyContext: null,
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+
+    const route = await requestIntentRoute({
+      message: 'Add an X post called "Founder follow-up" to campaign "Launch" at 2026-09-13T12:00:00Z.',
+      workspaceContext: context, attachmentCount: 0, recentConversation: [],
+    }, {
+      baseUrl: "http://localhost:8080", token: "token", fetchImpl,
+      tenant: { workspaceId: "w", brandId: "b", userId: "u" },
+    });
+
+    expect(route).toMatchObject({
+      intent: "append_deliverable", targetName: "Launch", deliverableName: "Founder follow-up",
+      scheduledFor: "2026-09-13T12:00:00Z", dependencyItemIds: ["launch-post"],
+      requiredAssetIds: ["launch-graphic"], effectAuthorized: false,
+    });
+  });
+
   it("rejects routes that claim to authorize an effect", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       intent: "effect_request", userOutcome: "Publish", sourceUrls: [], outputConcepts: [],

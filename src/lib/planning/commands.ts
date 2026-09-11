@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import { awsRepository, recordKey, partition, DynamoTransaction } from "../dynamo";
 import { assertResourceWorkspace, currentTenant, tenantSubjectId } from "../tenancy";
 import { requireContentOperator } from "../authority";
-import { intakeDraftKey, readIntakeDraft, readIntakeSourceRights } from "../intake/repository";
+import { intakeDraftKey, readIntakeDraft } from "../intake/repository";
+import { proposeSourceReplacement } from "./dispositions";
+export { disposePlanningProposal } from "./dispositions";
 import { getActiveStrategy, readActiveStrategyRef } from "../strategy/repository";
 import { strategyDigest } from "../strategyApproval";
 import { sourceAnalysisDigest } from "../sourceAnalysis";
@@ -10,6 +12,7 @@ import { authorityKey, campaignRoot, currentPlan, listCurrentPlans, pointerKey, 
 import { readPlannedExecutionAuthority } from "./executionAuthority";
 import type { AuthorityRef, PlannedItem, PlannedItemState, PlanningMaterialization, PlanningPolicy, PlanRevision } from "../campaigns/contracts";
 import { configureMeasurementSchema, pinMeasurement } from "../learning/contracts";
+import { sealOperatorInstructionContext } from "../operatorInstructions";
 
 const digest = (value: unknown) => strategyDigest(value);
 export function localWeek(instant: string, timezone: string): string {
@@ -59,22 +62,19 @@ export async function materializeIntake(input: { draftId: string; expectedDraftR
         if (digest([...item.requestedOutputs].sort()) !== digest([...draft.requestedOutputs].sort())) throw new Error("requested outputs require a plan revision");
         result = { campaignRef: plan.campaignRef, planRef: plan.ref, itemRefs: [ref] };
         if (draft.sourceHandles.length) {
-          for (const source of draft.sourceHandles) await readIntakeSourceRights(draft, source, tx);
-          const proposalId = `sources-${draft.id.slice(0, 48)}`;
-          tx.insert(recordKey(`${campaignRoot()}/planning_proposals/${proposalId}`), { workspaceId: draft.workspaceId, brandId: draft.brandId, state: "pending_approval", reason: "Source replacement requires an explicit new planned-item revision and evidence binding", intakeDraftId: draft.id, itemRef: ref, sourceHandles: draft.sourceHandles, sourceRights: draft.sourceRights, operatorBrief: draft.originalOperatorBrief, at: now, actor: tenantSubjectId(currentTenant()) });
-          tx.put(authorityKey("planned_item_states", ref), { ...state, status: "requires_disposition", reason: `Source replacement proposal ${proposalId}`, updatedAt: now });
-          result.proposalId = proposalId;
+          result.proposalId = await proposeSourceReplacement(tx, draft, item, state, plan.ref);
         }
       } else {
         if (!draft.requestedOutputs.length) throw new Error("selected outputs required for planned work");
         const ref = scopedRef(`plan-${draft.id.slice(0, 48)}`, 1);
         const campaign = draft.disposition === "new_initiative" ? await writeCampaign(tx, { id: `campaign-${draft.id.slice(0, 48)}`, name: draft.targetName || draft.expectedOutcome, objective: draft.expectedOutcome, strategyRef: active.ref }, 0) : null;
         const itemRef = scopedRef(`item-${draft.id.slice(0, 48)}`, 1);
+        const instructionContext = sealOperatorInstructionContext({ draftId: draft.id, revision: draft.revision, originalOperatorBrief: draft.originalOperatorBrief, answers: draft.answers });
         const channel = draft.requestedOutputs.some(output => output.startsWith("x_")) ? "x" : draft.requestedOutputs.includes("linkedin_post") ? "linkedin" : active.strategy.channelRoles.find(role => role.operationallySupported)?.channel;
         if (!channel) throw new Error("approved strategy has no supported channel");
         const item: PlannedItem = withItemProductionContext({ ref: itemRef, workspaceId: ref.workspaceId, brandId: ref.brandId, planRef: ref, campaignRef: campaign?.ref ?? null, strategyRef: active.ref,
-          name: draft.expectedOutcome, objective: draft.expectedOutcome, operatorBrief: draft.originalOperatorBrief, requestedOutputs: draft.requestedOutputs, channel, scheduledFor: now, dependencies: [], requiredAssetIds: [],
-          evidence: { mode: "operator_context", operatorBrief: draft.originalOperatorBrief, contextDigest: sourceAnalysisDigest(draft.originalOperatorBrief), evidenceIds: [], factualClaimsAllowed: false }, productionContext: { mode: "operator_context", policyRef: policy.ref }, createdAt: now });
+          name: draft.expectedOutcome, objective: draft.expectedOutcome, operatorBrief: instructionContext.resolvedInstructions, originalOperatorBrief: draft.originalOperatorBrief, instructionContext, requestedOutputs: draft.requestedOutputs, channel, scheduledFor: now, dependencies: [], requiredAssetIds: [],
+          evidence: { mode: "operator_context", operatorBrief: instructionContext.resolvedInstructions, contextDigest: sourceAnalysisDigest(instructionContext.resolvedInstructions), evidenceIds: [], factualClaimsAllowed: false, originalOperatorBrief: draft.originalOperatorBrief, instructionContext }, productionContext: { mode: "operator_context", policyRef: policy.ref }, createdAt: now });
         const peers = await plannedCalendar(tx);
         const reasons = calendarConflicts(item, peers, policy);
         if (!active.strategy.channelRoles.some(role => role.channel === channel && role.operationallySupported)) reasons.push("channel outside approved strategy");
@@ -89,7 +89,8 @@ export async function materializeIntake(input: { draftId: string; expectedDraftR
         result = { campaignRef: plan.campaignRef, planRef: ref, itemRefs: plan.itemRefs };
       }
       tx.insert(receiptKey, { workspaceId: draft.workspaceId, brandId: draft.brandId, identity, result, at: now, actor: tenantSubjectId(currentTenant()) });
-      tx.put(intakeDraftKey(draft.id), { ...draft, state: "dispatched", planning: result, materializedFromRevision: draft.revision, revision: draft.revision + 1, updatedAt: now });
+      const instructionContext = sealOperatorInstructionContext({ draftId: draft.id, revision: draft.revision, originalOperatorBrief: draft.originalOperatorBrief, answers: draft.answers });
+      tx.put(intakeDraftKey(draft.id), { ...draft, instructionContext, state: "dispatched", planning: result, materializedFromRevision: draft.revision, revision: draft.revision + 1, updatedAt: now });
       return result;
     });
   } catch (error) { const result = await readReceipt(); if (result) return result; throw error; }
@@ -336,31 +337,5 @@ export async function replanItem(input: { itemRef: AuthorityRef; scheduledFor: s
       tx.put(pointerKey("plans", planRef.id), planRef); result = { outcome: "applied", itemRef: ref, reasons: [] };
     }
     tx.insert(receiptKey, { workspaceId: item.workspaceId, brandId: item.brandId, digest: digest(input), result, at: now, actor: tenantSubjectId(currentTenant()) }); return result;
-  });
-}
-
-/** A proposal can be declined while preserving its exact existing execution authority. */
-export async function disposePlanningProposal(input: { proposalId: string; expectedAuthorityDigest: string; decision: "keep_existing_execution"; requestId: string }) {
-  requireContentOperator(currentTenant());
-  if (input.decision !== "keep_existing_execution") throw new Error("unsupported planning disposition");
-  return awsRepository().atomic(async tx => {
-    const receiptKey = recordKey(`${campaignRoot()}/planning_commands/${digest([tenantSubjectId(currentTenant()), input.requestId])}`);
-    const prior = await tx.read(receiptKey);
-    if (prior.present) { if (prior.value?.digest !== digest(input)) throw new Error("planning disposition identity reused"); return prior.value.result; }
-    const key = recordKey(`${campaignRoot()}/planning_proposals/${input.proposalId}`); const row = await tx.read(key);
-    const proposal = row.value;
-    if (!proposal || !["calendar_change", "measurement_change"].includes(String(proposal.type)) || proposal.state !== "pending_approval") throw new Error("pending planning disposition required");
-    assertResourceWorkspace(currentTenant(), proposal as { workspaceId: string; brandId: string });
-    const guarded = proposal.guarded as Array<{ itemRef: AuthorityRef; authorityDigest: string }>;
-    if (!guarded.length || digest(guarded) !== input.expectedAuthorityDigest) throw new Error("planning disposition authority mismatch");
-    for (const guard of guarded) {
-      const item = await readPlannedItem(guard.itemRef, tx); const state = await readItemState(guard.itemRef, tx);
-      if (state.dispositionProposalId !== input.proposalId || (await readPlannedExecutionAuthority(tx, item, state)).digest !== guard.authorityDigest) throw new Error("execution authority changed; reconcile and request a current disposition");
-      const { dispositionProposalId: _id, ...unchanged } = state; void _id;
-      tx.put(authorityKey("planned_item_states", guard.itemRef), { ...unchanged, reason: "Calendar proposal declined; existing execution retained", updatedAt: new Date().toISOString() });
-    }
-    const result = { outcome: "kept_existing_execution", proposalId: input.proposalId };
-    tx.put(key, { ...proposal, state: "declined", decision: input.decision, decidedBy: tenantSubjectId(currentTenant()), decidedAt: new Date().toISOString() });
-    tx.insert(receiptKey, { workspaceId: currentTenant().workspaceId, brandId: currentTenant().brandId, digest: digest(input), result }); return result;
   });
 }

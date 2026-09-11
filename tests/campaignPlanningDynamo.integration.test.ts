@@ -18,6 +18,8 @@ import { campaignWorkerBridge } from "./fixtures/campaignWorkerBridge";
 import { buildStageMessage } from "@/lib/queue";
 import type { StageOutboxRecord } from "@/lib/stageOutbox";
 import { learningInferenceContextSchema } from "@/lib/learning/contracts";
+import { compileProductionOperations, productionPlanDigest } from "@/lib/mediaProduction";
+import { planRequestedMediaProduction } from "@/lib/outputMediaProduction";
 
 const tenant = (): TenantContext => ({ workspaceId: `campaign-${randomUUID()}`, brandId: "a", principal: { kind: "cognito_user", subjectId: "operator", authenticationId: "auth", workspaceRole: "owner" } });
 async function setup() {
@@ -43,6 +45,46 @@ async function permanentRetryPair() {
 }
 
 describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("persistent campaign calendar", () => {
+  it("carries later clarification subject, colors, and outcome into the exact media proposal while preserving the first brief", async () => runWithTenant(tenant(), async () => {
+    await setup();
+    const conversationId = randomUUID();
+    const initialTurnId = randomUUID();
+    const subjectTurnId = randomUUID();
+    const outcomeTurnId = randomUUID();
+    const initial = await submitIntakeTurn({
+      requestId: initialTurnId, conversationId, surface: "dashboard", message: "Create a launch image, video, and instrumental soundtrack.",
+      advice: { action: "create_job", disposition: "new_initiative", expectedOutcome: "", requestedOutputs: ["social_image", "generated_video", "generated_music"], sourceHandles: [], targetName: "Launch media", clarification: { field: "expectedOutcome", question: "What subject, colors, and outcome should the launch media use?" } },
+    });
+    expect(initial.state).toBe("clarifying");
+    const withCreative = await submitIntakeTurn({
+      requestId: subjectTurnId, conversationId, surface: "dashboard", message: "Feature a copper robot on a midnight-blue background with amber highlights.",
+      advice: { action: "create_job", disposition: "new_initiative", expectedOutcome: "", requestedOutputs: ["social_image", "generated_video", "generated_music"], sourceHandles: [], targetName: "Launch media", clarification: { field: "expectedOutcome", question: "What measurable outcome should this media drive?" } },
+    });
+    expect(withCreative.state).toBe("clarifying");
+    const completed = await submitIntakeTurn({
+      requestId: outcomeTurnId, conversationId, surface: "dashboard", message: "Drive qualified founders to join the waitlist.",
+      advice: { action: "create_job", disposition: "new_initiative", expectedOutcome: "Drive qualified founders to join the waitlist", requestedOutputs: ["social_image", "generated_video", "generated_music"], sourceHandles: [], targetName: "Launch media", resolvedField: "expectedOutcome", clarification: null },
+    });
+    expect(completed.originalOperatorBrief).toBe("Create a launch image, video, and instrumental soundtrack.");
+    const materialized = await (await import("@/lib/planning/commands")).materializeIntake({ draftId: completed.id, expectedDraftRevision: completed.revision, requestId: outcomeTurnId });
+    const item = await (await import("@/lib/campaigns/repository")).readPlannedItem(materialized.itemRefs[0]);
+    expect(item.instructionContext).toMatchObject({
+      originalOperatorBrief: completed.originalOperatorBrief,
+      answerTurnIds: [subjectTurnId, outcomeTurnId],
+    });
+    expect(item.operatorBrief).toContain("copper robot on a midnight-blue background with amber highlights");
+    expect(item.operatorBrief).toContain("Drive qualified founders to join the waitlist");
+    const claim = await (await import("@/lib/planning/selection")).claimNextPlannedItem(materialized.planRef.id);
+    const job = await getJob(claim!.jobId);
+    expect(job.config.originalOperatorBrief).toBe(completed.originalOperatorBrief);
+    expect(job.config.instructionContext).toEqual(item.instructionContext);
+    const plan = planRequestedMediaProduction({ job, outputPlan: job.campaignOutputPlan!, pricing: { version: "test", canvasPerImage: "0.500000", reelPerSecond: "0.080000", musicPerSecond: "0.004000" } })!;
+    const paid = compileProductionOperations(plan).filter(operation => operation.executionAuthority === "production_mandate");
+    expect(paid.map(operation => operation.type).sort()).toEqual(["generate_image", "generate_music", "generate_video"]);
+    for (const operation of paid) expect(operation.payload).toMatchObject({ instructionContext: item.instructionContext });
+    expect(plan.outputRequest?.promptDigest).toBeTruthy();
+    expect(productionPlanDigest(plan)).toMatch(/^[a-f0-9]{64}$/);
+  }));
   it("completes two replanned dependent deliverables through the actual worker and TS API with real S3 exports", async () => runWithTenant(tenant(), async () => {
     vi.stubEnv("INTERNAL_API_TOKEN", "task3-local-worker-token"); vi.stubEnv("AGENT_SERVICE_URL", "http://127.0.0.1:1"); vi.stubEnv("SQS_STAGE_QUEUE_URL", undefined);
     const bridge = await campaignWorkerBridge();

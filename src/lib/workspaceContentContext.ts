@@ -11,7 +11,7 @@ import { listStrategyProposals } from "./strategy/repository";
 
 export interface WorkspaceOperationContext {
   activeStrategy: { thesis: string; strategyId: string; revision: number; digest: string } | null;
-  proposedChanges: Array<{ id: string; kind: "content" | "strategy" | "learning_strategy" | "incomplete_command" | "source_replacement" | "calendar_change" | "measurement_change"; status: string; changes: string[]; evidenceRefs: string[]; revision?: number; decision?: string }>;
+  proposedChanges: Array<{ id: string; kind: "content" | "strategy" | "learning_strategy" | "incomplete_command" | "source_replacement" | "strategy_rebase" | "calendar_change" | "measurement_change"; status: string; changes: string[]; evidenceRefs: string[]; revision?: number; decision?: string }>;
   campaigns: Array<{ id: string; name: string; objective: string }>;
   plans: Array<{ id: string; revision: number; reason: string }>;
   plannedItems: Array<{
@@ -34,7 +34,7 @@ export interface WorkspaceContentContext {
   operation?: WorkspaceOperationContext;
 }
 
-type PlanningProposalKind = Extract<WorkspaceOperationContext["proposedChanges"][number]["kind"], "incomplete_command" | "source_replacement" | "calendar_change" | "measurement_change">;
+type PlanningProposalKind = Extract<WorkspaceOperationContext["proposedChanges"][number]["kind"], "incomplete_command" | "source_replacement" | "strategy_rebase" | "calendar_change" | "measurement_change">;
 
 /** Preserve the durable record's actual shape; generic commands are never called source replacements. */
 export function projectPlanningProposal(proposal: Record<string, unknown>): WorkspaceOperationContext["proposedChanges"][number] {
@@ -43,7 +43,7 @@ export function projectPlanningProposal(proposal: Record<string, unknown>): Work
   const guarded = Array.isArray(proposal.guarded) ? proposal.guarded : [];
   const input = proposal.input ?? null;
   const declared = proposal.type;
-  const kind: PlanningProposalKind = declared === "calendar_change" || declared === "measurement_change" ? declared : proposal.intakeDraftId !== undefined || proposal.itemRef !== undefined || sourceHandles.length ? "source_replacement" : "incomplete_command";
+  const kind: PlanningProposalKind = declared === "calendar_change" || declared === "measurement_change" || declared === "strategy_rebase" ? declared : proposal.intakeDraftId !== undefined || proposal.itemRef !== undefined || sourceHandles.length ? "source_replacement" : "incomplete_command";
   const evidenceRefs = [
     ...sourceHandles.map(handle => typeof handle === "object" && handle !== null && "url" in handle ? String(handle.url) : typeof handle === "object" && handle !== null && "attachmentId" in handle ? `attachment:${String(handle.attachmentId)}` : JSON.stringify(handle)),
     ...sourceRights.map(([sourceKey, authorizationId]) => `rights:${sourceKey}:${String(authorizationId)}`),
@@ -53,6 +53,7 @@ export function projectPlanningProposal(proposal: Record<string, unknown>): Work
     id: String(proposal.id), kind, status: String(proposal.state ?? "unavailable"),
     changes: [
       `type=${String(declared ?? kind)}`, `intakeDraftId=${String(proposal.intakeDraftId ?? "")}`,
+      `expectedPlanRef=${JSON.stringify(proposal.expectedPlanRef ?? null)}`, `targetStrategyRef=${JSON.stringify(proposal.targetStrategyRef ?? null)}`,
       `itemRef=${JSON.stringify(proposal.itemRef ?? (typeof input === "object" && input !== null && "itemRef" in input ? input.itemRef : null))}`,
       `sourceHandles=${JSON.stringify(sourceHandles)}`, `sourceRights=${JSON.stringify(Object.fromEntries(sourceRights))}`,
       `operatorBrief=${String(proposal.operatorBrief ?? "")}`, `input=${JSON.stringify(input)}`,

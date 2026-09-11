@@ -22,11 +22,17 @@ export function assertItemProductionContext(item: PlannedItem) {
   if (new Set(item.measurements.map(m => m.definition.id)).size !== item.measurements.length) throw new Error("duplicate planned measurement");
   assertResourceWorkspace(currentTenant(), item.productionContext.policyRef);
   if (item.productionContext.mode !== item.evidence.mode || item.productionContextDigest !== sourceAnalysisDigest({ evidence: item.evidence, context: item.productionContext })) throw new Error("planned item production context digest mismatch");
+  if (item.productionContext.mode === "source_intake" && item.evidence.mode === "source_intake") {
+    if (!item.productionContext.sourceInputs.length || sourceAnalysisDigest(item.productionContext.sourceInputs) !== sourceAnalysisDigest(item.evidence.sourceInputs) || sourceAnalysisDigest(item.productionContext.sourceAuthority) !== item.evidence.authorityDigest) throw new Error("planned source intake authority mismatch");
+  }
   if (item.productionContext.mode === "source_backed" && item.evidence.mode === "source_backed") {
     if (sourceAnalysisDigest(item.productionContext.sourceAnalysis) !== item.evidence.sourceBinding.analysisDigest || sourceAnalysisDigest(item.productionContext.snapshot.sourceBinding) !== sourceAnalysisDigest(item.evidence.sourceBinding)) throw new Error("planned item source context binding mismatch");
     if (sourceAnalysisDigest(item.evidence.sourceBinding.strategyRef) !== sourceAnalysisDigest(item.strategyRef) || item.evidence.sourceBinding.jobId !== item.evidence.sourceJobId) throw new Error("planned item source strategy mismatch");
   } else if (item.evidence.mode === "operator_context") {
     if (item.operatorBrief !== item.evidence.operatorBrief || item.evidence.contextDigest !== sourceAnalysisDigest(item.operatorBrief)) throw new Error("planned item operator context mismatch");
+    if (Boolean(item.instructionContext) !== Boolean(item.evidence.instructionContext)
+      || (item.instructionContext && item.evidence.instructionContext && sourceAnalysisDigest(item.instructionContext) !== sourceAnalysisDigest(item.evidence.instructionContext))
+      || item.originalOperatorBrief !== item.evidence.originalOperatorBrief) throw new Error("planned item instruction provenance mismatch");
   }
 }
 export function withItemProductionContext(item: Omit<PlannedItem, "productionContextDigest" | "measurements"> & { measurements?: PlannedItem["measurements"] }): PlannedItem {

@@ -64,7 +64,7 @@ class PlannedItemStrategyReference(StrictModel):
 
 class OperationProposal(StrictModel):
     id: StrictStr = Field(min_length=1, max_length=200)
-    kind: Literal["content", "strategy", "learning_strategy", "incomplete_command", "source_replacement", "calendar_change", "measurement_change"]
+    kind: Literal["content", "strategy", "learning_strategy", "incomplete_command", "source_replacement", "strategy_rebase", "calendar_change", "measurement_change"]
     status: StrictStr = Field(min_length=1, max_length=100)
     changes: list[StrictStr] = Field(default_factory=list)
     evidenceRefs: list[StrictStr] = Field(default_factory=list, max_length=12_168)

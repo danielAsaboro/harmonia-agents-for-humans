@@ -66,6 +66,10 @@ The deployment requires an HTTPS origin and matching regional ACM certificate, G
 
 Integration presence does not imply authenticated production proof. A rejected publication is not a published post; an exported pack is an exported pack.
 
+The Content operation workspace shows durable strategy, campaigns, planned items, and proposed changes. After a strategy promotion, review the queued-work proposal to approve new item revisions under the current strategy or cancel the queued work. Running and completed items retain their existing authority. Source replacement has its own exact review: acceptance pins a new source selection and starts the normal retrieval and analysis stages; rejection retains eligible existing work. Stale acceptance returns a conflict requiring a current review.
+
+Chat and Telegram can append a deliverable to an existing campaign or plan when the request identifies the target, current plan revision, output, channel, and scheduled timestamp with timezone. The host resolves those references and enforces capacity, dependency, revision, and replay checks. Clarification answers remain separate from the original brief and carry their turn provenance into media requests and approvals.
+
 ## Provenance
 
 This repository derives from the team's Harmonia implementation, including its UI, deterministic workflow, content contracts, and tests. This branch replaces its agent and cloud infrastructure and extends media production. The original history is retained. Submission materials must disclose incorporated pre-existing work and distinguish this edition's new work and evidence.

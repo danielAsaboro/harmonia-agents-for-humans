@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { strategyRefSchema, strategySourceBindingSchema } from "../strategy/contracts";
-import type { EditorialPlan, EditorialPlanItem, EditorialPlanningSnapshot, JobConfig, SourceAnalysis } from "../types";
+import type { EditorialPlan, EditorialPlanItem, EditorialPlanningSnapshot, JobConfig, SourceAnalysis, SourceInput } from "../types";
+import { operatorInstructionContextSchema, type OperatorInstructionContext } from "../operatorInstructions";
 
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,100}$/);
 const revision = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
@@ -17,14 +18,17 @@ export const operatorPlanningContextSchema = z.object({
   mode: z.literal("operator_context"), operatorBrief: z.string().trim().min(1).max(20000),
   contextDigest: z.string().regex(/^[a-f0-9]{64}$/), evidenceIds: z.array(z.never()).length(0),
   factualClaimsAllowed: z.literal(false),
+  originalOperatorBrief: z.string().min(1).max(20000).optional(),
+  instructionContext: operatorInstructionContextSchema.optional(),
 }).strict();
 export const plannedEvidenceSchema = z.discriminatedUnion("mode", [
   operatorPlanningContextSchema,
   z.object({ mode: z.literal("source_backed"), sourceJobId: id, sourceBinding: strategySourceBindingSchema }).strict(),
 ]);
-export type PlannedEvidence = z.infer<typeof plannedEvidenceSchema>;
+export type PlannedEvidence = z.infer<typeof plannedEvidenceSchema> | { mode: "source_intake"; sourceInputs: SourceInput[]; authorityDigest: string };
 export type PlannedProductionContext =
   | { mode: "operator_context"; policyRef: AuthorityRef }
+  | { mode: "source_intake"; policyRef: AuthorityRef; intakeDraftId: string; intakeRevision: number; sourceInputs: SourceInput[]; sourceAuthority: unknown[] }
   | { mode: "source_backed"; policyRef: AuthorityRef; plan: Omit<EditorialPlan, "items" | "selectedNextItemId">; item: EditorialPlanItem; snapshot: EditorialPlanningSnapshot; config: JobConfig; sourceAnalysis: SourceAnalysis };
 export interface Campaign { ref: AuthorityRef; workspaceId: string; brandId: string; name: string; objective: string; strategyRef: z.infer<typeof strategyRefSchema>; createdAt: string; createdBy: string }
 export interface PlanRevision {
@@ -36,7 +40,7 @@ export interface PlanRevision {
 export interface PlannedItem {
   measurements: import("../learning/contracts").PinnedMeasurement[];
   ref: AuthorityRef; workspaceId: string; brandId: string; planRef: AuthorityRef; campaignRef: AuthorityRef | null;
-  strategyRef: z.infer<typeof strategyRefSchema>; name: string; objective: string; operatorBrief: string;
+  strategyRef: z.infer<typeof strategyRefSchema>; name: string; objective: string; operatorBrief: string; originalOperatorBrief?: string; instructionContext?: OperatorInstructionContext;
   requestedOutputs: JobConfig["desiredOutputs"]; channel: string; scheduledFor: string; publicationWindowEndAt?: string; productionDeadlineAt?: string; productionReadyAt?: string;
   dependencies: AuthorityRef[]; requiredAssetIds: string[]; evidence: PlannedEvidence;
   productionContext: PlannedProductionContext; productionContextDigest: string;

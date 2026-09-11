@@ -10,6 +10,7 @@ import type { PlanRevision, PlannedItem, PlannedItemState } from "./contracts";
 import type { StrategyReader } from "../strategy/repository";
 import { sourceAnalysisDigest } from "../sourceAnalysis";
 import { calendarConflicts, plannedCalendar } from "../planning/commands";
+import { proposeOutputPlan } from "../outputPlanning";
 
 export async function persistEditorialPlan(tx: DynamoTransaction, job: Job, plan: EditorialPlan): Promise<PlanRevision> {
   const policy = await readPlanningPolicy(tx);
@@ -56,8 +57,12 @@ export async function resolvePlannedJob<T extends Job>(job: T, reader?: Strategy
   }
   if (!selected) return job;
   const context = selected.productionContext;
-  if (context.mode === "operator_context") {
-    if (!job.contentStrategy || job.operatorPlanningContext?.mode !== "operator_context") throw new Error("operator planning context required");
+  if (context.mode === "source_intake" && !job.sourceAnalysis) {
+    if (["collect_sources", "extract_sources", "understand", "awaiting_source_resolution", "failed"].includes(job.stage)) return job;
+    throw new Error("replacement source analysis required before production");
+  }
+  if (context.mode === "operator_context" || context.mode === "source_intake") {
+    if (!job.contentStrategy || (context.mode === "operator_context" && job.operatorPlanningContext?.mode !== "operator_context")) throw new Error("operator planning context required");
     const strategy = job.contentStrategy;
     const brief = strategy.briefs.find(brief => brief.channelCandidates.includes(selected.channel));
     if (!brief) throw new Error("no approved brief for selected channel");
@@ -69,8 +74,13 @@ export async function resolvePlannedJob<T extends Job>(job: T, reader?: Strategy
     const snapshot: import("../types").EditorialPlanningSnapshot = { sourceBinding: buildStrategySourceBinding(job), snapshotId: `planning-${job.id}-v1`, asOf: plan.createdAt, horizonStartAt: start, horizonEndAt: horizonEnd, timezone: policy.timezone, channelCapabilities: strategy.channelRoles.filter(role => role.operationallySupported).map(role => ({ channel: role.channel, formats: role.formats })), existingCommitments: [], productionCapacity: policy.productionCapacity, cadenceConstraints: policy.cadenceConstraints, postingWindowObservations: [], assetReadiness: [], blockedDependencies: [], calendarProjection: [], provenanceIds: [`policy:${policy.ref.id}:v${policy.ref.revision}`] };
     const snapshotDigest = editorialPlanningSnapshotDigest(snapshot);
     const item: import("../types").EditorialPlanItem = { id: selected.ref.id, briefId: brief.id, campaignTheme: selected.name, contentPillar: strategy.pillars[0].name, objective: selected.objective, audienceId: brief.audienceId, funnelStage: brief.funnelStage, intendedConversion: brief.intendedConversion, ctaIntent: brief.ctaIntent, kpi: brief.kpi, channel: selected.channel, format: brief.formatCandidates[0], evidenceRefs: [], publicationWindowStartAt: start, publicationWindowEndAt: end, productionDeadlineAt: start, priority: brief.priority, selectionScore: 1, dependencies: [], productionStatus: "planned", constraints: ["Operator brief is context, not factual evidence. Produce creative language only. Do not invent facts, quotes, statistics, testimonials, product capabilities or citations.", ...brief.constraints].slice(0, 12), requiredAssets: [], planningRationale: "Operator-selected output under the approved strategy and configured production policy.", selectionRationale: "Host-selected eligible planned item.", confidence: "high" };
+    if (context.mode === "source_intake") {
+      item.evidenceRefs = buildStrategySourceBinding({ ...job, sourceAnalysis: job.sourceAnalysis! }).evidenceIds;
+      item.constraints = brief.constraints;
+      item.planningRationale = "Operator-approved replacement sources, analyzed by the normal source workflow, bound to this deliverable.";
+    }
     const editorial: EditorialPlan = { planId: plan.ref.id, version: 1, approvedStrategyDigest: job.strategyRef!.digest, planningSnapshotId: snapshot.snapshotId, planningSnapshotDigest: snapshotDigest, horizonStartAt: start, horizonEndAt: horizonEnd, timezone: policy.timezone, summary: selected.objective, sequencingRationale: "Operator-selected planned work", cadenceRationale: "Configured production policy", assumptions: [], confidence: "high", items: [item], selectedNextItemId: item.id };
-    return { ...job, editorialPlan: editorial, editorialPlanDigest: editorialPlanDigest(editorial), editorialPlanRevision: plan.ref.revision, editorialPlanningSnapshot: snapshot, editorialPlanningSnapshotDigest: snapshotDigest, selectedNextItemId: item.id, editorialItemStates: { [item.id]: { status: state.status === "awaiting_approval" ? "awaiting_approval" : job.activeProductionLineage ? "drafting" : "selected", updatedAt: state.updatedAt } } };
+    return { ...job, ...(context.mode === "source_intake" ? { campaignOutputPlan: proposeOutputPlan(job.id, selected.requestedOutputs, selected.requestedOutputs, job.sourceAnalysis!) } : {}), editorialPlan: editorial, editorialPlanDigest: editorialPlanDigest(editorial), editorialPlanRevision: plan.ref.revision, editorialPlanningSnapshot: snapshot, editorialPlanningSnapshotDigest: snapshotDigest, selectedNextItemId: item.id, editorialItemStates: { [item.id]: { status: state.status === "awaiting_approval" ? "awaiting_approval" : job.activeProductionLineage ? "drafting" : "selected", updatedAt: state.updatedAt } } };
   }
   const snapshot = { ...context.snapshot, sourceBinding: buildStrategySourceBinding(job) };
   const snapshotDigest = editorialPlanningSnapshotDigest(snapshot);

@@ -1,5 +1,5 @@
 import { awsRepository, recordKey, UnknownCommitOutcome, type DynamoTransaction } from "../dynamo";
-import { currentTenant } from "../tenancy";
+import { currentTenant, assertResourceWorkspace } from "../tenancy";
 import { authorityKey, currentPlan, listPlanningAssets, readItemState, readPlannedItem, readPlanningPolicy } from "../campaigns/repository";
 import { readActiveStrategyRef } from "../strategy/repository";
 import { strategyDigest } from "../strategyApproval";
@@ -11,6 +11,10 @@ import { sealManifest } from "../sourceRegistry";
 import type { JobConfig, JobSourceManifest } from "../types";
 import type { AuthorityRef, PlannedItem, PlannedItemState } from "../campaigns/contracts";
 import { readPlannedExecutionAuthority } from "./executionAuthority";
+import { captureReplacementSources } from "./dispositions";
+import { intakeDraftKey } from "../intake/repository";
+import type { IntakeDraft } from "../intake/contracts";
+import { buildSourceRecord } from "../sourceManifest";
 
 export async function plannedItemAdmission(tx: DynamoTransaction, item: PlannedItem, asOf: string): Promise<string[]> {
   const plan = await currentPlan(item.planRef.id, tx); const policy = await readPlanningPolicy(tx);
@@ -66,9 +70,32 @@ export async function claimNextInTransaction(tx: DynamoTransaction, planId: stri
     const jobId = `planned-${strategyDigest(item.ref).slice(0, 56)}`;
     const editorial = item.productionContext.mode === "source_backed" ? item.productionContext : null;
     const config: JobConfig = {
-      operatorBrief: item.operatorBrief, desiredOutputs: item.requestedOutputs, allowedOutputs: item.requestedOutputs, platforms: [item.channel],
+      operatorBrief: item.operatorBrief, ...(item.originalOperatorBrief ? { originalOperatorBrief: item.originalOperatorBrief } : {}), ...(item.instructionContext ? { instructionContext: item.instructionContext } : {}), desiredOutputs: item.requestedOutputs, allowedOutputs: item.requestedOutputs, platforms: [item.channel],
       ...(editorial ? { ...editorial.config, operatorBrief: item.operatorBrief, desiredOutputs: item.requestedOutputs, allowedOutputs: item.requestedOutputs } : {}),
     };
+    let sourceOwner: string | undefined;
+    if (item.productionContext.mode === "source_intake") {
+      const context = item.productionContext;
+      // The scheduler consumes an already approved immutable source context. It
+      // revalidates the owner's exact draft and rights; it does not impersonate
+      // that operator or create a new attestation.
+      const row = await tx.read(intakeDraftKey(context.intakeDraftId));
+      const draft = row.value as unknown as IntakeDraft | undefined;
+      if (!draft || draft.revision !== context.intakeRevision) throw new Error("source intake revision changed before execution");
+      assertResourceWorkspace(currentTenant(), draft);
+      sourceOwner = draft.subjectId;
+      const sources = await captureReplacementSources(tx, draft);
+      if (strategyDigest(sources.inputs) !== strategyDigest(context.sourceInputs) || strategyDigest(sources.authority) !== strategyDigest(context.sourceAuthority)) throw new Error("source authority changed before execution");
+      const sourceIds = sources.inputs.map((_, i) => `source-${strategyDigest([item.ref, i]).slice(0, 48)}`);
+      const manifest = sealManifest({ id: `manifest-${strategyDigest(item.ref).slice(0, 48)}`, jobId, revision: 1, directSourceIds: sourceIds, excludedSourceIds: [], exclusionRecords: [], sealedAt: asOf, sealedBySubjectId: draft.subjectId });
+      config.sourceManifestId = manifest.id;
+      tx.insert(recordKey(`workspaces/${item.workspaceId}/jobs/${jobId}/source_manifests/${manifest.id}`), manifest);
+      sources.inputs.forEach((source, index) => {
+        const record = buildSourceRecord(source, sourceIds[index], asOf);
+        tx.insert(recordKey(`workspaces/${item.workspaceId}/brands/${item.brandId}/sources/${record.id}`), record);
+        tx.insert(recordKey(`workspaces/${item.workspaceId}/brands/${item.brandId}/source_payloads/${record.id}`), { sourceId: record.id, input: source, createdAt: asOf });
+      });
+    }
     if (item.evidence.mode === "source_backed") {
       const row = await tx.read(recordKey(`workspaces/${item.workspaceId}/jobs/${item.evidence.sourceJobId}/source_manifests/${config.sourceManifestId}`));
       if (!row.present) throw new Error("planned source manifest authority missing");
@@ -78,7 +105,7 @@ export async function claimNextInTransaction(tx: DynamoTransaction, planId: stri
       tx.insert(recordKey(`workspaces/${item.workspaceId}/jobs/${jobId}/source_manifests/${manifest.id}`), manifest);
     }
     const outputPlan = editorial ? proposeOutputPlan(jobId, item.requestedOutputs, item.requestedOutputs, editorial.sourceAnalysis) : sealOutputPlan({ id: `output-plan-${jobId}`, desiredOutputs: item.requestedOutputs, allowedOutputs: item.requestedOutputs, outputs: item.requestedOutputs.map((outputType, index) => ({ id: `output-${index + 1}-${outputType}`, outputType, quantity: 1, destinations: OUTPUT_CAPABILITIES[outputType].publisher ? [OUTPUT_CAPABILITIES[outputType].publisher!] : [], evidenceRefs: [], costClass: OUTPUT_CAPABILITIES[outputType].costClass, approvalClass: OUTPUT_CAPABILITIES[outputType].approvalClass })) });
-    const job = await insertExecutionJob(tx, jobId, config, "draft", { strategyRef: item.strategyRef, plannedItemRef: item.ref, planRef: item.planRef, campaignOutputPlan: outputPlan,
+    const job = await insertExecutionJob(tx, jobId, config, item.productionContext.mode === "source_intake" ? "collect_sources" : "draft", { strategyRef: item.strategyRef, plannedItemRef: item.ref, planRef: item.planRef, ...(sourceOwner ? { createdByUserId: sourceOwner } : {}), ...(item.productionContext.mode !== "source_intake" ? { campaignOutputPlan: outputPlan } : {}),
       ...(item.evidence.mode === "operator_context" ? { operatorPlanningContext: item.evidence } : {}),
       ...(editorial ? { sourceAnalysis: editorial.sourceAnalysis } : {}),
     });

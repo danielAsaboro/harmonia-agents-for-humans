@@ -96,6 +96,8 @@ export async function decideStrategyProposal(tx: DynamoTransaction, id: string, 
     const revision: ApprovedStrategyRevision = { workspaceId: proposal.workspaceId, brandId: proposal.brandId, ref: strategyRef, proposalId: proposal.id, jobId: proposal.jobId, strategy: proposal.strategy, approval: { ...result.approval, decision: "approved" }, evidenceLineage: proposal.evidenceLineage, invocationContext: proposal.invocationContext };
     tx.insert(revisionKey(strategyRef.revision), revision);
     tx.put(pointerKey(), strategyRef);
+    const { proposeQueuedStrategyDispositions } = await import("../planning/dispositions");
+    await proposeQueuedStrategyDispositions(tx, strategyRef);
   }
   tx.patch(proposalKey(id), { approval: result.approval, ...(strategyRef ? { strategyRef } : {}) });
   return { ...result, strategyRef, replayed: false };

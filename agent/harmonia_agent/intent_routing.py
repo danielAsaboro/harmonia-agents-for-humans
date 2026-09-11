@@ -48,14 +48,71 @@ class RecentJobSummary(StrictModel):
     title: StrictStr | None = Field(default=None, max_length=2_000)
 
 
+class StrategyReference(StrictModel):
+    thesis: StrictStr = Field(min_length=1, max_length=2_000)
+    strategyId: StrictStr = Field(min_length=1, max_length=200)
+    revision: StrictInt = Field(ge=1)
+    digest: StrictStr = Field(min_length=64, max_length=64)
+
+
+class OperationProposal(StrictModel):
+    id: StrictStr = Field(min_length=1, max_length=200)
+    kind: Literal["content", "strategy", "learning_strategy", "planning"]
+    status: StrictStr = Field(min_length=1, max_length=100)
+    changes: list[StrictStr] = Field(default_factory=list)
+    evidenceRefs: list[StrictStr] = Field(default_factory=list, max_length=500)
+    revision: StrictInt | None = Field(default=None, ge=1)
+    decision: StrictStr | None = Field(default=None, max_length=2_000)
+
+
+class OperationCampaign(StrictModel):
+    id: StrictStr = Field(min_length=1, max_length=200)
+    name: StrictStr = Field(min_length=1, max_length=300)
+    objective: StrictStr = Field(min_length=1, max_length=1_000)
+
+
+class OperationPlan(StrictModel):
+    id: StrictStr = Field(min_length=1, max_length=200)
+    revision: StrictInt = Field(ge=1)
+    reason: StrictStr = Field(min_length=1, max_length=1_000)
+
+
+class OperationPlannedItem(StrictModel):
+    id: StrictStr = Field(min_length=1, max_length=200)
+    planId: StrictStr = Field(min_length=1, max_length=200)
+    campaignId: StrictStr | None = Field(default=None, max_length=200)
+    campaignLabel: StrictStr = Field(min_length=1, max_length=300)
+    name: StrictStr = Field(min_length=1, max_length=500)
+    objective: StrictStr = Field(min_length=1, max_length=1_000)
+    channel: StrictStr = Field(min_length=1, max_length=100)
+    scheduledFor: StrictStr = Field(min_length=1, max_length=100)
+    strategyRef: StrategyReference
+    metricIds: list[StrictStr] = Field(default_factory=list, max_length=8)
+    sourceEvidenceRefs: list[StrictStr] = Field(default_factory=list, max_length=500)
+    declaredDependencies: list[StrictStr] = Field(default_factory=list)
+    requiredAssets: list[StrictStr] = Field(default_factory=list)
+    evidenceState: Literal["source_backed", "operator_context", "unavailable"]
+    approvalState: Literal["pending", "not_pending"]
+    lifecycleState: Literal["planned", "running", "awaiting_approval", "completed", "failed", "cancelled", "blocked", "requires_disposition"]
+    unresolvedDependencies: list[StrictStr] = Field(default_factory=list)
+
+
+class OperationResult(StrictModel):
+    id: StrictStr = Field(min_length=1, max_length=200)
+    metric: StrictStr = Field(min_length=1, max_length=1_000)
+    availability: Literal["available", "pending", "pending_window", "stale", "revoked", "unavailable", "failed"]
+    checkedAt: StrictStr | None = Field(default=None, max_length=100)
+
+
 class WorkspaceOperationContext(StrictModel):
-    """Bounded read-only operating-loop context; routing cannot mutate it."""
-    activeStrategy: dict[str, StrictStr | StrictInt] | None = None
-    proposedChanges: list[dict[str, object]] = Field(default_factory=list, max_length=500)
-    campaigns: list[dict[str, StrictStr]] = Field(default_factory=list, max_length=500)
-    plans: list[dict[str, StrictStr | StrictInt]] = Field(default_factory=list, max_length=500)
-    plannedItems: list[dict[str, object]] = Field(default_factory=list, max_length=1_000)
-    results: list[dict[str, StrictStr]] = Field(default_factory=list, max_length=1_000)
+    """Exact read-only TypeScript operation projection; routing cannot mutate it."""
+    activeStrategy: StrategyReference | None = None
+    proposedChanges: list[OperationProposal] = Field(default_factory=list)
+    campaigns: list[OperationCampaign] = Field(default_factory=list)
+    plans: list[OperationPlan] = Field(default_factory=list)
+    plannedItems: list[OperationPlannedItem] = Field(default_factory=list)
+    results: list[OperationResult] = Field(default_factory=list)
+    currentJobs: list[RecentJobSummary] = Field(default_factory=list)
 
 
 class WorkspaceContentContext(StrictModel):
@@ -68,7 +125,7 @@ class WorkspaceContentContext(StrictModel):
     strategySummary: StrictStr | None = Field(default=None, max_length=1000)
     planSummary: StrictStr | None = Field(default=None, max_length=1000)
     upcomingItemCount: StrictInt = Field(default=0, ge=0, le=1000)
-    recentJobs: list[RecentJobSummary] = Field(max_length=8)
+    recentJobs: list[RecentJobSummary] = Field(default_factory=list)
     operation: WorkspaceOperationContext | None = None
 
 

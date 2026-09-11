@@ -53,6 +53,30 @@ def test_work_placement_is_not_bypassed_by_explicit_source_syntax():
         assert deterministic_intent_classification(value) is None
 
 
+def test_operation_projection_is_strict_and_accepts_current_jobs_proposals_and_all_durable_states():
+    payload = IntentRoutingInput.model_validate({
+        "message": "status", "attachmentCount": 0,
+        "workspaceContext": context(operation={
+            "activeStrategy": {"thesis": "Evidence-led growth", "strategyId": "strategy-1", "revision": 2, "digest": "a" * 64},
+            "proposedChanges": [{"id": "content-1", "kind": "content", "status": "proposed", "changes": ["topic=launch", "angle=proof"], "evidenceRefs": ["source-1"]}, {"id": "plan-1", "kind": "planning", "status": "declined", "changes": ["{}"], "evidenceRefs": [], "decision": "keep_existing_execution"}],
+            "campaigns": [{"id": "campaign-1", "name": "Launch", "objective": "Earn trust"}],
+            "plans": [{"id": "plan-1", "revision": 2, "reason": "Current calendar"}],
+            "plannedItems": [{"id": "item-1", "planId": "plan-1", "campaignId": None, "campaignLabel": "Independent work", "name": "Founder note", "objective": "Explain the launch", "channel": "x", "scheduledFor": "2026-09-11T10:00:00Z", "strategyRef": {"thesis": "Evidence-led growth", "strategyId": "strategy-1", "revision": 2, "digest": "a" * 64}, "metricIds": ["engagement"], "sourceEvidenceRefs": ["segment-1"], "declaredDependencies": ["asset-1:v1"], "requiredAssets": ["asset-1"], "evidenceState": "source_backed", "approvalState": "pending", "lifecycleState": "requires_disposition", "unresolvedDependencies": ["proposal pending"]}],
+            "results": [{"id": "result-1", "metric": "engagement", "availability": "failed", "checkedAt": "2026-09-11T10:00:00Z"}, {"id": "result-2", "metric": "reach", "availability": "pending_window"}],
+            "currentJobs": [{"id": "job-1", "stage": "draft", "status": "running"}],
+        }),
+    })
+    assert payload.workspaceContext.operation is not None
+    assert payload.workspaceContext.operation.currentJobs[0].id == "job-1"
+    assert payload.workspaceContext.operation.plannedItems[0].lifecycleState == "requires_disposition"
+    assert payload.workspaceContext.operation.results[0].availability == "failed"
+
+    invalid = payload.model_dump(mode="json")
+    invalid["workspaceContext"]["operation"]["currentJobs"][0]["invented"] = "no"
+    with pytest.raises(ValidationError):
+        IntentRoutingInput.model_validate(invalid)
+
+
 def test_router_does_not_invent_default_outputs():
     value = IntentRoutingInput(message="Repurpose https://example.com", workspaceContext=context(), attachmentCount=0)
     assert deterministic_intent_classification(value) is None

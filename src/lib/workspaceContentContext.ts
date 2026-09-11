@@ -21,7 +21,7 @@ export interface WorkspaceOperationContext {
     approvalState: "pending" | "not_pending"; lifecycleState: "planned" | "running" | "awaiting_approval" | "completed" | "failed" | "cancelled" | "blocked" | "requires_disposition";
     unresolvedDependencies: string[];
   }>;
-  results: Array<{ id: string; metric: string; availability: "available" | "pending" | "pending_window" | "stale" | "revoked" | "unavailable"; checkedAt?: string }>;
+  results: Array<{ id: string; metric: string; availability: "available" | "pending" | "pending_window" | "stale" | "revoked" | "unavailable" | "failed"; checkedAt?: string }>;
   currentJobs: Array<{ id: string; stage: string; status: string; title?: string }>;
 }
 
@@ -75,7 +75,7 @@ export function projectWorkspaceContentContext(input: { goals: OperatorGoals; jo
     }),
     results: (input.results ?? []).map(result => ({
       id: result.id, metric: result.metric ?? "unavailable metric",
-      availability: result.availability === "available" || result.availability === "pending" || result.availability === "pending_window" || result.availability === "stale" || result.availability === "revoked" || result.availability === "unavailable" ? result.availability : "unavailable",
+      availability: result.availability === "available" || result.availability === "pending" || result.availability === "pending_window" || result.availability === "stale" || result.availability === "revoked" || result.availability === "unavailable" || result.availability === "failed" ? result.availability : "unavailable",
       ...(result.checkedAt ? { checkedAt: result.checkedAt } : {}),
     })),
     currentJobs: input.jobs.map((job) => ({ id: job.id, stage: job.stage, status: job.status, ...(job.sourceAnalysis?.summary ? { title: bounded(job.sourceAnalysis.summary, 2_000) } : {}) })),

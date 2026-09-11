@@ -44,4 +44,29 @@ describe("workspace content context", () => {
     expect(result.recentJobs[0].title).toHaveLength(2_000);
     expect(result.recentJobs[0].title?.endsWith("…")).toBe(true);
   });
+
+  it("projects current durable work with its strategy, evidence, approval, dependency and result states", () => {
+    const result = projectWorkspaceContentContext({
+      goals: { topics: [] }, items: [], jobs: [{
+        id: "job-approval", stage: "awaiting_approval", status: "waiting_for_approval",
+        strategyApprovalState: "pending", actions: [{ id: "publish-1", state: "planned", approvalState: "pending" }],
+      }] as unknown as Job[],
+      activeStrategy: { ref: { digest: "a".repeat(64) }, strategy: { thesis: "Grow with operator proof", channelRoles: [] } } as unknown as ApprovedStrategyRevision,
+      plans: [{ ref: { id: "plan-1", revision: 2 }, strategyRef: { digest: "a".repeat(64) }, reason: "Founder evidence campaign" }] as unknown as PlanRevision[],
+      campaigns: [{ ref: { id: "campaign-1", revision: 1 }, name: "Founder proof", objective: "Build trust" }],
+      plannedItems: [{
+        ref: { id: "item-1", revision: 1 }, planRef: { id: "plan-1", revision: 2 }, strategyRef: { digest: "a".repeat(64) },
+        campaignRef: null, name: "Independent founder note", channel: "x", scheduledFor: "2026-09-20T09:00:00Z",
+        evidence: { mode: "operator_context", contextDigest: "b".repeat(64) }, measurements: [{ definition: { id: "engagement" } }],
+        lifecycle: { status: "blocked", jobId: "job-approval", reason: "asset:demo-video" },
+      }] as never,
+      results: [{ id: "observation-1", availability: "unavailable", metric: "engagement", checkedAt: "2026-09-11T10:00:00Z" }],
+    } as never);
+
+    expect(result.operation?.activeStrategy?.thesis).toBe("Grow with operator proof");
+    expect(result.operation?.campaigns).toEqual([{ id: "campaign-1", name: "Founder proof", objective: "Build trust" }]);
+    expect(result.operation?.plannedItems[0]).toMatchObject({ campaignId: null, campaignLabel: "Independent work", metricIds: ["engagement"], evidenceState: "operator_context", approvalState: "pending", dependencyState: "blocked" });
+    expect(result.operation?.plannedItems[0].unresolvedDependencies).toEqual(["asset:demo-video"]);
+    expect(result.operation?.results).toEqual([{ id: "observation-1", metric: "engagement", availability: "unavailable", checkedAt: "2026-09-11T10:00:00Z" }]);
+  });
 });

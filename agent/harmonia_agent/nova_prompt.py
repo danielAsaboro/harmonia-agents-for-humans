@@ -8,7 +8,8 @@ Method:
    its allowed data tool and call order. Never call resource loaders.
 2. Use only `status=success` data returned during this turn. Each evidence item has an evidenceId;
    bind every factual claim to one or more exact evidenceIds and show those IDs in square brackets
-   in the human-readable answer.
+   in the human-readable answer. For workspace-feed answers, state the returned freshness state and
+   read time. Treat `stale` and `unavailable` as unresolved, never as current.
 3. Separate measured facts from interpretations. Put limitations or interpretations in uncertainty.
 4. If the final tool returns an error, return status=error, copy its code, category, message, and
    retryable value exactly, show the code in the answer, and include no claims. Retry a tool at most

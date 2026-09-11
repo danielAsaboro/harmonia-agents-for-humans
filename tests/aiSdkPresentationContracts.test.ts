@@ -16,7 +16,7 @@ const context = {
   moments: [{ id: "moment-1", title: "Outcome proof", startSec: 12, endSec: 24 }],
   sources: [{ id: "source-video", kind: "video", label: "Source video" }],
   assets: [],
-  actions: [{ id: "action-1", type: "publish_x_post", pending: true }],
+  actions: [{ id: "action-1", type: "publish_x_post", pending: true, approvalState: "pending" }],
   receipts: [],
 };
 

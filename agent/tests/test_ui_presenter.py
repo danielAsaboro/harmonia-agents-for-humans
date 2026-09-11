@@ -148,7 +148,7 @@ def test_context_bound_validator_rejects_invented_incomplete_and_authoritative_p
 
 def test_approval_component_requires_approval_slot_and_pending_exact_action() -> None:
     payload = context_fixture().model_dump(mode="json")
-    payload["actions"] = [{"id": "action-1", "type": "publish_x_post", "pending": False}]
+    payload["actions"] = [{"id": "action-1", "type": "publish_x_post", "pending": False, "approvalState": "approved"}]
     candidate = {
         "version": "harmonia.ui/v1", "surfaces": [{"slot": "canvas", "revision": 1,
         "rootId": "root", "nodes": [{"id": "root", "component": "ApprovalReview",

@@ -42,11 +42,13 @@ export function buildUiContext(input: BuildUiContextInput): UiContext {
       id: action.id,
       type: action.type,
       pending: action.approvalState === "pending" && action.state === "planned",
+      approvalState: action.approvalState,
     }))
     : (response.pendingActions ?? []).slice(0, 20).map((action) => ({
       id: action.id,
       type: action.type,
       pending: true,
+      approvalState: "pending" as const,
     }));
   const sources = job ? (job.normalizedSources ?? []).flatMap((source) => [
     { id: source.sourceId, kind: source.sourceKind, label: source.title.slice(0, 300) },

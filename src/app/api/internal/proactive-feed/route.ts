@@ -6,6 +6,7 @@ import {
   listReceipts,
 } from "@/lib/repository";
 import { internalTenantHandler } from "@/lib/internalAuth";
+import { loadWorkspaceContentContext } from "@/lib/workspaceContentContext";
 
 /**
  * One-stop data feed for the worker's proactive agent: everything its checks
@@ -14,11 +15,12 @@ import { internalTenantHandler } from "@/lib/internalAuth";
  */
 async function get(_req: Request) {
 
-  const [items, jobs, proposals, goals] = await Promise.all([
+  const [items, jobs, proposals, goals, workspace] = await Promise.all([
     listContentItems(),
     listJobs(),
     listProposals(50),
     getGoals(),
+    loadWorkspaceContentContext(),
   ]);
 
   const now = Date.now();
@@ -45,6 +47,8 @@ async function get(_req: Request) {
 
   return Response.json({
     now: new Date(now).toISOString(),
+    freshness: { readAt: new Date(now).toISOString(), state: "current" as const },
+    operation: workspace.operation,
     items: items.map((i) => ({
       id: i.id,
       text: i.text,

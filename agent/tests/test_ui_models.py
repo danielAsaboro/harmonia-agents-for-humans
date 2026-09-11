@@ -27,7 +27,7 @@ def context_payload() -> dict:
         "moments": [{"id": "moment-1", "title": "Outcome proof", "startSec": 12, "endSec": 24}],
         "sources": [{"id": "source-video", "kind": "video", "label": "Source video"}],
         "assets": [],
-        "actions": [{"id": "action-1", "type": "publish_x_post", "pending": True}],
+        "actions": [{"id": "action-1", "type": "publish_x_post", "pending": True, "approvalState": "pending"}],
         "receipts": [],
     }
 

@@ -22,6 +22,23 @@ export function calendarStatus(status: string): { tone: Tone; label: string } {
   return STATUS[status] ?? { tone: "neutral", label: status.replaceAll("_", " ") };
 }
 
+/** A read-only projection for durable planned work. It deliberately preserves null campaign membership. */
+export function plannedItemPresentation(item: {
+  campaignRef: { id: string } | null; strategyRef: { digest: string }; evidence: { mode: string };
+  measurements: Array<{ definition: { id: string } }>; dependencies: Array<{ id: string }>; requiredAssetIds: string[];
+  lifecycle: { status: string; reason?: string };
+}) {
+  return {
+    campaign: item.campaignRef?.id ?? "Independent work",
+    strategy: item.strategyRef.digest.slice(0, 12),
+    metrics: item.measurements.map(measurement => measurement.definition.id),
+    evidence: item.evidence.mode === "source_backed" ? "Pinned source evidence" : item.evidence.mode === "operator_context" ? "Operator context only" : "Evidence unavailable",
+    dependencies: [...item.dependencies.map(dependency => dependency.id), ...item.requiredAssetIds],
+    state: item.lifecycle.status,
+    ...(item.lifecycle.reason ? { unresolved: item.lifecycle.reason } : {}),
+  };
+}
+
 export function groupCalendarItems(items: CalendarItem[]): Map<string, CalendarItem[]> {
   const grouped = new Map<string, CalendarItem[]>();
   for (const item of items) {

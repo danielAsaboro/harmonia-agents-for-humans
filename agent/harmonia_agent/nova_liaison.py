@@ -109,6 +109,14 @@ def validate_liaison_answer(answer: LiaisonAnswer, trace: list[dict[str, Any]]) 
         if envelope.status == "success":
             evidence_ids.update(item.evidenceId for item in envelope.evidence)
 
+    # Workspace-status prose is only safe when its authorized read states when
+    # the record projection was assembled. Nova must expose stale/unavailable
+    # state instead of silently treating an old feed as current.
+    if any(item.get("name") == "get_operator_feed" for item in data_calls) and last_response.get("status") == "success":
+        freshness = (last_response.get("data") or {}).get("freshness")
+        if not isinstance(freshness, dict) or freshness.get("state") not in {"current", "stale", "unavailable"} or not isinstance(freshness.get("readAt"), str):
+            raise ValueError("Nova workspace feed requires explicit freshness")
+
     if _AUTHORITY.search(answer.answer):
         raise ValueError("Nova answer claims mutation authority")
     normalized_answer = answer.answer.casefold()

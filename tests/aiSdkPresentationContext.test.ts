@@ -38,7 +38,7 @@ describe("AI SDK presentation context", () => {
     });
 
     expect(context.drafts).toEqual([{ id: "draft-1", platform: "x_post", valid: true }]);
-    expect(context.actions).toEqual([{ id: "publish-1", type: "publish_x_post", pending: true }]);
+    expect(context.actions).toEqual([{ id: "publish-1", type: "publish_x_post", pending: true, approvalState: "pending" }]);
     expect(context.sources).toEqual(expect.arrayContaining([
       { id: "source-1", kind: "video", label: "Interview" },
       { id: "source-1:segment-1", kind: "segment", label: "time_range · segment-1" },

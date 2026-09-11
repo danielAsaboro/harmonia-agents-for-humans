@@ -84,6 +84,19 @@ def test_rejects_multiple_data_tool_choices_for_one_answer():
         validate_liaison_answer(LiaisonAnswer.model_validate(value), calls)
 
 
+def test_workspace_feed_answer_requires_explicit_freshness_from_the_authorized_read():
+    value = answer(); value["skillName"] = "signal-watch"
+    calls = [
+        _native_activation(),
+        {"sequence": 2, "name": "get_operator_feed", "args": {}, "response": envelope()},
+    ]
+    with pytest.raises(ValueError, match="freshness"):
+        validate_liaison_answer(LiaisonAnswer.model_validate(value), calls)
+
+    calls[1]["response"]["data"]["freshness"] = {"readAt": "2026-09-11T09:00:00Z", "state": "current"}
+    assert validate_liaison_answer(LiaisonAnswer.model_validate(value), calls).status == "success"
+
+
 def _native_activation():
     from types import SimpleNamespace
     from harmonia_agent.nova_liaison import reset_liaison_trace

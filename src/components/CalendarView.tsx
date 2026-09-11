@@ -12,7 +12,7 @@ import { DashboardPage } from "@/components/dashboard/DashboardPage";
 import { StatusBadge } from "@/components/dashboard/StatusBadge";
 import { AlertBanner, EmptyState, ErrorState, LoadingState } from "@/components/dashboard/SystemState";
 import { Tabs } from "@/components/dashboard/Tabs";
-import { calendarAnchor, calendarRequestAction, calendarStatus, groupCalendarItems } from "@/lib/dashboard/calendarPresentation";
+import { calendarAnchor, calendarRequestAction, calendarStatus, groupCalendarItems, plannedItemPresentation } from "@/lib/dashboard/calendarPresentation";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -139,12 +139,14 @@ export default function CalendarView() {
     <DashboardPage title="Content calendar" description="Plan, review, and verify every scheduled post without losing the approval boundary." eyebrow="Publishing schedule">
       {plannedItems.length > 0 && <section className="dash-panel" aria-label="Planned production">
         <h2>Planned production · {planningTimezone}</h2>
-        <ul>{plannedItems.map(item => <li key={`${item.ref.id}:${item.ref.revision}`}>
-          <strong>{item.name}</strong> · {new Date(item.scheduledFor).toLocaleString([], { timeZone: planningTimezone! })} · {item.channel} · {item.state.status.replaceAll("_", " ")}
-          <p>{item.campaignRef ? `Campaign ${item.campaignRef.id}` : "Independent work"} · Plan {item.planRef.id} · Revision {item.ref.revision}</p>
-          {item.state.reason && <p>{item.state.reason}</p>}
+        <ul>{plannedItems.map(item => { const presentation = plannedItemPresentation({ ...item, lifecycle: item.state }); return <li key={`${item.ref.id}:${item.ref.revision}`}>
+          <strong>{item.name}</strong> · {new Date(item.scheduledFor).toLocaleString([], { timeZone: planningTimezone! })} · {item.channel} · {presentation.state.replaceAll("_", " ")}
+          <p>{presentation.campaign} · Plan {item.planRef.id} · Revision {item.ref.revision} · Strategy {presentation.strategy}</p>
+          <p>Why: {item.objective} · Metric{presentation.metrics.length === 1 ? "" : "s"}: {presentation.metrics.join(", ") || "unavailable"} · Evidence: {presentation.evidence}</p>
+          {presentation.dependencies.length > 0 && <p>Dependencies: {presentation.dependencies.join(", ")}</p>}
+          {presentation.unresolved && <p>Unresolved: {presentation.unresolved}</p>}
           {item.state.jobId && <Link href={`/dashboard?job=${encodeURIComponent(item.state.jobId)}`}>Open execution</Link>}
-        </li>)}</ul>
+        </li>; })}</ul>
       </section>}
       <AlertBanner
         tone={googleCalendar?.connected ? "success" : "info"}

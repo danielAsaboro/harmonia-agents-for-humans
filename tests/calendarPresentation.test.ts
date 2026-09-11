@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarAnchor, calendarRequestAction, calendarStatus } from "@/lib/dashboard/calendarPresentation";
+import { calendarAnchor, calendarRequestAction, calendarStatus, plannedItemPresentation } from "@/lib/dashboard/calendarPresentation";
 import type { CalendarItem } from "@/app/api/calendar/route";
 
 function item(overrides: Partial<CalendarItem>): CalendarItem {
@@ -41,5 +41,15 @@ describe("calendar presentation", () => {
   it("routes expired sessions through login while retaining real request failures", () => {
     expect(calendarRequestAction(401)).toEqual({ kind: "reauthenticate", clearSession: true, href: "/login?returnTo=%2Fdashboard%2Fcalendar" });
     expect(calendarRequestAction(503)).toEqual({ kind: "error", message: "Calendar could not be loaded (HTTP 503)." });
+  });
+
+  it("makes independent planned work and its current evidence/dependency state explicit", () => {
+    expect(plannedItemPresentation({
+      name: "Founder note", campaignRef: null, planRef: { id: "plan-1" }, strategyRef: { digest: "a".repeat(64) },
+      evidence: { mode: "operator_context" }, measurements: [{ definition: { id: "engagement" } }],
+      dependencies: [{ id: "item-prerequisite" }], requiredAssetIds: ["asset-demo"], lifecycle: { status: "blocked", reason: "asset-demo unavailable" },
+    } as never)).toEqual({
+      campaign: "Independent work", strategy: "a".repeat(12), metrics: ["engagement"], evidence: "Operator context only", dependencies: ["item-prerequisite", "asset-demo"], state: "blocked", unresolved: "asset-demo unavailable",
+    });
   });
 });

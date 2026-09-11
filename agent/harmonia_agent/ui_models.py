@@ -69,6 +69,7 @@ class ActionSummary(StrictModel):
     id: str = Field(min_length=1, max_length=200)
     type: str = Field(min_length=1, max_length=100)
     pending: bool
+    approvalState: Literal["pending", "approved", "rejected", "not_required"]
 
 
 class ReceiptSummary(StrictModel):

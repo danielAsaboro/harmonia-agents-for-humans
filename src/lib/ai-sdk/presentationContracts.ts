@@ -44,6 +44,7 @@ const actionSummarySchema = z.object({
   id,
   type: z.string().min(1).max(100),
   pending: z.boolean(),
+  approvalState: z.enum(["pending", "approved", "rejected", "not_required"]),
 }).strict();
 
 const receiptSummarySchema = z.object({

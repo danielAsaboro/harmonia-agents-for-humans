@@ -12,8 +12,11 @@ import { submitIntakeTurn } from "@/lib/intake/repository";
 import { materializeIntake, addPlannedDeliverable } from "@/lib/planning/commands";
 import { claimNextPlannedItem, reconcilePlannedExecution } from "@/lib/planning/selection";
 import { pinMeasurement } from "@/lib/learning/contracts";
+import type { AuthorityRef } from "@/lib/campaigns/contracts";
+import { actionPayloadDigest } from "@/lib/idempotency";
 
 const tenant = (): TenantContext => ({ workspaceId: `learning-${randomUUID()}`, brandId: "a", principal: { kind: "cognito_user", subjectId: "operator", authenticationId: "auth", workspaceRole: "owner" } });
+const pieceFeedback = (ref: AuthorityRef, requestId: string, text: string) => ({ requestId, text, sourceIds: [], classification: "advisory" as const, target: { kind: "plan_item" as const, ref }, evidenceLinks: [] });
 afterEach(() => vi.unstubAllEnvs());
 async function setup() {
   await awsRepository().put(recordKey(`workspaces/${currentTenant().workspaceId}`), { id: currentTenant().workspaceId, budget: { estimatedUsd: "0.00", observedUsd: "0.00", reservedUsd: "0.00", limitUsd: "100.00", approvalThresholdUsd: "0.25" } });
@@ -33,18 +36,99 @@ async function completed() {
   return { ...base, claim, jobKey };
 }
 const manualDefinition = pinMeasurement({ id: "qualified", revision: 1, metricId: "business.qualified_replies", kind: "performance", unit: "count", comparator: "gte", target: 5, baseline: null, window: { anchor: "completion", startOffsetSeconds: 0, endOffsetSeconds: 0, collectionToleranceSeconds: 86400 }, collectionMethod: "operator" });
-async function publishedCase() {
+const publicationManualDefinition = pinMeasurement({ id: "publication-qualified", revision: 1, metricId: "business.qualified_replies", kind: "performance", unit: "count", comparator: "gte", target: 5, baseline: null, window: { anchor: "publication", startOffsetSeconds: 0, endOffsetSeconds: 0, collectionToleranceSeconds: 86400 }, collectionMethod: "operator" });
+async function publishedCase(postCount = 1, publicationOperator = false, platform: "x" | "linkedin" | "media" = "x") {
   vi.stubEnv("HARMONIA_X_METRICS_ENABLED", "true"); vi.stubEnv("X_METRICS_MAX_READ_COST_USD", "0.001000");
-  const base = await setup(), claim = (await claimNextPlannedItem(base.planRef.id))!;
+  const base = await setup();
+  if (publicationOperator) {
+    const { configurePlannedMeasurement } = await import("@/lib/planning/commands");
+    await configurePlannedMeasurement({ itemRef: base.itemRefs[0], expectedPlanRef: base.planRef, strategyRef: base.strategyRef, measurement: publicationManualDefinition.definition, requestId: "publication-operator" });
+  }
+  const claim = (await claimNextPlannedItem(base.planRef.id))!;
   const key = recordKey(`workspaces/${currentTenant().workspaceId}/jobs/${claim.jobId}`);
-  await awsRepository().patch(key, { stage: "complete", status: "complete", terminalOutcome: "succeeded", updatedAt: "2026-09-01T00:00:00Z", actions: [{ id: "action", type: "publish_x_post", state: "executed", payload: { text: "Authorized post" } }], verifications: [{ id: "verify", actionId: "action", receiptId: "receipt", target: "x:42", verified: true, method: "official_api_readback", checkedAt: "2026-09-01T00:00:00Z", evidence: { url: "https://x.com/i/web/status/42", digest: "a".repeat(64) } }] });
-  await awsRepository().put(recordKey(`${key.path}/receipts/receipt`), { id: "receipt", jobId: claim.jobId, actionType: "publish_x_post", actionId: "action", outcome: "applied", performedAt: "2026-09-01T00:00:00Z" });
+  const payload = { text: "Authorized post" };
+  const action = { id: "action", jobId: claim.jobId, type: platform === "x" ? "publish_x_post" as const : platform === "linkedin" ? "publish_linkedin_post" as const : "generate_image" as const, title: "Publish", description: "Publish approved post", risk: "high" as const, requiresApproval: true, state: "executed" as const, approvalState: "approved" as const, payload };
+  await awsRepository().patch(key, { stage: "complete", status: "complete", terminalOutcome: "succeeded", updatedAt: "2026-09-01T00:00:00Z", actions: [action], verifications: [{ id: "verify", actionId: "action", receiptId: "receipt", operationId: "op", traceId: "trace", target: platform === "x" ? "x:42" : platform === "linkedin" ? "linkedin:urn:li:share:42" : "artifact:image-42", verified: true, method: "official_api_readback", checkedAt: "2026-09-01T00:00:00Z", evidence: { url: "https://x.com/i/web/status/42", digest: "a".repeat(64) } }] });
+  await awsRepository().put(recordKey(`${key.path}/approval_decisions/action`), { id: "action", jobId: claim.jobId, actionId: "action", decision: "approved", payloadDigest: actionPayloadDigest(action), actorType: "cognito_operator", actorSubjectId: "operator", authenticationId: "auth", channel: "dashboard", operationId: "approval", traceId: "trace", decidedAt: "2026-09-01T00:00:00Z" });
+  await awsRepository().put(recordKey(`${key.path}/receipts/receipt`), { id: "receipt", jobId: claim.jobId, actionType: action.type, actionId: "action", outcome: "applied", performedAt: "2026-09-01T00:00:00Z" });
+  if (postCount === 2) {
+    const second = { ...action, id: "action-2", payload: { text: "Second authorized post" } };
+    await awsRepository().patch(key, { actions: [action, second], verifications: [{ id: "verify", actionId: "action", receiptId: "receipt", operationId: "op", traceId: "trace", target: "x:42", verified: true, method: "official_api_readback", checkedAt: "2026-09-01T00:00:00Z", evidence: { url: "https://x.com/i/web/status/42", digest: "a".repeat(64) } }, { id: "verify-2", actionId: "action-2", receiptId: "receipt-2", operationId: "op-2", traceId: "trace-2", target: "x:43", verified: true, method: "official_api_readback", checkedAt: "2026-09-01T00:01:00Z", evidence: { url: "https://x.com/i/web/status/43", digest: "b".repeat(64) } }] });
+    await awsRepository().put(recordKey(`${key.path}/approval_decisions/action-2`), { id: "action-2", jobId: claim.jobId, actionId: "action-2", decision: "approved", payloadDigest: actionPayloadDigest(second), actorType: "cognito_operator", actorSubjectId: "operator", authenticationId: "auth", channel: "dashboard", operationId: "approval-2", traceId: "trace-2", decidedAt: "2026-09-01T00:00:30Z" });
+    await awsRepository().put(recordKey(`${key.path}/receipts/receipt-2`), { id: "receipt-2", jobId: claim.jobId, actionType: "publish_x_post", actionId: "action-2", outcome: "applied", performedAt: "2026-09-01T00:01:00Z" });
+  }
   await reconcilePlannedExecution(claim.jobId);
-  const api = await import("@/lib/learning/repository"); const collection = (await api.scheduleCompletedJob(claim.jobId)).find(c => c.measurement.definition.collectionMethod === "official_x")!;
-  return { ...base, key, claim, api, collection };
+  const api = await import("@/lib/learning/repository"); const collections = await api.scheduleCompletedJob(claim.jobId), collection = collections.find(c => c.measurement.definition.collectionMethod === "official_x")!;
+  return { ...base, key, claim, api, collection, collections };
 }
 
 describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("durable learning", () => {
+  it("binds approved and independently verified X deliverables to immutable learning records", async () => runWithTenant(tenant(), async () => {
+    const { api, claim } = await publishedCase();
+    expect(await (await import("@/lib/repository")).listApprovalDecisions(claim.jobId)).toHaveLength(1);
+    expect((await awsRepository().read(api.learningKey("deliverable_learning_indexes", claim.jobId))).present).toBe(true);
+    const allRecords = await api.listDeliverableLearningRecords();
+    const records = allRecords.filter(record => record.jobId === claim.jobId);
+    expect(records).toHaveLength(2);
+    expect(records.map(record => record.outputKind).sort()).toEqual(["approved_deliverable", "verified_publish"]);
+    expect(records.find(record => record.outputKind === "verified_publish")).toMatchObject({ exactOutput: { text: "Authorized post" }, channel: "x", itemType: "publish_x_post", approvalState: "approved", providerReceipt: { id: "receipt", outcome: "applied" }, verificationReceipt: { id: "verify", method: "official_api_readback" } });
+    expect(await api.listDeliverableLearningRecords()).toEqual(await api.listDeliverableLearningRecords());
+  }));
+  it("creates one pinned official-metric collection per verified X post", async () => runWithTenant(tenant(), async () => {
+    const { api, claim, collections } = await publishedCase(2), metrics = collections.filter(collection => collection.measurement.definition.collectionMethod === "official_x");
+    expect(metrics.map(collection => collection.postId).sort()).toEqual(["42", "43"]);
+    for (const [index, collection] of metrics.entries()) {
+      const token = String(index + 1).repeat(64);
+      await api.claimObservation(collection.id, token, collection.dueAt); await api.authorizeObservationDispatch(collection.id, token, collection.dueAt);
+      await api.completeProviderObservation({ collectionId: collection.id, token, checkedAt: collection.dueAt, metrics: { likes: index + 2, replies: 0, reposts: 0, quotes: 0 }, outcome: "available" }, collection.dueAt);
+    }
+    const evaluation = (await api.listLearningContext()).evaluations.find(candidate => candidate.observationIds.length === 2 && candidate.sampleCount === 2)!;
+    expect(evaluation).toMatchObject({ sampleCount: 2, cohortCount: 2, channels: ["x"], itemTypes: ["publish_x_post"] });
+    expect(await api.recoverLearning()).toEqual({ failures: [] });
+    expect((await api.listDeliverableLearningRecords()).filter(record => record.jobId === claim.jobId && record.outputKind === "verified_publish")).toHaveLength(2);
+  }));
+  it("collects publication-anchored operator metrics against the exact verified post", async () => runWithTenant(tenant(), async () => {
+    const { api, claim, collections } = await publishedCase(1, true, "linkedin");
+    const collection = collections.find(candidate => candidate.measurement.definition.id === "publication-qualified")!;
+    expect(collection).toMatchObject({ actionId: "action", postId: "urn:li:share:42", providerReceiptId: "receipt", verificationReceiptId: "verify" });
+    expect(await api.readObservation(collection.observationId)).toMatchObject({ availability: "pending_window", actionId: "action", postId: "urn:li:share:42" });
+    const observation = await api.recordOperatorObservation({ collectionId: collection.id, requestId: "publication-observed", value: 8, evidenceText: "Eight qualified replies were attributed to this exact post." }, collection.dueAt);
+    expect(observation).toMatchObject({ availability: "available", provider: "operator", actor: "operator", value: 8, actionId: "action", postId: "urn:li:share:42", providerReceiptId: "receipt", verificationReceiptId: "verify" });
+    expect((await api.listLearningContext()).evaluations).toEqual(expect.arrayContaining([expect.objectContaining({ observationIds: [observation.id], channels: ["linkedin"], itemTypes: ["publish_linkedin_post"] })]));
+    expect(await api.recoverLearning()).toEqual({ failures: [] });
+    expect((await api.listDeliverableLearningRecords()).filter(record => record.jobId === claim.jobId && record.outputKind === "verified_publish")).toHaveLength(1);
+  }));
+  it("records verified generated media as an artifact rather than a publication", async () => runWithTenant(tenant(), async () => {
+    const { api, claim } = await publishedCase(1, false, "media");
+    const records = (await api.listDeliverableLearningRecords()).filter(record => record.jobId === claim.jobId);
+    expect(records.map(record => record.outputKind).sort()).toEqual(["approved_deliverable", "verified_artifact"]);
+    expect(records.find(record => record.outputKind === "verified_artifact")).toMatchObject({ channel: "artifact", itemType: "generate_image", providerReceipt: { id: "receipt" }, verificationReceipt: { id: "verify" } });
+    expect(records.some(record => record.outputKind === "verified_publish")).toBe(false);
+  }));
+  it("erases copied exact deliverable content with the production job-erasure path", async () => runWithTenant(tenant(), async () => {
+    const { api, claim } = await publishedCase();
+    expect((await api.listDeliverableLearningRecords()).some(record => record.jobId === claim.jobId)).toBe(true);
+    const { eraseJobData } = await import("@/lib/repository");
+    await eraseJobData({ workspaceId: currentTenant().workspaceId, brandId: currentTenant().brandId, jobId: claim.jobId } as Parameters<typeof eraseJobData>[0], "operator");
+    expect((await api.listDeliverableLearningRecords()).some(record => record.jobId === claim.jobId)).toBe(false);
+  }));
+  it("does not recreate exact deliverable content while deletion is interrupted", async () => runWithTenant(tenant(), async () => {
+    const { api, claim } = await publishedCase();
+    await awsRepository().put(recordKey(`workspaces/${currentTenant().workspaceId}/deletion_tombstones/${claim.jobId}`), { workspaceId: currentTenant().workspaceId, brandId: currentTenant().brandId, jobId: claim.jobId, state: "erasing" });
+    await api.eraseDeliverableLearningRecords(claim.jobId);
+    await api.recoverLearning();
+    expect((await api.listDeliverableLearningRecords()).some(record => record.jobId === claim.jobId)).toBe(false);
+  }));
+  it("persists immutable advisory feedback against one exact planned item", async () => runWithTenant(tenant(), async () => {
+    const base = await setup(), proposals = await import("@/lib/learning/proposals"), commands = await import("@/lib/learning/commands");
+    const item = await readPlannedItem(base.itemRefs[0]);
+    await expect(proposals.recordOperatorFeedback({ requestId: "untyped-feedback", text: "This has no exact piece target.", sourceIds: [] } as never)).rejects.toThrow(/target|feedback/i);
+    const input = { requestId: "piece-feedback", text: "Keep this post focused on the founder workflow.", sourceIds: [], classification: "advisory" as const, target: { kind: "plan_item" as const, ref: item.ref }, evidenceLinks: ["https://example.com/operator-note/1"] };
+    const feedback = await commands.handleLearningCommand({ action: "feedback", ...input });
+    expect(feedback).toMatchObject({ actor: "operator", classification: "advisory", target: input.target, evidenceLinks: input.evidenceLinks });
+    expect(await proposals.recordOperatorFeedback(input)).toEqual(feedback);
+    await expect(proposals.recordOperatorFeedback({ ...input, text: "Changed feedback" })).rejects.toThrow("identity reused");
+  }));
   it.each(["confirmed_not_dispatched", "confirmed_dispatched_with_estimated_cost", "confirmed_provider_result", "still_unknown"])("reconciles unknown reads explicitly: %s", async outcome => runWithTenant(tenant(), async () => {
     const { api, collection, key } = await publishedCase(), token = "a".repeat(64);
     await api.claimObservation(collection.id, token, "2026-09-02T00:00:00Z");
@@ -66,7 +150,7 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("durable learning", () => {
     expect(await reconciliation.reconcileObservation(input)).toEqual(receipt);
     await expect(reconciliation.reconcileObservation({ ...input, evidence: { ...input.evidence, detail: "Changed evidence" } })).rejects.toThrow("identity reused");
     expect((await awsRepository().read(receiptKey)).value).toEqual(original);
-    expect(await api.completeProviderObservation(originalInput)).toMatchObject({ availability: "failed" });
+    expect(await api.completeProviderObservation(originalInput)).toMatchObject({ availability: "reconciliation_required" });
     expect(await api.claimObservation(collection.id, "b".repeat(64), "2026-09-02T00:03:00Z")).toBeNull();
     const reserved = outcome === "still_unknown" ? "0.001" : "0.00";
     for (const row of [await awsRepository().read(key), await awsRepository().read(recordKey(`workspaces/${scope.workspaceId}`))]) expect(row.value?.budget).toMatchObject({ reservedUsd: reserved, observedUsd: "0.00" });
@@ -100,8 +184,8 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("durable learning", () => {
     await expect(r.reconcileObservation(input)).rejects.toThrow(/resolved|revoked/);
   }));
   it("does not grant rejected or advisory proposals performance authority", async () => runWithTenant(tenant(), async () => {
-    const { strategyRef } = await setup(), p = await import("@/lib/learning/proposals"), api = await import("@/lib/learning/repository");
-    const feedback = await p.recordOperatorFeedback({ requestId: "advice", text: "Try a clearer invitation", sourceIds: [] });
+    const { strategyRef, itemRefs } = await setup(), p = await import("@/lib/learning/proposals"), api = await import("@/lib/learning/repository");
+    const feedback = await p.recordOperatorFeedback(pieceFeedback(itemRefs[0], "advice", "Try a clearer invitation"));
     const proposal = await p.createStrategyChangeProposal({ requestId: "advice", baseStrategyRef: strategyRef, changes: [{ type: "assumption", value: "Test a clearer invitation" }], rationale: "Operator suggestion", evidenceRefs: [{ id: feedback.id, digest: feedback.digest }], contradictionRefs: [] });
     const insights = await api.learningInsights();
     expect(insights.learningContext.performanceEvidenceRefs).toEqual([]);
@@ -127,7 +211,7 @@ except Exception as error:
 else: raise AssertionError('advisory proposal accepted as performance')
 print('ok')`;
     expect(execFileSync(resolve("agent/.venv/bin/python"), ["-c", script], { cwd: resolve("agent"), input: JSON.stringify(insights.learningContext), encoding: "utf8" }).trim()).toBe("ok");
-    const rejected = await p.decideStrategyChange({ id: proposal.id, revision: proposal.revision, digest: proposal.digest, decision: "rejected", feedback: "Not approved" });
+    const rejected = await p.decideStrategyChange({ id: proposal.id, revision: proposal.revision, digest: proposal.digest, decision: "rejected", rationale: "The proposal is not approved for future strategy.", feedback: "Not approved" });
     expect(execFileSync(resolve("agent/.venv/bin/python"), ["-c", script], { cwd: resolve("agent"), input: JSON.stringify({ ...insights.learningContext, proposals: [rejected], advisoryEvidenceRefs: [] }), encoding: "utf8" }).trim()).toBe("ok");
     expect((await api.learningInsights()).learningContext.advisoryEvidenceRefs).toEqual([]);
     await expect(p.validateLearningReference(proposal.id, proposal.digest)).rejects.toThrow(/rejected|ineligible/);
@@ -145,7 +229,7 @@ print('ok')`;
     const p = await import("@/lib/learning/proposals"), before = await api.listLearningContext(), evaluation = before.evaluations.find(e => e.missingCounts.pending_window === 1)!;
     expect(evaluation.cohortMembers).toContainEqual(expect.objectContaining({ id: second.observationId, availability: "pending_window", window: second.window }));
     const proposal = before.proposals.find(p => p.evidenceRefs.some(r => r.id === evaluation.id))!;
-    const decision = await p.decideStrategyChange({ id: proposal.id, revision: proposal.revision, digest: proposal.digest, decision: "approved" });
+    const decision = await p.decideStrategyChange({ id: proposal.id, revision: proposal.revision, digest: proposal.digest, decision: "approved", rationale: "The measured cohort warrants this bounded assumption." });
     await collect(second.id);
     await expect(readStrategyRevision(decision.approvedStrategyRef!)).resolves.toBeDefined();
     expect((await p.readLearningEvidence(evaluation.id)).evaluation).toEqual(evaluation);
@@ -193,7 +277,7 @@ print('ok')`;
     expect(protectedResult.outcome).toBe("proposal"); expect(protectedResult.proposalId).toBeTruthy();
   }));
   it("serializes exact evaluation citations through Nimi and Ryan validators and strategy authority", async () => runWithTenant(tenant(), async () => {
-    const { api, collection, strategyRef, key } = await publishedCase();
+    const { api, collection, strategyRef, key, itemRefs } = await publishedCase();
     await api.claimObservation(collection.id, "a".repeat(64), "2026-09-02T00:00:00Z");
     await api.authorizeObservationDispatch(collection.id, "a".repeat(64), "2026-09-02T00:00:00Z");
     await api.completeProviderObservation({ collectionId: collection.id, token: "a".repeat(64), checkedAt: "2026-09-02T00:00:10Z", metrics: { likes: 4, replies: 1, reposts: 0, quotes: 0 }, outcome: "available" }, "2026-09-02T00:00:10Z");
@@ -219,7 +303,7 @@ print(json.dumps({'refs': learning_evidence_refs(c), 'analysis': a}))`;
     const jobs = await import("@/lib/repository");
     await jobs.saveAnalysis(collection.jobId, wire.analysis, strategyDigest(wire.analysis), null, [], null, refs);
     expect((await awsRepository().read(key)).value?.analysisLearningEvidence).toEqual(refs);
-    const feedback = await (await import("@/lib/learning/proposals")).recordOperatorFeedback({ requestId: "analysis-advice", text: "Try another post", sourceIds: [] });
+    const feedback = await (await import("@/lib/learning/proposals")).recordOperatorFeedback(pieceFeedback(itemRefs[0], "analysis-advice", "Try another post"));
     await expect(jobs.saveAnalysis(collection.jobId, { ...wire.analysis, angles: [{ ...wire.analysis.angles[0], evidenceRefs: [feedback.id] }] }, "a".repeat(64), null, [], null, [{ id: feedback.id, digest: feedback.digest }])).rejects.toThrow("unknown authoritative");
     await expect(jobs.saveAnalysis(collection.jobId, { ...wire.analysis, angles: [{ ...wire.analysis.angles[0], evidenceRefs: ["evaluation-unknown"] }] }, "a".repeat(64), null, [], null, refs)).rejects.toThrow("unknown authoritative");
     const base = await readStrategyRevision(strategyRef), strategy = structuredClone(base.strategy); strategy.objectives[0].evidenceRefs = [context.evaluations[0].id];
@@ -266,7 +350,8 @@ print(json.dumps({'refs': learning_evidence_refs(c), 'analysis': a}))`;
     expect((await readItemState(missing.itemRef)).status).toBe("completed");
     await api.claimObservation(collection.id, "a".repeat(64), "2026-09-02T00:00:00Z"); await api.authorizeObservationDispatch(collection.id, "a".repeat(64), "2026-09-02T00:00:00Z");
     await api.completeProviderObservation({ collectionId: collection.id, token: "a".repeat(64), checkedAt: "2026-09-02T00:00:10Z", metrics: { likes: 4, replies: 1, reposts: 0, quotes: 0 }, outcome: "available" }, "2026-09-02T00:00:10Z");
-    const evaluation = (await api.listLearningContext()).evaluations[0]; expect(evaluation).toMatchObject({ cohortCount: 2, sampleCount: 1, value: 4, missingCounts: { unavailable: 1 } }); expect(evaluation.observationIds).toHaveLength(2);
+    const evaluations = (await api.listLearningContext()).evaluations; expect(evaluations).toContainEqual(expect.objectContaining({ cohortCount: 1, sampleCount: 1, value: 4 }));
+    expect(evaluations.every(evaluation => evaluation.channels.length === 1 && evaluation.itemTypes.length === 1)).toBe(true);
   }));
   it("keeps unmeasured evaluations visible without granting inference citation authority", async () => runWithTenant(tenant(), async () => {
     await completed(); const api = await import("@/lib/learning/repository"), p = await import("@/lib/learning/proposals");
@@ -308,10 +393,10 @@ print(json.dumps({'refs': learning_evidence_refs(c), 'analysis': a}))`;
   }));
   it("recomputes the reviewable change digest before a strategy decision", async () => runWithTenant(tenant(), async () => {
     const base = await setup(), p = await import("@/lib/learning/proposals");
-    const evidence = await p.recordOperatorFeedback({ requestId: "digest", text: "Keep the CTA specific", sourceIds: [] });
+    const evidence = await p.recordOperatorFeedback(pieceFeedback(base.itemRefs[0], "digest", "Keep the CTA specific"));
     const proposal = await p.createStrategyChangeProposal({ requestId: "digest", baseStrategyRef: base.strategyRef, changes: [{ type: "cta_guidance", value: ["Discuss the workflow"] }], rationale: "Operator feedback", evidenceRefs: [{ id: evidence.id, digest: evidence.digest }], contradictionRefs: [] });
     await awsRepository().patch(recordKey(`${campaignRoot()}/strategy_change_proposals/${proposal.id}`), { changes: [{ type: "cta_guidance", value: ["Unreviewed changed CTA"] }] });
-    await expect(p.decideStrategyChange({ id: proposal.id, revision: 1, digest: proposal.digest, decision: "approved" })).rejects.toThrow("digest");
+    await expect(p.decideStrategyChange({ id: proposal.id, revision: 1, digest: proposal.digest, decision: "approved", rationale: "The reviewed CTA is specific." })).rejects.toThrow("digest");
     expect(await readActiveStrategyRef()).toEqual(base.strategyRef);
   }));
   it("fences the shared workspace budget before an X read", async () => runWithTenant(tenant(), async () => {
@@ -337,7 +422,7 @@ print(json.dumps({'refs': learning_evidence_refs(c), 'analysis': a}))`;
     await api.authorizeObservationDispatch(collection.id, "a".repeat(64), "2026-09-02T00:00:00Z");
     const input = { collectionId: collection.id, token: "a".repeat(64), checkedAt: "2026-09-02T00:00:10Z", metrics: null, outcome, reason: "Provider could not return metrics" };
     const observation = await api.completeProviderObservation(input, "2026-09-02T00:00:10Z");
-    expect(observation.value).toBeNull(); expect(observation.availability).toBe(outcome === "unknown" ? "failed" : outcome);
+    expect(observation.value).toBeNull(); expect(observation.availability).toBe(outcome === "unknown" ? "reconciliation_required" : outcome);
     expect(await api.completeProviderObservation(input, "2026-09-02T00:00:11Z")).toEqual(observation);
     expect(await api.claimObservation(collection.id, "b".repeat(64), "2026-09-02T00:01:10Z")).toBeNull();
     expect((await api.listLearningContext()).evaluations).toEqual([]);
@@ -351,7 +436,7 @@ print(json.dumps({'refs': learning_evidence_refs(c), 'analysis': a}))`;
     expect(await api.claimObservation(collection.id, "b".repeat(64), "2026-09-02T00:01:01Z")).toBeNull();
     const current = await awsRepository().read(api.learningKey("observation_outbox", collection.id));
     expect(current.value).toMatchObject({ state: "reconciliation_required", attempts: 1 });
-    expect(await api.readObservation(String(current.value?.observationId))).toMatchObject({ availability: "failed", value: null });
+    expect(await api.readObservation(String(current.value?.observationId))).toMatchObject({ availability: "reconciliation_required", value: null });
   }));
   it("requires explicit X cost configuration before a scheduled read", async () => runWithTenant(tenant(), async () => {
     const { api, collection } = await publishedCase(); vi.stubEnv("HARMONIA_X_METRICS_ENABLED", "false");
@@ -368,14 +453,14 @@ print(json.dumps({'refs': learning_evidence_refs(c), 'analysis': a}))`;
     const pending = await p.createStrategyChangeProposal(input);
     const { revokeSourceKnowledge } = await import("@/lib/sourceKnowledgeErasure"); await revokeSourceKnowledge("discovered");
     const saved = await awsRepository().read(recordKey(`${campaignRoot()}/strategy_change_proposals/${pending.id}`)); expect(saved.value?.evidenceStatus).toBe("revoked");
-    await expect(p.decideStrategyChange({ id: pending.id, revision: 1, digest: pending.digest, decision: "approved" })).rejects.toThrow(/revoked|unavailable/);
+    await expect(p.decideStrategyChange({ id: pending.id, revision: 1, digest: pending.digest, decision: "approved", rationale: "The source discovery would otherwise support this review." })).rejects.toThrow(/revoked|unavailable/);
     expect(await readActiveStrategyRef()).toEqual(base.strategyRef);
-    const feedback = await p.recordOperatorFeedback({ requestId: "fresh", text: "Use a gentler CTA", sourceIds: [] });
+    const feedback = await p.recordOperatorFeedback(pieceFeedback(base.itemRefs[0], "fresh", "Use a gentler CTA"));
     const a = await p.createStrategyChangeProposal({ ...input, requestId: "fresh-a", evidenceRefs: [{ id: feedback.id, digest: feedback.digest }] });
     const b = await p.createStrategyChangeProposal({ ...input, requestId: "fresh-b", evidenceRefs: [{ id: feedback.id, digest: feedback.digest }] });
-    await p.decideStrategyChange({ id: a.id, revision: 1, digest: a.digest, decision: "approved" });
-    await expect(p.decideStrategyChange({ id: b.id, revision: 1, digest: b.digest, decision: "approved" })).rejects.toThrow("stale");
-    const further = await p.recordOperatorFeedback({ requestId: "further", text: "A new observation", sourceIds: [] });
+    await p.decideStrategyChange({ id: a.id, revision: 1, digest: a.digest, decision: "approved", rationale: "The gentler CTA is suitable for future work." });
+    await expect(p.decideStrategyChange({ id: b.id, revision: 1, digest: b.digest, decision: "approved", rationale: "This concurrent proposal is intentionally stale." })).rejects.toThrow("stale");
+    const further = await p.recordOperatorFeedback(pieceFeedback(base.itemRefs[0], "further", "A new observation"));
     const dependent = await p.createStrategyChangeProposal({ ...input, requestId: "dependent", baseStrategyRef: (await readActiveStrategyRef())!, evidenceRefs: [{ id: further.id, digest: further.digest }] });
     expect((await p.listStrategyChangeProposals()).find(x => x.id === b.id)?.status).toBe("superseded");
     await p.revokeLearningEvidence(feedback.id, "Operator withdrew evidence");
@@ -451,11 +536,13 @@ print(json.dumps({'refs': learning_evidence_refs(c), 'analysis': a}))`;
     const context = await api!.listLearningContext(); expect(context.evaluations[0]).toMatchObject({ sampleCount: 1, causalClaim: false, confidence: "low" });
     const pending = (await proposals!.listStrategyChangeProposals())[0]; expect(pending).toMatchObject({ status: "pending", evidenceStatus: "valid", baseStrategyRef: base.strategyRef });
     expect(await readActiveStrategyRef()).toEqual(base.strategyRef);
-    const rejected = await proposals!.decideStrategyChange({ id: pending.id, revision: pending.revision, digest: pending.digest, decision: "rejected", feedback: "Need a larger sample" }); expect(rejected.status).toBe("rejected"); expect(await readActiveStrategyRef()).toEqual(base.strategyRef);
-    const feedback = await proposals!.recordOperatorFeedback({ requestId: "feedback", text: "Use an invitation CTA", sourceIds: [] });
+    await expect(proposals!.decideStrategyChange({ id: pending.id, revision: pending.revision, digest: pending.digest, decision: "rejected", feedback: "Need a larger sample" } as never)).rejects.toThrow(/rationale/i);
+    const rejected = await proposals!.decideStrategyChange({ id: pending.id, revision: pending.revision, digest: pending.digest, decision: "rejected", rationale: "The sample is too small.", feedback: "Need a larger sample" }); expect(rejected.status).toBe("rejected"); expect(await readActiveStrategyRef()).toEqual(base.strategyRef);
+    const feedback = await proposals!.recordOperatorFeedback(pieceFeedback(base.itemRefs[0], "feedback", "Use an invitation CTA"));
     const next = await proposals!.createStrategyChangeProposal({ requestId: "cta", baseStrategyRef: base.strategyRef, changes: [{ type: "cta_guidance", value: ["Invite founders to discuss their workflow"] }], rationale: "Operator feedback", evidenceRefs: [{ id: feedback.id, digest: feedback.digest }], contradictionRefs: [] });
-    const approved = await proposals!.decideStrategyChange({ id: next.id, revision: next.revision, digest: next.digest, decision: "approved" });
+    const approved = await proposals!.decideStrategyChange({ id: next.id, revision: next.revision, digest: next.digest, decision: "approved", rationale: "This operational guidance is bounded and useful." });
     const active = await readActiveStrategyRef(); expect(active?.revision).toBe(base.strategyRef.revision + 1); expect(active?.digest).toBe(next.proposedStrategyDigest); expect((await readStrategyRevision(active!)).strategy.ctaGuidance).toEqual(["Invite founders to discuss their workflow"]); expect(approved.approvedStrategyRef).toEqual(active);
     expect((await awsRepository().query(partition(`${campaignRoot()}/performance_observations`))).rows.length).toBeGreaterThan(1);
+    expect(await proposals!.listStrategyChangeDecisions()).toEqual(expect.arrayContaining([expect.objectContaining({ proposalId: pending.id, decision: "rejected", rationale: "The sample is too small.", resultingStrategyRef: null }), expect.objectContaining({ proposalId: next.id, decision: "approved", resultingStrategyRef: active })]));
   }));
 });

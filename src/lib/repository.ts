@@ -1236,8 +1236,9 @@ export async function eraseJobData(plan: DeletionPlan, actorSubjectId: string): 
     ...deletionTombstone(plan, actorSubjectId),
     state: "erasing",
   });
-  const { revokeLearningObservations } = await import("./learning/repository");
+  const { eraseDeliverableLearningRecords, revokeLearningObservations } = await import("./learning/repository");
   await revokeLearningObservations({ jobId: plan.jobId }, "Job evidence erased");
+  await eraseDeliverableLearningRecords(plan.jobId);
 
   const assets = await listAssets(plan.jobId);
   for (const asset of assets) await deleteArtifactUri(asset.storageUri);
@@ -2158,7 +2159,7 @@ export async function recordApproval(
   expectedPayloadDigest: string,
   actor: ApprovalActor,
 ): Promise<PlannedAction> {
-  return db().atomic(async (tx) => {
+  const action = await db().atomic(async (tx) => {
     const ref = jobRef(jobId);
     const snap = await tx.read(ref);
     const job = requireJobDoc(snap);
@@ -2193,6 +2194,11 @@ export async function recordApproval(
     });
     return action;
   });
+  if (decision === "approved") {
+    const { ensureDeliverableLearningRecords } = await import("./learning/repository");
+    await ensureDeliverableLearningRecords(jobId);
+  }
+  return action;
 }
 
 export async function listApprovalDecisions(jobId: string): Promise<Array<Omit<ApprovalDecision, "authenticationId">>> {

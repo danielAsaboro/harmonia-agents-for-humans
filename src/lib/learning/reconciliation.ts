@@ -45,7 +45,7 @@ export async function reconcileObservation(raw: unknown, now = new Date().toISOS
     const originalId = `${c.id}:${input.token}`, original = await readRequired<{ outcome: string; token: string; collectionId: string; observationId: string; observationDigest: string; dispatchDigest: string; collectionAuthorityDigest: string }>(learningKey("observation_collection_receipts", originalId), tx);
     if (strategyDigest(original) !== input.originalReceiptDigest || original.outcome !== "unknown" || original.collectionId !== c.id || original.token !== c.token || original.dispatchDigest !== input.dispatchDigest || original.collectionAuthorityDigest !== collectionAuthorityDigest(c)) throw new Error("original unknown receipt binding mismatch");
     const originalObservation = await readObservation(original.observationId, tx);
-    if (originalObservation.digest !== original.observationDigest || originalObservation.collectionId !== c.id || originalObservation.availability !== "failed") throw new Error("original unknown observation mismatch");
+    if (originalObservation.digest !== original.observationDigest || originalObservation.collectionId !== c.id || originalObservation.availability !== "reconciliation_required") throw new Error("original unknown observation mismatch");
     await validBinding(c, tx);
     if (!c.costAuthorization) throw new Error("missing original cost reservation authority");
     const reservation = await readRequired<{ state: string; jobId: string; collectionId: string; maximumUsd: string }>(learningKey("observation_cost_reservations", c.costAuthorization.reservationId), tx);

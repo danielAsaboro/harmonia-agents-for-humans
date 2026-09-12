@@ -9,11 +9,12 @@ export function evaluateObservations(observations: PerformanceObservation[]): Ev
     if (!pinnedMeasurementSchema.safeParse(o.measurement).success) throw new Error("incompatible measurement definition digest");
     if (o.kind === "performance" && Date.parse(o.window.endAt) - Date.parse(o.window.startAt) !== o.measurement.definition.window.endOffsetSeconds * 1000) throw new Error("incompatible observation window");
   }
-  const signature = (o: PerformanceObservation) => strategyDigest({ definition: o.measurement, strategyRef: o.strategyRef, kind: o.kind });
+  const signature = (o: PerformanceObservation) => strategyDigest({ definition: o.measurement, strategyRef: o.strategyRef, kind: o.kind, channel: o.channel, campaignRef: o.campaignRef, pillar: o.pillar, itemType: o.itemType });
   if (observations.some(o => signature(o) !== signature(first))) throw new Error("incompatible metric, unit, window, definition or strategy revision");
   const unique = [...new Map(observations.map(o => [o.id, o])).values()];
   const measured = unique.filter(o => o.availability === "available" && o.value !== null);
-  if (new Set(measured.map(o => strategyDigest(o.itemRef))).size !== measured.length) throw new Error("incompatible repeated item samples");
+  const sampleIdentity = (o: PerformanceObservation) => strategyDigest({ itemRef: o.itemRef, actionId: o.actionId, postId: o.postId, artifactId: o.artifactId, contentRevisionDigest: o.contentRevisionDigest });
+  if (new Set(measured.map(sampleIdentity)).size !== measured.length) throw new Error("incompatible repeated deliverable samples");
   const m = first.measurement.definition;
   const support = measured.filter(o => m.comparator === "gte" ? o.value! >= m.target! : m.comparator === "lte" ? o.value! <= m.target! : m.comparator === "eq" ? o.value === m.target : false);
   const contradictions = m.comparator === "observe" ? [] : measured.filter(o => !support.includes(o));
@@ -24,9 +25,9 @@ export function evaluateObservations(observations: PerformanceObservation[]): Ev
   const refs = <T>(items: T[]) => [...new Map(items.map(item => [strategyDigest(item), item])).values()];
   return { id: `evaluation-${strategyDigest(unique.map(o => o.id).sort()).slice(0, 48)}`, observationIds: unique.map(o => o.id), measurement: first.measurement, strategyRef: first.strategyRef,
     cohortMembers: unique.map(({ id, digest, collectionId, itemRef, availability, window }) => ({ id, digest, collectionId, itemRef, availability, window })),
-    campaignRefs: refs(unique.flatMap(o => o.campaignRef ? [o.campaignRef] : [])), planRefs: refs(unique.map(o => o.planRef)), itemRefs: refs(unique.map(o => o.itemRef)), pillars: [...new Set(unique.flatMap(o => o.pillar ? [o.pillar] : []))],
+    campaignRefs: refs(unique.flatMap(o => o.campaignRef ? [o.campaignRef] : [])), planRefs: refs(unique.map(o => o.planRef)), itemRefs: refs(unique.map(o => o.itemRef)), pillars: [...new Set(unique.flatMap(o => o.pillar ? [o.pillar] : []))], channels: [...new Set(unique.map(o => o.channel))], itemTypes: [...new Set(unique.map(o => o.itemType))],
     sampleCount: measured.length, value: measured.length ? measured.reduce((sum, o) => sum + o.value!, 0) / measured.length : null,
-    cohortCount: unique.length, missingCounts: { pending_window: unique.filter(o => o.availability === "pending_window").length, unavailable: unique.filter(o => o.availability === "unavailable").length, failed: unique.filter(o => o.availability === "failed").length, revoked: unique.filter(o => o.availability === "revoked").length },
+    cohortCount: unique.length, missingCounts: { pending_window: unique.filter(o => o.availability === "pending_window").length, unavailable: unique.filter(o => o.availability === "unavailable").length, failed: unique.filter(o => o.availability === "failed").length, revoked: unique.filter(o => o.availability === "revoked").length, reconciliation_required: unique.filter(o => o.availability === "reconciliation_required").length },
     baseline: m.baseline, supportingObservationIds: support.map(o => o.id), contradictingObservationIds: contradictions.map(o => o.id),
     confidence: measured.length === 0 ? "insufficient" : measured.length < 5 || contradictions.length > 0 ? "low" : "moderate", causalClaim: false,
     outcome: first.kind === "delivery_verification" ? "delivery_only" : measured.length ? "observational" : "unmeasured", limitations };

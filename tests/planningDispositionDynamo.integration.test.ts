@@ -6,7 +6,7 @@ import { strategyFixture } from "./fixtures/strategy";
 import { strategyDigest } from "@/lib/strategyApproval";
 import { insertStrategyProposal, decideStrategyProposal, readActiveStrategyRef } from "@/lib/strategy/repository";
 import { submitIntakeTurn } from "@/lib/intake/repository";
-import { materializeIntake, listPlanningProposals, disposePlanningProposal, addPlannedDeliverable } from "@/lib/planning/commands";
+import { materializeIntake, listPlanningProposals, disposePlanningProposal, addPlannedDeliverable, plannedCalendar } from "@/lib/planning/commands";
 import { configurePlanningPolicy, readPlannedItem, readItemState, currentPlan, campaignRoot } from "@/lib/campaigns/repository";
 import { claimNextPlannedItem } from "@/lib/planning/selection";
 import { getJob } from "@/lib/repository";
@@ -27,9 +27,10 @@ async function setup() {
 }
 async function promote() {
   const api = await import("@/lib/learning/proposals"); const base = (await readActiveStrategyRef())!;
-  const feedback = await api.recordOperatorFeedback({ requestId: randomUUID(), text: "Invite founders to discuss their workflow", sourceIds: [] });
+  const [item] = await plannedCalendar();
+  const feedback = await api.recordOperatorFeedback({ requestId: randomUUID(), text: "Invite founders to discuss their workflow", sourceIds: [], classification: "advisory", target: { kind: "plan_item", ref: item.ref }, evidenceLinks: [] });
   const proposal = await api.createStrategyChangeProposal({ requestId: randomUUID(), baseStrategyRef: base, changes: [{ type: "cta_guidance", value: ["Invite founders to discuss their workflow"] }], rationale: "Operator feedback", evidenceRefs: [{ id: feedback.id, digest: feedback.digest }], contradictionRefs: [] });
-  await api.decideStrategyChange({ id: proposal.id, revision: proposal.revision, digest: proposal.digest, decision: "approved" });
+  await api.decideStrategyChange({ id: proposal.id, revision: proposal.revision, digest: proposal.digest, decision: "approved", rationale: "The operator guidance is specific and bounded." });
 }
 async function sourceProposal(dependent = false) {
   const base = await setup();

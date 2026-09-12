@@ -32,14 +32,42 @@ export function defaultMeasurements(channel: string): PinnedMeasurement[] {
 }
 export const observationValueSchema = z.discriminatedUnion("availability", [
   z.object({ availability: z.literal("available"), value: z.number().finite(), reason: z.null() }).strict(),
-  ...(["pending_window", "unavailable", "failed", "revoked"] as const).map(availability => z.object({ availability: z.literal(availability), value: z.null(), reason: z.string().min(1).max(1000) }).strict()),
+  ...(["pending_window", "unavailable", "failed", "revoked", "reconciliation_required"] as const).map(availability => z.object({ availability: z.literal(availability), value: z.null(), reason: z.string().min(1).max(1000) }).strict()),
 ]);
 export type ObservationValue = z.infer<typeof observationValueSchema>;
 export interface ObservationBinding {
   workspaceId: string; brandId: string; itemRef: AuthorityRef; planRef: AuthorityRef; campaignRef: AuthorityRef | null;
   strategyRef: StrategyRef; pillar: string | null; jobId: string; actionId: string | null; artifactId: string | null; postId: string | null;
-  sourceIds: string[];
+  sourceIds: string[]; channel: string; itemType: string; contentRevisionDigest: string;
+  artifactRevisionDigest: string | null; providerReceiptId: string | null; verificationReceiptId: string | null;
 }
+export interface DeliverableLearningRecord {
+  id: string; workspaceId: string; brandId: string; jobId: string;
+  itemRef: AuthorityRef; planRef: AuthorityRef; campaignRef: AuthorityRef | null; strategyRef: StrategyRef;
+  channel: string; itemType: string; outputKind: "approved_deliverable" | "verified_publish" | "verified_export" | "verified_artifact";
+  actionId: string; approvalState: "approved"; approvalDigest: string;
+  exactOutput: Record<string, unknown>; contentRevisionDigest: string; artifactId: string | null; artifactRevisionDigest: string | null;
+  sourceIds: string[]; sourceLineageDigest: string; measurementDigests: string[];
+  providerReceipt: { id: string; digest: string; outcome: "applied" | "already_applied" } | null;
+  verificationReceipt: { id: string; digest: string; method: "artifact_digest_reread" | "official_api_readback"; checkedAt: string } | null;
+  createdAt: string; digest: string;
+}
+
+export const feedbackTargetSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("post"), id, revisionDigest: digest }).strict(),
+  z.object({ kind: z.literal("asset"), id, revisionDigest: digest }).strict(),
+  z.object({ kind: z.literal("artifact"), id, revisionDigest: digest }).strict(),
+  z.object({ kind: z.literal("plan_item"), ref: authorityRefSchema }).strict(),
+  z.object({ kind: z.literal("campaign"), ref: authorityRefSchema }).strict(),
+  z.object({ kind: z.literal("strategy_proposal"), id, revision: z.number().int().positive(), digest }).strict(),
+  z.object({ kind: z.literal("source_set"), sourceIds: z.array(id).max(24), lineageDigest: digest }).strict(),
+]);
+export type FeedbackTarget = z.infer<typeof feedbackTargetSchema>;
+export const operatorFeedbackInputSchema = z.object({
+  requestId: id, text: z.string().min(1).max(10000), classification: z.literal("advisory"),
+  target: feedbackTargetSchema, evidenceLinks: z.array(z.string().url()).max(24), sourceIds: z.array(id).max(24),
+}).strict();
+export type OperatorFeedbackInput = z.infer<typeof operatorFeedbackInputSchema>;
 export type PerformanceObservation = ObservationBinding & ObservationValue & {
   id: string; collectionId: string; measurement: PinnedMeasurement; kind: MeasurementDefinition["kind"];
   window: { startAt: string; endAt: string }; observedAt: string; provider: "x" | "operator" | "host" | "unsupported";
@@ -57,9 +85,9 @@ export function observationKey(itemRef: AuthorityRef, measurement: PinnedMeasure
 export interface Evaluation {
   id: string; observationIds: string[]; measurement: PinnedMeasurement; strategyRef: StrategyRef;
   cohortMembers: Array<Pick<PerformanceObservation, "id" | "digest" | "collectionId" | "itemRef" | "availability" | "window">>;
-  campaignRefs: AuthorityRef[]; planRefs: AuthorityRef[]; itemRefs: AuthorityRef[]; pillars: string[];
+  campaignRefs: AuthorityRef[]; planRefs: AuthorityRef[]; itemRefs: AuthorityRef[]; pillars: string[]; channels: string[]; itemTypes: string[];
   sampleCount: number; value: number | null; baseline: MeasurementDefinition["baseline"];
-  cohortCount: number; missingCounts: Record<"pending_window" | "unavailable" | "failed" | "revoked", number>;
+  cohortCount: number; missingCounts: Record<"pending_window" | "unavailable" | "failed" | "revoked" | "reconciliation_required", number>;
   supportingObservationIds: string[]; contradictingObservationIds: string[];
   confidence: "insufficient" | "low" | "moderate"; causalClaim: false;
   outcome: "delivery_only" | "unmeasured" | "observational"; limitations: string[];
@@ -76,7 +104,7 @@ export type ChangeProposalInput = z.infer<typeof changeProposalInputSchema>;
 export interface LearningEvidence {
   id: string; workspaceId: string; brandId: string; kind: "source_discovery" | "operator_feedback" | "evaluation";
   sourceIds: string[]; observationIds: string[]; actor: string; createdAt: string; digest: string;
-  text: string; evaluation?: Evaluation; sourceDigest?: string;
+  text: string; evaluation?: Evaluation; sourceDigest?: string; classification?: "advisory"; target?: FeedbackTarget; evidenceLinks?: string[];
 }
 export interface StrategyChangeProposal extends ChangeProposalInput {
   id: string; workspaceId: string; brandId: string; revision: number; digest: string; actor: string; createdAt: string;
@@ -85,16 +113,28 @@ export interface StrategyChangeProposal extends ChangeProposalInput {
   impactedCampaignRefs: AuthorityRef[]; impactedPlanRefs: AuthorityRef[]; impactedItemRefs: AuthorityRef[];
   decisionActor?: string; decidedAt?: string; feedback?: string; approvedStrategyRef?: StrategyRef;
 }
+export interface StrategyChangeDecision {
+  id: string; workspaceId: string; brandId: string; proposalId: string; proposalDigest: string; proposalRevision: number;
+  decision: "approved" | "rejected"; actor: string; decidedAt: string; rationale: string; feedback: string | null;
+  baseStrategyRef: StrategyRef; resultingStrategyRef: StrategyRef | null; digest: string;
+}
+export const strategyChangeDecisionInputSchema = z.object({
+  id, revision: z.number().int().positive(), digest,
+  decision: z.enum(["approved", "rejected"]),
+  rationale: z.string().trim().min(1).max(2000),
+  feedback: z.string().trim().min(1).max(2000).optional(),
+}).strict();
+export type StrategyChangeDecisionInput = z.infer<typeof strategyChangeDecisionInputSchema>;
 export const providerObservationInputSchema = z.object({ collectionId: digest, token: digest, checkedAt: timestamp, metrics: z.object({ likes: z.number().int().nonnegative(), replies: z.number().int().nonnegative(), reposts: z.number().int().nonnegative(), quotes: z.number().int().nonnegative(), impressions: z.number().int().nonnegative().optional() }).strict().nullable(), outcome: z.enum(["available", "unavailable", "failed", "unknown"]), reason: z.string().max(1000).optional() }).strict();
 export const performanceObservationSchema = z.object({
   id, collectionId: digest, workspaceId: id, brandId: id, itemRef: authorityRefSchema, planRef: authorityRefSchema, campaignRef: authorityRefSchema.nullable(), strategyRef: strategyRefSchema,
-  pillar: z.string().nullable(), jobId: id, actionId: id.nullable(), artifactId: id.nullable(), postId: id.nullable(), sourceIds: z.array(id), measurement: pinnedMeasurementSchema,
-  kind: z.enum(["performance", "delivery_verification"]), availability: z.enum(["available", "pending_window", "unavailable", "failed", "revoked"]), value: z.number().finite().nullable(), reason: z.string().nullable(),
+  pillar: z.string().nullable(), jobId: id, actionId: id.nullable(), artifactId: id.nullable(), postId: id.nullable(), sourceIds: z.array(id), channel: id, itemType: id, contentRevisionDigest: digest, artifactRevisionDigest: digest.nullable(), providerReceiptId: id.nullable(), verificationReceiptId: id.nullable(), measurement: pinnedMeasurementSchema,
+  kind: z.enum(["performance", "delivery_verification"]), availability: z.enum(["available", "pending_window", "unavailable", "failed", "revoked", "reconciliation_required"]), value: z.number().finite().nullable(), reason: z.string().nullable(),
   window: z.object({ startAt: timestamp, endAt: timestamp }).strict(), observedAt: timestamp, provider: z.enum(["x", "operator", "host", "unsupported"]), actor: id.nullable(), evidenceRefs: z.array(id), digest,
 }).strict().superRefine((o, ctx) => {
   if (!observationValueSchema.safeParse({ availability: o.availability, value: o.value, reason: o.reason }).success || o.kind !== o.measurement.definition.kind || (o.availability === "available" && (!o.evidenceRefs.length || (o.provider === "operator" && !o.actor)))) ctx.addIssue({ code: "custom", message: "observation authority inconsistent" });
 });
-export const evaluationSchema = z.object({ id, observationIds: z.array(id), cohortMembers: z.array(z.object({ id, digest, collectionId: digest, itemRef: authorityRefSchema, availability: performanceObservationSchema.shape.availability, window: performanceObservationSchema.shape.window }).strict()), measurement: pinnedMeasurementSchema, strategyRef: strategyRefSchema, campaignRefs: z.array(authorityRefSchema), planRefs: z.array(authorityRefSchema), itemRefs: z.array(authorityRefSchema), pillars: z.array(z.string()), cohortCount: z.number().int().nonnegative(), missingCounts: z.object({ pending_window: z.number().int().nonnegative(), unavailable: z.number().int().nonnegative(), failed: z.number().int().nonnegative(), revoked: z.number().int().nonnegative() }).strict(), sampleCount: z.number().int().nonnegative(), value: z.number().finite().nullable(), baseline: measurementDefinitionSchema.shape.baseline, supportingObservationIds: z.array(id), contradictingObservationIds: z.array(id), confidence: z.enum(["insufficient", "low", "moderate"]), causalClaim: z.literal(false), outcome: z.enum(["delivery_only", "unmeasured", "observational"]), limitations: z.array(z.string()) }).strict();
+export const evaluationSchema = z.object({ id, observationIds: z.array(id), cohortMembers: z.array(z.object({ id, digest, collectionId: digest, itemRef: authorityRefSchema, availability: performanceObservationSchema.shape.availability, window: performanceObservationSchema.shape.window }).strict()), measurement: pinnedMeasurementSchema, strategyRef: strategyRefSchema, campaignRefs: z.array(authorityRefSchema), planRefs: z.array(authorityRefSchema), itemRefs: z.array(authorityRefSchema), pillars: z.array(z.string()), channels: z.array(id).min(1), itemTypes: z.array(id).min(1), cohortCount: z.number().int().nonnegative(), missingCounts: z.object({ pending_window: z.number().int().nonnegative(), unavailable: z.number().int().nonnegative(), failed: z.number().int().nonnegative(), revoked: z.number().int().nonnegative(), reconciliation_required: z.number().int().nonnegative() }).strict(), sampleCount: z.number().int().nonnegative(), value: z.number().finite().nullable(), baseline: measurementDefinitionSchema.shape.baseline, supportingObservationIds: z.array(id), contradictingObservationIds: z.array(id), confidence: z.enum(["insufficient", "low", "moderate"]), causalClaim: z.literal(false), outcome: z.enum(["delivery_only", "unmeasured", "observational"]), limitations: z.array(z.string()) }).strict();
 export const strategyChangeProposalSchema = changeProposalInputSchema.extend({ id, workspaceId: id, brandId: id, revision: z.number().int().positive(), digest, actor: id, createdAt: timestamp, status: z.enum(["pending", "approved", "rejected", "superseded"]), evidenceStatus: z.enum(["valid", "revoked"]), confidence: z.enum(["insufficient", "low", "moderate"]), limitations: z.array(z.string()), strategyProposalId: id, proposedStrategyDigest: digest, impactedCampaignRefs: z.array(authorityRefSchema), impactedPlanRefs: z.array(authorityRefSchema), impactedItemRefs: z.array(authorityRefSchema), decisionActor: id.nullish(), decidedAt: timestamp.nullish(), feedback: z.string().nullish(), approvedStrategyRef: strategyRefSchema.nullish() }).strict();
 export const learningContextSchema = z.object({ authority: z.literal("host_persisted"), memoryAuthority: z.literal("derived_recall_only"), observations: z.array(performanceObservationSchema).max(100), evaluations: z.array(evaluationSchema).max(50), proposals: z.array(strategyChangeProposalSchema).max(50) }).strict();
 export const revokedProposalSchema = z.object({ id, revision: z.number().int().positive(), status: strategyChangeProposalSchema.shape.status, evidenceStatus: z.literal("revoked") }).strict();

@@ -65,9 +65,15 @@ class PerformanceObservation(Record):
     artifactId: StrictStr | None
     postId: StrictStr | None
     sourceIds: list[StrictStr]
+    channel: StrictStr
+    itemType: StrictStr
+    contentRevisionDigest: StrictStr = Field(pattern=r"^[a-f0-9]{64}$")
+    artifactRevisionDigest: StrictStr | None
+    providerReceiptId: StrictStr | None
+    verificationReceiptId: StrictStr | None
     measurement: PinnedMeasurement
     kind: Literal["performance", "delivery_verification"]
-    availability: Literal["available", "pending_window", "unavailable", "failed", "revoked"]
+    availability: Literal["available", "pending_window", "unavailable", "failed", "revoked", "reconciliation_required"]
     value: float | None
     reason: StrictStr | None
     window: ObservationWindow
@@ -95,7 +101,7 @@ class CohortMember(Record):
     digest: StrictStr
     collectionId: StrictStr
     itemRef: AuthorityRef
-    availability: Literal["available", "pending_window", "unavailable", "failed", "revoked"]
+    availability: Literal["available", "pending_window", "unavailable", "failed", "revoked", "reconciliation_required"]
     window: dict[Literal["startAt", "endAt"], StrictStr]
 
 class Evaluation(Record):
@@ -108,9 +114,11 @@ class Evaluation(Record):
     planRefs: list[AuthorityRef]
     itemRefs: list[AuthorityRef]
     pillars: list[StrictStr]
+    channels: list[StrictStr] = Field(min_length=1)
+    itemTypes: list[StrictStr] = Field(min_length=1)
     sampleCount: StrictInt = Field(ge=0)
     cohortCount: StrictInt = Field(ge=0)
-    missingCounts: dict[Literal["pending_window", "unavailable", "failed", "revoked"], StrictInt]
+    missingCounts: dict[Literal["pending_window", "unavailable", "failed", "revoked", "reconciliation_required"], StrictInt]
     value: float | None
     baseline: Baseline | None
     supportingObservationIds: list[StrictStr]

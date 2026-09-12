@@ -8,9 +8,10 @@ import { parseBudgetConfig } from "../config";
 import { campaignRoot, readItemState, readPlannedItem, readRequired } from "../campaigns/repository";
 import { strategyDigest } from "../strategyApproval";
 import type { StrategyReader } from "../strategy/repository";
-import { priorInsightsFromJob } from "../repository";
-import type { Job, JobBudget, PlannedAction, Receipt, VerificationResult } from "../types";
-import { observationKey, observationValueSchema, providerObservationInputSchema, type Collection, type ObservationValue, type PerformanceObservation } from "./contracts";
+import { getJob, listAllJobs, listApprovalDecisions, listReceipts, priorInsightsFromJob } from "../repository";
+import type { ApprovalDecision, Job, JobBudget, PlannedAction, Receipt, VerificationResult } from "../types";
+import { actionPayloadDigest } from "../idempotency";
+import { observationValueSchema, providerObservationInputSchema, type Collection, type ObservationValue, type PerformanceObservation, type DeliverableLearningRecord } from "./contracts";
 import { evaluateObservations } from "./evaluation";
 
 export const learningKey = (collection: string, id: string) => { if (!/^[A-Za-z0-9_.:-]{1,180}$/.test(id)) throw new Error("invalid learning authority id"); return recordKey(`${campaignRoot()}/${collection}/${id}`); };
@@ -25,6 +26,90 @@ type ObservationHeadTransition = {
 const jobKey = (id: string) => { if (!/^[A-Za-z0-9_-]{1,100}$/.test(id)) throw new Error("invalid job id"); return recordKey(`workspaces/${currentTenant().workspaceId}/jobs/${id}`); };
 const observationHeadPartition = (collectionId: string) => `${campaignRoot()}/observation_head_transitions/${collectionId}`;
 const observationHeadKey = (collectionId: string, observationId: string) => recordKey(`${observationHeadPartition(collectionId)}/${observationId}`);
+function learningRecordBody(record: Omit<DeliverableLearningRecord, "digest">) { return record; }
+function actionChannel(action: PlannedAction): string {
+  if (action.type.startsWith("publish_x_")) return "x";
+  if (action.type === "publish_linkedin_post") return "linkedin";
+  if (action.type === "export_content_artifact") return "export";
+  return "artifact";
+}
+type LearningApproval = Omit<ApprovalDecision, "authenticationId">;
+async function insertDeliverableLearningRecords(tx: DynamoTransaction, input: { job: LearningJob; item: Awaited<ReturnType<typeof readPlannedItem>>; approvals: LearningApproval[]; receipts: Receipt[]; verifications: VerificationResult[]; sourceIds: string[]; sourceLineageDigest: string; now: string }) {
+  const { job, item, approvals, receipts, verifications, sourceIds, sourceLineageDigest, now } = input;
+  const records: DeliverableLearningRecord[] = [];
+  for (const approval of approvals.filter(candidate => candidate.decision === "approved")) {
+    const action = (job.actions ?? []).find(candidate => candidate.id === approval.actionId);
+    if (!action) throw new InvalidLearningEvidence(`approved deliverable ${approval.actionId} is missing`);
+    if (action.approvalState !== "approved") throw new InvalidLearningEvidence(`approved deliverable ${action.id} state changed`);
+    if (approval.payloadDigest !== actionPayloadDigest(action)) throw new InvalidLearningEvidence(`approved deliverable ${action.id} payload changed after approval`);
+    const artifactId = typeof action.payload.artifactId === "string" ? action.payload.artifactId : null;
+    const artifactRevisionDigest = typeof action.payload.artifactDigest === "string" && /^[a-f0-9]{64}$/.test(action.payload.artifactDigest) ? action.payload.artifactDigest : null;
+    const channel = actionChannel(action);
+    const receipt = receipts.find(candidate => candidate.actionId === action.id && ["applied", "already_applied"].includes(candidate.outcome));
+    const verification = receipt ? verifications.find(candidate => candidate.verified && candidate.actionId === action.id && candidate.receiptId === receipt.id && candidate.evidence?.digest && candidate.evidence?.url) : undefined;
+    const variants: Array<{ outputKind: DeliverableLearningRecord["outputKind"]; receipt: Receipt | undefined; verification: VerificationResult | undefined }> = [
+      { outputKind: "approved_deliverable", receipt: undefined, verification: undefined },
+      ...(receipt && verification ? [{ outputKind: action.type === "export_content_artifact" ? "verified_export" as const : action.type.startsWith("publish_") ? "verified_publish" as const : "verified_artifact" as const, receipt, verification }] : []),
+    ];
+    for (const variant of variants) {
+      const stable = { workspaceId: item.workspaceId, brandId: item.brandId, jobId: job.id, itemRef: item.ref, planRef: item.planRef, campaignRef: item.campaignRef, strategyRef: item.strategyRef,
+        channel, itemType: action.type, outputKind: variant.outputKind, actionId: action.id, approvalState: "approved" as const, approvalDigest: strategyDigest(approval),
+        exactOutput: structuredClone(action.payload), contentRevisionDigest: strategyDigest(action.payload), artifactId, artifactRevisionDigest, sourceIds, sourceLineageDigest,
+        measurementDigests: item.measurements.map(measurement => measurement.digest),
+        providerReceipt: variant.receipt ? { id: variant.receipt.id, digest: strategyDigest(variant.receipt), outcome: variant.receipt.outcome as "applied" | "already_applied" } : null,
+        verificationReceipt: variant.verification ? { id: variant.verification.id, digest: variant.verification.evidence.digest!, method: variant.verification.method, checkedAt: variant.verification.checkedAt } : null,
+        createdAt: now };
+      const id = `deliverable-${strategyDigest([item.ref, action.id, variant.outputKind, stable.contentRevisionDigest, variant.receipt?.id ?? null, variant.verification?.id ?? null]).slice(0, 48)}`;
+      const body = learningRecordBody({ id, ...stable }); const record: DeliverableLearningRecord = { ...body, digest: strategyDigest(body) };
+      const key = learningKey("deliverable_learning_records", id), existing = await tx.read(key);
+      if (existing.present) {
+        const prior = existing.value as unknown as DeliverableLearningRecord;
+        const { digest, ...priorBody } = prior;
+        const { createdAt: _priorCreatedAt, ...priorStable } = priorBody; const { createdAt: _nextCreatedAt, ...nextStable } = body;
+        if (digest !== strategyDigest(priorBody) || strategyDigest(priorStable) !== strategyDigest(nextStable)) throw new InvalidLearningEvidence("deliverable learning record changed");
+        records.push(prior);
+      } else { tx.insert(key, record); records.push(record); }
+    }
+  }
+  if (records.length) {
+    const indexKey = learningKey("deliverable_learning_indexes", job.id), prior = await tx.read(indexKey);
+    const recordIds = [...new Set([...(prior.value?.recordIds as string[] | undefined ?? []), ...records.map(record => record.id)])];
+    tx.put(indexKey, { workspaceId: item.workspaceId, brandId: item.brandId, jobId: job.id, recordIds });
+  }
+  return records;
+}
+export async function listDeliverableLearningRecords(): Promise<DeliverableLearningRecord[]> {
+  const indexes = await Promise.all((await listAllJobs()).map(job => awsRepository().read(learningKey("deliverable_learning_indexes", job.id))));
+  const ids = [...new Set(indexes.flatMap(row => row.value?.recordIds as string[] | undefined ?? []))];
+  return Promise.all(ids.map(async id => {
+    const record = await readRequired<DeliverableLearningRecord>(learningKey("deliverable_learning_records", id)); const { digest, ...body } = record;
+    if (strategyDigest(body) !== digest) throw new InvalidLearningEvidence("deliverable learning record digest mismatch");
+    return record;
+  }));
+}
+export async function eraseDeliverableLearningRecords(jobId: string) {
+  const indexKey = learningKey("deliverable_learning_indexes", jobId), index = await awsRepository().read(indexKey);
+  if (!index.present) return;
+  assertResourceWorkspace(currentTenant(), index.value as { workspaceId: string; brandId: string });
+  for (const id of (index.value?.recordIds as string[] | undefined) ?? []) await awsRepository().remove(learningKey("deliverable_learning_records", id));
+  await awsRepository().remove(indexKey);
+}
+export async function ensureDeliverableLearningRecords(jobId: string, now = new Date().toISOString()) {
+  const tombstoneKey = recordKey(`workspaces/${currentTenant().workspaceId}/deletion_tombstones/${jobId}`);
+  if ((await awsRepository().read(tombstoneKey)).present) return [];
+  const [job, approvals, receipts] = await Promise.all([getJob(jobId) as Promise<LearningJob>, listApprovalDecisions(jobId), listReceipts(jobId)]);
+  if (!job.plannedItemRef) return [];
+  return awsRepository().atomic(async tx => {
+    if ((await tx.read(tombstoneKey)).present) return [];
+    const item = await readPlannedItem(job.plannedItemRef!, tx), state = await readItemState(item.ref, tx);
+    if (state.jobId !== jobId) return [];
+    const manifestId = job.config.sourceManifestId;
+    const manifest = manifestId ? await tx.read(recordKey(`${jobKey(jobId).path}/source_manifests/${manifestId}`)) : null;
+    const sourceIds = (manifest?.value?.directSourceIds as string[] | undefined) ?? [];
+    const verifications = (job.verifications ?? []).filter(v => v.verified && v.evidence?.digest && v.evidence?.url && Number.isFinite(Date.parse(v.checkedAt)));
+    return insertDeliverableLearningRecords(tx, { job, item, approvals, receipts, verifications, sourceIds, sourceLineageDigest: strategyDigest(manifest?.value ?? { directSourceIds: sourceIds }), now });
+  });
+}
 export async function assertLearningSources(sourceIds: string[], reader: StrategyReader = awsRepository()) {
   for (const sourceId of sourceIds) {
     const source = await readRequired<{ workspaceId: string; brandId: string; state: string }>(learningKey("sources", sourceId), reader);
@@ -137,7 +222,7 @@ export async function assertObservationUsable(observation: PerformanceObservatio
 export function buildObservation(collection: Collection, result: ObservationValue, now: string, attribution: { provider: PerformanceObservation["provider"]; actor?: string; evidenceRefs?: string[] }): PerformanceObservation {
   observationValueSchema.parse(result);
   const id = `observation-${strategyDigest({ collectionId: collection.id, result, now, attribution }).slice(0, 48)}`;
-  const body = { id, collectionId: collection.id, workspaceId: collection.workspaceId, brandId: collection.brandId, itemRef: collection.itemRef, planRef: collection.planRef, campaignRef: collection.campaignRef, strategyRef: collection.strategyRef, pillar: collection.pillar, jobId: collection.jobId, actionId: collection.actionId, artifactId: collection.artifactId, postId: collection.postId, sourceIds: collection.sourceIds, measurement: collection.measurement, kind: collection.measurement.definition.kind, window: collection.window, observedAt: now, ...result, provider: attribution.provider, actor: attribution.actor ?? null, evidenceRefs: attribution.evidenceRefs ?? [] };
+  const body = { id, collectionId: collection.id, workspaceId: collection.workspaceId, brandId: collection.brandId, itemRef: collection.itemRef, planRef: collection.planRef, campaignRef: collection.campaignRef, strategyRef: collection.strategyRef, pillar: collection.pillar, jobId: collection.jobId, actionId: collection.actionId, artifactId: collection.artifactId, postId: collection.postId, sourceIds: collection.sourceIds, channel: collection.channel, itemType: collection.itemType, contentRevisionDigest: collection.contentRevisionDigest, artifactRevisionDigest: collection.artifactRevisionDigest, providerReceiptId: collection.providerReceiptId, verificationReceiptId: collection.verificationReceiptId, measurement: collection.measurement, kind: collection.measurement.definition.kind, window: collection.window, observedAt: now, ...result, provider: attribution.provider, actor: attribution.actor ?? null, evidenceRefs: attribution.evidenceRefs ?? [] };
   return { ...body, digest: strategyDigest(body) };
 }
 export async function insertObservation(tx: DynamoTransaction, observation: PerformanceObservation) {
@@ -165,40 +250,55 @@ export async function scheduleCompletedJob(jobId: string, now = new Date().toISO
     });
     return [];
   }
+  try { await ensureDeliverableLearningRecords(jobId, now); } catch (error) {
+    if (!(error instanceof Error) || !/planned job item binding mismatch/.test(error.message)) throw error;
+  }
   return awsRepository().atomic(async tx => {
     const job = await readRequired<LearningJob>(jobKey(jobId), tx);
     if (!job.plannedItemRef) return [];
     const item = await readPlannedItem(job.plannedItemRef, tx), state = await readItemState(item.ref, tx);
     if (state.status !== "completed" || state.jobId !== jobId || job.stage !== "complete" || job.terminalOutcome !== "succeeded") return [];
     const index = learningKey("measurement_schedules", strategyDigest(item.ref)); const existing = await tx.read(index);
-    if (existing.present) return Promise.all((existing.value!.collectionIds as string[]).map(id => readRequired<Collection>(learningKey("observation_outbox", id), tx)));
     const receiptRows = await tx.read(partition(`${jobKey(jobId).path}/receipts`));
     const receipts = receiptRows.rows.map(row => row.value as unknown as Receipt);
     const verifies = (job.verifications ?? []).filter(v => v.verified && v.evidence?.digest && v.evidence?.url && Number.isFinite(Date.parse(v.checkedAt)));
-    const published = verifies.filter(v => v.method === "official_api_readback" && /^x:[0-9]+$/.test(v.target) && job.actions?.some(a => a.id === v.actionId && a.type === "publish_x_post" && a.state === "executed"));
-    const verification = published.length === 1 ? published[0] : undefined;
-    const receipt = verification ? receipts.find(r => r.id === verification.receiptId && r.actionId === verification.actionId && ["applied", "already_applied"].includes(r.outcome)) : undefined;
+    const delivered = verifies.filter(v => receipts.some(r => r.id === v.receiptId && r.actionId === v.actionId && ["applied", "already_applied"].includes(r.outcome)) && job.actions?.some(a => a.id === v.actionId && a.state === "executed"));
+    const published = delivered.filter(v => {
+      if (v.method !== "official_api_readback") return false;
+      const action = job.actions?.find(candidate => candidate.id === v.actionId);
+      return (action?.type === "publish_x_post" && /^x:[0-9]+$/.test(v.target))
+        || (action?.type === "publish_x_thread" && /^x-thread:[^:]+$/.test(v.target))
+        || (action?.type === "publish_linkedin_post" && v.target.startsWith("linkedin:urn:li:"));
+    });
+    const officialXPublished = published.filter(v => /^x:[0-9]+$/.test(v.target) && job.actions?.some(a => a.id === v.actionId && a.type === "publish_x_post"));
     const manifestId = job.config.sourceManifestId;
     const manifest = manifestId ? await tx.read(recordKey(`${jobKey(jobId).path}/source_manifests/${manifestId}`)) : null;
     const sourceIds = (manifest?.value?.directSourceIds as string[] | undefined) ?? [];
+    if (existing.present) return Promise.all((existing.value!.collectionIds as string[]).map(id => readRequired<Collection>(learningKey("observation_outbox", id), tx)));
     const result: Collection[] = [];
     for (const measurement of item.measurements) {
       const m = measurement.definition, delivery = m.kind === "delivery_verification";
-      const anchor = m.window.anchor === "publication" ? receipt?.performedAt : job.updatedAt;
-      const start = anchor && Number.isFinite(Date.parse(anchor)) ? anchor : now;
-      const endAt = new Date(Date.parse(start) + m.window.endOffsetSeconds * 1000).toISOString();
-      const window = { startAt: new Date(Date.parse(start)).toISOString(), endAt };
-      const id = observationKey(item.ref, measurement, window);
-      const collection: Collection = { id, workspaceId: item.workspaceId, brandId: item.brandId, itemRef: item.ref, planRef: item.planRef, campaignRef: item.campaignRef, strategyRef: item.strategyRef, pillar: item.productionContext.mode === "source_backed" ? item.productionContext.item.contentPillar : null, jobId, actionId: delivery ? verifies.length === 1 ? verifies[0].actionId : null : verification?.actionId ?? null, postId: verification?.target.slice(2) ?? null, artifactId: delivery && verifies.length === 1 ? artifactIdFor(job, verifies[0]) : null, sourceIds, measurement, window, dueAt: endAt, expiresAt: new Date(Date.parse(endAt) + m.window.collectionToleranceSeconds * 1000).toISOString(), state: "scheduled", observationId: "pending", createdAt: now, attempts: 0 };
-      let value: ObservationValue = { availability: "pending_window", value: null, reason: m.collectionMethod === "operator" ? "awaiting_attributed_operator_observation" : "observation_window_not_collected" };
-      if (delivery) {
-        const verifiedReceipts = verifies.filter(v => receipts.some(r => r.id === v.receiptId && r.actionId === v.actionId && ["applied", "already_applied"].includes(r.outcome)));
-        value = verifiedReceipts.length ? { availability: "available", value: 1, reason: null } : { availability: "unavailable", value: null, reason: "no_verified_delivery_receipt" };
-      } else if (m.collectionMethod === "unsupported") value = { availability: "unavailable", value: null, reason: "provider_metrics_not_integrated" };
-      else if (m.window.anchor === "publication" && (!verification || !receipt)) value = { availability: "unavailable", value: null, reason: "no_verified_publication" };
-      const observation = buildObservation(collection, value, now, { provider: "host", evidenceRefs: delivery && value.availability === "available" ? verifies.map(v => `verification:${jobId}:${v.id}`) : [] });
-      collection.observationId = observation.id; if (value.availability !== "pending_window") collection.state = "completed";
-      await insertObservation(tx, observation); tx.insert(learningKey("observation_outbox", id), collection); appendObservationHeadTransition(tx, collection, observation, null); result.push(collection);
+      const approvedActions = (job.actions ?? []).filter(action => action.approvalState === "approved");
+      const targetVerifications = delivery ? delivered : m.collectionMethod === "official_x" ? officialXPublished : m.collectionMethod === "operator" && m.window.anchor === "publication" ? published : m.collectionMethod === "unsupported" ? delivered : [];
+      const targets: Array<{ verification?: VerificationResult; action?: PlannedAction }> = targetVerifications.length ? targetVerifications.map(verification => ({ verification, action: job.actions?.find(action => action.id === verification.actionId) })) : approvedActions.length && ["operator", "unsupported"].includes(m.collectionMethod) ? approvedActions.map(action => ({ action })) : [{}];
+      for (const target of targets) {
+        const boundVerification = target.verification;
+        const boundAction = target.action;
+        const boundReceipt = boundVerification ? receipts.find(candidate => candidate.id === boundVerification.receiptId && candidate.actionId === boundVerification.actionId) : undefined;
+        const anchor = m.window.anchor === "publication" ? boundReceipt?.performedAt : boundVerification?.checkedAt ?? job.updatedAt;
+        const start = anchor && Number.isFinite(Date.parse(anchor)) ? anchor : now;
+        const endAt = new Date(Date.parse(start) + m.window.endOffsetSeconds * 1000).toISOString();
+        const window = { startAt: new Date(Date.parse(start)).toISOString(), endAt };
+        const id = strategyDigest({ itemRef: item.ref, measurementDigest: measurement.digest, window, actionId: boundAction?.id ?? null, verificationId: boundVerification?.id ?? null });
+        const collection: Collection = { id, workspaceId: item.workspaceId, brandId: item.brandId, itemRef: item.ref, planRef: item.planRef, campaignRef: item.campaignRef, strategyRef: item.strategyRef, pillar: item.productionContext.mode === "source_backed" ? item.productionContext.item.contentPillar : null, jobId, actionId: boundAction?.id ?? null, postId: boundVerification && /^(x|x-thread|linkedin):/.test(boundVerification.target) ? boundVerification.target.slice(boundVerification.target.indexOf(":") + 1) : null, artifactId: typeof boundAction?.payload.artifactId === "string" ? boundAction.payload.artifactId : boundVerification ? artifactIdFor(job, boundVerification) : null, sourceIds, channel: boundAction ? actionChannel(boundAction) : item.channel, itemType: boundAction?.type ?? "planned_item", contentRevisionDigest: strategyDigest(boundAction?.payload ?? item.productionContext), artifactRevisionDigest: typeof boundAction?.payload.artifactDigest === "string" && /^[a-f0-9]{64}$/.test(boundAction.payload.artifactDigest) ? boundAction.payload.artifactDigest : null, providerReceiptId: boundReceipt?.id ?? null, verificationReceiptId: boundVerification?.id ?? null, measurement, window, dueAt: endAt, expiresAt: new Date(Date.parse(endAt) + m.window.collectionToleranceSeconds * 1000).toISOString(), state: "scheduled", observationId: "pending", createdAt: now, attempts: 0 };
+        let value: ObservationValue = { availability: "pending_window", value: null, reason: m.collectionMethod === "operator" ? "awaiting_attributed_operator_observation" : "observation_window_not_collected" };
+        if (delivery) value = boundVerification && boundReceipt ? { availability: "available", value: 1, reason: null } : { availability: "unavailable", value: null, reason: "no_verified_delivery_receipt" };
+        else if (m.collectionMethod === "unsupported") value = { availability: "unavailable", value: null, reason: `official_analytics_unavailable:${item.channel}` };
+        else if (m.window.anchor === "publication" && (!boundVerification || !boundReceipt)) value = { availability: "unavailable", value: null, reason: "no_verified_publication" };
+        const observation = buildObservation(collection, value, now, { provider: "host", evidenceRefs: delivery && value.availability === "available" ? [`verification:${jobId}:${boundVerification!.id}`] : [] });
+        collection.observationId = observation.id; if (value.availability !== "pending_window") collection.state = "completed";
+        await insertObservation(tx, observation); tx.insert(learningKey("observation_outbox", id), collection); appendObservationHeadTransition(tx, collection, observation, null); result.push(collection);
+      }
     }
     tx.insert(index, { workspaceId: item.workspaceId, brandId: item.brandId, collectionIds: result.map(c => c.id) }); return result;
   });
@@ -213,7 +313,7 @@ export async function claimObservation(id: string, token: string, now = new Date
     const job = await validBinding(c, tx);
     if (c.state === "collecting") {
       if (!c.dispatch) await settleCollectionCost(tx, c, "released", now);
-      const observation = buildObservation(c, { availability: c.dispatch ? "failed" : "unavailable", value: null, reason: c.dispatch ? "collector_response_unknown_requires_reconciliation" : "claim_expired_before_dispatch" }, now, { provider: "host" });
+      const observation = buildObservation(c, { availability: c.dispatch ? "reconciliation_required" : "unavailable", value: null, reason: c.dispatch ? "collector_response_unknown_requires_reconciliation" : "claim_expired_before_dispatch" }, now, { provider: "host" });
       if (c.dispatch) insertCollectionReceipt(tx, c, { collectionId: c.id, token: c.token!, checkedAt: now, metrics: null, outcome: "unknown", reason: "collector_lease_expired_after_dispatch" }, observation, now);
       await insertObservation(tx, observation); tx.put(key, { ...c, state: c.dispatch ? "reconciliation_required" : "completed", observationId: observation.id }); return null;
     }
@@ -296,7 +396,7 @@ export async function cancelObservationDispatch(id: string, token: string, reaso
   });
 }
 export function collectionAuthorityDigest(c: Collection) {
-  return strategyDigest({ id: c.id, workspaceId: c.workspaceId, brandId: c.brandId, itemRef: c.itemRef, planRef: c.planRef, campaignRef: c.campaignRef, strategyRef: c.strategyRef, sourceIds: c.sourceIds, jobId: c.jobId, actionId: c.actionId, postId: c.postId, artifactId: c.artifactId, measurement: c.measurement, window: c.window, dueAt: c.dueAt, expiresAt: c.expiresAt, costAuthorization: c.costAuthorization });
+  return strategyDigest({ id: c.id, workspaceId: c.workspaceId, brandId: c.brandId, itemRef: c.itemRef, planRef: c.planRef, campaignRef: c.campaignRef, strategyRef: c.strategyRef, sourceIds: c.sourceIds, jobId: c.jobId, actionId: c.actionId, postId: c.postId, artifactId: c.artifactId, channel: c.channel, itemType: c.itemType, contentRevisionDigest: c.contentRevisionDigest, artifactRevisionDigest: c.artifactRevisionDigest, providerReceiptId: c.providerReceiptId, verificationReceiptId: c.verificationReceiptId, measurement: c.measurement, window: c.window, dueAt: c.dueAt, expiresAt: c.expiresAt, costAuthorization: c.costAuthorization });
 }
 function insertCollectionReceipt(tx: DynamoTransaction, c: Collection, input: z.infer<typeof providerObservationInputSchema>, observation: PerformanceObservation, now: string) {
   tx.insert(learningKey("observation_collection_receipts", `${c.id}:${input.token}`), { workspaceId: c.workspaceId, brandId: c.brandId, collectionId: c.id, token: input.token, outcome: input.outcome, inputDigest: strategyDigest(input), observationId: observation.id, observationDigest: observation.digest, dispatchDigest: strategyDigest(c.dispatch), collectionAuthorityDigest: collectionAuthorityDigest(c), actor: tenantSubjectId(currentTenant()), recordedAt: now });
@@ -306,7 +406,7 @@ export async function persistProviderResult(tx: DynamoTransaction, c: Collection
   const job = await validBinding(c, tx);
   if (input.collectionId !== c.id || input.token !== c.dispatch?.token || c.measurement.definition.collectionMethod !== "official_x") throw new Error("provider result dispatch binding mismatch");
   if (input.outcome === "available" && (Date.parse(input.checkedAt) < Date.parse(c.dueAt) || Date.parse(input.checkedAt) < Date.parse(c.dispatch.issuedAt) || Date.parse(input.checkedAt) > Date.parse(c.expiresAt) || Date.parse(input.checkedAt) > Date.parse(now) + 5000)) throw new Error("provider observation outside pinned window");
-  let result: ObservationValue = { availability: input.outcome === "failed" || input.outcome === "unknown" ? "failed" : "unavailable", value: null, reason: input.reason || input.outcome };
+  let result: ObservationValue = { availability: input.outcome === "unknown" ? "reconciliation_required" : input.outcome === "failed" ? "failed" : "unavailable", value: null, reason: input.reason || input.outcome };
   if (input.outcome === "available") {
     if (!input.metrics) throw new Error("available provider observation requires metrics");
     const insight = priorInsightsFromJob(c.jobId, { ...job, engagement: [{ ...input.metrics, postId: c.postId!, actionId: c.actionId!, checkedAt: input.checkedAt }] })[0];
@@ -379,7 +479,8 @@ export async function revokeLearningObservations(selector: { jobId?: string; sou
 }
 export async function persistEvaluationForObservation(observation: PerformanceObservation) {
   if (observation.kind !== "performance" || observation.availability !== "available") return;
-  const all = (await listLearningObservations()).filter(o => o.kind === "performance" && o.availability !== "revoked" && o.measurement.digest === observation.measurement.digest && strategyDigest(o.strategyRef) === strategyDigest(observation.strategyRef));
+  const dimension = (o: PerformanceObservation) => strategyDigest({ strategyRef: o.strategyRef, measurement: o.measurement, channel: o.channel, campaignRef: o.campaignRef, pillar: o.pillar, itemType: o.itemType });
+  const all = (await listLearningObservations()).filter(o => o.kind === "performance" && o.availability !== "revoked" && dimension(o) === dimension(observation));
   if (!all.length) return;
   const evaluation = evaluateObservations(all);
   const { recordEvaluation, proposeFromEvaluation } = await import("./proposals");
@@ -388,6 +489,9 @@ export async function persistEvaluationForObservation(observation: PerformanceOb
 export async function recoverLearning() {
   const { plannedCalendar } = await import("../planning/commands");
   const failures: string[] = [];
+  for (const job of await listAllJobs()) {
+    try { await ensureDeliverableLearningRecords(job.id); } catch (error) { failures.push(`${job.id}: ${error instanceof Error ? error.message : "deliverable learning recovery failed"}`); }
+  }
   for (const item of await plannedCalendar()) if (item.lifecycle.status === "completed" && item.lifecycle.jobId) {
     try { await scheduleCompletedJob(item.lifecycle.jobId); } catch (error) { failures.push(`${item.ref.id}: ${error instanceof Error ? error.message : "learning recovery failed"}`); }
   }
@@ -410,8 +514,8 @@ export async function listLearningContext() {
 /** Complete durable learning records for the operator workspace; inference keeps its bounded context separately. */
 export async function listAllLearningOperation() {
   const observations = await listLearningObservations();
-  const { listStrategyChangeProposals, listEvaluationEvidence } = await import("./proposals");
-  return { observations, evaluations: (await listEvaluationEvidence()).map(e => e.evaluation!), proposals: await listStrategyChangeProposals() };
+  const { listStrategyChangeProposals, listEvaluationEvidence, listOperatorFeedback, listStrategyChangeDecisions } = await import("./proposals");
+  return { deliverables: await listDeliverableLearningRecords(), observations, feedback: await listOperatorFeedback(), evaluations: (await listEvaluationEvidence()).map(e => e.evaluation!), proposals: await listStrategyChangeProposals(), decisions: await listStrategyChangeDecisions() };
 }
 export async function learningInsights() {
   const history = await listLearningContext();

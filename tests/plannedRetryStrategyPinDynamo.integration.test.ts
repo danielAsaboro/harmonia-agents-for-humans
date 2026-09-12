@@ -7,7 +7,7 @@ import { resolveDecision } from "@/lib/decisions";
 import { awsRepository, partition, recordKey } from "@/lib/dynamo";
 import { actionPayloadDigest } from "@/lib/idempotency";
 import { submitIntakeTurn } from "@/lib/intake/repository";
-import { addPlannedDeliverable, materializeIntake } from "@/lib/planning/commands";
+import { addPlannedDeliverable, materializeIntake, plannedCalendar } from "@/lib/planning/commands";
 import { claimNextPlannedItem } from "@/lib/planning/selection";
 import { buildStageMessage } from "@/lib/queue";
 import { getJob, markFailed, retryFailedJobWithOutbox } from "@/lib/repository";
@@ -53,14 +53,15 @@ async function setup(outputs: Array<"x_post" | "content_pack"> = ["x_post"]) {
 async function promoteStrategy() {
   const learning = await import("@/lib/learning/proposals");
   const active = (await readActiveStrategyRef())!;
-  const feedback = await learning.recordOperatorFeedback({ requestId: randomUUID(), text: "Use a shorter invitation CTA in future work.", sourceIds: [] });
+  const [item] = await plannedCalendar();
+  const feedback = await learning.recordOperatorFeedback({ requestId: randomUUID(), text: "Use a shorter invitation CTA in future work.", sourceIds: [], classification: "advisory", target: { kind: "plan_item", ref: item.ref }, evidenceLinks: [] });
   const proposal = await learning.createStrategyChangeProposal({
     requestId: randomUUID(), baseStrategyRef: active,
     changes: [{ type: "cta_guidance", value: ["Ask founders to reply with one sentence"] }],
     rationale: "Operator feedback for later work",
     evidenceRefs: [{ id: feedback.id, digest: feedback.digest }], contradictionRefs: [],
   });
-  return (await learning.decideStrategyChange({ id: proposal.id, revision: proposal.revision, digest: proposal.digest, decision: "approved" })).approvedStrategyRef!;
+  return (await learning.decideStrategyChange({ id: proposal.id, revision: proposal.revision, digest: proposal.digest, decision: "approved", rationale: "The shorter CTA is approved for future work." })).approvedStrategyRef!;
 }
 
 async function failTransient(jobId: string) {

@@ -14,6 +14,7 @@ import { resolveDecision } from "@/lib/decisions";
 import { awsRepository, partition, recordKey } from "@/lib/dynamo";
 import { runWithTenant, type TenantContext } from "@/lib/tenancy";
 import { readActiveStrategyRef } from "@/lib/strategy/repository";
+import { strategyDigest } from "@/lib/strategyApproval";
 import { getCommand } from "@/lib/effectCommandStore";
 import { saveChatAttachment } from "@/lib/chatAttachments";
 import { campaignWorkerBridge } from "./fixtures/campaignWorkerBridge";
@@ -116,6 +117,12 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("Task 7 local acceptance", () =
         const afterDecision = await getJob(claim!.jobId);
         expect(afterDecision.actions.find((action) => action.id === publish.id)).toMatchObject({ approvalState: "rejected", state: "skipped" });
         expect(afterDecision.actions.find((action) => action.id === contentPack.id)).toMatchObject({ approvalState: "approved", state: "planned" });
+        const learningRepository = await import("@/lib/learning/repository");
+        expect((await learningRepository.listDeliverableLearningRecords()).filter(record => record.jobId === claim!.jobId)).toContainEqual(expect.objectContaining({ actionId: contentPack.id, outputKind: "approved_deliverable", providerReceipt: null, verificationReceipt: null }));
+        await learningRepository.eraseDeliverableLearningRecords(claim!.jobId);
+        expect((await learningRepository.listDeliverableLearningRecords()).filter(record => record.jobId === claim!.jobId)).toEqual([]);
+        expect(await learningRepository.recoverLearning()).toEqual({ failures: [] });
+        expect((await learningRepository.listDeliverableLearningRecords()).filter(record => record.jobId === claim!.jobId)).toContainEqual(expect.objectContaining({ actionId: contentPack.id, outputKind: "approved_deliverable" }));
         const published = await nextStage(bridge, claim!.jobId, "publish");
         const replay = await bridge.run({ ...published.input, transportId: randomUUID(), deliveryAttempt: 2 });
         expect(replay.result.duplicate).toBe(true);
@@ -134,6 +141,10 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("Task 7 local acceptance", () =
         expect(finished).toMatchObject({ terminalOutcome: "succeeded" });
         expect(finished.verifications).toContainEqual(expect.objectContaining({ verified: true, method: "artifact_digest_reread" }));
         expect(await readItemState(materialized.itemRefs[0])).toMatchObject({ status: "completed", jobId: claim!.jobId });
+        expect((await (await import("@/lib/repository")).listApprovalDecisions(claim!.jobId)).filter(decision => decision.decision === "approved")).toHaveLength(1);
+        const learningRecords = (await (await import("@/lib/learning/repository")).listDeliverableLearningRecords()).filter(record => record.jobId === claim!.jobId);
+        expect(learningRecords).toEqual(expect.arrayContaining([expect.objectContaining({ actionId: contentPack.id, outputKind: "approved_deliverable", approvalState: "approved" }), expect.objectContaining({ actionId: contentPack.id, outputKind: "verified_export", verificationReceipt: expect.objectContaining({ method: "artifact_digest_reread" }) })]));
+        expect(learningRecords.some(record => record.actionId === publish.id)).toBe(false);
         expect(bridge.requests.filter((request) => request.status >= 400)).toEqual([]);
       } finally {
         await bridge.close();
@@ -206,14 +217,14 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("Task 7 local acceptance", () =
       const sourceId = retainedSource.id;
       const discovery = await proposals.recordSourceDiscovery(sourceId);
       const rejected = await proposals.createStrategyChangeProposal({ requestId: "reject-source", baseStrategyRef: strategyRef, changes: [{ type: "cadence_guidance", value: "Review weekly" }], rationale: "Source discovery needs a human strategy decision", evidenceRefs: [{ id: discovery.id, digest: discovery.digest }], contradictionRefs: [] });
-      expect((await proposals.decideStrategyChange({ id: rejected.id, revision: rejected.revision, digest: rejected.digest, decision: "rejected", feedback: "Not enough evidence" })).status).toBe("rejected");
-      const feedback = await proposals.recordOperatorFeedback({ requestId: "approved-feedback", text: "Use a clear invitation CTA.", sourceIds: [] });
+      expect((await proposals.decideStrategyChange({ id: rejected.id, revision: rejected.revision, digest: rejected.digest, decision: "rejected", rationale: "The discovery alone is not enough evidence.", feedback: "Not enough evidence" })).status).toBe("rejected");
+      const feedback = await proposals.recordOperatorFeedback({ requestId: "approved-feedback", text: "Use a clear invitation CTA.", sourceIds: [sourceId], classification: "advisory", target: { kind: "source_set", sourceIds: [sourceId], lineageDigest: strategyDigest([sourceId]) }, evidenceLinks: [] });
       const approved = await proposals.createStrategyChangeProposal({ requestId: "approve-feedback", baseStrategyRef: strategyRef, changes: [{ type: "cta_guidance", value: ["Invite founders to share their workflow"] }], rationale: "Separate operator-approved change", evidenceRefs: [{ id: feedback.id, digest: feedback.digest }], contradictionRefs: [] });
-      expect((await proposals.decideStrategyChange({ id: approved.id, revision: approved.revision, digest: approved.digest, decision: "approved" })).approvedStrategyRef?.revision).toBe(strategyRef.revision + 1);
+      expect((await proposals.decideStrategyChange({ id: approved.id, revision: approved.revision, digest: approved.digest, decision: "approved", rationale: "The exact operator guidance is approved for future work." })).approvedStrategyRef?.revision).toBe(strategyRef.revision + 1);
       const revoked = await proposals.createStrategyChangeProposal({ requestId: "revoked-source", baseStrategyRef: await readActiveStrategyRef() as NonNullable<typeof strategyRef>, changes: [{ type: "cadence_guidance", value: "Review monthly" }], rationale: "This proposal must become unavailable after source withdrawal", evidenceRefs: [{ id: discovery.id, digest: discovery.digest }], contradictionRefs: [] });
       const { revokeSourceKnowledge } = await import("@/lib/sourceKnowledgeErasure");
       await revokeSourceKnowledge(sourceId);
-      await expect(proposals.decideStrategyChange({ id: revoked.id, revision: revoked.revision, digest: revoked.digest, decision: "approved" })).rejects.toThrow(/revoked|unavailable/);
+      await expect(proposals.decideStrategyChange({ id: revoked.id, revision: revoked.revision, digest: revoked.digest, decision: "approved", rationale: "This would be approved only if its source remained authoritative." })).rejects.toThrow(/revoked|unavailable/);
 
       const jobId = `unknown-${randomUUID()}`;
       await saveConnection({ platform: "x", mode: "manual", accessToken: "local-not-used", connectedAt: new Date().toISOString(), health: "active" });

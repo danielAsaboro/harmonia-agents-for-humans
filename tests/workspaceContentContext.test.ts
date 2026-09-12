@@ -105,4 +105,10 @@ describe("workspace content context", () => {
     }] } as never);
     expect(result.operation?.plannedItems[0].sourceEvidenceRefs).toEqual(evidenceIds);
   });
+  it("keeps feedback on the exact artifact revision", () => {
+    const ref = { workspaceId: "w", brandId: "b", id: "item", revision: 1 }, base = { id: "d", workspaceId: "w", brandId: "b", jobId: "j", itemRef: ref, planRef: { ...ref, id: "plan" }, campaignRef: null, strategyRef: { workspaceId: "w", brandId: "b", strategyId: "s", revision: 1, digest: "c".repeat(64) }, channel: "x", itemType: "export_content_artifact", outputKind: "approved_deliverable", actionId: "a", approvalState: "approved", approvalDigest: "d".repeat(64), exactOutput: {}, contentRevisionDigest: "e".repeat(64), artifactId: "artifact", sourceIds: [], sourceLineageDigest: "f".repeat(64), measurementDigests: [], providerReceipt: null, verificationReceipt: null, createdAt: "2026-09-01T00:00:00Z", digest: "1".repeat(64) };
+    const result = projectWorkspaceContentContext({ goals: { topics: [] }, jobs: [], items: [], activeStrategy: null, deliverables: [{ ...base, artifactRevisionDigest: "a".repeat(64) }, { ...base, id: "d2", actionId: "a2", artifactRevisionDigest: "b".repeat(64) }], learningFeedback: [{ id: "feedback", workspaceId: "w", brandId: "b", kind: "operator_feedback", sourceIds: [], observationIds: [], actor: "operator", createdAt: "2026-09-01T00:00:00Z", digest: "2".repeat(64), text: "Keep revision one", classification: "advisory", evidenceLinks: [], target: { kind: "artifact", id: "artifact", revisionDigest: "a".repeat(64) } }] } as never);
+    expect(result.operation?.deliverables[0].feedback.map(item => item.text)).toEqual(["Keep revision one"]);
+    expect(result.operation?.deliverables[1].feedback).toEqual([]);
+  });
 });

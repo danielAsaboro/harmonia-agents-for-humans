@@ -108,8 +108,39 @@ class OperationPlannedItem(StrictModel):
 class OperationResult(StrictModel):
     id: StrictStr = Field(min_length=1, max_length=200)
     metric: StrictStr = Field(min_length=1, max_length=1_000)
-    availability: Literal["available", "pending", "pending_window", "stale", "revoked", "unavailable", "failed"]
+    availability: Literal["available", "pending", "pending_window", "stale", "revoked", "unavailable", "failed", "reconciliation_required"]
     checkedAt: StrictStr | None = Field(default=None, max_length=100)
+
+
+class DeliverableMetricWindow(StrictModel):
+    metric: StrictStr
+    startAt: StrictStr
+    endAt: StrictStr
+    availability: StrictStr
+    value: float | None
+    reason: StrictStr | None
+
+
+class OperationDeliverable(StrictModel):
+    id: StrictStr
+    itemId: StrictStr
+    campaignId: StrictStr | None
+    channel: StrictStr
+    itemType: StrictStr
+    outputKind: StrictStr
+    exactOutput: dict[str, object]
+    strategyRevision: StrictInt = Field(ge=1)
+    sourceEvidence: list[StrictStr]
+    approvalState: Literal["approved"]
+    providerReceiptId: StrictStr | None
+    verificationReceiptId: StrictStr | None
+    metricWindows: list[DeliverableMetricWindow]
+    feedbackIds: list[StrictStr]
+    feedback: list[dict[str, object]]
+    evaluationIds: list[StrictStr]
+    proposalIds: list[StrictStr]
+    decisionIds: list[StrictStr]
+    decisions: list[dict[str, object]]
 
 
 class WorkspaceOperationContext(StrictModel):
@@ -120,6 +151,7 @@ class WorkspaceOperationContext(StrictModel):
     plans: list[OperationPlan] = Field(default_factory=list)
     plannedItems: list[OperationPlannedItem] = Field(default_factory=list)
     results: list[OperationResult] = Field(default_factory=list)
+    deliverables: list[OperationDeliverable] = Field(default_factory=list)
     currentJobs: list[RecentJobSummary] = Field(default_factory=list)
 
 

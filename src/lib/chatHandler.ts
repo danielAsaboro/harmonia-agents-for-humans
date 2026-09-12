@@ -92,7 +92,7 @@ export interface ChatResponse {
 
 function operationStatusReply(operation: WorkspaceOperationContext): string {
   const strategy = operation.activeStrategy ? `strategy ${operation.activeStrategy.strategyId} v${operation.activeStrategy.revision}` : "no active strategy";
-  return `${strategy}; ${operation.campaigns.length} campaign(s), ${operation.plans.length} plan revision(s), ${operation.plannedItems.length} planned item(s), ${operation.results.length} measured result(s), and ${operation.proposedChanges.length} reviewable proposed change(s). Each item retains its pinned strategy, metric, evidence, dependencies, assets, approval, and availability state.`;
+  return `${strategy}; ${operation.campaigns.length} campaign(s), ${operation.plans.length} plan revision(s), ${operation.plannedItems.length} planned item(s), ${operation.deliverables.length} durable deliverable learning record(s), ${operation.results.length} measured result(s), and ${operation.proposedChanges.length} reviewable proposed change(s). Each deliverable retains its exact output, pinned strategy, source lineage, approval, delivery and verification receipts, metric window, feedback, evaluation membership, and proposal decision lineage.`;
 }
 
 type FullJob = Awaited<ReturnType<typeof getJob>>;

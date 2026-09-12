@@ -2,11 +2,11 @@ import { contentStrategySchema } from "../contracts";
 import { awsRepository, partition, type DynamoTransaction } from "../dynamo";
 import { requireContentOperator } from "../authority";
 import { currentTenant, tenantSubjectId } from "../tenancy";
-import { campaignRoot, readRequired } from "../campaigns/repository";
+import { campaignRoot, readCampaign, readPlannedItem, readRequired } from "../campaigns/repository";
 import { readActiveStrategyRef, readStrategyRevision, insertStrategyProposal, decideStrategyProposal, type StrategyReader } from "../strategy/repository";
 import { strategyDigest } from "../strategyApproval";
 import { learningKey, assertLearningSources, readObservation, assertObservationUsable, InvalidLearningEvidence } from "./repository";
-import { changeProposalInputSchema, strategyChangeProposalSchema, type ChangeProposalInput, type Evaluation, type LearningEvidence, type StrategyChangeProposal } from "./contracts";
+import { changeProposalInputSchema, operatorFeedbackInputSchema, strategyChangeDecisionInputSchema, strategyChangeProposalSchema, type ChangeProposalInput, type Evaluation, type LearningEvidence, type StrategyChangeProposal, type FeedbackTarget, type OperatorFeedbackInput, type StrategyChangeDecision, type StrategyChangeDecisionInput } from "./contracts";
 
 async function readChangeProposal(id: string, reader: StrategyReader = awsRepository()) {
   const proposal = await readRequired<StrategyChangeProposal>(learningKey("strategy_change_proposals", id), reader);
@@ -67,14 +67,38 @@ export async function validateLearningReference(id: string, expectedDigest?: str
   if (expectedDigest !== undefined && expectedDigest !== digest) throw new InvalidLearningEvidence("learning evidence digest mismatch");
   return { id, digest, capability };
 }
-export async function recordOperatorFeedback(input: { requestId: string; text: string; sourceIds: string[] }) {
-  requireContentOperator(currentTenant()); if (!input.text.trim() || input.text.length > 10000 || input.sourceIds.length > 24) throw new Error("bounded operator feedback required");
+export async function recordOperatorFeedback(raw: OperatorFeedbackInput) {
+  const input = operatorFeedbackInputSchema.parse(raw);
+  requireContentOperator(currentTenant());
   const id = `feedback-${strategyDigest([tenantSubjectId(currentTenant()), input.requestId]).slice(0, 48)}`;
   return awsRepository().atomic(async tx => {
     await assertLearningSources(input.sourceIds, tx);
+    if (input.target.kind === "plan_item") await readPlannedItem(input.target.ref, tx);
+    if (input.target.kind === "campaign") await readCampaign(input.target.ref, tx);
+    if (input.target.kind === "strategy_proposal") {
+      const proposal = await readChangeProposal(input.target.id, tx);
+      if (proposal.revision !== input.target.revision || proposal.digest !== input.target.digest) throw new Error("stale feedback target");
+    }
+    if (["post", "asset", "artifact"].includes(input.target.kind)) {
+      const jobs = await tx.read(partition(`workspaces/${currentTenant().workspaceId}/jobs`));
+      const target = input.target as Extract<FeedbackTarget, { kind: "post" | "asset" | "artifact" }>;
+      const candidates: unknown[] = [];
+      for (const row of jobs.rows) {
+        const job = row.value as unknown as { actions?: Array<{ id?: string; payload?: Record<string, unknown> }>; verifications?: Array<{ actionId?: string; target?: string; evidence?: { digest?: string } }>; contentArtifacts?: Array<{ id?: string; contentDigest?: string }> };
+        if ((row.value as { brandId?: string } | undefined)?.brandId !== currentTenant().brandId) continue;
+        if (target.kind === "post") for (const verification of job.verifications ?? []) if (verification.target === `x:${target.id}` || verification.target === `linkedin:${target.id}`) {
+          const action = job.actions?.find(candidate => candidate.id === verification.actionId);
+          candidates.push(action ? strategyDigest(action.payload) : undefined);
+        }
+        if (target.kind === "artifact") for (const artifact of job.contentArtifacts ?? []) if (artifact.id === target.id) candidates.push(artifact.contentDigest);
+        if (target.kind === "asset") for (const action of job.actions ?? []) if (action.payload?.assetId === target.id || action.payload?.artifactId === target.id) candidates.push(action.payload?.assetDigest ?? action.payload?.artifactDigest);
+      }
+      if (!candidates.includes(target.revisionDigest)) throw new Error("feedback target revision unavailable or stale");
+    }
+    if (input.target.kind === "source_set" && (strategyDigest(input.target.sourceIds) !== input.target.lineageDigest || strategyDigest(input.target.sourceIds) !== strategyDigest(input.sourceIds))) throw new Error("feedback source-set lineage mismatch");
     const prior = await tx.read(learningKey("learning_evidence", id));
-    if (prior.present) { const evidence = await readLearningEvidence(id, tx); if (evidence.text !== input.text || strategyDigest(evidence.sourceIds) !== strategyDigest(input.sourceIds)) throw new Error("feedback identity reused"); return evidence; }
-    const t = currentTenant(); return insertEvidence(tx, { id, workspaceId: t.workspaceId, brandId: t.brandId, kind: "operator_feedback", sourceIds: input.sourceIds, observationIds: [], actor: tenantSubjectId(t), text: input.text, createdAt: new Date().toISOString() });
+    if (prior.present) { const evidence = await readLearningEvidence(id, tx); if (evidence.text !== input.text || strategyDigest(evidence.target) !== strategyDigest(input.target) || strategyDigest(evidence.evidenceLinks ?? []) !== strategyDigest(input.evidenceLinks)) throw new Error("feedback identity reused"); return evidence; }
+    const t = currentTenant(); return insertEvidence(tx, { id, workspaceId: t.workspaceId, brandId: t.brandId, kind: "operator_feedback", sourceIds: input.sourceIds, observationIds: [], actor: tenantSubjectId(t), text: input.text, classification: "advisory", target: input.target, evidenceLinks: input.evidenceLinks, createdAt: new Date().toISOString() });
   });
 }
 /** Advisory lineage can explain a recommendation; only measured records can support a performance claim. */
@@ -145,13 +169,16 @@ export async function proposeFromEvaluation(evidence: LearningEvidence) {
   const active = await readActiveStrategyRef(); if (strategyDigest(active) !== strategyDigest(evidence.evaluation.strategyRef)) return null;
   return createStrategyChangeProposal({ requestId: evidence.id, baseStrategyRef: evidence.evaluation.strategyRef, changes: [{ type: "assumption", value: `Review ${evidence.id}: ${evidence.evaluation.sampleCount} compatible observations of ${evidence.evaluation.measurement.definition.metricId}; no causal or winning-pattern claim.` }], rationale: "Measured evidence is available for operator review. Retain this bounded observation as an explicit strategy assumption pending further measurement.", evidenceRefs: [{ id: evidence.id, digest: evidence.digest }], contradictionRefs: evidence.evaluation.contradictingObservationIds.length ? [{ id: evidence.id, digest: evidence.digest }] : [] });
 }
-export async function decideStrategyChange(input: { id: string; revision: number; digest: string; decision: "approved" | "rejected"; feedback?: string }) {
+export async function decideStrategyChange(raw: StrategyChangeDecisionInput) {
+  const input = strategyChangeDecisionInputSchema.parse(raw);
   requireContentOperator(currentTenant());
   return awsRepository().atomic(async tx => {
     const key = learningKey("strategy_change_proposals", input.id), proposal = await readChangeProposal(input.id, tx), actor = tenantSubjectId(currentTenant());
     if (proposal.digest !== input.digest) throw new Error("strategy change payload changed");
     if (proposal.status !== "pending") {
-      if (proposal.status === input.decision && proposal.decisionActor === actor && proposal.revision === input.revision + 1 && (proposal.feedback ?? "") === (input.feedback?.trim() ?? "")) return proposal;
+      const decisionId = `decision-${strategyDigest([proposal.id, input.revision, input.decision]).slice(0, 48)}`;
+      const prior = await tx.read(learningKey("strategy_change_decisions", decisionId));
+      if (proposal.status === input.decision && proposal.decisionActor === actor && proposal.revision === input.revision + 1 && (proposal.feedback ?? "") === (input.feedback ?? "") && prior.present && prior.value?.rationale === input.rationale) return proposal;
       throw new Error("strategy change decision already recorded");
     }
     if (proposal.revision !== input.revision) throw new Error("stale strategy change revision");
@@ -160,8 +187,19 @@ export async function decideStrategyChange(input: { id: string; revision: number
     for (const ref of [...proposal.evidenceRefs, ...proposal.contradictionRefs]) await validateLearningEvidence(ref.id, ref.digest, tx);
     const result = await decideStrategyProposal(tx, proposal.strategyProposalId, { decision: input.decision, payloadDigest: proposal.proposedStrategyDigest, expectedActiveRevision: proposal.baseStrategyRef.revision, ...(input.feedback ? { feedback: input.feedback } : {}) });
     const next: StrategyChangeProposal = { ...proposal, status: input.decision, revision: proposal.revision + 1, decisionActor: actor, decidedAt: result.approval.decidedAt, ...(input.feedback ? { feedback: input.feedback.trim() } : {}), ...(result.strategyRef ? { approvedStrategyRef: result.strategyRef } : {}) };
+    const decisionBody = { id: `decision-${strategyDigest([proposal.id, proposal.revision, input.decision]).slice(0, 48)}`, workspaceId: proposal.workspaceId, brandId: proposal.brandId, proposalId: proposal.id, proposalDigest: proposal.digest, proposalRevision: proposal.revision, decision: input.decision, actor, decidedAt: result.approval.decidedAt, rationale: input.rationale, feedback: input.feedback ?? null, baseStrategyRef: proposal.baseStrategyRef, resultingStrategyRef: result.strategyRef ?? null };
+    const decision: StrategyChangeDecision = { ...decisionBody, digest: strategyDigest(decisionBody) };
+    tx.insert(learningKey("strategy_change_decisions", decision.id), decision);
     tx.put(key, next); return next;
   });
+}
+export async function listStrategyChangeDecisions(): Promise<StrategyChangeDecision[]> {
+  const rows = await awsRepository().query(partition(`${campaignRoot()}/strategy_change_decisions`));
+  return rows.rows.map(row => { const decision = row.value as unknown as StrategyChangeDecision; const { digest, ...body } = decision; if (strategyDigest(body) !== digest) throw new InvalidLearningEvidence("strategy change decision digest mismatch"); return decision; });
+}
+export async function listOperatorFeedback(): Promise<LearningEvidence[]> {
+  const rows = await awsRepository().query(partition(`${campaignRoot()}/learning_evidence`));
+  return Promise.all(rows.rows.filter(row => row.value?.kind === "operator_feedback").map(row => readLearningEvidence(row.id)));
 }
 export async function listStrategyChangeProposals() {
   const rows = await awsRepository().query(partition(`${campaignRoot()}/strategy_change_proposals`)); const result: StrategyChangeProposal[] = [];

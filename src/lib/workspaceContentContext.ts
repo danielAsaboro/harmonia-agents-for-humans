@@ -8,6 +8,7 @@ import { strategyDigest } from "./strategyApproval";
 import { listCurrentCampaigns } from "./campaigns/repository";
 import { listAllLearningOperation } from "./learning/repository";
 import { listStrategyProposals } from "./strategy/repository";
+import type { DeliverableLearningRecord, Evaluation, LearningEvidence, PerformanceObservation, StrategyChangeDecision, StrategyChangeProposal } from "./learning/contracts";
 
 export interface WorkspaceOperationContext {
   activeStrategy: { thesis: string; strategyId: string; revision: number; digest: string } | null;
@@ -21,7 +22,14 @@ export interface WorkspaceOperationContext {
     approvalState: "pending" | "not_pending"; lifecycleState: "planned" | "running" | "awaiting_approval" | "completed" | "failed" | "cancelled" | "blocked" | "requires_disposition";
     unresolvedDependencies: string[];
   }>;
-  results: Array<{ id: string; metric: string; availability: "available" | "pending" | "pending_window" | "stale" | "revoked" | "unavailable" | "failed"; checkedAt?: string }>;
+  results: Array<{ id: string; metric: string; availability: "available" | "pending" | "pending_window" | "stale" | "revoked" | "unavailable" | "failed" | "reconciliation_required"; checkedAt?: string }>;
+  deliverables: Array<{
+    id: string; itemId: string; campaignId: string | null; channel: string; itemType: string; outputKind: string; exactOutput: Record<string, unknown>;
+    strategyRevision: number; sourceEvidence: string[]; approvalState: "approved"; providerReceiptId: string | null; verificationReceiptId: string | null;
+    metricWindows: Array<{ metric: string; startAt: string; endAt: string; availability: string; value: number | null; reason: string | null }>;
+    feedbackIds: string[]; feedback: Array<{ id: string; text: string; actor: string; createdAt: string; evidenceLinks: string[] }>;
+    evaluationIds: string[]; proposalIds: string[]; decisionIds: string[]; decisions: Array<{ id: string; decision: "approved" | "rejected"; rationale: string; feedback: string | null; actor: string; decidedAt: string }>;
+  }>;
   currentJobs: Array<{ id: string; stage: string; status: string; title?: string }>;
 }
 
@@ -68,7 +76,7 @@ export function projectPlanningProposal(proposal: Record<string, unknown>): Work
 
 const bounded = (value: string, limit: number) => value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
 
-export function projectWorkspaceContentContext(input: { goals: OperatorGoals; jobs: Job[]; items: ContentItem[]; activeStrategy: ApprovedStrategyRevision | null; plans?: PlanRevision[]; campaigns?: Array<{ ref: { id: string }; name: string; objective: string }>; proposedChanges?: Array<{ id: string; kind?: WorkspaceOperationContext["proposedChanges"][number]["kind"]; status: string; changes?: string[]; evidenceRefs?: string[]; revision?: number; decision?: string }>; results?: Array<{ id: string; availability?: string; metric?: string; checkedAt?: string }>; plannedItems?: Awaited<ReturnType<typeof plannedCalendar>>; now?: Date }): WorkspaceContentContext {
+export function projectWorkspaceContentContext(input: { goals: OperatorGoals; jobs: Job[]; items: ContentItem[]; activeStrategy: ApprovedStrategyRevision | null; plans?: PlanRevision[]; campaigns?: Array<{ ref: { id: string }; name: string; objective: string }>; proposedChanges?: Array<{ id: string; kind?: WorkspaceOperationContext["proposedChanges"][number]["kind"]; status: string; changes?: string[]; evidenceRefs?: string[]; revision?: number; decision?: string }>; results?: Array<{ id: string; availability?: string; metric?: string; checkedAt?: string }>; plannedItems?: Awaited<ReturnType<typeof plannedCalendar>>; deliverables?: DeliverableLearningRecord[]; learningObservations?: PerformanceObservation[]; learningFeedback?: LearningEvidence[]; learningEvaluations?: Evaluation[]; learningProposals?: StrategyChangeProposal[]; learningDecisions?: StrategyChangeDecision[]; now?: Date }): WorkspaceContentContext {
   const now = (input.now ?? new Date()).getTime();
   const strategy = input.activeStrategy?.strategy;
   const plan = input.plans?.find(plan => input.activeStrategy && strategyDigest(plan.strategyRef) === strategyDigest(input.activeStrategy.ref));
@@ -107,9 +115,26 @@ export function projectWorkspaceContentContext(input: { goals: OperatorGoals; jo
     }),
     results: (input.results ?? []).map(result => ({
       id: result.id, metric: result.metric ?? "unavailable metric",
-      availability: result.availability === "available" || result.availability === "pending" || result.availability === "pending_window" || result.availability === "stale" || result.availability === "revoked" || result.availability === "unavailable" || result.availability === "failed" ? result.availability : "unavailable",
+      availability: result.availability === "available" || result.availability === "pending" || result.availability === "pending_window" || result.availability === "stale" || result.availability === "revoked" || result.availability === "unavailable" || result.availability === "failed" || result.availability === "reconciliation_required" ? result.availability : "unavailable",
       ...(result.checkedAt ? { checkedAt: result.checkedAt } : {}),
     })),
+    deliverables: (input.deliverables ?? []).map(deliverable => {
+      const sameRef = (left: unknown, right: unknown) => strategyDigest(left) === strategyDigest(right);
+      const observations = (input.learningObservations ?? []).filter(observation => sameRef(observation.itemRef, deliverable.itemRef) && observation.actionId === deliverable.actionId && observation.contentRevisionDigest === deliverable.contentRevisionDigest);
+      const feedback = (input.learningFeedback ?? []).filter(evidence => {
+        if (!evidence.target) return false;
+        if (evidence.target.kind === "plan_item") return sameRef(evidence.target.ref, deliverable.itemRef);
+        if (evidence.target.kind === "campaign") return deliverable.campaignRef !== null && sameRef(evidence.target.ref, deliverable.campaignRef);
+        if (evidence.target.kind === "post") return evidence.target.id === observations.find(observation => observation.postId)?.postId && evidence.target.revisionDigest === deliverable.contentRevisionDigest;
+        if (evidence.target.kind === "artifact" || evidence.target.kind === "asset") return evidence.target.id === deliverable.artifactId && evidence.target.revisionDigest === (deliverable.artifactRevisionDigest ?? deliverable.contentRevisionDigest);
+        return false;
+      });
+      const evaluations = (input.learningEvaluations ?? []).filter(evaluation => evaluation.itemRefs.some(ref => sameRef(ref, deliverable.itemRef)) && evaluation.observationIds.some(id => observations.some(observation => observation.id === id)));
+      const proposals = (input.learningProposals ?? []).filter(proposal => proposal.impactedItemRefs.some(ref => sameRef(ref, deliverable.itemRef)) || proposal.evidenceRefs.some(ref => evaluations.some(evaluation => evaluation.id === ref.id)));
+      const decisions = (input.learningDecisions ?? []).filter(decision => proposals.some(proposal => proposal.id === decision.proposalId));
+      return { id: deliverable.id, itemId: deliverable.itemRef.id, campaignId: deliverable.campaignRef?.id ?? null, channel: deliverable.channel, itemType: deliverable.itemType, outputKind: deliverable.outputKind, exactOutput: deliverable.exactOutput, strategyRevision: deliverable.strategyRef.revision, sourceEvidence: deliverable.sourceIds, approvalState: deliverable.approvalState, providerReceiptId: deliverable.providerReceipt?.id ?? null, verificationReceiptId: deliverable.verificationReceipt?.id ?? null,
+        metricWindows: observations.map(observation => ({ metric: observation.measurement.definition.metricId, startAt: observation.window.startAt, endAt: observation.window.endAt, availability: observation.availability, value: observation.value, reason: observation.reason })), feedbackIds: feedback.map(evidence => evidence.id), feedback: feedback.map(evidence => ({ id: evidence.id, text: evidence.text, actor: evidence.actor, createdAt: evidence.createdAt, evidenceLinks: evidence.evidenceLinks ?? [] })), evaluationIds: evaluations.map(evaluation => evaluation.id), proposalIds: proposals.map(proposal => proposal.id), decisionIds: decisions.map(decision => decision.id), decisions: decisions.map(decision => ({ id: decision.id, decision: decision.decision, rationale: decision.rationale, feedback: decision.feedback, actor: decision.actor, decidedAt: decision.decidedAt })) };
+    }),
     currentJobs: input.jobs.map((job) => ({ id: job.id, stage: job.stage, status: job.status, ...(job.sourceAnalysis?.summary ? { title: bounded(job.sourceAnalysis.summary, 2_000) } : {}) })),
   };
   return {
@@ -134,5 +159,5 @@ export async function loadWorkspaceContentContext(): Promise<WorkspaceContentCon
     ...learning.proposals.map(proposal => ({ id: proposal.id, kind: "learning_strategy" as const, status: proposal.status, changes: proposal.changes.map(change => JSON.stringify(change)), evidenceRefs: proposal.evidenceRefs.map(ref => ref.id), revision: proposal.revision, decision: proposal.feedback ?? proposal.decidedAt })),
     ...planningProposals.map(projectPlanningProposal),
   ];
-  return projectWorkspaceContentContext({ goals, jobs, items, plannedItems, campaigns, proposedChanges: [...new Map(changes.map(change => [change.id, change])).values()], results: learning.observations.map(observation => ({ id: observation.id, metric: observation.measurement.definition.id, availability: observation.availability, checkedAt: observation.observedAt })), ...strategyContext });
+  return projectWorkspaceContentContext({ goals, jobs, items, plannedItems, campaigns, proposedChanges: [...new Map(changes.map(change => [change.id, change])).values()], results: learning.observations.map(observation => ({ id: observation.id, metric: observation.measurement.definition.id, availability: observation.availability, checkedAt: observation.observedAt })), deliverables: learning.deliverables, learningObservations: learning.observations, learningFeedback: learning.feedback, learningEvaluations: learning.evaluations, learningProposals: learning.proposals, learningDecisions: learning.decisions, ...strategyContext });
 }

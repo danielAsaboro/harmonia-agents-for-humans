@@ -115,7 +115,7 @@ describe("context projection store", () => {
       .rejects.toThrow("projection goal digest mismatch");
   });
 
-  it("treats Firestore map key reordering as the same canonical projection", async () => {
+  it("treats persisted map key reordering as the same canonical projection", async () => {
     const persistence = new MemoryPersistence();
     const store = new ContextProjectionStore(persistence);
     persistence.projection = Object.fromEntries(

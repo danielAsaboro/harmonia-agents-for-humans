@@ -25,6 +25,8 @@ flowchart LR
   VERIFY --> DB
   WORK --> S3[(S3 sources and artifacts)]
   TIMER[EventBridge Scheduler] --> QUEUE
+  ALARM[CloudWatch alarms] --> OPS[SNS operations mailbox]
+  BACKUP[AWS Backup + PITR] --> DB
 ```
 
 Harmonia routes intent; Nimi analyzes; Ryan strategizes; Temi plans; Noni writes; Dara reviews; Maya presents; Nova explains status. The host owns tenant identity, prerequisites, budgets, approval, idempotency, and verification. A model cannot grant itself authority.
@@ -42,6 +44,7 @@ npm run test:agent
 npm run lint
 npm run build
 npm run infra:synth
+npm run cost:topology
 ```
 
 Database integration tests use official DynamoDB Local, not a production simulation. Set `AWS_LOCAL_ENDPOINT` to its loopback URL, `DYNAMODB_TABLE` to a fresh pk/sk table, and local-only AWS test credentials before running the integration suite.
@@ -50,9 +53,9 @@ For an interactive server, copy `.env.example` to `.env.local`, configure Cognit
 
 ## Deployment
 
-The CDK application in `infra/aws/` provisions an isolated VPC, Fargate services, DynamoDB, S3, SQS, Cognito, AgentCore, research resources, and scheduled wakes. `infra/setup.sh` and `infra/deploy.sh` refuse to run until `HARMONIA_ALLOW_PAID_DEPLOYMENT=true` is set after budget authorization.
+The CDK application in `infra/aws/` provisions an isolated VPC, autoscaled Fargate services, encrypted DynamoDB/S3/SQS/Secrets Manager resources, Cognito, AgentCore, research resources, scheduled wakes, WAF controls, encrypted logs and alarms, and AWS Backup. `infra/setup.sh` and `infra/deploy.sh` refuse to run until `HARMONIA_ALLOW_PAID_DEPLOYMENT=true` is set after budget authorization.
 
-The deployment requires an HTTPS origin and matching regional ACM certificate, Google federation credentials, and an ECR ARM64 cognition image pinned by digest. Build that image from `agent/Dockerfile.agentcore`; web and worker images are CDK assets. See [deployment documentation](docs/deployment.mdx) for parameter names and release validation.
+The deployment requires an HTTPS origin and matching regional ACM certificate, Google federation credentials, a confirmed operations mailbox, and an ECR ARM64 cognition image pinned by digest. Build that image from `agent/Dockerfile.agentcore`; web, Fargate worker, and scanner images are CDK assets. Before an authorized staging run, follow the [release procedure](docs/operations/release.mdx), including all four local image scans. See [deployment documentation](docs/deployment.mdx) for parameter names, backup/restore, secret rotation, and incident runbooks.
 
 `HARMONIA_ALLOW_PAID_AWS=false` prevents cognitive and generative provider work. Configured prices, integration credentials, capability enablement, and live verification are separate prerequisites. Never reuse old approval records to enable new effects.
 

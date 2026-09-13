@@ -85,7 +85,7 @@ def test_liaison_evaluation_requires_exact_tool_and_evidence_citation():
         _native_activation(),
         {"sequence": 2, "name": "get_job_status", "args": {"job_id": "j1"}, "response": {
             "status": "success", "data": {"found": True}, "error": None,
-            "evidence": [{"evidenceId": "ev-aaaaaaaaaaaaaaaa", "source": "harmonia_firestore_job", "provenance": "live", "reference": "j1"}],
+            "evidence": [{"evidenceId": "ev-aaaaaaaaaaaaaaaa", "source": "harmonia_dynamodb_job", "provenance": "live", "reference": "j1"}],
         }},
     ]
     passing = evaluate_liaison_answer(answer={

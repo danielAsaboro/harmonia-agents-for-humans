@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deletionTombstone, planJobDeletion, planWorkspaceDeletion, retentionDeadline } from "@/lib/lifecycle";
+import { deletionTombstone, planJobDeletion, planWorkspaceDeletion, retentionDeadline, retentionEpochSeconds } from "@/lib/lifecycle";
 
 const job = {
   id: "job-1", workspaceId: "workspace-1", brandId: "brand-1", status: "complete" as const,
@@ -36,6 +36,8 @@ describe("job data lifecycle", () => {
   it("sets a bounded deterministic retention deadline", () => {
     expect(retentionDeadline(new Date("2026-08-26T00:00:00Z"), 90))
       .toBe("2026-11-24T00:00:00.000Z");
+    expect(retentionEpochSeconds("2026-11-24T00:00:00.000Z")).toBe(1_795_478_400);
+    expect(() => retentionEpochSeconds("not-a-date")).toThrow("invalid retention deadline");
     expect(() => retentionDeadline(new Date(), 0)).toThrow("invalid retention period");
   });
 

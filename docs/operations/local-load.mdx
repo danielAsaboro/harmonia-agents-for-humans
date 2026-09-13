@@ -1,0 +1,28 @@
+---
+title: "How to run the local load check"
+description: "Measure a built Harmonia web process on loopback without contacting a hosted service."
+---
+
+Build and start the exact commit using the same environment contract as local acceptance. The target must be a loopback URL; the harness rejects every other hostname.
+
+```bash
+npm run build
+PORT=3000 npm start
+```
+
+In another terminal, run a bounded health-route load:
+
+```bash
+LOAD_TARGET=http://127.0.0.1:3000/api/health \
+LOAD_REQUESTS=1000 \
+LOAD_CONCURRENCY=25 \
+LOAD_TIMEOUT_MS=2000 \
+LOAD_MAX_ERROR_RATE=0 \
+LOAD_MAX_P95_MS=500 \
+LOAD_OUTPUT=.artifacts/local-load.json \
+npm run load:local
+```
+
+The result contains status counts, throughput, and mean, p50, p95, and p99 latency. A pass proves only the tested local process and route under the recorded host conditions. It does not prove Fargate capacity, WAF behavior, internet latency, provider throughput, or AWS cost.
+
+Repeat the check after the staging deployment through an approved load plan only. Do not point this harness at staging or production: non-loopback targets are intentionally blocked.

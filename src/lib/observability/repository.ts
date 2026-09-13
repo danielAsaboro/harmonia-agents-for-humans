@@ -1,5 +1,6 @@
 import { currentTenant,tenantCollectionPath } from "@/lib/tenancy";
 import { createHash } from "node:crypto";
+import { retentionEpochSeconds } from "../lifecycle";
 import { after,awsRepository,field,limited,ordered,partition,recordKey,where,type StoredRecord } from "../dynamo";
 import {
 agentActivitySchema,
@@ -75,10 +76,12 @@ export async function writeAgentActivity(input: AgentActivityData): Promise<{ id
   const ref = recordKey(collection().partition + "/" + id);
   const snapshot = await awsRepository().read(ref);
   if (snapshot.present) return { id, duplicate: true };
+  const retentionDeleteAfter = new Date(Date.now() + RETENTION_MS).toISOString();
   await awsRepository().insert(ref, {
     ...parsed,
     occurredAt: new Date(parsed.occurredAt).toISOString(),
-    retentionDeleteAfter: new Date(Date.now() + RETENTION_MS).toISOString(),
+    retentionDeleteAfter,
+    ttlEpochSeconds: retentionEpochSeconds(retentionDeleteAfter),
   });
   return { id, duplicate: false };
 }
@@ -87,7 +90,13 @@ function fromSnapshot(snapshot: StoredRecord): AgentActivity {
   const raw = snapshot.value as unknown as Record<string, unknown>;
   const occurred = raw.occurredAt;
   const occurredAt = new Date(String(occurred)).toISOString();
-  const { retentionDeleteAfter: _retentionDeleteAfter, ...activity } = raw;
+  const {
+    retentionDeleteAfter: _retentionDeleteAfter,
+    ttlEpochSeconds: _ttlEpochSeconds,
+    ...activity
+  } = raw;
+  void _retentionDeleteAfter;
+  void _ttlEpochSeconds;
   const parsed = agentActivitySchema.parse({ ...activity, occurredAt });
   return { id: snapshot.id, ...parsed };
 }

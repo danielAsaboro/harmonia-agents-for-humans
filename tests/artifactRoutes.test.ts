@@ -94,7 +94,7 @@ describe("artifact routes", () => {
   });
 
   it("keeps a fence-store outage retryable on reads", async () => {
-    assertDurableOperationFence.mockRejectedValueOnce(new Error("14 UNAVAILABLE: Firestore offline"));
+    assertDurableOperationFence.mockRejectedValueOnce(new Error("DynamoDB unavailable"));
     const response = await GET(
       new Request("http://localhost/api/internal/artifacts/id?offset=0&length=10", {
         headers: baseHeaders,

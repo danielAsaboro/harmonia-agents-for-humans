@@ -54,6 +54,21 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)(
       ).rejects.toThrow("limit is 100");
       expect((await repo.read(key("oversize-0"))).present).toBe(false);
     });
+    it("projects explicit expiration into DynamoDB's top-level TTL attribute", async () => {
+      const expiring = key("expiring");
+      await repo.put(expiring, { value: "ephemeral", ttlEpochSeconds: 1_795_478_400 });
+      const wire = DynamoDBDocumentClient.from(new DynamoDBClient({
+        region: process.env.AWS_REGION,
+        endpoint: process.env.AWS_LOCAL_ENDPOINT,
+      }));
+      const stored = await wire.send(new GetCommand({
+        TableName: process.env.DYNAMODB_TABLE,
+        Key: { pk: expiring.partition, sk: expiring.id },
+        ConsistentRead: true,
+      }));
+      expect(stored.Item?.ttlEpochSeconds).toBe(1_795_478_400);
+      expect(stored.Item?.value.ttlEpochSeconds).toBe(1_795_478_400);
+    });
     it("offloads a large tenant-bound value to S3 and detects stored byte corruption", async () => {
       const k = key("large"),
         value = {

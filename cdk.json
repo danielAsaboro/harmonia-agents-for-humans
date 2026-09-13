@@ -1,1 +1,1 @@
-{"app":"npx tsx infra/aws/app.ts","output":".artifacts/cdk.out","context":{"allowPaidCalls":"false"}}
+{"app":"npx tsx infra/aws/app.ts","output":".artifacts/cdk.out","context":{"allowPaidCalls":"false","stage":"staging"}}

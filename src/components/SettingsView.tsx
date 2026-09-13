@@ -424,7 +424,7 @@ export default function SettingsView() {
       <TelegramSection />
 
       <Surface as="section" className="settings-section">
-        <SectionHeader title="Service health" description="Authenticated runtime and Google Cloud configuration reported by this deployment." metadata={<StatusBadge tone={health?.ok ? "success" : "danger"}>{health?.ok ? "Operational" : "Unavailable"}</StatusBadge>} />
+        <SectionHeader title="Service health" description="Authenticated runtime and AWS configuration reported by this deployment." metadata={<StatusBadge tone={health?.ok ? "success" : "danger"}>{health?.ok ? "Operational" : "Unavailable"}</StatusBadge>} />
         {health ? (
           <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-xs">
             <dt className="text-zinc-400">Web service</dt>

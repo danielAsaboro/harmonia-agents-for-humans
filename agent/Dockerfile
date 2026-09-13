@@ -1,13 +1,15 @@
-FROM node:22-bookworm-slim AS hyperframes
+FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS hyperframes
 WORKDIR /opt/hyperframes
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-FROM node:22-bookworm-slim AS youtube-pot-provider
+FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS youtube-pot-provider
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
-RUN git clone --depth 1 --branch 1.3.1 https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git /opt/bgutil-ytdlp-pot-provider
+RUN git clone --depth 1 --branch 1.3.1 https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git /opt/bgutil-ytdlp-pot-provider \
+    && test "$(git -C /opt/bgutil-ytdlp-pot-provider rev-parse HEAD)" = "7608dd51ee813b48cf9a6d68c6e42cb197ce10e0" \
+    && rm -rf /opt/bgutil-ytdlp-pot-provider/.git
 WORKDIR /opt/bgutil-ytdlp-pot-provider/server
 RUN npm ci && npx tsc
 

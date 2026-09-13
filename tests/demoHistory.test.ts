@@ -9,7 +9,7 @@ import {
 } from "../src/lib/demoHistory";
 
 describe("demo history transformations", () => {
-  it("shifts nested ISO instants and Firestore timestamps by one offset", () => {
+  it("shifts nested ISO instants and persisted timestamps by one offset", () => {
     const input = {
       createdAt: "2026-08-30T12:00:00.000Z",
       nested: ["2026-08-31T12:00:00.000Z"],

@@ -247,7 +247,7 @@
           {
             "group": "Workflow reliability",
             "root": "operations/overview", "directory": "card",
-            "pages": ["operational-model", "operational-control-plane", "failure-recovery", "state-ownership", "record-replay"]
+            "pages": ["operational-model", "operational-control-plane", "failure-recovery", "state-ownership", "record-replay", "operations/incidents"]
           },
           {
             "group": "Authority and safety",
@@ -259,7 +259,7 @@
           },
           {
             "group": "Deployment",
-            "pages": ["deployment"]
+            "pages": ["deployment", "operations/release", "operations/backup-restore", "operations/secret-rotation", "operations/local-load"]
           }
         ]
       },

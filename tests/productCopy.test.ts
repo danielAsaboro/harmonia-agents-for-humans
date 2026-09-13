@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const firestore = vi.hoisted(() => ({
+const repository = vi.hoisted(() => ({
   listJobs: vi.fn(),
   listChatMessages: vi.fn(),
   saveChatMessage: vi.fn(),
@@ -14,9 +14,9 @@ vi.mock("@/lib/repository", () => ({
   appendEvent: vi.fn(),
   getJob: vi.fn(),
   listAssets: vi.fn(),
-  listChatMessages: firestore.listChatMessages,
-  listJobs: firestore.listJobs,
-  saveChatMessage: firestore.saveChatMessage,
+  listChatMessages: repository.listChatMessages,
+  listJobs: repository.listJobs,
+  saveChatMessage: repository.saveChatMessage,
 }));
 vi.mock("@/lib/chatIntent", () => ({ parseIntent: chatIntent.parseIntent }));
 vi.mock("@/lib/intake/repository", () => ({ pendingIntakeDraft: intake.pendingIntakeDraft, replayIntakeTurn: intake.replayIntakeTurn }));
@@ -42,9 +42,9 @@ describe("source-agnostic product copy", () => {
     intake.replayIntakeTurn.mockResolvedValue(null);
     intake.submitIntakeTurn.mockImplementation(async input => ({ ...input.advice, originalOperatorBrief: input.message, state: "clarifying", question: "What outcome should the strategy prioritize?", id: "draft-1" }));
     intake.executeIntakeDraft.mockImplementation(async draft => draft);
-    firestore.listJobs.mockResolvedValue([]);
-    firestore.listChatMessages.mockResolvedValue([]);
-    firestore.saveChatMessage.mockResolvedValue(undefined);
+    repository.listJobs.mockResolvedValue([]);
+    repository.listChatMessages.mockResolvedValue([]);
+    repository.saveChatMessage.mockResolvedValue(undefined);
     chatAttachments.requireReadyAttachments.mockResolvedValue([]);
     sourceRights.hasRightsAttestation.mockReturnValue(false);
     chatIntent.parseIntent.mockResolvedValue({ intent: "status" });

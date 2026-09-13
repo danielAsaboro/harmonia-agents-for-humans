@@ -10,7 +10,7 @@ from harmonia_agent.nova_liaison import validate_liaison_answer
 def envelope(*, status="success", retryable=False):
     if status == "success":
         return {"status": "success", "data": {"found": True}, "error": None,
-                "evidence": [{"evidenceId": "ev-aaaaaaaaaaaaaaaa", "source": "harmonia_firestore_job", "provenance": "live", "reference": "job-1"}]}
+                "evidence": [{"evidenceId": "ev-aaaaaaaaaaaaaaaa", "source": "harmonia_dynamodb_job", "provenance": "live", "reference": "job-1"}]}
     return {"status": "error", "data": None,
             "error": {"code": "dependency_unavailable", "category": "dependency", "message": "Unavailable.", "retryable": retryable}, "evidence": []}
 

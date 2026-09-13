@@ -487,7 +487,7 @@ def test_executor_releases_budget_when_predispatch_authorization_is_revoked(monk
     }]
 
 
-def test_executor_surfaces_failed_nova_reel_poll_rearm_for_pubsub_retry(monkeypatch):
+def test_executor_surfaces_failed_nova_reel_poll_rearm_for_sqs_retry(monkeypatch):
     monkeypatch.setattr(production_executor, "claim_production_operation", lambda *_args: _claim(provider_operation_id="operations/existing"))
     monkeypatch.setattr(production_executor, "settings", lambda: SimpleNamespace(aws_region="us-east-1", allow_paid_aws=True, generative_media_enabled=True, media_output_bucket="media-bucket"))
     monkeypatch.setattr(production_executor, "AwsMediaTransport", lambda **_kwargs: object())

@@ -556,7 +556,7 @@ def test_liaison_must_return_grounded_answer_contract():
     with pytest.raises(AgentContractError, match="Nova returned output"):
         _validate_run_output("nova_liaison", LiaisonInput(question="q"), {"liaison_answer": "   "})
     envelope = {"status": "success", "data": {"found": True}, "error": None,
-                "evidence": [{"evidenceId": "ev-aaaaaaaaaaaaaaaa", "source": "harmonia_firestore_job", "provenance": "live"}]}
+                "evidence": [{"evidenceId": "ev-aaaaaaaaaaaaaaaa", "source": "harmonia_dynamodb_job", "provenance": "live"}]}
     _validate_run_output(
         "nova_liaison",
         LiaisonInput(question="q"),

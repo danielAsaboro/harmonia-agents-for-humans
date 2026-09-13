@@ -15,6 +15,11 @@
     "verify:durable-runtime": "tsx scripts/verify-durable-runtime.ts",
     "replay:record": "tsx scripts/record-authenticated-run.ts",
     "security:sbom": "bash scripts/generate-sbom.sh",
+    "security:images": "bash scripts/scan-release-images.sh",
+    "release:verify": "bash scripts/release-verify.sh",
+    "load:local": "tsx scripts/local-load.ts",
+    "cost:topology": "tsx scripts/cost-topology.ts",
+    "drill:production-boundaries": "bash scripts/run-production-boundary-drills.sh",
     "infra:synth": "cdk synth --no-lookups"
   },
   "dependencies": {

@@ -34,7 +34,7 @@ def test_heartbeat_isolates_failed_arms_and_pauses_paid_work_when_budget_is_empt
     entered = []
 
     def broken_outbox(_limit):
-        raise RuntimeError("pubsub unavailable")
+        raise RuntimeError("sqs unavailable")
 
     async def cognitive():
         entered.append("cognitive")

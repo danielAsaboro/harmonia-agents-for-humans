@@ -6,9 +6,17 @@ if [[ ! -x "$JAVA_BIN" ]]; then JAVA_BIN="$(command -v java)"; fi
 : "${MINIO_BINARY:?Set MINIO_BINARY to the official local MinIO executable for versioned S3 tests.}"
 : "${DYNAMODB_LOCAL_JAR:?Set DYNAMODB_LOCAL_JAR to the official DynamoDB Local jar; no cloud resources are created.}"
 [[ -f "$DYNAMODB_LOCAL_JAR" ]] || { echo 'DynamoDB Local jar missing' >&2; exit 2; }
-run_dir="$(mktemp -d "${TMPDIR:-/tmp}/harmonia-dynamo.XXXXXX")"
+readonly run_dir="$(mktemp -d "${TMPDIR:-/tmp}/harmonia-dynamo.XXXXXX")"
 java_pid=''; s3_pid=''; minio_pid=''
-cleanup(){ [[ -z "$minio_pid" ]] || kill "$minio_pid" 2>/dev/null || true; [[ -z "$s3_pid" ]] || kill "$s3_pid" 2>/dev/null || true; [[ -z "$java_pid" ]] || kill "$java_pid" 2>/dev/null || true; }
+cleanup(){
+ [[ -z "$minio_pid" ]] || kill "$minio_pid" 2>/dev/null || true
+ [[ -z "$s3_pid" ]] || kill "$s3_pid" 2>/dev/null || true
+ [[ -z "$java_pid" ]] || kill "$java_pid" 2>/dev/null || true
+ [[ -z "$minio_pid" ]] || wait "$minio_pid" 2>/dev/null || true
+ [[ -z "$s3_pid" ]] || wait "$s3_pid" 2>/dev/null || true
+ [[ -z "$java_pid" ]] || wait "$java_pid" 2>/dev/null || true
+ rm -rf -- "$run_dir"
+}
 trap cleanup EXIT INT TERM
 export AWS_LOCAL_ENDPOINT='http://127.0.0.1:18766'
 export AWS_S3_LOCAL_ENDPOINT='http://127.0.0.1:18767'

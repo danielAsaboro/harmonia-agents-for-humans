@@ -27,7 +27,7 @@ flowchart LR
 |---|---|
 | `traceId` | end-to-end causal graph |
 | `traceparent` / `tracestate` | W3C transport across HTTP and SQS |
-| `pubsubMessageId` | delivery and redelivery evidence |
+| `sqsMessageId` | delivery and redelivery evidence |
 | `operationId` | stable logical attempt across retries |
 | `actionId` | approved proposal identity |
 | `idempotencyKey` | exact effect payload identity |
@@ -67,7 +67,7 @@ Open **Monitoring → Agent activity** to query the safe DynamoDB projection. It
 - nested parent/child spans by trace ID;
 - per-agent latency, invocation, failure, token, inference-call, and tool-call summaries for the current filtered page.
 
-The internal writer authenticates before parsing and rejects records whose workspace or brand differs from the active tenant. Browser queries derive tenancy from the authenticated session. Records receive a 30-day deletion timestamp; production must configure a DynamoDB TTL policy on `retentionDeleteAfter` for the `agent_activity` collection group.
+The internal writer authenticates before parsing and rejects records whose workspace or brand differs from the active tenant. Browser queries derive tenancy from the authenticated session. Records receive a 30-day ISO deletion timestamp plus a numeric `retentionEpochSeconds`; the DynamoDB table enables TTL on `ttlEpochSeconds`, which the repository projects from validated records.
 
 <Warning>The activity projection is operational telemetry, not durable workflow truth or authorization. DynamoDB job, approval, claim, receipt, and verification records remain authoritative.</Warning>
 

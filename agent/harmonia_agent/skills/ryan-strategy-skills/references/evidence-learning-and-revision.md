@@ -34,7 +34,7 @@ must be calibrated, or operator feedback requests strategy revision.
 
 ## Required inputs
 
-The full `StrategistInput`, including exact evidence IDs, Firestore provenance,
+The full `StrategistInput`, including exact evidence IDs, DynamoDB provenance,
 revision number, and operator feedback when present.
 
 ## Expected contract effect
@@ -50,7 +50,7 @@ facts, or silently ignoring rejection feedback.
 
 ## Evidence and authority
 
-Firestore provenance establishes eligibility, not truth beyond the stored fact
+DynamoDB provenance establishes eligibility, not truth beyond the stored fact
 and never authorization. Strategy revision remains a proposal and requires a
 new digest-bound human decision.
 

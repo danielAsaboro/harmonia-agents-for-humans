@@ -7,11 +7,11 @@ description: "Deploy the isolated AWS edition with CDK after spending is authori
 
 This branch has no authenticated AWS deployment proof. Local tests and CloudFormation synthesis do not establish account permissions, regional model availability, or working provider integrations. Paid provisioning and invocation remain disabled until the operator authorizes a budget.
 
-The original Google edition remains frozen. Deploy this edition into fresh resources; do not import old sessions, jobs, approvals, or OAuth credentials.
+The original Google edition remains frozen. Deploy this edition into fresh resources; do not import old sessions, jobs, approvals, or OAuth credentials. CDK uses distinct `HarmoniaStrandsStaging` and `HarmoniaStrandsProduction` stacks so a stage change cannot update the other environment in place.
 
 ## Topology
 
-CDK in `infra/aws/stack.ts` provisions a VPC, HTTPS load balancer, private ECS Fargate web/worker/scanner services, DynamoDB, versioned S3, SQS queues and dead-letter queues, Cognito Google federation, AgentCore Runtime/Memory/Gateway, a Bedrock Knowledge Base, and disabled EventBridge schedules.
+CDK in `infra/aws/stack.ts` provisions a VPC, HTTPS load balancer, private ECS Fargate web/worker/scanner services, DynamoDB, versioned S3, SQS queues and dead-letter queues, Cognito Google federation, AgentCore Runtime/Memory/Gateway, a Bedrock Knowledge Base, and disabled EventBridge schedules. Customer-managed KMS keys separate state, assets, queues, secrets, backups, and observability. WAF rate and managed rules protect the load balancer; service and queue autoscaling, an encrypted alarm topic/dashboard, daily and weekly backups, point-in-time recovery, and retained logs support operations.
 
 The public listener rejects `/api/internal` and its descendants. Internal worker endpoints require the shared server token. AgentCore Runtime is mandatory in the managed worker. Cognition reaches the private web service through VPC networking. Runtime task roles supply AWS access; connector credentials remain in Secrets Manager. The scanner is reachable only by the web service.
 
@@ -28,6 +28,7 @@ MINIO_BINARY=/absolute/path/minio DYNAMODB_LOCAL_JAR=/absolute/path/DynamoDBLoca
 npm run build
 npm run infra:synth
 PYTHONPATH=agent agent/.venv/bin/python -m pytest agent/tests -q
+npm run cost:topology
 ```
 
 The integration harness starts official DynamoDB Local and a local versioned MinIO S3 server on loopback ports 18766/18767. It never provisions cloud services. Set `JAVA_BIN` if Java 21 is not at the default macOS Homebrew location.
@@ -36,16 +37,19 @@ The integration harness starts official DynamoDB Local and a local versioned Min
 
 1. Renew AWS authentication, record the account and `us-east-1` region, and run the read-only preflight script with the agent virtual environment for read-only model availability/entitlement checks. Verify managed-service quotas and exact inference-profile availability separately. The preflight never invokes models. Its entry point is `scripts/aws-preflight.py`.
 2. Review the synthesized IAM policies and recurring costs. Supply an ACM certificate, HTTPS public origin, Google OAuth application, and actual provider pricing. Enable no capability on the basis of configuration alone.
-3. After spending authorization, `bash infra/build-cognition.sh` builds the reviewed clean commit from `agent/Dockerfile.agentcore` for ARM64, publishes to the edition's ECR repository, and prints its immutable SHA-256 URI. It rejects dirty source and unauthorized publication. Set `AGENTCORE_IMAGE_URI` to that URI; the deploy wrapper verifies its account/region and passes `AgentCoreImageUri`. The web, worker, and scanner are CDK container assets.
-4. After explicit spending authorization, set `HARMONIA_ALLOW_PAID_DEPLOYMENT=true` and use `infra/setup.sh` for CDK bootstrap and `infra/deploy.sh` for reviewed deployment. These scripts reject calls when authorization is absent.
-5. Supply deployment parameters through CDK's parameter mechanism. Keep secret values out of command history and retained logs. Reconnect integrations through the new application's OAuth flows.
-6. Keep inference/media and resident schedules disabled until their separate budget, rights, price, and invocation checks pass. Configure `TextPricingJson` and `ProviderSettingsJson`; never guess production prices.
-7. Capture task image digests, AgentCore runtime ARN, table/bucket/queue identifiers, Cognito pool/client, and the exact source commit in private evidence.
+3. Before any AWS credentials are loaded, follow [How to verify and stage a release](/operations/release). The local image gate builds and scans the web, worker, cognition, and scanner images. Review every high or critical finding and the synthesized IAM/resource diff.
+4. After spending authorization, `bash infra/build-cognition.sh` builds the reviewed clean commit from `agent/Dockerfile.agentcore` for ARM64, publishes to the edition's ECR repository, and prints its immutable SHA-256 URI. It rejects dirty source and unauthorized publication. Set `AGENTCORE_IMAGE_URI` to that URI; the deploy wrapper verifies its account/region and passes `AgentCoreImageUri`. The web, worker, and scanner are CDK container assets.
+5. After explicit spending authorization, set `HARMONIA_ALLOW_PAID_DEPLOYMENT=true` and use `infra/setup.sh` for CDK bootstrap and `infra/deploy.sh` for reviewed deployment. These scripts reject calls when authorization is absent.
+6. Supply deployment parameters through CDK's parameter mechanism, including a confirmed operations mailbox. Keep secret values out of command history and retained logs. Reconnect integrations through the new application's OAuth flows.
+7. Keep inference/media and resident schedules disabled until their separate budget, rights, price, and invocation checks pass. Configure `TextPricingJson` and `ProviderSettingsJson`; never guess production prices.
+8. Capture task image digests, AgentCore runtime ARN, table/bucket/queue identifiers, Cognito pool/client, alert-subscription confirmation, and the exact source commit in private evidence.
 
 ## Rehearsal
 
 Run a licensed upload through quarantine scanning, transcription, visual analysis, strategy revision/approval, drafting/review, effect approval, export, byte read-back, and duplicate suppression. Verify rejection and worker recovery separately. Exercise Telegram, each retained connector, private search, memory and resident cycles with real authorized accounts. Show normal browser interactions and persisted state refresh.
 
 Inspect CloudWatch logs and trace propagation. Treat missing receipts, unavailable provider features, unknown outcomes, or failed reconciliation as unresolved failures. Do not replay purchases or publications automatically after a timeout.
+
+Use [How to respond to an operational alarm](/operations/incidents), [How to run a backup restore drill](/operations/backup-restore), and [How to rotate internal service tokens](/operations/secret-rotation) only against an explicitly approved deployed environment.
 
 The final English demo must be at most five minutes. Keep all raw captures, account information, provenance, and submission drafts in the private event directory. Submission requires a separate operator action.

@@ -1,0 +1,57 @@
+---
+title: "How to verify and stage a release"
+description: "Create exact-commit evidence, scan locally built images, and hand a reviewed digest to the protected staging workflow."
+---
+
+Use this procedure from a clean checkout of the commit you intend to stage. It does not authorize AWS provisioning, image publication, provider calls, or a production deployment.
+
+## Prepare the verification tools
+
+Use Node 22 or newer, Python 3.12, Java 21, Docker with Docker Scout, and the locked application dependencies. Install the checksum-verified local data services and the pinned Python auditor:
+
+```bash
+npm ci
+python3.12 -m venv agent/.venv
+agent/.venv/bin/python -m pip install -r agent/requirements.lock pip-audit==2.10.1
+scripts/install-local-emulators.sh
+```
+
+Apply the two `export` lines printed by the installer. The installer accepts only its supported host architectures, verifies the downloaded DynamoDB Local and MinIO bytes, and never contacts an AWS account.
+
+## Create exact-commit evidence
+
+Confirm that `git status --short` is empty, then run:
+
+```bash
+RELEASE_EVIDENCE_DIR=.artifacts/release-$(git rev-parse HEAD) scripts/release-verify.sh
+```
+
+The gate records the exact commit and runs the complete web, Python, native DynamoDB Local/MinIO, lint, TypeScript, production-build, CDK-synthesis, dependency-audit, and source-SBOM checks. Any tracked change made during verification invalidates the run.
+
+## Build and scan local images
+
+With Docker running, execute:
+
+```bash
+IMAGE_SCAN_OUTPUT_DIR=.artifacts/image-scan-$(git rev-parse HEAD) scripts/scan-release-images.sh
+```
+
+The script builds the web, Fargate worker, AgentCore cognition, and scanner images from the same clean commit. Docker Scout fails the run for critical or high findings and writes a CVE report plus CycloneDX SBOM for each image. It uses `local://` references and never pushes an image.
+
+## Review the cost surface
+
+```bash
+npm run cost:topology > .artifacts/cost-topology.json
+```
+
+This report lists minimum and maximum task counts and all principal metered services. It is deliberately not a dollar estimate. Before approving spend, apply a dated `us-east-1` price export and the expected request, storage, transfer, logging, backup, WAF, model, and provider volumes.
+
+## Dispatch staging
+
+After the evidence, image reports, IAM diff, price review, and cognition image digest are approved, dispatch **Deploy staging** with the digest-pinned AgentCore image URI. The protected `staging` environment must require a human reviewer and an OIDC role limited to that environment.
+
+The staging workflow reruns the exact-source gate before requesting AWS credentials. Stop if its checked-out SHA differs from the reviewed SHA, if the image is tag-only, if a required variable is absent, or if CDK reports an unreviewed IAM broadening.
+
+## Completion
+
+Staging is complete only after the stack reaches a stable state and the post-deploy health, authentication, tenant isolation, upload quarantine, webhook rejection, queue recovery, alert delivery, backup creation, and one separately approved effect-verification path are captured. A successful workflow alone is not production proof.

@@ -35,11 +35,31 @@ describe("site-wide documentation navigation", () => {
       "reference/effect-contracts", "reference/error-taxonomy", "reference/dynamodb-data",
       "reference/authority-matrix", "reference/environment", "reference/upload-media",
       "reference/pricing-budget", "reference/receipts-verification",
+      "operations/release", "operations/backup-restore", "operations/secret-rotation",
+      "operations/incidents", "operations/local-load",
     ]));
     for (const page of pages) {
       expect(existsSync(join(root, "docs", `${page}.mdx`)), `missing page ${page}`).toBe(true);
     }
     const rootedGroups = config.navigation.tabs.flatMap((tab) => tab.groups ?? []).filter((group) => group.root);
     expect(rootedGroups.every((group) => group.directory === "card")).toBe(true);
+  });
+
+  it("keeps current operating guidance aligned with the AWS edition", () => {
+    const current = [
+      "README.md",
+      "docs/deployment.mdx",
+      "docs/failure-recovery.mdx",
+      "docs/observability.mdx",
+      "docs/operations/overview.mdx",
+      "docs/operations/release.mdx",
+      "docs/platform/security/secret-manager.mdx",
+      "docs/reference/overview.mdx",
+    ].map((path) => readFileSync(join(root, path), "utf8")).join("\n");
+    expect(current).not.toContain("pubsubMessageId");
+    expect(current).not.toContain("Google client handles");
+    expect(current).not.toContain("/reference/firestore-data");
+    expect(current).toContain("retentionEpochSeconds");
+    expect(current).toContain("scan-release-images.sh");
   });
 });

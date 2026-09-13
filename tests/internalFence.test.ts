@@ -94,7 +94,7 @@ describe("internal operation fences", () => {
   });
 
   it("keeps persistence outages retryable instead of misclassifying them as fence conflicts", async () => {
-    assertDurableOperationFence.mockRejectedValueOnce(new Error("14 UNAVAILABLE: Firestore offline"));
+    assertDurableOperationFence.mockRejectedValueOnce(new Error("DynamoDB unavailable"));
     const response = await internalRoute(
       request({
         "x-harmonia-operation-id": "job:job-1:stage:draft",

@@ -53,7 +53,7 @@ Retries reuse stable operation and idempotency identities. They do not manufactu
 
 ## Agent-output correction
 
-Provider retries and semantic correction are separate. The Google client handles explicitly retryable transport failures within the configured request timeout. Once a specialist returns a result, Harmonia validates its schema, evidence, authority reads, and handoff acknowledgement exactly once.
+Provider retries and semantic correction are separate. The configured Bedrock model client handles explicitly retryable transport failures within the request timeout and stage retry policy. Once a specialist returns a result, Harmonia validates its schema, evidence, authority reads, and handoff acknowledgement exactly once.
 
 For a correctable contract failure, Harmonia creates a safe, issue-specific repair request from the original trusted input. It permits at most two corrections by the same specialist. The repair may name a required read-only tool and exact authority identity, but it cannot change the requested task, introduce identifiers, grant approval, or add evidence. After two unsuccessful corrections, Harmonia persists `agent_output_repair_exhausted` and escalates to the operator.
 

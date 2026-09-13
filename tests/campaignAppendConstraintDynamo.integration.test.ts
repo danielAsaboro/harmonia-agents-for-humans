@@ -66,7 +66,8 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("append constraints across actu
     it(`appends an exact fully consumed grammar request on ${surface}`, async () => {
       await runWithTenant(tenant(surface), async () => {
         const base = await setupCampaign();
-        const message = 'Add an X post called "Launch follow-up" to campaign "Launch" at 2026-09-14T12:00:00Z.';
+        const scheduledFor = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+        const message = `Add an X post called "Launch follow-up" to campaign "Launch" at ${scheduledFor}.`;
         const response = await handleChat(new Request("http://localhost/api/chat", {
           method: "POST",
           body: JSON.stringify({ surface, conversationId: `${surface}-exact-append`, requestId: randomUUID(), message }),
@@ -84,7 +85,8 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("append constraints across actu
     it(`retains dependency and source constraints and blocks append on ${surface}`, async () => {
       await runWithTenant(tenant(surface), async () => {
         const base = await setupCampaign();
-        const message = 'Add an X post called "Launch follow-up" to campaign "Launch" at 2026-09-14T12:00:00Z, only after item-first is completed, using https://example.com/approved-source.';
+        const scheduledFor = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+        const message = `Add an X post called "Launch follow-up" to campaign "Launch" at ${scheduledFor}, only after item-first is completed, using https://example.com/approved-source.`;
         const response = await handleChat(new Request("http://localhost/api/chat", {
           method: "POST",
           body: JSON.stringify({ surface, conversationId: `${surface}-append-constraints`, requestId: randomUUID(), message }),
@@ -122,7 +124,8 @@ describe.skipIf(!process.env.AWS_LOCAL_ENDPOINT)("append constraints across actu
       it(`durably blocks the unconsumed ${label} clause on ${surface}`, async () => {
         await runWithTenant(tenant(surface), async () => {
           const base = await setupCampaign();
-          const message = `Add an X post called "Launch follow-up" to campaign "Launch" at 2026-09-14T12:00:00Z, ${clause}`;
+          const scheduledFor = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+          const message = `Add an X post called "Launch follow-up" to campaign "Launch" at ${scheduledFor}, ${clause}`;
           const response = await handleChat(new Request("http://localhost/api/chat", {
             method: "POST",
             body: JSON.stringify({ surface, conversationId: `${surface}-${label}`, requestId: randomUUID(), message }),

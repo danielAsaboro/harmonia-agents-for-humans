@@ -76,7 +76,7 @@ describe("immutable effect commands", () => {
     expect(decideTerminalOutcome([{ state: "applied" }])).toBe("succeeded");
   });
 
-  it("omits optional scheduling fields instead of serializing Firestore-invalid undefined", () => {
+  it("omits optional scheduling fields instead of serializing storage-invalid undefined", () => {
     const { executeAfter: _executeAfter, ...withoutSchedule } = input();
     const digest = effectCommandDigest(withoutSchedule);
     const command = createEffectCommand({

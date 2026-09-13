@@ -1,0 +1,31 @@
+---
+title: "How to respond to an operational alarm"
+description: "Triage Harmonia alarms from persisted state, contain effects, and recover without replaying uncertain work."
+---
+
+Start from the SNS notification and the `harmonia-<stage>-operations` dashboard. Logs and queue depth explain symptoms; DynamoDB claims, receipts, and verification records remain the authority for what happened.
+
+## Contain the affected path
+
+If an alarm can affect external side effects, pause the affected job or disable its capability before retrying anything. Do not delete SQS messages, purge a queue, redrive a dead-letter queue, or reissue a provider call until the persisted operation identity and effect state are known.
+
+## Triage by alarm
+
+| Alarm | Inspect first | Safe initial action |
+|---|---|---|
+| dead-letter message | message operation ID, failure category, receive count | fix the permanent cause; retain the message |
+| queue age or backlog | oldest operation, worker desired/running count, scaling alarms | restore consumer health; let idempotent claims drain the queue |
+| ECS CPU or memory | task exits, OOM signal, request and queue rate | contain load; confirm autoscaling response |
+| load-balancer 5xx or latency | target health and web logs by trace ID | stop release rollout if the current revision caused it |
+| DynamoDB throttle or system error | transaction conflicts, regional status, retry exhaustion | preserve the operation identity and allow only bounded transport retries |
+| backup or restore failure | recovery point, vault event, restore job status | keep the prior recovery point; do not alter live state |
+
+## Reconcile effect-bearing work
+
+For a claimed action without a conclusive receipt, read the official provider by the persisted idempotency and target identifiers. Record exactly one of: confirmed not dispatched, confirmed dispatched, confirmed provider result, or still unknown. Only the first state can return the action to an executable queue automatically.
+
+Do not use a DLQ redrive as effect authorization. After the root cause is fixed, redrive only messages whose durable claim state permits another delivery; the worker must still reacquire the normal fence.
+
+## Close the incident
+
+Resolve the incident only when the alert is healthy, affected queues are draining, service revisions are stable, persisted operations are terminal or visibly escalated, and an independent read proves the intended result. Record the exact commit, task/runtime revisions, trace and operation IDs, alarm history, root cause, remediation, and remaining gaps in private evidence.

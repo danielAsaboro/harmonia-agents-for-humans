@@ -1,0 +1,42 @@
+---
+title: "How to run a backup restore drill"
+description: "Restore the latest DynamoDB recovery point into an isolated table and retain the result for inspection."
+---
+
+Run this only after the deployed stack has a completed recovery point and a dedicated restore role. The drill creates a billable DynamoDB table. It never overwrites the live table and never deletes the restored table.
+
+## Confirm the recovery point
+
+In the operations dashboard, confirm that no backup-failure alarm is active. Verify that the latest daily recovery point belongs to the exact `StateTableArn` output and that its vault is the stack's `BackupVaultName` output.
+
+Stop if the recovery point is incomplete, belongs to another environment, or predates the recovery objective being tested.
+
+## Authorize and run the isolated restore
+
+Set a unique table name and the dedicated restore role. The two approval values apply only to this drill:
+
+```bash
+export HARMONIA_ALLOW_PAID_DEPLOYMENT=true
+export HARMONIA_APPROVE_RESTORE_DRILL=restore-to-isolated-target
+export HARMONIA_STAGE=staging
+export RESTORE_ROLE_ARN=arn:aws:iam::123456789012:role/harmonia-staging-restore
+export RESTORE_TARGET_TABLE=harmonia-staging-restore-YYYYMMDDHHMMSS
+infra/restore-drill.sh
+```
+
+The script selects the newest completed recovery point, asks AWS Backup to restore it under the isolated name, waits for a terminal status, and reads the resulting table metadata. It fails closed on a missing recovery point, unexpected region, failed restore, or deadline expiry.
+
+## Verify recovered data
+
+Using a read-only role, compare these properties with the source evidence:
+
+- table status, encryption key, and point-in-time recovery settings;
+- an allow-listed sample of tenant partition counts;
+- exact digests for selected immutable approval, receipt, and verification records;
+- absence of cross-environment or unexpected tenant partitions.
+
+Do not run Harmonia workers against the restored table. Do not copy restored records into the live table during a drill.
+
+## Retain and clean up separately
+
+Save the restore job ID, source recovery-point ARN, target table ARN, timestamps, sampled digest comparison, and reviewer decision in private evidence. Table deletion is a separate destructive action requiring its own target-specific approval after review.

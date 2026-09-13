@@ -470,8 +470,13 @@ export class DynamoRepository {
     value: RecordValue,
   ): Promise<RecordValue> {
     const bytes = Buffer.from(JSON.stringify(clean(value)));
+    const ttl = value.ttlEpochSeconds;
+    if (ttl !== undefined && (!Number.isSafeInteger(ttl) || Number(ttl) < 1)) {
+      throw new Error("ttlEpochSeconds must be a positive safe integer");
+    }
+    const ttlProjection = ttl === undefined ? {} : { ttlEpochSeconds: ttl };
     if (bytes.byteLength < 240 * 1024)
-      return { value: JSON.parse(bytes.toString()) };
+      return { value: JSON.parse(bytes.toString()), ...ttlProjection };
     const workspace = String(
       value.workspaceId ??
         key.partition.match(/^workspaces\/([^/]+)/)?.[1] ??
@@ -502,7 +507,7 @@ export class DynamoRepository {
     } catch (e) {
       if ((e as { name: string }).name !== "PreconditionFailed") throw e;
     }
-    return { blob: { bucket, key: objectKey, sha256 } };
+    return { blob: { bucket, key: objectKey, sha256 }, ...ttlProjection };
   }
   private async commit(tx: DynamoTransaction): Promise<void> {
     if (!tx.writes.size) return;

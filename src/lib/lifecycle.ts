@@ -41,6 +41,12 @@ export function retentionDeadline(now = new Date(), days = 90): string {
   return new Date(now.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
+export function retentionEpochSeconds(deadline: string): number {
+  const epochMs = Date.parse(deadline);
+  if (!Number.isFinite(epochMs)) throw new Error("invalid retention deadline");
+  return Math.floor(epochMs / 1_000);
+}
+
 export function planJobDeletion(input: DeletionCandidate, now = new Date()): DeletionPlan {
   const { job } = input;
   if (input.confirmation !== job.id) throw new Error("deletion confirmation must equal the job ID");

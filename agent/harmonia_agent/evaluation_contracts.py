@@ -152,7 +152,7 @@ def evaluate_strategy(
         memory_ids.intersection(item.evidenceRefs)
         for item in [*parsed.objectives, *parsed.pillars, *parsed.briefs]
     ) and not all(fact.durableEvidenceRef for fact in strategist_input.memoryFacts):
-        return _result([_failure("memory_without_provenance", "memory context lacks Firestore provenance")])
+        return _result([_failure("memory_without_provenance", "memory context lacks durable DynamoDB provenance")])
     return _result([])
 
 

@@ -41,9 +41,9 @@ describe("production operation outbox dispatcher", () => {
     );
   });
 
-  it("releases the publish lease when Pub/Sub publication fails", async () => {
-    publisher.publishProductionOperation.mockRejectedValue(new Error("pubsub unavailable"));
-    await expect(dispatchProductionOutbox(10)).rejects.toThrow("pubsub unavailable");
+  it("releases the publish lease when SQS publication fails", async () => {
+    publisher.publishProductionOperation.mockRejectedValue(new Error("sqs unavailable"));
+    await expect(dispatchProductionOutbox(10)).rejects.toThrow("sqs unavailable");
     expect(store.releaseProductionOutbox).toHaveBeenCalledWith("outbox-1", expect.any(String));
   });
 });

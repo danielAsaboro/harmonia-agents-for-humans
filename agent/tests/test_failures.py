@@ -113,7 +113,7 @@ def test_missing_platform_connection_is_an_authorization_failure():
 def test_internal_contract_response_extracts_only_safe_diagnostics():
     response = httpx.Response(
         400,
-        request=httpx.Request("POST", "https://useharmonia.xyz/api/internal/strategy-context"),
+        request=httpx.Request("POST", "https://app.useharmonia.xyz/api/internal/strategy-context"),
         json={
             "error": "invalid payload",
             "contractRevision": "internal-contract-2026-09-04.1",

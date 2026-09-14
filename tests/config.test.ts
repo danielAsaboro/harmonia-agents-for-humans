@@ -21,9 +21,9 @@ describe("runtime configuration", () => {
   it("preserves the explicit attachment origin allowlist", () => {
     expect(parseConfig({
       ...required,
-      ATTACHMENT_ALLOWED_ORIGINS: "https://useharmonia.xyz,https://harmonia-web.example.run.app",
+      ATTACHMENT_ALLOWED_ORIGINS: "https://app.useharmonia.xyz,https://harmonia-web.example.run.app",
     })).toMatchObject({
-      ATTACHMENT_ALLOWED_ORIGINS: "https://useharmonia.xyz,https://harmonia-web.example.run.app",
+      ATTACHMENT_ALLOWED_ORIGINS: "https://app.useharmonia.xyz,https://harmonia-web.example.run.app",
     });
   });
 });

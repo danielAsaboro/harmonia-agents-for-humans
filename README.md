@@ -4,6 +4,8 @@ Harmonia is a governed content operation for startups. Give it authorized source
 
 This edition replaces the original Google backend with Strands Agents SDK and AWS while preserving the dashboard, conversational interface, specialist roles, official integrations, and human approval boundaries. It is being prepared for the Agents for Humans Professional Agents track.
 
+**Edition boundary:** this repository's canonical production origin is [`app.useharmonia.xyz`](https://app.useharmonia.xyz). The apex [`useharmonia.xyz`](https://useharmonia.xyz) remains the original All Things Agentic submission and must not be repointed to this AWS/Strands edition. Shared documentation remains at `docs.useharmonia.xyz` until a separately reviewed docs split.
+
 **Evidence status:** the AWS edition is under local verification. No AWS deployment or paid provider rehearsal has been performed. The earlier Google edition's receipts do not prove this implementation. Paid calls are disabled by default.
 
 ## Architecture
@@ -55,7 +57,7 @@ For an interactive server, copy `.env.example` to `.env.local`, configure Cognit
 
 The CDK application in `infra/aws/` provisions an isolated VPC, autoscaled Fargate services, encrypted DynamoDB/S3/SQS/Secrets Manager resources, Cognito, AgentCore, research resources, scheduled wakes, WAF controls, encrypted logs and alarms, and AWS Backup. `infra/setup.sh` and `infra/deploy.sh` refuse to run until `HARMONIA_ALLOW_PAID_DEPLOYMENT=true` is set after budget authorization.
 
-The deployment requires an HTTPS origin and matching regional ACM certificate, Google federation credentials, a confirmed operations mailbox, and an ECR ARM64 cognition image pinned by digest. Build that image from `agent/Dockerfile.agentcore`; web, Fargate worker, and scanner images are CDK assets. Before an authorized staging run, follow the [release procedure](docs/operations/release.mdx), including all four local image scans. See [deployment documentation](docs/deployment.mdx) for parameter names, backup/restore, secret rotation, and incident runbooks.
+The deployment requires the reviewed `https://app.useharmonia.xyz` origin and matching regional ACM certificate, Google federation credentials with the `https://app.useharmonia.xyz/api/auth/callback` redirect, a confirmed operations mailbox, and an ECR ARM64 cognition image pinned by digest. Build that image from `agent/Dockerfile.agentcore`; web, Fargate worker, and scanner images are CDK assets. Before an authorized staging run, follow the [release procedure](docs/operations/release.mdx), including all four local image scans. See [deployment documentation](docs/deployment.mdx) for parameter names, backup/restore, secret rotation, and incident runbooks.
 
 `HARMONIA_ALLOW_PAID_AWS=false` prevents cognitive and generative provider work. Configured prices, integration credentials, capability enablement, and live verification are separate prerequisites. Never reuse old approval records to enable new effects.
 

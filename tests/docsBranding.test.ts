@@ -19,7 +19,7 @@ describe("Harmonia documentation brand", () => {
       logo: {
         light: "/brand/harmonia-mark.png",
         dark: "/brand/harmonia-mark.png",
-        href: "https://useharmonia.xyz",
+        href: "https://app.useharmonia.xyz",
       },
       background: {
         decoration: "gradient",
@@ -38,12 +38,12 @@ describe("Harmonia documentation brand", () => {
   it("connects the docs to the product and source repository", () => {
     expect(config).toMatchObject({
       navbar: {
-        primary: { type: "button", label: "Open Harmonia", href: "https://useharmonia.xyz" },
+        primary: { type: "button", label: "Open Harmonia", href: "https://app.useharmonia.xyz" },
       },
       footer: {
         socials: {
-          website: "https://useharmonia.xyz",
-          github: "https://github.com/danielAsaboro/harmonia",
+          website: "https://app.useharmonia.xyz",
+          github: "https://github.com/danielAsaboro/harmonia-agents-for-humans",
         },
       },
     });

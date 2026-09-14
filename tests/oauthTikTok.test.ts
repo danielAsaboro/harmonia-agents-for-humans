@@ -24,7 +24,7 @@ describe("TikTok OAuth parameter compatibility", () => {
 
     await exchangeCode(getPlatform("tiktok")!, {
       code: "code",
-      redirectUri: "https://useharmonia.xyz/api/oauth/tiktok/callback",
+      redirectUri: "https://app.useharmonia.xyz/api/oauth/tiktok/callback",
     });
 
     const params = new URLSearchParams(postedBody);

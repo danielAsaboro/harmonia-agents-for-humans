@@ -4,7 +4,7 @@ Harmonia is a governed content operation for startups. Give it authorized source
 
 This edition replaces the original Google backend with Strands Agents SDK and AWS while preserving the dashboard, conversational interface, specialist roles, official integrations, and human approval boundaries. It is being prepared for the Agents for Humans Professional Agents track.
 
-**Edition boundary:** this repository's canonical production origin is [`app.useharmonia.xyz`](https://app.useharmonia.xyz). The apex [`useharmonia.xyz`](https://useharmonia.xyz) remains the original All Things Agentic submission and must not be repointed to this AWS/Strands edition. Shared documentation remains at `docs.useharmonia.xyz` until a separately reviewed docs split.
+**Edition boundary:** this repository's canonical production origin is [`app.useharmonia.xyz`](https://app.useharmonia.xyz), with dedicated Strands/AWS documentation at [`docs.app.useharmonia.xyz`](https://docs.app.useharmonia.xyz). The apex [`useharmonia.xyz`](https://useharmonia.xyz) and [`docs.useharmonia.xyz`](https://docs.useharmonia.xyz) remain the original All Things Agentic submission and must not be repointed to this edition.
 
 **Evidence status:** the AWS edition is under local verification. No AWS deployment or paid provider rehearsal has been performed. The earlier Google edition's receipts do not prove this implementation. Paid calls are disabled by default.
 

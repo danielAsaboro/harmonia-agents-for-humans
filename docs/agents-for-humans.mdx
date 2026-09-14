@@ -1,0 +1,53 @@
+---
+title: "Agents for Humans edition"
+description: "The repository, domain, architecture, and evidence boundary for Harmonia's Strands Agents SDK and AWS implementation."
+---
+
+This documentation belongs to Harmonia's **Agents for Humans** edition. It is a standalone implementation and submission candidate, not a redeployment of the original All Things Agentic entry.
+
+## Public identity
+
+| Surface | Canonical location | Status boundary |
+|---|---|---|
+| Application | `https://app.useharmonia.xyz` | Reserved for the AWS/Strands application; claim it live only after authenticated deployment and normal-path verification |
+| Documentation | `https://docs.app.useharmonia.xyz` | Dedicated documentation for this edition |
+| Source | `https://github.com/danielAsaboro/harmonia-agents-for-humans` | Public standalone repository with retained history |
+
+The apex `useharmonia.xyz` and `docs.useharmonia.xyz` remain attached to the original All Things Agentic edition. Do not redirect, relabel, or cite those origins as proof for this implementation.
+
+## Runtime architecture
+
+The edition uses the **Strands Agents SDK** for request-scoped cognitive specialists and deterministic application code for authority. The intended AWS deployment combines:
+
+- Amazon Cognito for operator identity and workspace roles;
+- DynamoDB for durable workflow truth, approvals, claims, receipts, and outboxes;
+- Amazon S3 for authorized source and artifact bytes;
+- Amazon SQS for resumable stage delivery;
+- ECS Fargate for the web, worker, media, and scanner services;
+- Amazon Bedrock and AgentCore Runtime for bounded specialist reasoning;
+- AgentCore Memory for advisory, evidence-linked cross-job context;
+- Amazon Transcribe and Nova services for approved media work;
+- EventBridge Scheduler for disabled-by-default resident cycles;
+- CloudWatch and OpenTelemetry for operational correlation.
+
+Strands specialists can analyze, propose, plan, draft, review, and present. They cannot advance durable state, approve strategy, authorize an external effect, expand permissions, change budgets, or declare an uncertain provider outcome successful.
+
+## What changed from the earlier edition
+
+This branch replaces the earlier Google agent and cloud runtime with native Strands and AWS identity, data, messaging, execution, model, memory, scheduling, and operations contracts. It retains Harmonia's product identity, interface concepts, specialist roles, deterministic authority model, source-to-proof workflow, and original Git history. Those retained elements are disclosed as pre-existing work.
+
+No session, credential, approval, job, receipt, or deployment evidence from the earlier edition transfers authority to this one.
+
+## Evidence boundary
+
+Repository tests, production builds, CDK synthesis, and local DynamoDB/S3 integration runs establish source-level behavior only. A hosted page establishes only that the page is reachable. Authenticated AWS claims require current resource identifiers, task definitions, logs, traces, model identities, costs, receipts, and an operator-visible end-to-end run from the same deployed revision.
+
+Until that evidence exists, describe the AWS services as **implemented** or **defined for deployment**, not deployed or provider-verified. See [How to capture AWS deployment evidence](/cloud-proof) and [Evidence runbook](/evidence-runbook).
+
+## Where to continue
+
+- Follow the [Quickstart](/quickstart) for local, no-spend verification.
+- Read [Strands agent platform](/agent-platform) for specialist construction and authority hooks.
+- Inspect [Deployment](/deployment) before provisioning AWS resources.
+- Use [Approval and audit](/approval-and-audit) for consequential-action rules.
+- Use [Failure recovery](/failure-recovery) for unknown outcomes and replay safety.

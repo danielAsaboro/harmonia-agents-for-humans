@@ -9,8 +9,8 @@ describe("Harmonia documentation brand", () => {
   it("uses the product visual system and real brand assets", () => {
     expect(config).toMatchObject({
       theme: "maple",
-      name: "Harmonia",
-      description: expect.stringContaining("social media agent"),
+      name: "Harmonia — Agents for Humans",
+      description: expect.stringContaining("Strands Agents SDK"),
       colors: {
         primary: "#5F8F22",
         light: "#B9FF66",
@@ -28,7 +28,13 @@ describe("Harmonia documentation brand", () => {
       appearance: { default: "system" },
       search: { prompt: "Search Harmonia docs..." },
       metadata: { timestamp: true },
-      seo: { indexing: "navigable" },
+      seo: {
+        indexing: "navigable",
+        metatags: expect.objectContaining({
+          canonical: "https://docs.app.useharmonia.xyz",
+          "og:image": "https://docs.app.useharmonia.xyz/brand/harmonia-banner.png",
+        }),
+      },
     });
 
     expect(existsSync(join(root, "docs/brand/harmonia-mark.png"))).toBe(true);
@@ -47,5 +53,10 @@ describe("Harmonia documentation brand", () => {
         },
       },
     });
+  });
+
+  it("publishes a dedicated Agents for Humans edition page", () => {
+    expect(existsSync(join(root, "docs/agents-for-humans.mdx"))).toBe(true);
+    expect(JSON.stringify(config.navigation)).toContain("agents-for-humans");
   });
 });

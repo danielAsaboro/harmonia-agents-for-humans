@@ -1,8 +1,8 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "maple",
-  "name": "Harmonia",
-  "description": "Product, operator, and engineering documentation for Harmonia, the governed social media agent for startups.",
+  "name": "Harmonia — Agents for Humans",
+  "description": "Product, operator, and engineering documentation for Harmonia's Strands Agents SDK and AWS edition.",
   "colors": {
     "primary": "#5F8F22",
     "light": "#B9FF66",
@@ -40,10 +40,11 @@
   "seo": {
     "indexing": "navigable",
     "metatags": {
-      "og:site_name": "Harmonia Docs",
-      "og:image": "https://docs.useharmonia.xyz/brand/harmonia-banner.png",
+      "canonical": "https://docs.app.useharmonia.xyz",
+      "og:site_name": "Harmonia — Agents for Humans Docs",
+      "og:image": "https://docs.app.useharmonia.xyz/brand/harmonia-banner.png",
       "twitter:card": "summary_large_image",
-      "twitter:image": "https://docs.useharmonia.xyz/brand/harmonia-banner.png"
+      "twitter:image": "https://docs.app.useharmonia.xyz/brand/harmonia-banner.png"
     }
   },
   "navbar": {
@@ -95,7 +96,7 @@
           {
             "group": "Overview",
             "root": "product/overview", "directory": "card",
-            "pages": ["index", "content-execution", "architecture", "architecture/overview", "architecture-explorer", "evaluation"]
+            "pages": ["index", "agents-for-humans", "content-execution", "architecture", "architecture/overview", "architecture-explorer", "evaluation"]
           },
           {
             "group": "Workflow",

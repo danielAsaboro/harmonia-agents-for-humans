@@ -1,18 +1,23 @@
 ---
-title: "Harmonia documentation"
-description: "Plan, create, approve, publish, and verify startup content with a governed social media agent."
-"og:image": "https://docs.useharmonia.xyz/brand/harmonia-banner.png"
+title: "Harmonia — Agents for Humans"
+description: "Build and operate Harmonia's governed Strands Agents SDK and AWS content system."
+"og:image": "https://docs.app.useharmonia.xyz/brand/harmonia-banner.png"
 ---
 
 <img src="/brand/harmonia-banner.png" alt="Harmonia — the autonomous social media agent for startups" />
 
 Harmonia turns one authorized source into a governed content operation. Its specialist agents find the signal, shape the strategy, produce platform-native work, pause for human authority, and verify every approved external effect.
 
+These docs describe the **Agents for Humans edition**: the standalone Strands Agents SDK and AWS implementation published from [`harmonia-agents-for-humans`](https://github.com/danielAsaboro/harmonia-agents-for-humans). The original All Things Agentic edition remains a separate product deployment and evidence record.
+
 **Source to signal to proof.** Creative judgment stays agentic. Workflow truth, permissions, cost controls, publishing, receipts, and verification stay deterministic.
 
 <CardGroup cols={2}>
   <Card title="See what Harmonia does" icon="sparkles" href="/product/overview">
     Understand the product promise, operator experience, and governed content loop.
+  </Card>
+  <Card title="Understand this edition" icon="code-branch" href="/agents-for-humans">
+    See exactly what belongs to the Agents for Humans repository, runtime, domains, and evidence boundary.
   </Card>
   <Card title="Run the stack" icon="rocket" href="/quickstart">
     Start the web app and Strands worker; verify persistence with the isolated DynamoDB Local and MinIO harness.
@@ -57,7 +62,7 @@ Harmonia turns one authorized source into a governed content operation. Its spec
 
 ## Evidence and deployment status
 
-Harmonia documents implemented contracts separately from authenticated deployment evidence. Repository tests and local emulator runs prove local behavior only; provider and cloud claims require captured authenticated evidence. The currently reachable ECS Fargate revision is a **web-only preview** and does not prove a deployed worker, Scheduler, AgentCore Runtime invocation, AgentCore Memory retrieval, or live publish. Use the [evidence runbook](/evidence-runbook) before presenting deployment, model, publishing, or verification claims.
+Harmonia documents implemented contracts separately from authenticated deployment evidence. Repository tests and local emulator runs prove local behavior only; provider and cloud claims require captured authenticated evidence. No current AWS deployment has been verified for this edition. `app.useharmonia.xyz` is the reserved application origin and `docs.app.useharmonia.xyz` is the documentation origin; neither becomes proof of working AWS services merely because DNS or a static site exists. Use the [evidence runbook](/evidence-runbook) before presenting deployment, model, publishing, or verification claims.
 
 <Note>
   Start with the [quickstart](/quickstart) for local inspection. Use [configuration](/configuration) and [deployment](/deployment) only when you are ready to supply real AWS and platform credentials.
